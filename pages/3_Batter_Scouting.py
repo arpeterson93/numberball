@@ -76,7 +76,7 @@ st.divider()
 
 st.subheader("Swing Zone Distribution (All)")
 swing_counts = df["swing_zone"].value_counts().to_dict()
-st.plotly_chart(utils.zone_heatmap(swing_counts, title="Swing Zone Frequency"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.zone_heatmap(swing_counts, title="Swing Zone Frequency"), width='stretch')
 
 # ------------------------------------------------------------------ first pitch swings
 
@@ -151,7 +151,7 @@ st.subheader("Swing Delta (Change from Previous AB)")
 deltas = df["swing_circ_delta"].dropna()
 
 if not deltas.empty:
-    st.plotly_chart(utils.delta_histogram(deltas, title="Swing Delta Distribution"), width='stretch', config={"displayModeBar": False})
+    st.plotly_chart(utils.delta_histogram(deltas, title="Swing Delta Distribution"), width='stretch')
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Delta", f"{deltas.mean():+.1f}")
     col2.metric("Avg |Delta|", f"{deltas.abs().mean():.1f}")
@@ -189,10 +189,10 @@ st.divider()
 st.subheader("Results")
 
 res_counts = df["result"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width='stretch')
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch')
 
 # ------------------------------------------------------------------ last n swings
 
@@ -200,14 +200,8 @@ st.divider()
 st.subheader("Last N Swings")
 n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
 st.plotly_chart(
-    utils.last_n_chart(df, n=n_swings, title=f"Last {n_swings} Swings"),
+    utils.last_n_combined_chart(df, n=n_swings, delta_col="swing", title=f"Last {n_swings} Swings"),
     width='stretch',
-    config={"displayModeBar": False},
-)
-st.plotly_chart(
-    utils.last_n_delta_chart(df, n=n_swings, value_col="swing", title="Swing Delta (Circular)"),
-    width='stretch',
-    config={"displayModeBar": False},
 )
 
 # ------------------------------------------------------------------ hot zone matrix

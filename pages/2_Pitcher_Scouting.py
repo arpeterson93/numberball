@@ -72,7 +72,7 @@ st.divider()
 
 st.subheader("Zone Distribution (All)")
 zone_counts = df["pitch_zone"].value_counts().to_dict()
-st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), width='stretch')
 
 # ------------------------------------------------------------------ first pitch zones
 
@@ -132,7 +132,7 @@ st.subheader("Pitch Delta (Change from Previous AB)")
 
 deltas = df["pitch_circ_delta"].dropna()
 if not deltas.empty:
-    st.plotly_chart(utils.delta_histogram(deltas), width='stretch', config={"displayModeBar": False})
+    st.plotly_chart(utils.delta_histogram(deltas), width='stretch')
 
     avg_delta = deltas.mean()
     abs_avg_delta = deltas.abs().mean()
@@ -174,10 +174,10 @@ st.divider()
 st.subheader("Results Allowed")
 
 res_counts = df["result"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width='stretch')
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch', config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch')
 
 # ------------------------------------------------------------------ last n pitches
 
@@ -185,14 +185,8 @@ st.divider()
 st.subheader("Last N Pitches")
 n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
 st.plotly_chart(
-    utils.last_n_chart(df, n=n_pitches, title=f"Last {n_pitches} Pitches"),
+    utils.last_n_combined_chart(df, n=n_pitches, delta_col="pitch", title=f"Last {n_pitches} Pitches"),
     width='stretch',
-    config={"displayModeBar": False},
-)
-st.plotly_chart(
-    utils.last_n_delta_chart(df, n=n_pitches, value_col="pitch", title="Pitch Delta (Circular)"),
-    width='stretch',
-    config={"displayModeBar": False},
 )
 
 # ------------------------------------------------------------------ hot zone matrix

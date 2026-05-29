@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ------------------------------------------------------------------ constants
 
@@ -262,6 +263,8 @@ def zone_heatmap(
         xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         margin=dict(l=10, r=10, t=45, b=10),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
 
@@ -279,6 +282,8 @@ def delta_histogram(deltas: pd.Series, title: str = "Pitch Delta Distribution") 
         yaxis_title="Count",
         height=280,
         margin=dict(l=40, r=10, t=45, b=40),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
 
@@ -373,6 +378,72 @@ def last_n_delta_chart(
     return fig
 
 
+def last_n_combined_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    delta_col: str = "pitch",
+    title: str = "Last N Pitches",
+) -> go.Figure:
+    """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis."""
+    df_last = df.sort_values("id").tail(n).reset_index(drop=True)
+    n_actual = len(df_last)
+    x_all = list(range(1, n_actual + 1))
+    pitches = df_last["pitch"].astype(int).tolist()
+    swings = df_last["swing"].astype(int).tolist()
+    delta_vals = df_last[delta_col].astype(int).tolist()
+
+    deltas = [circular_signed_delta(delta_vals[i - 1], delta_vals[i]) for i in range(1, n_actual)]
+    linear = [delta_vals[i] - delta_vals[i - 1] for i in range(1, n_actual)]
+    x_delta = list(range(2, n_actual + 1))
+    colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in deltas]
+    hover = [
+        f"AB {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
+        for i in range(1, n_actual)
+    ]
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.65, 0.35],
+        vertical_spacing=0.06,
+    )
+
+    fig.add_trace(go.Scatter(
+        x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
+        text=[str(p) for p in pitches], textposition="top center",
+        textfont=dict(size=9), line=dict(color="#d6604d", width=2), marker=dict(size=5),
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=x_all, y=swings, mode="lines+markers+text", name="Swing",
+        text=[str(s) for s in swings], textposition="bottom center",
+        textfont=dict(size=9), line=dict(color="#2166ac", width=2), marker=dict(size=5),
+    ), row=1, col=1)
+    fig.add_trace(go.Bar(
+        x=x_delta, y=[abs(d) for d in deltas], marker_color=colors,
+        text=[f"{d:+d}" for d in deltas], textposition="outside",
+        textfont=dict(size=9), hovertext=hover, hoverinfo="text",
+        name="Delta", showlegend=False,
+    ), row=2, col=1)
+
+    x_range = [0.5, n_actual + 0.5]
+    fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
+    fig.update_xaxes(
+        title_text="← Older  ·  At-Bat #  ·  Newer →",
+        tickmode="linear", dtick=1, range=x_range, row=2, col=1,
+    )
+    fig.update_yaxes(range=[0, 1080], row=1, col=1)
+    fig.update_yaxes(range=[0, 600], title_text="Delta", row=2, col=1)
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        height=560,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=45, r=10, t=60, b=40),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def hot_zone_matrix(
     df: pd.DataFrame,
     value_col: str = "pitch",
@@ -415,6 +486,8 @@ def hot_zone_matrix(
         yaxis=dict(title="Initial Pitch", autorange="reversed"),
         height=460,
         margin=dict(l=80, r=10, t=80, b=10),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
 
@@ -439,5 +512,7 @@ def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figu
         xaxis_title="% of ABs",
         height=max(200, len(labels) * 30 + 80),
         margin=dict(l=80, r=80, t=45, b=30),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
