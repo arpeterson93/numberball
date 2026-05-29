@@ -106,23 +106,25 @@ with col_btn:
         except Exception as e:
             st.error(str(e))
 
-result_ranges = st.session_state.get("pred_result_ranges", utils.RESULT_RANGES)
-batter_info = f" — Batter: **{st.session_state['pred_sheet_batter']}**" if st.session_state.get("pred_sheet_batter") else ""
-st.caption(f"{'Pulled' if st.session_state.get('pred_result_ranges') else 'Default'} ranges ({len(result_ranges)} results){batter_info}")
+result_ranges = st.session_state.get("pred_result_ranges")
+batter_name = st.session_state.get("pred_sheet_batter", "")
 
-col_sw, col_n = st.columns([3, 1])
-with col_sw:
-    proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
-with col_n:
-    n_pred = st.slider("# pitches", 5, 50, 15, key="pred_n_p")
-
-st.plotly_chart(
-    utils.swing_predictor_chart(
-        df, swing=int(proposed_swing), n=n_pred,
-        result_ranges=result_ranges, tick_label=f"Last {n_pred} pitches",
-    ),
-    width='stretch',
-)
+if result_ranges:
+    st.caption(f"Pulled {len(result_ranges)} ranges — Batter: **{batter_name}**")
+    col_sw, col_n = st.columns([3, 1])
+    with col_sw:
+        proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
+    with col_n:
+        n_pred = st.slider("# pitches", 5, 50, 15, key="pred_n_p")
+    st.plotly_chart(
+        utils.swing_predictor_chart(
+            df, swing=int(proposed_swing), n=n_pred,
+            result_ranges=result_ranges, tick_label=f"Last {n_pred} pitches",
+        ),
+        width='stretch',
+    )
+else:
+    st.info("Pull ranges from the session sheet above to enable the predictor.")
 
 # ------------------------------------------------------------------ last n pitches
 
