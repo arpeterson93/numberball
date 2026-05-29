@@ -4,6 +4,7 @@ Main page: Log At-Bat (mobile-first)
 """
 import streamlit as st
 import pandas as pd
+from streamlit_searchbox import st_searchbox
 import database as db
 import utils
 
@@ -52,11 +53,12 @@ with col_s:
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
-result_choice = st.selectbox("Result", utils.RESULTS + ["(other)"], key="result_choice")
-if result_choice == "(other)":
-    result = st.text_input("Custom result", key="result_custom").strip().upper()
-else:
-    result = result_choice
+result = st_searchbox(
+    lambda q: [r for r in utils.RESULTS if q.upper() in r],
+    placeholder="Result (GO, 1B, HR...)",
+    key="result_searchbox",
+    default_use_searchterm=True,
+)
 
 st.divider()
 
