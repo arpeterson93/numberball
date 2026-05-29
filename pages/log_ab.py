@@ -73,28 +73,16 @@ with st.form("ab_form", clear_on_submit=True):
     with col_pt:
         pitcher_team = st.selectbox("Team", utils.TEAMS, key="pt")
     with col_pn:
-        known_pitchers = db.get_distinct_pitchers(pitcher_team)
-        pitcher_name = st.selectbox(
-            "Name",
-            ["(new)"] + known_pitchers,
-            key="pname_select",
-        )
-        if pitcher_name == "(new)":
-            pitcher_name = st.text_input("Pitcher name", key="pname_new").strip()
+        pitchers = db.get_players(pitcher_team)
+        pitcher_name = st.selectbox("Name", pitchers, key="pname_select") if pitchers else st.text_input("Pitcher name", key="pname_new").strip()
 
     st.markdown("**Batter**")
     col_bt, col_bn = st.columns([1, 2])
     with col_bt:
         batter_team = st.selectbox("Team", utils.TEAMS, key="bt")
     with col_bn:
-        known_batters = db.get_distinct_batters(batter_team)
-        batter_name = st.selectbox(
-            "Name",
-            ["(new)"] + known_batters,
-            key="bname_select",
-        )
-        if batter_name == "(new)":
-            batter_name = st.text_input("Batter name", key="bname_new").strip()
+        batters = db.get_players(batter_team)
+        batter_name = st.selectbox("Name", batters, key="bname_select") if batters else st.text_input("Batter name", key="bname_new").strip()
 
     result = st.selectbox("Result", utils.RESULTS + ["(other)"])
     if result == "(other)":

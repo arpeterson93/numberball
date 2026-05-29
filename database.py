@@ -129,17 +129,11 @@ def delete_at_bat(at_bat_id: int) -> None:
     _client().table("at_bats").delete().eq("id", at_bat_id).execute()
 
 
-def get_distinct_pitchers(team: str | None = None) -> list[str]:
-    q = _client().table("at_bats").select("pitcher_name")
+@st.cache_data(ttl=300)
+def get_players(team: str | None = None, pos: str | None = None) -> list[str]:
+    q = _client().table("players").select("name, pos").order("name")
     if team:
-        q = q.eq("pitcher_team", team)
-    rows = q.execute().data
-    return sorted({r["pitcher_name"] for r in rows})
-
-
-def get_distinct_batters(team: str | None = None) -> list[str]:
-    q = _client().table("at_bats").select("batter_name")
-    if team:
-        q = q.eq("batter_team", team)
-    rows = q.execute().data
-    return sorted({r["batter_name"] for r in rows})
+        q = q.eq("team", team)
+    if pos:
+        q = q.eq("pos", pos)
+    return [r["name"] for r in q.execute().data]
