@@ -347,7 +347,6 @@ def hot_zone_matrix(
         hovertemplate="From %{y} → %{x}<br>Count: %{z}<extra></extra>",
     ))
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Following Pitch", tickangle=45, side="top"),
         yaxis=dict(title="Initial Pitch", autorange="reversed"),
         height=460,
