@@ -120,7 +120,6 @@ with col_p:
 with col_n:
     n_pred_b = st.slider("# swings", 5, 50, 15, key="pred_n_b")
 
-_ref_color = "white" if (st.get_option("theme.base") or "light") == "dark" else "navy"
 st.plotly_chart(
     utils.swing_predictor_chart(
         df, swing=int(proposed_pitch), n=n_pred_b,
@@ -129,7 +128,6 @@ st.plotly_chart(
         value_col="swing",
         x_label="Swing Value",
         ref_label="Pitch",
-        ref_color=_ref_color,
     ),
     width='stretch',
 )
