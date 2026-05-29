@@ -36,9 +36,9 @@ ZONE_LABELS = [z[2] for z in ZONES]
 
 # Zone grid: displayed high→low, left→right, top→bottom (matches spreadsheet layout)
 ZONE_GRID = [
-    ["667-777",  "778-888", "889-1000"],
-    ["334-444",  "445-555", "556-666"],
     ["1-111",    "112-222", "223-333"],
+    ["334-444",  "445-555", "556-666"],
+    ["667-777",  "778-888", "889-1000"],
 ]
 
 # Delta range buckets (pitch change from previous at-bat)
@@ -147,7 +147,7 @@ def zone_heatmap(
         z=z_vals,
         text=z_text,
         texttemplate="%{text}",
-        colorscale="YlOrRd",
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
         showscale=False,
         xgap=3,
         ygap=3,
