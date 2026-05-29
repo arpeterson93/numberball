@@ -690,7 +690,7 @@ def swing_predictor_chart(
     # Reference value marker
     fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
     fig.add_annotation(
-        x=swing, y=1.17, text=f"{ref_label} {swing}",
+        x=swing, y=1.20, text=f"{ref_label} {swing}",
         showarrow=False, font=dict(color="white", size=8),
         xanchor="center",
         bgcolor="rgba(30, 80, 180, 0.85)",
@@ -700,7 +700,7 @@ def swing_predictor_chart(
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(range=[0.5, 1000.5], tickmode="linear", dtick=100),
-        yaxis=dict(visible=False, range=[-0.18, 1.15]),
+        yaxis=dict(visible=False, range=[-0.18, 1.20]),
         height=350,
         margin=dict(l=10, r=10, t=65, b=120),
         legend=dict(
