@@ -52,6 +52,12 @@ with col_s:
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
+result_choice = st.selectbox("Result", utils.RESULTS + ["(other)"], key="result_choice")
+if result_choice == "(other)":
+    result = st.text_input("Custom result", key="result_custom").strip().upper()
+else:
+    result = result_choice
+
 st.divider()
 
 # ------------------------------------------------------------------ rest of form
@@ -59,10 +65,10 @@ st.divider()
 with st.form("ab_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
     with col1:
-        inning = st.number_input("Inning", min_value=1, max_value=15, value=1, step=1)
-    with col2:
         half_choice = st.radio("Half", ["▲ Top", "▼ Bot"], horizontal=True)
         half = "top" if half_choice == "▲ Top" else "bottom"
+    with col2:
+        inning = st.number_input("Inning", min_value=1, max_value=15, value=1, step=1)
     with col3:
         outs = st.selectbox("Outs", [0, 1, 2])
 
@@ -83,10 +89,6 @@ with st.form("ab_form", clear_on_submit=True):
     with col_bn:
         batters = db.get_players(batter_team)
         batter_name = st.selectbox("Name", batters, key="bname_select") if batters else st.text_input("Batter name", key="bname_new").strip()
-
-    result = st.selectbox("Result", utils.RESULTS + ["(other)"])
-    if result == "(other)":
-        result = st.text_input("Custom result").strip().upper()
 
     submitted = st.form_submit_button("Submit At-Bat", use_container_width=True, type="primary")
 
