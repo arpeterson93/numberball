@@ -24,6 +24,47 @@ RESULT_CATEGORIES = {
 
 MEME_NUMBERS = [42, 69, 420]
 
+# Result ranges: (result, diff_low, diff_high) — from the league result table
+RESULT_RANGES = [
+    ("HR",    0,   20),
+    ("3B",   21,   25),
+    ("2BWH", 26,   27),
+    ("2B",   28,   54),
+    ("1BWH", 55,   60),
+    ("1B",   61,  133),
+    ("IF1B", 134, 142),
+    ("BB",   143, 176),
+    ("GORA", 177, 204),
+    ("DSacF",205, 207),
+    ("SacF", 208, 251),
+    ("PO",   252, 271),
+    ("FCH",  272, 290),
+    ("K",    291, 406),
+    ("DP21", 407, 437),
+    ("DP31", 438, 467),
+    ("DPH1", 468, 500),
+]
+
+_RESULT_ZONE_COLORS = {
+    "HR":    "#1a7d35",
+    "3B":    "#2ca02c",
+    "2BWH":  "#57b857",
+    "2B":    "#93d493",
+    "1BWH":  "#c4e8a4",
+    "1B":    "#e5f5c3",
+    "IF1B":  "#fff7bc",
+    "BB":    "#fee391",
+    "GORA":  "#fec44f",
+    "DSacF": "#fe9929",
+    "SacF":  "#fd7a1a",
+    "PO":    "#f03b20",
+    "FCH":   "#d42020",
+    "K":     "#b10026",
+    "DP21":  "#800026",
+    "DP31":  "#5a001a",
+    "DPH1":  "#3d0014",
+}
+
 ZONES = [
     (1,   111,  "1-111"),
     (112, 222,  "112-222"),
@@ -432,7 +473,7 @@ def last_n_combined_chart(
         tickmode="linear", dtick=1, range=x_range, row=2, col=1,
     )
     fig.update_yaxes(range=[0, 1080], row=1, col=1)
-    fig.update_yaxes(range=[0, 600], title_text="Delta", row=2, col=1)
+    fig.update_yaxes(range=[0, 500], title_text="Delta", row=2, col=1)
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         height=560,
@@ -444,26 +485,123 @@ def last_n_combined_chart(
     return fig
 
 
+def _diff_to_result(diff: int) -> str:
+    for result, lo, hi in RESULT_RANGES:
+        if lo <= diff <= hi:
+            return result
+    return "?"
+
+
+def swing_predictor_chart(
+    df: pd.DataFrame,
+    swing: int,
+    n: int = 20,
+    title: str = "Swing Predictor",
+) -> go.Figure:
+    """Color-coded pitch number line for a proposed swing, with recent pitches overlaid."""
+    # Build per-pitch result for all 1000 values
+    pitch_result = [_diff_to_result(circular_diff(p, swing)) for p in range(1, 1001)]
+
+    # Collapse into contiguous zones
+    zones: list[tuple[str, int, int]] = []
+    curr, lo = pitch_result[0], 1
+    for p, r in enumerate(pitch_result[1:], 2):
+        if r != curr:
+            zones.append((curr, lo, p - 1))
+            curr, lo = r, p
+    zones.append((curr, lo, 1000))
+
+    fig = go.Figure()
+
+    # Invisible trace to anchor axes
+    fig.add_trace(go.Scatter(
+        x=[0.5, 1000.5], y=[0.5, 0.5],
+        mode="markers", marker=dict(opacity=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    # Draw colored rectangles for each zone
+    seen: set[str] = set()
+    for result, lo, hi in zones:
+        color = _RESULT_ZONE_COLORS.get(result, "#cccccc")
+        if result not in seen:
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode="markers",
+                marker=dict(color=color, size=10, symbol="square"),
+                name=result, showlegend=True,
+            ))
+            seen.add(result)
+        fig.add_shape(
+            type="rect", x0=lo - 0.5, x1=hi + 0.5, y0=0, y1=1,
+            fillcolor=color, line=dict(width=0), layer="below",
+        )
+        if hi - lo >= 15:
+            fig.add_annotation(
+                x=(lo + hi) / 2, y=0.5, text=result,
+                showarrow=False, font=dict(size=9, color="white"),
+                xanchor="center", yanchor="middle",
+            )
+
+    # Recent pitches as vertical tick marks
+    df_last = df.sort_values("id").tail(n)
+    pitches = df_last["pitch"].astype(int).tolist()
+    fig.add_trace(go.Scatter(
+        x=pitches, y=[0.5] * len(pitches),
+        mode="markers",
+        marker=dict(symbol="line-ns-open", size=22, color="black",
+                    line=dict(width=2, color="black")),
+        name=f"Last {n} Pitches",
+        hovertemplate="Pitch: %{x}<extra></extra>",
+    ))
+
+    # Proposed swing marker
+    fig.add_vline(x=swing, line_dash="dash", line_color="navy", line_width=2)
+    fig.add_annotation(
+        x=swing, y=1.08, text=f"Swing {swing}",
+        showarrow=False, font=dict(color="navy", size=11),
+        xanchor="center",
+    )
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Pitch Value", range=[0.5, 1000.5], tickmode="linear", dtick=100),
+        yaxis=dict(visible=False, range=[-0.05, 1.15]),
+        height=260,
+        margin=dict(l=10, r=10, t=65, b=80),
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.3,
+            xanchor="left", x=0, font=dict(size=9),
+        ),
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def hot_zone_matrix(
     df: pd.DataFrame,
     value_col: str = "pitch",
     group_cols: list[str] = None,
     title: str = "Hot Zone Pitch Matrix",
+    bucket_size: int = 100,
 ) -> go.Figure:
-    """10×10 heatmap of consecutive pitch/swing zone transitions."""
+    """Heatmap of consecutive pitch/swing zone transitions. bucket_size must divide 1000 evenly."""
     if group_cols is None:
         group_cols = ["session_id", "pitcher_name"]
+
+    n_buckets = 1000 // bucket_size
+    labels = [f"{i * bucket_size + 1}-{min((i + 1) * bucket_size, 1000)}" for i in range(n_buckets)]
 
     df = df.sort_values(["session_id", "id"]).copy()
     df["_next"] = df.groupby(group_cols)[value_col].shift(-1)
     df = df.dropna(subset=["_next"])
 
-    df["_curr_b"] = ((df[value_col].astype(int) - 1) // 100).clip(0, 9)
-    df["_next_b"] = ((df["_next"].astype(int) - 1) // 100).clip(0, 9)
+    df["_curr_b"] = ((df[value_col].astype(int) - 1) // bucket_size).clip(0, n_buckets - 1)
+    df["_next_b"] = ((df["_next"].astype(int) - 1) // bucket_size).clip(0, n_buckets - 1)
 
     matrix = (
         pd.crosstab(df["_curr_b"], df["_next_b"])
-        .reindex(index=range(10), columns=range(10), fill_value=0)
+        .reindex(index=range(n_buckets), columns=range(n_buckets), fill_value=0)
     )
 
     z = matrix.values.tolist()
@@ -471,8 +609,8 @@ def hot_zone_matrix(
 
     fig = go.Figure(go.Heatmap(
         z=z,
-        x=_HOT_ZONE_LABELS,
-        y=_HOT_ZONE_LABELS,
+        x=labels,
+        y=labels,
         text=text,
         texttemplate="%{text}",
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
@@ -484,7 +622,7 @@ def hot_zone_matrix(
     fig.update_layout(
         xaxis=dict(title="Following Pitch", tickangle=45, side="top"),
         yaxis=dict(title="Initial Pitch", autorange="reversed"),
-        height=460,
+        height=max(400, n_buckets * 42 + 100),
         margin=dict(l=80, r=10, t=80, b=10),
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

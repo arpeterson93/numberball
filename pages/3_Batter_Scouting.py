@@ -209,14 +209,16 @@ st.plotly_chart(
 st.divider()
 st.subheader("Hot Zone Swing Matrix")
 st.caption("How often each swing range is followed by each other swing range.")
+bucket_size_s = st.select_slider(
+    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="hz_bucket_swing"
+)
 if selected_batter != "All":
     group_cols = ["session_id", "batter_name"]
 else:
     group_cols = ["batter_name"]
 st.plotly_chart(
-    utils.hot_zone_matrix(df, value_col="swing", group_cols=group_cols),
+    utils.hot_zone_matrix(df, value_col="swing", group_cols=group_cols, bucket_size=bucket_size_s),
     width='stretch',
-    config={"displayModeBar": False},
 )
 
 # ------------------------------------------------------------------ raw data

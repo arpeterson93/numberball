@@ -194,14 +194,31 @@ st.plotly_chart(
 st.divider()
 st.subheader("Hot Zone Pitch Matrix")
 st.caption("How often each pitch range is followed by each other pitch range.")
+bucket_size_p = st.select_slider(
+    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="hz_bucket_pitch"
+)
 if selected_pitcher != "All":
     group_cols = ["session_id", "pitcher_name"]
 else:
     group_cols = ["pitcher_name"]
 st.plotly_chart(
-    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols),
+    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols, bucket_size=bucket_size_p),
     width='stretch',
-    config={"displayModeBar": False},
+)
+
+# ------------------------------------------------------------------ swing predictor
+
+st.divider()
+st.subheader("Swing Predictor")
+st.caption("Enter a proposed swing to see what result each of this pitcher's pitches would give — and how recent pitches line up.")
+col_sw, col_n = st.columns([2, 1])
+with col_sw:
+    proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
+with col_n:
+    n_pred = st.slider("Recent pitches", 5, 30, 15, key="pred_n_p")
+st.plotly_chart(
+    utils.swing_predictor_chart(df, swing=int(proposed_swing), n=n_pred),
+    width='stretch',
 )
 
 # ------------------------------------------------------------------ raw data
