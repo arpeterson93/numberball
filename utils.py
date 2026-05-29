@@ -595,7 +595,7 @@ def swing_predictor_chart(
             type="rect", x0=lo - 0.5, x1=hi + 0.5, y0=0, y1=1,
             fillcolor=color, line=dict(width=0), layer="below",
         )
-        if hi - lo >= 15:
+        if hi - lo >= len(result) * 12:
             fig.add_annotation(
                 x=(lo + hi) / 2, y=0.5, text=result,
                 showarrow=False, font=dict(size=9, color="white"),
@@ -645,10 +645,10 @@ def swing_predictor_chart(
         xaxis=dict(title=x_label, range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.18, 1.15]),
         height=300,
-        margin=dict(l=10, r=10, t=65, b=75),
+        margin=dict(l=10, r=120, t=65, b=45),
         legend=dict(
-            orientation="h", x=0.5, y=-0.4,
-            xanchor="center", yanchor="top",
+            orientation="v", x=1.01, y=1.0,
+            xanchor="left", yanchor="top",
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=7),
         ),
