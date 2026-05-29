@@ -53,10 +53,12 @@ with col_s:
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
+known_results = db.get_distinct_results()
+
 def search_results(q: str) -> list[str]:
     if not q:
-        return utils.RESULTS
-    matches = [r for r in utils.RESULTS if q.upper() in r]
+        return known_results
+    matches = [r for r in known_results if q.upper() in r.upper()]
     return matches if matches else [q.upper()]
 
 result = st_searchbox(
