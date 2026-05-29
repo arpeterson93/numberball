@@ -474,7 +474,10 @@ def last_n_combined_chart(
         tickmode="linear", dtick=1, range=x_range, row=2, col=1,
     )
     fig.update_yaxes(range=[0, 1080], row=1, col=1)
-    fig.update_yaxes(range=[0, 500], title_text="Delta", row=2, col=1)
+    fig.update_yaxes(
+        range=[0, 540], title_text="Delta", row=2, col=1,
+        tickmode="array", tickvals=[100, 200, 300, 400, 500],
+    )
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         height=560,
