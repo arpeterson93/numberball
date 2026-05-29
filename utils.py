@@ -10,8 +10,10 @@ TEAMS = ["Couriers", "Jammers", "Sharks", "Tridents"]
 
 OBC_OPTIONS = ["Empty", "1B", "2B", "3B", "1&2B", "1&3B", "2&3B", "BL"]
 
-RESULTS = ["GO", "FO", "PO", "K", "FC", "DP", "DPH1", "GORA", "DSacF",
-           "BB", "1B", "IF1B", "2B", "3B", "HR"]
+RESULTS_HITS = ["HR", "3B", "2BWH", "2B", "1BWH2", "1BWH", "1B", "IF1B", "BB"]
+RESULTS_OUTS = ["DSacF", "DFO", "SacF", "FO", "PO", "GORA", "FCH", "FC", "GO",
+                "FC3rd", "DPRun", "DP", "DP21", "DP31", "DPH1", "K", "LODP", "TP", "LOTP"]
+RESULTS = RESULTS_HITS + RESULTS_OUTS
 
 RESULT_CATEGORIES = {
     "OUT": ["GO", "FO", "PO", "K", "FC", "DP", "DPH1", "GORA", "DSacF"],
@@ -80,12 +82,15 @@ def get_delta_range(delta: float) -> str:
     return "Other"
 
 
+_XBH  = {"HR", "3B", "2BWH", "2B"}
+_BB1B = {"1BWH2", "1BWH", "1B", "IF1B", "BB"}
+
 def get_res_category(result: str, diff: int) -> str:
     if diff >= 300:
         return "300+"
-    if result in {"2B", "3B", "HR"}:
+    if result in _XBH:
         return "XBH"
-    if result in {"BB", "1B", "IF1B"}:
+    if result in _BB1B:
         return "BB/1B"
     return "OUT"
 

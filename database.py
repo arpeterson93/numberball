@@ -129,11 +129,6 @@ def delete_at_bat(at_bat_id: int) -> None:
     _client().table("at_bats").delete().eq("id", at_bat_id).execute()
 
 
-@st.cache_data(ttl=60)
-def get_distinct_results() -> list[str]:
-    rows = _client().table("at_bats").select("result").execute().data
-    return sorted({r["result"] for r in rows if r["result"]})
-
 
 @st.cache_data(ttl=300)
 def get_players(team: str | None = None, pos: str | None = None) -> list[str]:

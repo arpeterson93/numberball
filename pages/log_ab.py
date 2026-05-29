@@ -52,15 +52,20 @@ with col_s:
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
-known_results = db.get_distinct_results()
-quick = st.pills("Result", known_results, key="result_pill")
-result_typed = st.text_input(
-    "Or type a new result",
-    placeholder="e.g. SacF, E1...",
-    key="result_typed",
-    label_visibility="collapsed" if known_results else "visible",
+st.markdown("**Result**")
+hit_pill = st.pills(
+    "Hits & Walks",
+    utils.RESULTS_HITS,
+    key="rpill_hits",
+    on_change=lambda: st.session_state.update({"rpill_outs": None}),
 )
-result = result_typed.strip().upper() if result_typed.strip() else (quick or "")
+out_pill = st.pills(
+    "Outs",
+    utils.RESULTS_OUTS,
+    key="rpill_outs",
+    on_change=lambda: st.session_state.update({"rpill_hits": None}),
+)
+result = hit_pill or out_pill or ""
 
 st.divider()
 
