@@ -593,36 +593,33 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="middle",
             )
 
-    # Tick marks from historical data
+    # Tick marks — white triangles beneath the colored zone
     df_last = df.sort_values("id").tail(n)
     vals = df_last[value_col].astype(int).tolist()
     fig.add_trace(go.Scatter(
-        x=vals, y=[0.5] * len(vals),
+        x=vals, y=[-0.08] * len(vals),
         mode="markers",
-        marker=dict(symbol="line-ns-open", size=22, color="black",
-                    line=dict(width=2, color="black")),
+        marker=dict(symbol="triangle-up", size=9, color="white",
+                    line=dict(width=1.5, color="black")),
         name=tick_label,
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
 
-    # OBR boundary arrows
+    # OBR boundary arrows — labeled with the actual boundary pitch value
     obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
     if obr_max > 0:
         b_lo = ((swing - obr_max - 1) % 1000) + 1
         b_hi = ((swing + obr_max - 1) % 1000) + 1
-        for boundary, ax_offset, label in [
-            (b_lo, -40, "OBR"),   # left edge: arrow points right into OBR
-            (b_hi,  40, "OBR"),   # right edge: arrow points left into OBR
-        ]:
+        for boundary, ax_offset in [(b_lo, -40), (b_hi, 40)]:
             fig.add_vline(x=boundary, line_dash="dot", line_color="#1a7d35", line_width=1.5)
             fig.add_annotation(
                 x=boundary, y=0.82,
                 ax=ax_offset, ay=0,
-                text=label,
+                text=str(boundary),
                 showarrow=True, arrowhead=2, arrowsize=0.9, arrowwidth=2,
                 arrowcolor="#1a7d35",
-                font=dict(color="#1a7d35", size=8),
-                bgcolor="rgba(255,255,255,0.7)",
+                font=dict(color="#1a7d35", size=9, weight="bold"),
+                bgcolor="rgba(255,255,255,0.8)",
                 borderpad=2,
             )
 
@@ -637,12 +634,16 @@ def swing_predictor_chart(
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title=x_label, range=[0.5, 1000.5], tickmode="linear", dtick=100),
-        yaxis=dict(visible=False, range=[-0.05, 1.15]),
-        height=260,
-        margin=dict(l=10, r=10, t=65, b=80),
+        yaxis=dict(visible=False, range=[-0.18, 1.15]),
+        height=280,
+        margin=dict(l=10, r=10, t=65, b=45),
         legend=dict(
-            orientation="h", yanchor="top", y=-0.3,
-            xanchor="left", x=0, font=dict(size=9),
+            orientation="v", x=0.99, y=0.99,
+            xanchor="right", yanchor="top",
+            bgcolor="rgba(255,255,255,0.85)",
+            font=dict(size=7),
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1,
         ),
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
