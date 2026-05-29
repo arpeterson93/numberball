@@ -4,7 +4,6 @@ Main page: Log At-Bat (mobile-first)
 """
 import streamlit as st
 import pandas as pd
-from streamlit_searchbox import st_searchbox
 import database as db
 import utils
 
@@ -54,19 +53,14 @@ diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
 known_results = db.get_distinct_results()
-
-def search_results(q: str) -> list[str]:
-    if not q:
-        return known_results
-    matches = [r for r in known_results if q.upper() in r.upper()]
-    return matches if matches else [q.upper()]
-
-result = st_searchbox(
-    search_results,
-    placeholder="Result (GO, 1B, HR...)",
-    key="result_searchbox",
-    default_use_searchterm=True,
+quick = st.pills("Result", known_results, key="result_pill")
+result_typed = st.text_input(
+    "Or type a new result",
+    placeholder="e.g. SacF, E1...",
+    key="result_typed",
+    label_visibility="collapsed" if known_results else "visible",
 )
+result = result_typed.strip().upper() if result_typed.strip() else (quick or "")
 
 st.divider()
 
