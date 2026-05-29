@@ -11,6 +11,12 @@ import utils
 st.title("⚾ Numberball")
 st.caption("Scouting & Stats")
 
+if st.session_state.pop("_reset_pending", False):
+    st.session_state["pitch_input"] = 500
+    st.session_state["swing_input"] = 500
+    st.session_state["rpill_hits"] = None
+    st.session_state["rpill_outs"] = None
+
 # ------------------------------------------------------------------ session picker
 
 sessions = db.get_sessions()
@@ -104,10 +110,7 @@ result = hit_pill or out_pill or ""
 # ------------------------------------------------------------------ submit
 
 def reset_entry():
-    for key in ("pitch_input", "swing_input"):
-        st.session_state[key] = 500
-    for key in ("rpill_hits", "rpill_outs"):
-        st.session_state[key] = None
+    st.session_state["_reset_pending"] = True
 
 
 def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
