@@ -644,8 +644,8 @@ def swing_predictor_chart(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title=x_label, range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.18, 1.15]),
-        height=300,
-        margin=dict(l=10, r=10, t=65, b=75),
+        height=350,
+        margin=dict(l=10, r=10, t=65, b=120),
         legend=dict(
             orientation="h", x=0.5, y=-0.6,
             xanchor="center", yanchor="top",
