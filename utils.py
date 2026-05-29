@@ -602,14 +602,20 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="middle",
             )
 
-    # Tick marks — white triangles beneath the colored zone
+    # Tick marks — triangles beneath the colored zone, blue=oldest → white → red=newest
     df_last = df.sort_values("id").tail(n)
     vals = df_last[value_col].astype(int).tolist()
+    n_vals = len(vals)
     fig.add_trace(go.Scatter(
-        x=vals, y=[-0.08] * len(vals),
+        x=vals, y=[-0.08] * n_vals,
         mode="markers",
-        marker=dict(symbol="triangle-up", size=9, color="white",
-                    line=dict(width=1.5, color="black")),
+        marker=dict(
+            symbol="triangle-up", size=9,
+            color=list(range(n_vals)),
+            colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
+            showscale=False,
+            line=dict(width=1.5, color="black"),
+        ),
         name=tick_label,
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
