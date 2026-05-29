@@ -131,10 +131,14 @@ def delete_at_bat(at_bat_id: int) -> None:
 
 
 @st.cache_data(ttl=300)
+def get_all_players() -> list[dict]:
+    return _client().table("players").select("name, team, pos").order("name").execute().data
+
+
 def get_players(team: str | None = None, pos: str | None = None) -> list[str]:
-    q = _client().table("players").select("name, pos").order("name")
+    players = get_all_players()
     if team:
-        q = q.eq("team", team)
+        players = [p for p in players if p.get("team", "").strip() == team.strip()]
     if pos:
-        q = q.eq("pos", pos)
-    return [r["name"] for r in q.execute().data]
+        players = [p for p in players if p.get("pos", "").strip() == pos.strip()]
+    return [p["name"] for p in players]
