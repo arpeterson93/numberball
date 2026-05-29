@@ -260,6 +260,102 @@ def delta_histogram(deltas: pd.Series, title: str = "Pitch Delta Distribution") 
     return fig
 
 
+_HOT_ZONE_LABELS = [
+    "1-100", "101-200", "201-300", "301-400", "401-500",
+    "501-600", "601-700", "701-800", "801-900", "901-1000",
+]
+
+
+def last_n_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    pitch_col: str = "pitch",
+    swing_col: str = "swing",
+    title: str = "Last 20 At-Bats",
+) -> go.Figure:
+    """Line chart of the last N pitch and swing values in sequence."""
+    df_last = df.sort_values("id").tail(n).reset_index(drop=True)
+    x = list(range(1, len(df_last) + 1))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=df_last[pitch_col].astype(int),
+        mode="lines+markers+text",
+        name="Pitch",
+        text=df_last[pitch_col].astype(int).astype(str),
+        textposition="top center",
+        textfont=dict(size=9),
+        line=dict(color="#d6604d", width=2),
+        marker=dict(size=5),
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=df_last[swing_col].astype(int),
+        mode="lines+markers+text",
+        name="Swing",
+        text=df_last[swing_col].astype(int).astype(str),
+        textposition="bottom center",
+        textfont=dict(size=9),
+        line=dict(color="#2166ac", width=2),
+        marker=dict(size=5),
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="At-Bat #", tickmode="linear", dtick=1),
+        yaxis=dict(range=[0, 1080], title="Value"),
+        height=380,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=40, r=10, t=60, b=40),
+    )
+    return fig
+
+
+def hot_zone_matrix(
+    df: pd.DataFrame,
+    value_col: str = "pitch",
+    group_cols: list[str] = None,
+    title: str = "Hot Zone Pitch Matrix",
+) -> go.Figure:
+    """10×10 heatmap of consecutive pitch/swing zone transitions."""
+    if group_cols is None:
+        group_cols = ["session_id", "pitcher_name"]
+
+    df = df.sort_values(["session_id", "id"]).copy()
+    df["_next"] = df.groupby(group_cols)[value_col].shift(-1)
+    df = df.dropna(subset=["_next"])
+
+    df["_curr_b"] = ((df[value_col].astype(int) - 1) // 100).clip(0, 9)
+    df["_next_b"] = ((df["_next"].astype(int) - 1) // 100).clip(0, 9)
+
+    matrix = (
+        pd.crosstab(df["_curr_b"], df["_next_b"])
+        .reindex(index=range(10), columns=range(10), fill_value=0)
+    )
+
+    z = matrix.values.tolist()
+    text = [[str(v) if v > 0 else "" for v in row] for row in z]
+
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        x=_HOT_ZONE_LABELS,
+        y=_HOT_ZONE_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="From %{y} → %{x}<br>Count: %{z}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Following Pitch", tickangle=45, side="top"),
+        yaxis=dict(title="Initial Pitch", autorange="reversed"),
+        height=460,
+        margin=dict(l=80, r=10, t=80, b=10),
+    )
+    return fig
+
+
 def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figure:
     """Horizontal bar chart of result distribution."""
     labels = list(result_counts.keys())

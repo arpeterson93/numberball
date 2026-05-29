@@ -56,7 +56,6 @@ if df.empty:
     st.stop()
 
 total = len(df)
-st.caption(f"Showing **{total}** at-bat(s)")
 
 # ------------------------------------------------------------------ summary metrics
 
@@ -196,6 +195,33 @@ st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_c
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
 st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True, config={"displayModeBar": False})
+
+# ------------------------------------------------------------------ last n swings
+
+st.divider()
+st.subheader("Last N Swings")
+n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
+st.plotly_chart(
+    utils.last_n_chart(df, n=n_swings, title=f"Last {n_swings} Swings"),
+    use_container_width=True,
+    config={"displayModeBar": False},
+)
+
+# ------------------------------------------------------------------ hot zone matrix
+
+st.divider()
+st.subheader("Hot Zone Swing Matrix")
+st.caption("How often each swing range is followed by each other swing range.")
+if selected_batter != "All":
+    group_cols = ["session_id", "batter_name"]
+else:
+    group_cols = ["batter_name"]
+st.plotly_chart(
+    utils.hot_zone_matrix(df, value_col="swing", group_cols=group_cols,
+                          title="Swing → Next Swing Zone"),
+    use_container_width=True,
+    config={"displayModeBar": False},
+)
 
 # ------------------------------------------------------------------ raw data
 

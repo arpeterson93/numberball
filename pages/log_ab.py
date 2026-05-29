@@ -86,18 +86,18 @@ with st.form("ab_form", clear_on_submit=True):
     st.markdown("**Pitcher**")
     col_pt, col_pn = st.columns([1, 2])
     with col_pt:
-        pitcher_team = st.selectbox("Team", utils.TEAMS, key="pt")
+        pitcher_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="pt")
     with col_pn:
-        pitchers = db.get_players(pitcher_team)
-        pitcher_name = st.selectbox("Name", pitchers, key="pname_select") if pitchers else st.text_input("Pitcher name", key="pname_new").strip()
+        pitchers = db.get_players(pitcher_team) if pitcher_team else []
+        pitcher_name = st.selectbox("Name", pitchers, index=None, placeholder="Name", key="pname_select")
 
     st.markdown("**Batter**")
     col_bt, col_bn = st.columns([1, 2])
     with col_bt:
-        batter_team = st.selectbox("Team", utils.TEAMS, key="bt")
+        batter_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="bt")
     with col_bn:
-        batters = db.get_players(batter_team)
-        batter_name = st.selectbox("Name", batters, key="bname_select") if batters else st.text_input("Batter name", key="bname_new").strip()
+        batters = db.get_players(batter_team) if batter_team else []
+        batter_name = st.selectbox("Name", batters, index=None, placeholder="Name", key="bname_select")
 
     submitted = st.form_submit_button("Submit At-Bat", use_container_width=True, type="primary")
 
