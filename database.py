@@ -89,6 +89,7 @@ def get_at_bats_for_session(session_id: int) -> list[dict]:
 def insert_at_bat(
     session_id: int,
     inning: int,
+    half: str,
     outs: int,
     obc: str,
     pitcher_team: str,
@@ -106,6 +107,7 @@ def insert_at_bat(
         .insert({
             "session_id": session_id,
             "inning": inning,
+            "half": half,
             "outs": outs,
             "obc": obc,
             "pitcher_team": pitcher_team,

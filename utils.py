@@ -90,11 +90,17 @@ def get_res_category(result: str, diff: int) -> str:
     return "OUT"
 
 
+def inning_label(inning: int, half: str) -> str:
+    prefix = "T" if str(half).lower() == "top" else "B"
+    return f"{prefix}{int(inning)}"
+
+
 def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Add diff, zone, res_category, delta columns to an at-bats DataFrame."""
+    """Add diff, zone, res_category, FP flags, delta, and inning label columns."""
     if df.empty:
         return df
     df = df.copy()
+    df["half"] = df["half"].fillna("top")
     df["diff"] = df.apply(lambda r: circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
     df["pitch_zone"] = df["pitch"].apply(lambda p: get_zone(int(p)))
     df["swing_zone"] = df["swing"].apply(lambda s: get_zone(int(s)))
@@ -102,8 +108,12 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["is_meme_pitch"] = df["pitch"].isin(MEME_NUMBERS)
     df["is_meme_swing"] = df["swing"].isin(MEME_NUMBERS)
     df["pitch_last2"] = df["pitch"].apply(lambda p: int(str(int(p)).zfill(2)[-2:]))
-    # Delta: pitch change from previous AB for same pitcher in same session
+    df["inning_label"] = df.apply(lambda r: inning_label(r["inning"], r["half"]), axis=1)
+    # Compute FP flags from insertion order within session
     df = df.sort_values(["session_id", "id"])
+    df["is_fp_inn"] = ~df.duplicated(subset=["session_id", "inning", "half"], keep="first")
+    df["is_fp_app"] = ~df.duplicated(subset=["session_id", "pitcher_name"], keep="first")
+    # Delta: pitch change from previous AB for same pitcher in same session
     df["pitch_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].diff()
     return df
 

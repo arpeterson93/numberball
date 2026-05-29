@@ -61,9 +61,12 @@ with st.form("ab_form", clear_on_submit=True):
     with col1:
         inning = st.number_input("Inning", min_value=1, max_value=15, value=1, step=1)
     with col2:
-        outs = st.selectbox("Outs", [0, 1, 2])
+        half_choice = st.radio("Half", ["▲ Top", "▼ Bot"], horizontal=True)
+        half = "top" if half_choice == "▲ Top" else "bottom"
     with col3:
-        obc = st.selectbox("Runners", utils.OBC_OPTIONS)
+        outs = st.selectbox("Outs", [0, 1, 2])
+
+    obc = st.selectbox("Runners", utils.OBC_OPTIONS)
 
     st.markdown("**Pitcher**")
     col_pt, col_pn = st.columns([1, 2])
@@ -97,21 +100,28 @@ with st.form("ab_form", clear_on_submit=True):
     if result == "(other)":
         result = st.text_input("Custom result").strip().upper()
 
-    col_fp1, col_fp2 = st.columns(2)
-    with col_fp1:
-        is_fp_app = st.checkbox("First pitch of appearance")
-    with col_fp2:
-        is_fp_inn = st.checkbox("First pitch of inning")
-
     submitted = st.form_submit_button("Submit At-Bat", use_container_width=True, type="primary")
 
 if submitted:
     if not pitcher_name or not batter_name:
         st.error("Pitcher and batter names are required.")
+    elif not result:
+        st.error("Result is required.")
     else:
+        # Auto-compute FP flags from existing session data
+        existing = db.get_at_bats_for_session(active_session_id)
+        is_fp_inn = not any(
+            e["inning"] == int(inning) and e.get("half", "top") == half
+            for e in existing
+        )
+        is_fp_app = not any(
+            e["pitcher_name"] == pitcher_name
+            for e in existing
+        )
         db.insert_at_bat(
             session_id=active_session_id,
             inning=int(inning),
+            half=half,
             outs=int(outs),
             obc=obc,
             pitcher_team=pitcher_team,
@@ -124,7 +134,8 @@ if submitted:
             is_fp_app=is_fp_app,
             is_fp_inn=is_fp_inn,
         )
-        st.success(f"Logged: {pitcher_name} vs {batter_name} → **{result}** (diff: {diff})")
+        inn_label = utils.inning_label(int(inning), half)
+        st.success(f"Logged: {inn_label} | {pitcher_name} vs {batter_name} → **{result}** (diff: {diff})")
         st.rerun()
 
 # ------------------------------------------------------------------ recent entries
@@ -135,11 +146,13 @@ st.subheader("Recent At-Bats")
 recent = db.get_at_bats_for_session(active_session_id)
 if recent:
     df = pd.DataFrame(recent).sort_values("id", ascending=False).head(10)
+    df["half"] = df["half"].fillna("top")
     df["diff"] = df.apply(lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
-    display_cols = ["inning", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]
+    df["Inn"] = df.apply(lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
+    display_cols = ["Inn", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]
     st.dataframe(
         df[display_cols].rename(columns={
-            "inning": "Inn", "outs": "Outs", "obc": "Runners",
+            "outs": "Outs", "obc": "Runners",
             "pitcher_name": "Pitcher", "batter_name": "Batter",
             "pitch": "Pitch", "swing": "Swing", "diff": "Diff", "result": "Result",
         }),

@@ -54,10 +54,12 @@ for s in sessions:
         st.caption(f"{len(at_bats)} at-bat(s) logged")
         if at_bats:
             df = pd.DataFrame(at_bats)
-            df["diff"] = df.apply(lambda r: __import__("utils").circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
+            df["half"] = df["half"].fillna("top") if "half" in df.columns else "top"
+            df["diff"] = df.apply(lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
+            df["Inn"] = df.apply(lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
             st.dataframe(
-                df[["inning", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]].rename(columns={
-                    "inning": "Inn", "outs": "Outs", "obc": "Runners",
+                df[["Inn", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]].rename(columns={
+                    "outs": "Outs", "obc": "Runners",
                     "pitcher_name": "Pitcher", "batter_name": "Batter",
                     "pitch": "Pitch", "swing": "Swing", "diff": "Diff", "result": "Result",
                 }),
