@@ -53,8 +53,14 @@ with col_s:
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
 
+def search_results(q: str) -> list[str]:
+    if not q:
+        return utils.RESULTS
+    matches = [r for r in utils.RESULTS if q.upper() in r]
+    return matches if matches else [q.upper()]
+
 result = st_searchbox(
-    lambda q: [r for r in utils.RESULTS if q.upper() in r],
+    search_results,
     placeholder="Result (GO, 1B, HR...)",
     key="result_searchbox",
     default_use_searchterm=True,
@@ -94,41 +100,68 @@ with st.form("ab_form", clear_on_submit=True):
 
     submitted = st.form_submit_button("Submit At-Bat", use_container_width=True, type="primary")
 
+def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
+              pitcher_name, batter_name, pitch, swing, result, existing):
+    is_fp_inn = not any(
+        e["inning"] == inning and e.get("half", "top") == half for e in existing
+    )
+    is_fp_app = not any(e["pitcher_name"] == pitcher_name for e in existing)
+    db.insert_at_bat(
+        session_id=session_id, inning=inning, half=half, outs=outs, obc=obc,
+        pitcher_team=pitcher_team, batter_team=batter_team,
+        pitcher_name=pitcher_name, batter_name=batter_name,
+        pitch=pitch, swing=swing, result=result,
+        is_fp_app=is_fp_app, is_fp_inn=is_fp_inn,
+    )
+
+
 if submitted:
     if not pitcher_name or not batter_name:
         st.error("Pitcher and batter names are required.")
     elif not result:
         st.error("Result is required.")
     else:
-        # Auto-compute FP flags from existing session data
         existing = db.get_at_bats_for_session(active_session_id)
-        is_fp_inn = not any(
-            e["inning"] == int(inning) and e.get("half", "top") == half
-            for e in existing
-        )
-        is_fp_app = not any(
-            e["pitcher_name"] == pitcher_name
-            for e in existing
-        )
-        db.insert_at_bat(
-            session_id=active_session_id,
-            inning=int(inning),
-            half=half,
-            outs=int(outs),
-            obc=obc,
-            pitcher_team=pitcher_team,
-            batter_team=batter_team,
-            pitcher_name=pitcher_name,
-            batter_name=batter_name,
-            pitch=int(pitch),
-            swing=int(swing),
-            result=result,
-            is_fp_app=is_fp_app,
-            is_fp_inn=is_fp_inn,
-        )
-        inn_label = utils.inning_label(int(inning), half)
-        st.success(f"Logged: {inn_label} | {pitcher_name} vs {batter_name} → **{result}** (diff: {diff})")
-        st.rerun()
+        prev = sorted(existing, key=lambda e: e["id"])[-1] if existing else None
+        new_ab = {"inning": int(inning), "half": half, "outs": int(outs), "result": result}
+        warnings = utils.validate_ab(new_ab, prev)
+
+        if warnings:
+            st.session_state["pending_ab"] = dict(
+                session_id=active_session_id, inning=int(inning), half=half,
+                outs=int(outs), obc=obc, pitcher_team=pitcher_team,
+                batter_team=batter_team, pitcher_name=pitcher_name,
+                batter_name=batter_name, pitch=int(pitch), swing=int(swing),
+                result=result, existing=existing,
+            )
+            st.session_state["pending_warnings"] = warnings
+        else:
+            do_insert(active_session_id, int(inning), half, int(outs), obc,
+                      pitcher_team, batter_team, pitcher_name, batter_name,
+                      int(pitch), int(swing), result, existing)
+            inn_label = utils.inning_label(int(inning), half)
+            st.success(f"Logged: {inn_label} | {pitcher_name} vs {batter_name} → **{result}** (diff: {diff})")
+            st.rerun()
+
+if st.session_state.get("pending_warnings"):
+    for w in st.session_state["pending_warnings"]:
+        st.warning(w)
+    col_confirm, col_cancel = st.columns(2)
+    with col_confirm:
+        if st.button("Submit anyway", type="primary", use_container_width=True):
+            p = st.session_state["pending_ab"]
+            do_insert(p["session_id"], p["inning"], p["half"], p["outs"], p["obc"],
+                      p["pitcher_team"], p["batter_team"], p["pitcher_name"],
+                      p["batter_name"], p["pitch"], p["swing"], p["result"], p["existing"])
+            st.session_state.pop("pending_ab", None)
+            st.session_state.pop("pending_warnings", None)
+            st.success("Logged.")
+            st.rerun()
+    with col_cancel:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.pop("pending_ab", None)
+            st.session_state.pop("pending_warnings", None)
+            st.rerun()
 
 # ------------------------------------------------------------------ recent entries
 

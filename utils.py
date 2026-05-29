@@ -90,6 +90,71 @@ def get_res_category(result: str, diff: int) -> str:
     return "OUT"
 
 
+_OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "FC"}
+_DP_RESULTS  = {"DP", "DPH1"}
+
+
+def outs_added(result: str) -> int:
+    if result in _DP_RESULTS:
+        return 2
+    if result in _OUT_RESULTS:
+        return 1
+    return 0
+
+
+def validate_ab(new: dict, prev: dict | None) -> list[str]:
+    """Return a list of baseball-logic warnings for the new AB given the previous one."""
+    if prev is None:
+        return []
+
+    warnings = []
+    p_inn  = int(prev["inning"])
+    p_half = prev.get("half", "top")
+    p_outs = int(prev["outs"])
+    p_res  = prev.get("result", "")
+
+    n_inn  = int(new["inning"])
+    n_half = new["half"]
+    n_outs = int(new["outs"])
+
+    added         = outs_added(p_res)
+    expected_outs = p_outs + added
+    same_half     = (n_inn == p_inn and n_half == p_half)
+
+    if same_half:
+        if expected_outs >= 3:
+            warnings.append(
+                f"Previous AB ({p_res}, {p_outs} outs) should have ended the half-inning — "
+                f"expected a new half-inning, not the same one."
+            )
+        elif n_outs != expected_outs:
+            warnings.append(
+                f"Expected {expected_outs} out(s) based on previous result ({p_res}), "
+                f"but got {n_outs}."
+            )
+    else:
+        if n_outs != 0:
+            warnings.append(f"New half-inning started but outs = {n_outs} (expected 0).")
+
+        # Half-inning order: top → bottom of same inning → top of next inning
+        if n_inn < p_inn:
+            warnings.append(f"Inning went backward ({p_inn} → {n_inn}).")
+        elif n_inn == p_inn:
+            if not (p_half == "top" and n_half == "bottom"):
+                warnings.append(
+                    f"Unexpected half-inning change within inning {n_inn} "
+                    f"({p_half} → {n_half})."
+                )
+        elif n_inn > p_inn + 1:
+            warnings.append(f"Inning jumped by more than one ({p_inn} → {n_inn}).")
+        elif n_half != "top":
+            warnings.append(
+                f"New inning {n_inn} should start at top, not bottom."
+            )
+
+    return warnings
+
+
 def inning_label(inning: int, half: str) -> str:
     prefix = "T" if str(half).lower() == "top" else "B"
     return f"{prefix}{int(inning)}"
