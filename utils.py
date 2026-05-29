@@ -583,15 +583,20 @@ def swing_predictor_chart(
         showlegend=False, hoverinfo="skip",
     ))
 
+    # Build diff-range lookup for legend labels: result → (diff_lo, diff_hi, width)
+    diff_info = {r: (lo, hi, hi - lo + 1) for r, lo, hi in ranges}
+
     # Draw colored rectangles for each zone
     seen: set[str] = set()
     for result, lo, hi in zones:
         color = _RESULT_ZONE_COLORS.get(result, "#cccccc")
         if result not in seen:
+            d_lo, d_hi, w = diff_info.get(result, (0, 0, 0))
+            label = f"{result}: {d_lo}–{d_hi} ({w})"
             fig.add_trace(go.Scatter(
                 x=[None], y=[None], mode="markers",
                 marker=dict(color=color, size=10, symbol="square"),
-                name=result, showlegend=True,
+                name=label, showlegend=True,
             ))
             seen.add(result)
         fig.add_shape(
@@ -659,7 +664,7 @@ def swing_predictor_chart(
             orientation="h", x=0.5, y=-0.6,
             xanchor="center", yanchor="top",
             bgcolor="rgba(0,0,0,0)",
-            font=dict(size=9),
+            font=dict(size=8, family="monospace"),
         ),
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
