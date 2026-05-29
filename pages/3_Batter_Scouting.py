@@ -84,13 +84,18 @@ sheet_urls = list(dict.fromkeys(
     if (s := sessions_by_id.get(sid)) and s.get("sheet_url")
 ))
 
+@st.cache_data(ttl=3600)
+def _sheet_name(url: str) -> str:
+    return utils.get_sheet_name(url)
+
 col_sheet, col_btn = st.columns([3, 1])
 with col_sheet:
     if sheet_urls:
         pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
-            "Session sheet", sheet_urls, key="pred_sheet_sel_b"
+            "Session sheet", sheet_urls, key="pred_sheet_sel_b",
+            format_func=_sheet_name,
         )
-        st.caption(f"Linked: ...{pred_sheet_url[-50:]}")
+        st.caption(f"Linked: {_sheet_name(pred_sheet_url)}")
     else:
         st.caption("No sheet linked to selected session(s). Using default ranges.")
         pred_sheet_url = None
