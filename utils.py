@@ -68,6 +68,16 @@ def circular_diff(pitch: int, swing: int) -> int:
     return min(d, 1000 - d)
 
 
+def circular_signed_delta(a: int, b: int) -> int:
+    """Signed delta on the 1-1000 wheel using the shortest path. Range: -500 to +500."""
+    d = b - a
+    if d > 500:
+        d -= 1000
+    elif d < -500:
+        d += 1000
+    return d
+
+
 def get_zone(value: int) -> str:
     for lo, hi, label in ZONES:
         if lo <= value <= hi:
@@ -80,6 +90,12 @@ def get_delta_range(delta: float) -> str:
         if lo <= delta <= hi:
             return label
     return "Other"
+
+
+def _circ_delta_group(group: pd.Series) -> pd.Series:
+    vals = group.astype(int).tolist()
+    deltas = [float("nan")] + [circular_signed_delta(vals[i - 1], vals[i]) for i in range(1, len(vals))]
+    return pd.Series(deltas, index=group.index)
 
 
 _XBH  = {"HR", "3B", "2BWH", "2B"}
@@ -183,8 +199,11 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["session_id", "id"])
     df["is_fp_inn"] = ~df.duplicated(subset=["session_id", "inning", "half"], keep="first")
     df["is_fp_app"] = ~df.duplicated(subset=["session_id", "pitcher_name"], keep="first")
-    # Delta: pitch change from previous AB for same pitcher in same session
+    # Linear delta (for reference)
     df["pitch_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].diff()
+    # Circular signed delta (shortest path on the 1-1000 wheel)
+    df["pitch_circ_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].transform(_circ_delta_group)
+    df["swing_circ_delta"] = df.groupby(["session_id", "batter_name"])["swing"].transform(_circ_delta_group)
     return df
 
 
@@ -305,6 +324,47 @@ def last_n_chart(
         height=380,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=10, t=60, b=40),
+    )
+    return fig
+
+
+def last_n_delta_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    value_col: str = "pitch",
+    title: str = "Pitch Delta",
+) -> go.Figure:
+    """Bar chart of circular signed delta between consecutive pitch/swing values.
+    Bar height = abs(circular delta). Green = went higher, red = went lower."""
+    df_last = df.sort_values("id").tail(n).reset_index(drop=True)
+    vals = df_last[value_col].astype(int).tolist()
+    x = list(range(2, len(vals) + 1))
+    deltas = [circular_signed_delta(vals[i - 1], vals[i]) for i in range(1, len(vals))]
+    linear = [vals[i] - vals[i - 1] for i in range(1, len(vals))]
+
+    colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in deltas]
+    hover = [
+        f"AB {i}: {vals[i-1]}→{vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
+        for i in range(1, len(vals))
+    ]
+
+    fig = go.Figure(go.Bar(
+        x=x,
+        y=[abs(d) for d in deltas],
+        marker_color=colors,
+        text=[f"{d:+d}" for d in deltas],
+        textposition="outside",
+        textfont=dict(size=9),
+        hovertext=hover,
+        hoverinfo="text",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="At-Bat #", tickmode="linear", dtick=1),
+        yaxis=dict(range=[0, 580], title="Distance"),
+        height=250,
+        margin=dict(l=40, r=10, t=45, b=40),
+        showlegend=False,
     )
     return fig
 

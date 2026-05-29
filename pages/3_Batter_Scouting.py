@@ -148,9 +148,7 @@ for col, (label, cats) in zip(cols3, result_groups):
 st.divider()
 st.subheader("Swing Delta (Change from Previous AB)")
 
-df_sorted = df.sort_values(["session_id", "id"])
-df_sorted["swing_delta"] = df_sorted.groupby(["session_id", "batter_name"])["swing"].diff()
-deltas = df_sorted["swing_delta"].dropna()
+deltas = df["swing_circ_delta"].dropna()
 
 if not deltas.empty:
     st.plotly_chart(utils.delta_histogram(deltas, title="Swing Delta Distribution"), use_container_width=True, config={"displayModeBar": False})
@@ -203,6 +201,11 @@ st.subheader("Last N Swings")
 n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
 st.plotly_chart(
     utils.last_n_chart(df, n=n_swings, title=f"Last {n_swings} Swings"),
+    use_container_width=True,
+    config={"displayModeBar": False},
+)
+st.plotly_chart(
+    utils.last_n_delta_chart(df, n=n_swings, value_col="swing", title="Swing Delta (Circular)"),
     use_container_width=True,
     config={"displayModeBar": False},
 )
