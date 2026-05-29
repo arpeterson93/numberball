@@ -649,10 +649,8 @@ def swing_predictor_chart(
         legend=dict(
             orientation="h", x=0.5, y=-0.28,
             xanchor="center", yanchor="top",
-            bgcolor="rgba(255,255,255,0.85)",
+            bgcolor="rgba(0,0,0,0)",
             font=dict(size=7),
-            bordercolor="rgba(0,0,0,0.1)",
-            borderwidth=1,
         ),
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
