@@ -7,11 +7,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.markdown(
-    "<style>[data-testid='stToolbar'] {display: none;}</style>",
-    unsafe_allow_html=True,
-)
-
 pages = [
     st.Page("pages/log_ab.py", title="Log AB", icon="📝"),
     st.Page("pages/1_Sessions.py", title="Sessions", icon="📅"),

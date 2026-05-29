@@ -199,9 +199,21 @@ if recent:
         hide_index=True,
     )
 
-    if st.button("Delete last entry", type="secondary"):
-        last_id = int(df["id"].iloc[0])
-        db.delete_at_bat(last_id)
-        st.rerun()
+    if st.session_state.get("_confirm_delete"):
+        st.warning("Delete the last entry? This cannot be undone.")
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("Yes, delete", type="primary", use_container_width=True):
+                db.delete_at_bat(int(df["id"].iloc[0]))
+                st.session_state.pop("_confirm_delete", None)
+                st.rerun()
+        with col_no:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.pop("_confirm_delete", None)
+                st.rerun()
+    else:
+        if st.button("Delete last entry", type="secondary"):
+            st.session_state["_confirm_delete"] = True
+            st.rerun()
 else:
     st.caption("No at-bats logged for this session yet.")
