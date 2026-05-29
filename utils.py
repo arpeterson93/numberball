@@ -614,7 +614,7 @@ def swing_predictor_chart(
             color=list(range(n_vals)),
             colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
             showscale=False,
-            line=dict(width=1, color="white"),
+            line=dict(width=0.5, color="white"),
         ),
         name=tick_label,
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
