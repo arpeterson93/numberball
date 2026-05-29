@@ -44,7 +44,7 @@ def get_session(session_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
-def create_session(season: int, session_number: int, home_team: str, away_team: str, game_date=None) -> dict:
+def create_session(season: int, session_number: int, home_team: str, away_team: str, game_date=None, sheet_url: str | None = None) -> dict:
     return (
         _client().table("sessions")
         .insert({
@@ -53,6 +53,7 @@ def create_session(season: int, session_number: int, home_team: str, away_team: 
             "home_team": home_team,
             "away_team": away_team,
             "game_date": str(game_date) if game_date else None,
+            "sheet_url": sheet_url or None,
         })
         .execute()
         .data[0]

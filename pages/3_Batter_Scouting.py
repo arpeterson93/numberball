@@ -221,6 +221,60 @@ st.plotly_chart(
     width='stretch',
 )
 
+# ------------------------------------------------------------------ pitch predictor
+
+st.divider()
+st.subheader("Pitch Predictor")
+st.caption("Enter a proposed pitch to see what result each of this batter's swings would give and how recent swings line up.")
+
+all_sessions = db.get_sessions()
+sessions_by_id = {s["id"]: s for s in all_sessions}
+sheet_urls = list(dict.fromkeys(
+    s["sheet_url"] for sid in selected_sessions
+    if (s := sessions_by_id.get(sid)) and s.get("sheet_url")
+))
+
+col_sheet, col_btn = st.columns([3, 1])
+with col_sheet:
+    if sheet_urls:
+        pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
+            "Session sheet", sheet_urls, key="pred_sheet_sel_b"
+        )
+        st.caption(f"Linked: ...{pred_sheet_url[-50:]}")
+    else:
+        st.caption("No sheet linked to selected session(s). Using default ranges.")
+        pred_sheet_url = None
+with col_btn:
+    st.write("")
+    if sheet_urls and st.button("Pull Ranges", type="secondary", key="pull_ranges_b"):
+        try:
+            fetched = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+            st.session_state["pred_result_ranges"] = fetched
+            st.success(f"Loaded {len(fetched)} ranges.")
+        except Exception as e:
+            st.error(str(e))
+
+result_ranges = st.session_state.get("pred_result_ranges", utils.RESULT_RANGES)
+st.caption(f"{'Pulled' if st.session_state.get('pred_result_ranges') else 'Default'} ranges ({len(result_ranges)} results)")
+
+col_p, col_n = st.columns([3, 1])
+with col_p:
+    proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000, value=500, step=1, key="pred_pitch_b")
+with col_n:
+    n_pred_b = st.slider("# swings", 5, 50, 15, key="pred_n_b")
+
+st.plotly_chart(
+    utils.swing_predictor_chart(
+        df, swing=int(proposed_pitch), n=n_pred_b,
+        result_ranges=result_ranges,
+        tick_label=f"Last {n_pred_b} swings",
+        value_col="swing",
+        x_label="Swing Value",
+        ref_label="Pitch",
+    ),
+    width='stretch',
+)
+
 # ------------------------------------------------------------------ raw data
 
 with st.expander("Raw At-Bat Data"):

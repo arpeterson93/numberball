@@ -485,11 +485,53 @@ def last_n_combined_chart(
     return fig
 
 
-def _diff_to_result(diff: int) -> str:
-    for result, lo, hi in RESULT_RANGES:
+def _diff_to_result(diff: int, ranges: list | None = None) -> str:
+    for result, lo, hi in (ranges or RESULT_RANGES):
         if lo <= diff <= hi:
             return result
     return "?"
+
+
+def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]:
+    """Fetch and parse the result ranges table from a public Google Sheet."""
+    import re
+    sheet_id_match = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
+    gid_match = re.search(r"[?&]gid=(\d+)", sheet_url)
+    if not sheet_id_match:
+        raise ValueError("Could not parse a Google Sheets ID from the URL.")
+    sheet_id = sheet_id_match.group(1)
+    gid = gid_match.group(1) if gid_match else "0"
+    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+
+    raw = pd.read_csv(csv_url, header=None, dtype=str)
+
+    # Locate the "Result" header cell
+    result_col = header_row = None
+    for i in range(len(raw)):
+        for j in range(len(raw.columns)):
+            if str(raw.iloc[i, j]).strip().lower() == "result":
+                result_col, header_row = j, i
+                break
+        if result_col is not None:
+            break
+    if result_col is None:
+        raise ValueError("Could not find a 'Result' header in the sheet.")
+
+    low_col, high_col = result_col + 2, result_col + 3
+    ranges: list[tuple[str, int, int]] = []
+    for i in range(header_row + 1, len(raw)):
+        name = str(raw.iloc[i, result_col]).strip()
+        if not name or name.lower() == "nan":
+            break
+        try:
+            lo = int(float(str(raw.iloc[i, low_col]).strip()))
+            hi = int(float(str(raw.iloc[i, high_col]).strip()))
+            ranges.append((name, lo, hi))
+        except (ValueError, IndexError):
+            break
+    if not ranges:
+        raise ValueError("Result table found but no rows could be parsed.")
+    return ranges
 
 
 def swing_predictor_chart(
@@ -497,10 +539,18 @@ def swing_predictor_chart(
     swing: int,
     n: int = 20,
     title: str = "Swing Predictor",
+    result_ranges: list | None = None,
+    tick_label: str = "Recent Pitches",
+    value_col: str = "pitch",
+    x_label: str = "Pitch Value",
+    ref_label: str = "Swing",
 ) -> go.Figure:
-    """Color-coded pitch number line for a proposed swing, with recent pitches overlaid."""
-    # Build per-pitch result for all 1000 values
-    pitch_result = [_diff_to_result(circular_diff(p, swing)) for p in range(1, 1001)]
+    """Color-coded number line for a proposed reference value, with recent pitch/swing values overlaid.
+    value_col: column to pull tick marks from ('pitch' for pitcher page, 'swing' for batter page).
+    """
+    ranges = result_ranges or RESULT_RANGES
+    # For each value 1-1000, compute result given the reference (circular diff is symmetric)
+    pitch_result = [_diff_to_result(circular_diff(p, swing), ranges) for p in range(1, 1001)]
 
     # Collapse into contiguous zones
     zones: list[tuple[str, int, int]] = []
@@ -542,29 +592,29 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="middle",
             )
 
-    # Recent pitches as vertical tick marks
+    # Tick marks from historical data
     df_last = df.sort_values("id").tail(n)
-    pitches = df_last["pitch"].astype(int).tolist()
+    vals = df_last[value_col].astype(int).tolist()
     fig.add_trace(go.Scatter(
-        x=pitches, y=[0.5] * len(pitches),
+        x=vals, y=[0.5] * len(vals),
         mode="markers",
         marker=dict(symbol="line-ns-open", size=22, color="black",
                     line=dict(width=2, color="black")),
-        name=f"Last {n} Pitches",
-        hovertemplate="Pitch: %{x}<extra></extra>",
+        name=tick_label,
+        hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
 
-    # Proposed swing marker
+    # Reference value marker
     fig.add_vline(x=swing, line_dash="dash", line_color="navy", line_width=2)
     fig.add_annotation(
-        x=swing, y=1.08, text=f"Swing {swing}",
+        x=swing, y=1.08, text=f"{ref_label} {swing}",
         showarrow=False, font=dict(color="navy", size=11),
         xanchor="center",
     )
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
-        xaxis=dict(title="Pitch Value", range=[0.5, 1000.5], tickmode="linear", dtick=100),
+        xaxis=dict(title=x_label, range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.05, 1.15]),
         height=260,
         margin=dict(l=10, r=10, t=65, b=80),

@@ -21,6 +21,7 @@ with st.expander("Create New Session", expanded=False):
         with col4:
             away_team = st.selectbox("Away Team", utils.TEAMS)
         game_date = st.date_input("Date (optional)", value=None)
+        sheet_url = st.text_input("Google Sheet URL (optional)", placeholder="https://docs.google.com/spreadsheets/d/...")
         if st.form_submit_button("Create Session", type="primary"):
             try:
                 db.create_session(
@@ -29,6 +30,7 @@ with st.expander("Create New Session", expanded=False):
                     home_team=home_team,
                     away_team=away_team,
                     game_date=game_date,
+                    sheet_url=sheet_url.strip() or None,
                 )
                 st.success(f"Created S{season} G{session_number}: {home_team} vs {away_team}")
                 st.rerun()
