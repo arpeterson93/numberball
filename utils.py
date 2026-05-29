@@ -532,7 +532,16 @@ def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]
             break
     if not ranges:
         raise ValueError("Result table found but no rows could be parsed.")
-    return ranges
+
+    # H12 = row index 11, col index 7 — current batter name
+    try:
+        batter_name = str(raw.iloc[11, 7]).strip()
+        if batter_name.lower() in ("nan", ""):
+            batter_name = ""
+    except Exception:
+        batter_name = ""
+
+    return ranges, batter_name
 
 
 def swing_predictor_chart(
@@ -635,11 +644,11 @@ def swing_predictor_chart(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title=x_label, range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.18, 1.15]),
-        height=280,
-        margin=dict(l=10, r=10, t=65, b=45),
+        height=300,
+        margin=dict(l=10, r=10, t=65, b=75),
         legend=dict(
-            orientation="v", x=0.99, y=0.99,
-            xanchor="right", yanchor="top",
+            orientation="h", x=0.5, y=-0.28,
+            xanchor="center", yanchor="top",
             bgcolor="rgba(255,255,255,0.85)",
             font=dict(size=7),
             bordercolor="rgba(0,0,0,0.1)",

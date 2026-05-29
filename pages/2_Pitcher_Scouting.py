@@ -68,8 +68,87 @@ col3.metric("Meme Rate", f"{meme_rate:.1f}%")
 
 st.divider()
 
+# ------------------------------------------------------------------ swing predictor
+
+st.subheader("Swing Predictor")
+st.caption("Enter a proposed swing to see what result each of this pitcher's pitches would give and how recent pitches line up.")
+
+all_sessions = db.get_sessions()
+sessions_by_id = {s["id"]: s for s in all_sessions}
+sheet_urls = list(dict.fromkeys(
+    s["sheet_url"] for sid in selected_sessions
+    if (s := sessions_by_id.get(sid)) and s.get("sheet_url")
+))
+
+col_sheet, col_btn = st.columns([3, 1])
+with col_sheet:
+    if sheet_urls:
+        pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
+            "Session sheet", sheet_urls, key="pred_sheet_sel_p"
+        )
+        st.caption(f"Linked: ...{pred_sheet_url[-50:]}")
+    else:
+        st.caption("No sheet linked to selected session(s). Using default ranges.")
+        pred_sheet_url = None
+with col_btn:
+    st.write("")
+    if sheet_urls and st.button("Pull Ranges", type="secondary", key="pull_ranges_p"):
+        try:
+            fetched_ranges, fetched_batter = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+            st.session_state["pred_result_ranges"] = fetched_ranges
+            st.session_state["pred_sheet_batter"] = fetched_batter
+            st.success(f"Loaded {len(fetched_ranges)} ranges.")
+        except Exception as e:
+            st.error(str(e))
+
+result_ranges = st.session_state.get("pred_result_ranges", utils.RESULT_RANGES)
+batter_info = f" — Batter: **{st.session_state['pred_sheet_batter']}**" if st.session_state.get("pred_sheet_batter") else ""
+st.caption(f"{'Pulled' if st.session_state.get('pred_result_ranges') else 'Default'} ranges ({len(result_ranges)} results){batter_info}")
+
+col_sw, col_n = st.columns([3, 1])
+with col_sw:
+    proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
+with col_n:
+    n_pred = st.slider("# pitches", 5, 50, 15, key="pred_n_p")
+
+st.plotly_chart(
+    utils.swing_predictor_chart(
+        df, swing=int(proposed_swing), n=n_pred,
+        result_ranges=result_ranges, tick_label=f"Last {n_pred} pitches",
+    ),
+    width='stretch',
+)
+
+# ------------------------------------------------------------------ last n pitches
+
+st.divider()
+st.subheader("Last N Pitches")
+n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
+st.plotly_chart(
+    utils.last_n_combined_chart(df, n=n_pitches, delta_col="pitch", title=f"Last {n_pitches} Pitches"),
+    width='stretch',
+)
+
+# ------------------------------------------------------------------ hot zone matrix
+
+st.divider()
+st.subheader("Hot Zone Pitch Matrix")
+st.caption("How often each pitch range is followed by each other pitch range.")
+bucket_size_p = st.select_slider(
+    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="hz_bucket_pitch"
+)
+if selected_pitcher != "All":
+    group_cols = ["session_id", "pitcher_name"]
+else:
+    group_cols = ["pitcher_name"]
+st.plotly_chart(
+    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols, bucket_size=bucket_size_p),
+    width='stretch',
+)
+
 # ------------------------------------------------------------------ overall zone heatmap
 
+st.divider()
 st.subheader("Zone Distribution (All)")
 zone_counts = df["pitch_zone"].value_counts().to_dict()
 st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), width='stretch')
@@ -178,83 +257,6 @@ st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
 st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch')
-
-# ------------------------------------------------------------------ last n pitches
-
-st.divider()
-st.subheader("Last N Pitches")
-n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
-st.plotly_chart(
-    utils.last_n_combined_chart(df, n=n_pitches, delta_col="pitch", title=f"Last {n_pitches} Pitches"),
-    width='stretch',
-)
-
-# ------------------------------------------------------------------ hot zone matrix
-
-st.divider()
-st.subheader("Hot Zone Pitch Matrix")
-st.caption("How often each pitch range is followed by each other pitch range.")
-bucket_size_p = st.select_slider(
-    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="hz_bucket_pitch"
-)
-if selected_pitcher != "All":
-    group_cols = ["session_id", "pitcher_name"]
-else:
-    group_cols = ["pitcher_name"]
-st.plotly_chart(
-    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols, bucket_size=bucket_size_p),
-    width='stretch',
-)
-
-# ------------------------------------------------------------------ swing predictor
-
-st.divider()
-st.subheader("Swing Predictor")
-st.caption("Enter a proposed swing to see what result each of this pitcher's pitches would give and how recent pitches line up.")
-
-all_sessions = db.get_sessions()
-sessions_by_id = {s["id"]: s for s in all_sessions}
-sheet_urls = list(dict.fromkeys(
-    s["sheet_url"] for sid in selected_sessions
-    if (s := sessions_by_id.get(sid)) and s.get("sheet_url")
-))
-
-col_sheet, col_btn = st.columns([3, 1])
-with col_sheet:
-    if sheet_urls:
-        pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
-            "Session sheet", sheet_urls, key="pred_sheet_sel_p"
-        )
-        st.caption(f"Linked: ...{pred_sheet_url[-50:]}")
-    else:
-        st.caption("No sheet linked to selected session(s). Using default ranges.")
-        pred_sheet_url = None
-with col_btn:
-    st.write("")
-    if sheet_urls and st.button("Pull Ranges", type="secondary", key="pull_ranges_p"):
-        try:
-            fetched = utils.parse_result_ranges_from_sheet(pred_sheet_url)
-            st.session_state["pred_result_ranges"] = fetched
-            st.success(f"Loaded {len(fetched)} ranges.")
-        except Exception as e:
-            st.error(str(e))
-
-result_ranges = st.session_state.get("pred_result_ranges", utils.RESULT_RANGES)
-st.caption(f"{'Pulled' if st.session_state.get('pred_result_ranges') else 'Default'} ranges ({len(result_ranges)} results)")
-
-col_sw, col_n = st.columns([3, 1])
-with col_sw:
-    proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
-with col_n:
-    n_pred = st.slider("# pitches", 5, 50, 15, key="pred_n_p")
-
-st.plotly_chart(
-    utils.swing_predictor_chart(
-        df, swing=int(proposed_swing), n=n_pred,
-        result_ranges=result_ranges, tick_label=f"Last {n_pred} pitches",
-    ),
-    width='stretch',
-)
 
 # ------------------------------------------------------------------ raw data
 
