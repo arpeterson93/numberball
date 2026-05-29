@@ -46,23 +46,39 @@ RESULT_RANGES = [
 ]
 
 _RESULT_ZONE_COLORS = {
+    # Hits — green spectrum (best → marginal)
     "HR":    "#1a7d35",
     "3B":    "#2ca02c",
     "2BWH":  "#57b857",
     "2B":    "#93d493",
+    "1BWH2": "#aedda2",
     "1BWH":  "#c4e8a4",
     "1B":    "#e5f5c3",
     "IF1B":  "#fff7bc",
     "BB":    "#fee391",
+    # Soft outs / sac — yellow → orange
     "GORA":  "#fec44f",
     "DSacF": "#fe9929",
+    "DFO":   "#fd8c15",
     "SacF":  "#fd7a1a",
+    "FO":    "#f56010",
+    # Standard outs — orange-red → red
     "PO":    "#f03b20",
     "FCH":   "#d42020",
+    "FC":    "#c42020",
+    "FC3rd": "#b82020",
+    "GO":    "#aa1020",
     "K":     "#b10026",
+    # Double plays — dark red → maroon
+    "DPRun": "#920026",
+    "DP":    "#880026",
     "DP21":  "#800026",
     "DP31":  "#5a001a",
     "DPH1":  "#3d0014",
+    # Line-out DPs / triple plays — near black
+    "LODP":  "#2d000f",
+    "TP":    "#220009",
+    "LOTP":  "#180006",
 }
 
 ZONES = [
