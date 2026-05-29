@@ -78,7 +78,7 @@ st.divider()
 
 st.subheader("Swing Zone Distribution (All)")
 swing_counts = df["swing_zone"].value_counts().to_dict()
-st.plotly_chart(utils.zone_heatmap(swing_counts, title="Swing Zone Frequency"), use_container_width=True)
+st.plotly_chart(utils.zone_heatmap(swing_counts, title="Swing Zone Frequency"), use_container_width=True, config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ first pitch swings
 
@@ -153,7 +153,7 @@ df_sorted["swing_delta"] = df_sorted.groupby(["session_id", "batter_name"])["swi
 deltas = df_sorted["swing_delta"].dropna()
 
 if not deltas.empty:
-    st.plotly_chart(utils.delta_histogram(deltas, title="Swing Delta Distribution"), use_container_width=True)
+    st.plotly_chart(utils.delta_histogram(deltas, title="Swing Delta Distribution"), use_container_width=True, config={"displayModeBar": False})
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Delta", f"{deltas.mean():+.1f}")
     col2.metric("Avg |Delta|", f"{deltas.abs().mean():.1f}")
@@ -191,10 +191,10 @@ st.divider()
 st.subheader("Results")
 
 res_counts = df["result"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_container_width=True)
+st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_container_width=True, config={"displayModeBar": False})
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True)
+st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True, config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ raw data
 

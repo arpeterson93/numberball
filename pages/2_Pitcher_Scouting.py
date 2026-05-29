@@ -74,7 +74,7 @@ st.divider()
 
 st.subheader("Zone Distribution (All)")
 zone_counts = df["pitch_zone"].value_counts().to_dict()
-st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), use_container_width=True)
+st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), use_container_width=True, config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ first pitch zones
 
@@ -132,7 +132,7 @@ st.subheader("Pitch Delta (Change from Previous AB)")
 
 deltas = df["pitch_delta"].dropna()
 if not deltas.empty:
-    st.plotly_chart(utils.delta_histogram(deltas), use_container_width=True)
+    st.plotly_chart(utils.delta_histogram(deltas), use_container_width=True, config={"displayModeBar": False})
 
     avg_delta = deltas.mean()
     abs_avg_delta = deltas.abs().mean()
@@ -174,10 +174,10 @@ st.divider()
 st.subheader("Results Allowed")
 
 res_counts = df["result"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_container_width=True)
+st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_container_width=True, config={"displayModeBar": False})
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True)
+st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True, config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ raw data
 
