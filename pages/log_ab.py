@@ -37,10 +37,42 @@ st.session_state.active_session_label = selected_label
 active_session_id = session_options[selected_label]
 
 st.divider()
-
-# ------------------------------------------------------------------ pitch & swing (live diff)
-
 st.subheader("Log At-Bat")
+
+# ------------------------------------------------------------------ half / inning / outs / runners
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    half_choice = st.radio("Half", ["▲ Top", "▼ Bot"], horizontal=True, key="half_input")
+    half = "top" if half_choice == "▲ Top" else "bottom"
+with col2:
+    inning = st.number_input("Inning", min_value=1, max_value=15, value=1, step=1, key="inning_input")
+with col3:
+    outs = st.selectbox("Outs", [0, 1, 2], key="outs_input")
+
+obc = st.selectbox("Runners", utils.OBC_OPTIONS, key="obc_input")
+
+# ------------------------------------------------------------------ pitcher
+
+st.markdown("**Pitcher**")
+col_pt, col_pn = st.columns([1, 2])
+with col_pt:
+    pitcher_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="pt")
+with col_pn:
+    pitchers = db.get_players(pitcher_team) if pitcher_team else []
+    pitcher_name = st.selectbox("Name", pitchers, index=None, placeholder="Name", key="pname_select")
+
+# ------------------------------------------------------------------ batter
+
+st.markdown("**Batter**")
+col_bt, col_bn = st.columns([1, 2])
+with col_bt:
+    batter_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="bt")
+with col_bn:
+    batters = db.get_players(batter_team) if batter_team else []
+    batter_name = st.selectbox("Name", batters, index=None, placeholder="Name", key="bname_select")
+
+# ------------------------------------------------------------------ numbers (live diff)
 
 st.markdown("**Numbers**")
 col_p, col_s = st.columns(2)
@@ -51,6 +83,8 @@ with col_s:
 
 diff = utils.circular_diff(int(pitch), int(swing))
 st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
+
+# ------------------------------------------------------------------ result
 
 st.markdown("**Result**")
 hit_pill = st.pills(
@@ -67,39 +101,14 @@ out_pill = st.pills(
 )
 result = hit_pill or out_pill or ""
 
-st.divider()
+# ------------------------------------------------------------------ submit
 
-# ------------------------------------------------------------------ rest of form
+def reset_entry():
+    for key in ("pitch_input", "swing_input"):
+        st.session_state[key] = 500
+    for key in ("rpill_hits", "rpill_outs"):
+        st.session_state[key] = None
 
-with st.form("ab_form", clear_on_submit=True):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        half_choice = st.radio("Half", ["▲ Top", "▼ Bot"], horizontal=True)
-        half = "top" if half_choice == "▲ Top" else "bottom"
-    with col2:
-        inning = st.number_input("Inning", min_value=1, max_value=15, value=1, step=1)
-    with col3:
-        outs = st.selectbox("Outs", [0, 1, 2])
-
-    obc = st.selectbox("Runners", utils.OBC_OPTIONS)
-
-    st.markdown("**Pitcher**")
-    col_pt, col_pn = st.columns([1, 2])
-    with col_pt:
-        pitcher_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="pt")
-    with col_pn:
-        pitchers = db.get_players(pitcher_team) if pitcher_team else []
-        pitcher_name = st.selectbox("Name", pitchers, index=None, placeholder="Name", key="pname_select")
-
-    st.markdown("**Batter**")
-    col_bt, col_bn = st.columns([1, 2])
-    with col_bt:
-        batter_team = st.selectbox("Team", utils.TEAMS, index=None, placeholder="Team", key="bt")
-    with col_bn:
-        batters = db.get_players(batter_team) if batter_team else []
-        batter_name = st.selectbox("Name", batters, index=None, placeholder="Name", key="bname_select")
-
-    submitted = st.form_submit_button("Submit At-Bat", use_container_width=True, type="primary")
 
 def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
               pitcher_name, batter_name, pitch, swing, result, existing):
@@ -116,7 +125,7 @@ def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
     )
 
 
-if submitted:
+if st.button("Submit At-Bat", type="primary", use_container_width=True):
     if not pitcher_name or not batter_name:
         st.error("Pitcher and batter names are required.")
     elif not result:
@@ -142,6 +151,7 @@ if submitted:
                       int(pitch), int(swing), result, existing)
             inn_label = utils.inning_label(int(inning), half)
             st.success(f"Logged: {inn_label} | {pitcher_name} vs {batter_name} → **{result}** (diff: {diff})")
+            reset_entry()
             st.rerun()
 
 if st.session_state.get("pending_warnings"):
@@ -156,7 +166,7 @@ if st.session_state.get("pending_warnings"):
                       p["batter_name"], p["pitch"], p["swing"], p["result"], p["existing"])
             st.session_state.pop("pending_ab", None)
             st.session_state.pop("pending_warnings", None)
-            st.success("Logged.")
+            reset_entry()
             st.rerun()
     with col_cancel:
         if st.button("Cancel", use_container_width=True):
