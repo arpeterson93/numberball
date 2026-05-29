@@ -597,6 +597,7 @@ def swing_predictor_chart(
     value_col: str = "pitch",
     x_label: str = "Pitch Value",
     ref_label: str = "Swing",
+    ref_color: str = "navy",
 ) -> go.Figure:
     """Color-coded number line for a proposed reference value, with recent pitch/swing values overlaid.
     value_col: column to pull tick marks from ('pitch' for pitcher page, 'swing' for batter page).
@@ -687,10 +688,10 @@ def swing_predictor_chart(
             )
 
     # Reference value marker
-    fig.add_vline(x=swing, line_dash="dash", line_color="navy", line_width=2)
+    fig.add_vline(x=swing, line_dash="dash", line_color=ref_color, line_width=2)
     fig.add_annotation(
         x=swing, y=1.08, text=f"{ref_label} {swing}",
-        showarrow=False, font=dict(color="black", size=11),
+        showarrow=False, font=dict(color=ref_color, size=11),
         xanchor="center",
     )
 
