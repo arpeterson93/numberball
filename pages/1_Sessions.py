@@ -4,7 +4,6 @@ import pandas as pd
 import database as db
 import utils
 
-st.set_page_config(page_title="Sessions — Numberball", page_icon="⚾", layout="centered")
 st.title("Sessions")
 
 # ------------------------------------------------------------------ create session

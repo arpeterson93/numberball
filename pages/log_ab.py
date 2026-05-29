@@ -7,12 +7,6 @@ import pandas as pd
 import database as db
 import utils
 
-st.set_page_config(
-    page_title="Numberball",
-    page_icon="⚾",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
 
 st.title("⚾ Numberball")
 st.caption("Scouting & Stats")
