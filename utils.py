@@ -354,7 +354,7 @@ def last_n_chart(
         name="Pitch",
         text=df_last[pitch_col].astype(int).astype(str),
         textposition="top center",
-        textfont=dict(size=9),
+        textfont=dict(size=10),
         line=dict(color="#d6604d", width=2),
         marker=dict(size=5),
     ))
@@ -364,7 +364,7 @@ def last_n_chart(
         name="Swing",
         text=df_last[swing_col].astype(int).astype(str),
         textposition="bottom center",
-        textfont=dict(size=9),
+        textfont=dict(size=10),
         line=dict(color="#2166ac", width=2),
         marker=dict(size=5),
     ))
@@ -405,7 +405,7 @@ def last_n_delta_chart(
         marker_color=colors,
         text=[f"{d:+d}" for d in deltas],
         textposition="outside",
-        textfont=dict(size=9),
+        textfont=dict(size=10),
         hovertext=hover,
         hoverinfo="text",
     ))
@@ -453,17 +453,17 @@ def last_n_combined_chart(
     fig.add_trace(go.Scatter(
         x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
         text=[str(p) for p in pitches], textposition="top center",
-        textfont=dict(size=9), line=dict(color="#d6604d", width=2), marker=dict(size=5),
+        textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=x_all, y=swings, mode="lines+markers+text", name="Swing",
         text=[str(s) for s in swings], textposition="bottom center",
-        textfont=dict(size=9), line=dict(color="#2166ac", width=2), marker=dict(size=5),
+        textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
     ), row=1, col=1)
     fig.add_trace(go.Bar(
         x=x_delta, y=[abs(d) for d in deltas], marker_color=colors,
         text=[f"{d:+d}" for d in deltas], textposition="outside",
-        textfont=dict(size=9), hovertext=hover, hoverinfo="text",
+        textfont=dict(size=10), hovertext=hover, hoverinfo="text",
         name="Delta", showlegend=False,
     ), row=2, col=1)
 
