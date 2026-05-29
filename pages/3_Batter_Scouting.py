@@ -90,6 +90,7 @@ with col_a:
     st.plotly_chart(
         utils.zone_heatmap(counts_fpa, title=f"First Pitch of Appearance (n={len(df_fp_app)})"),
         use_container_width=True,
+        config={"displayModeBar": False},
     )
 with col_b:
     df_fp_inn = df[df["is_fp_inn"] == True]
@@ -97,6 +98,7 @@ with col_b:
     st.plotly_chart(
         utils.zone_heatmap(counts_fpi, title=f"First Pitch of Inning (n={len(df_fp_inn)})"),
         use_container_width=True,
+        config={"displayModeBar": False},
     )
 
 # ------------------------------------------------------------------ zone by out count
