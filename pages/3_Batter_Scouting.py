@@ -119,7 +119,7 @@ if result_ranges:
     with col_p:
         proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000, value=500, step=1, key="pred_pitch_b")
     with col_n:
-        n_pred_b = st.slider("# swings", 5, 50, 15, key="pred_n_b")
+        n_pred_b = st.slider("# swings", 5, 50, 20, key="pred_n_b")
     st.plotly_chart(
         utils.swing_predictor_chart(
             df, swing=int(proposed_pitch), n=n_pred_b,
