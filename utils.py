@@ -142,6 +142,7 @@ def _circ_delta_group(group: pd.Series) -> pd.Series:
 
 _XBH  = {"HR", "3B", "2BWH", "2B"}
 _BB1B = {"1BWH2", "1BWH", "1B", "IF1B", "BB"}
+_OBR  = _XBH | _BB1B
 
 def get_res_category(result: str, diff: int) -> str:
     if diff >= 300:
@@ -603,6 +604,27 @@ def swing_predictor_chart(
         name=tick_label,
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
+
+    # OBR boundary arrows
+    obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
+    if obr_max > 0:
+        b_lo = ((swing - obr_max - 1) % 1000) + 1
+        b_hi = ((swing + obr_max - 1) % 1000) + 1
+        for boundary, ax_offset, label in [
+            (b_lo, -40, "OBR"),   # left edge: arrow points right into OBR
+            (b_hi,  40, "OBR"),   # right edge: arrow points left into OBR
+        ]:
+            fig.add_vline(x=boundary, line_dash="dot", line_color="#1a7d35", line_width=1.5)
+            fig.add_annotation(
+                x=boundary, y=0.82,
+                ax=ax_offset, ay=0,
+                text=label,
+                showarrow=True, arrowhead=2, arrowsize=0.9, arrowwidth=2,
+                arrowcolor="#1a7d35",
+                font=dict(color="#1a7d35", size=8),
+                bgcolor="rgba(255,255,255,0.7)",
+                borderpad=2,
+            )
 
     # Reference value marker
     fig.add_vline(x=swing, line_dash="dash", line_color="navy", line_width=2)
