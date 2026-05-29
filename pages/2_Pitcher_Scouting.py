@@ -72,7 +72,7 @@ st.divider()
 
 st.subheader("Zone Distribution (All)")
 zone_counts = df["pitch_zone"].value_counts().to_dict()
-st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(utils.zone_heatmap(zone_counts, title="Pitch Zone Frequency"), width='stretch', config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ first pitch zones
 
@@ -83,7 +83,7 @@ with col_a:
     counts_fpa = df_fp_app["pitch_zone"].value_counts().to_dict() if not df_fp_app.empty else {}
     st.plotly_chart(
         utils.zone_heatmap(counts_fpa, title=f"First Pitch of Appearance (n={len(df_fp_app)})"),
-        use_container_width=True,
+        width='stretch',
         config={"displayModeBar": False},
     )
 with col_b:
@@ -91,7 +91,7 @@ with col_b:
     counts_fpi = df_fp_inn["pitch_zone"].value_counts().to_dict() if not df_fp_inn.empty else {}
     st.plotly_chart(
         utils.zone_heatmap(counts_fpi, title=f"First Pitch of Inning (n={len(df_fp_inn)})"),
-        use_container_width=True,
+        width='stretch',
         config={"displayModeBar": False},
     )
 
@@ -105,7 +105,7 @@ for i, out_count in enumerate([0, 1, 2]):
     with cols[i]:
         st.plotly_chart(
             utils.zone_heatmap(counts, title=f"{out_count} Outs (n={len(df_out)})"),
-            use_container_width=True,
+            width='stretch',
         )
 
 # ------------------------------------------------------------------ zone by runners
@@ -122,7 +122,7 @@ for col, (label, obc_vals) in zip([col_e, col_r], obc_groups):
     with col:
         st.plotly_chart(
             utils.zone_heatmap(counts, title=f"{label} (n={len(df_obc)})"),
-            use_container_width=True,
+            width='stretch',
         )
 
 # ------------------------------------------------------------------ delta analysis
@@ -132,7 +132,7 @@ st.subheader("Pitch Delta (Change from Previous AB)")
 
 deltas = df["pitch_circ_delta"].dropna()
 if not deltas.empty:
-    st.plotly_chart(utils.delta_histogram(deltas), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(utils.delta_histogram(deltas), width='stretch', config={"displayModeBar": False})
 
     avg_delta = deltas.mean()
     abs_avg_delta = deltas.abs().mean()
@@ -174,10 +174,10 @@ st.divider()
 st.subheader("Results Allowed")
 
 res_counts = df["result"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_counts, title="Result Distribution"), width='stretch', config={"displayModeBar": False})
 
 res_cat_counts = df["res_category"].value_counts().to_dict()
-st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width='stretch', config={"displayModeBar": False})
 
 # ------------------------------------------------------------------ last n pitches
 
@@ -186,12 +186,12 @@ st.subheader("Last N Pitches")
 n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
 st.plotly_chart(
     utils.last_n_chart(df, n=n_pitches, title=f"Last {n_pitches} Pitches"),
-    use_container_width=True,
+    width='stretch',
     config={"displayModeBar": False},
 )
 st.plotly_chart(
     utils.last_n_delta_chart(df, n=n_pitches, value_col="pitch", title="Pitch Delta (Circular)"),
-    use_container_width=True,
+    width='stretch',
     config={"displayModeBar": False},
 )
 
@@ -206,7 +206,7 @@ else:
     group_cols = ["pitcher_name"]
 st.plotly_chart(
     utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols),
-    use_container_width=True,
+    width='stretch',
     config={"displayModeBar": False},
 )
 
@@ -217,4 +217,4 @@ with st.expander("Raw At-Bat Data"):
                   "pitcher_name", "batter_name", "pitch", "swing", "diff", "result", "res_category"]].copy()
     display.columns = ["Season", "Session", "Inn", "Outs", "Runners",
                        "Pitcher", "Batter", "Pitch", "Swing", "Diff", "Result", "Category"]
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(display, width='stretch', hide_index=True)

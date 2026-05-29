@@ -202,8 +202,12 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     # Linear delta (for reference)
     df["pitch_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].diff()
     # Circular signed delta (shortest path on the 1-1000 wheel)
-    df["pitch_circ_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].transform(_circ_delta_group)
-    df["swing_circ_delta"] = df.groupby(["session_id", "batter_name"])["swing"].transform(_circ_delta_group)
+    df["pitch_circ_delta"] = (
+        df.groupby(["session_id", "pitcher_name"], group_keys=False)["pitch"].apply(_circ_delta_group)
+    )
+    df["swing_circ_delta"] = (
+        df.groupby(["session_id", "batter_name"], group_keys=False)["swing"].apply(_circ_delta_group)
+    )
     return df
 
 

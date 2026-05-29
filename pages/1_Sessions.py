@@ -63,7 +63,7 @@ for s in sessions:
                     "pitcher_name": "Pitcher", "batter_name": "Batter",
                     "pitch": "Pitch", "swing": "Swing", "diff": "Diff", "result": "Result",
                 }),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
         if st.button(f"Delete session S{s['season']}G{s['session_number']}", key=f"del_{s['id']}"):
