@@ -36,9 +36,9 @@ ZONE_LABELS = [z[2] for z in ZONES]
 
 # Zone grid: displayed high→low, left→right, top→bottom (matches spreadsheet layout)
 ZONE_GRID = [
-    ["889-1000", "778-888", "667-777"],
-    ["556-666",  "445-555", "334-444"],
-    ["223-333",  "112-222", "1-111"],
+    ["667-777",  "778-888", "889-1000"],
+    ["334-444",  "445-555", "556-666"],
+    ["1-111",    "112-222", "223-333"],
 ]
 
 # Delta range buckets (pitch change from previous at-bat)
