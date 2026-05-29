@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.markdown(
-    "<style>header[data-testid='stHeader'] {display: none;}</style>",
+    "<style>[data-testid='stToolbar'] {display: none;}</style>",
     unsafe_allow_html=True,
 )
 
