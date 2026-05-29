@@ -301,7 +301,7 @@ def last_n_chart(
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="At-Bat #", tickmode="linear", dtick=1),
-        yaxis=dict(range=[0, 1080], title="Value"),
+        yaxis=dict(range=[0, 1080]),
         height=380,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=10, t=60, b=40),
