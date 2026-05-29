@@ -217,8 +217,7 @@ if selected_batter != "All":
 else:
     group_cols = ["batter_name"]
 st.plotly_chart(
-    utils.hot_zone_matrix(df, value_col="swing", group_cols=group_cols,
-                          title="Swing → Next Swing Zone"),
+    utils.hot_zone_matrix(df, value_col="swing", group_cols=group_cols),
     use_container_width=True,
     config={"displayModeBar": False},
 )

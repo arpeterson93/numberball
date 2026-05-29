@@ -200,8 +200,7 @@ if selected_pitcher != "All":
 else:
     group_cols = ["pitcher_name"]
 st.plotly_chart(
-    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols,
-                          title="Pitch → Next Pitch Zone"),
+    utils.hot_zone_matrix(df, value_col="pitch", group_cols=group_cols),
     use_container_width=True,
     config={"displayModeBar": False},
 )
