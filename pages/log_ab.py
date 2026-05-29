@@ -38,9 +38,23 @@ active_session_id = session_options[selected_label]
 
 st.divider()
 
-# ------------------------------------------------------------------ at-bat form
+# ------------------------------------------------------------------ pitch & swing (live diff)
 
 st.subheader("Log At-Bat")
+
+st.markdown("**Numbers**")
+col_p, col_s = st.columns(2)
+with col_p:
+    pitch = st.number_input("Pitch (1-1000)", min_value=1, max_value=1000, value=500, step=1, key="pitch_input")
+with col_s:
+    swing = st.number_input("Swing (1-1000)", min_value=1, max_value=1000, value=500, step=1, key="swing_input")
+
+diff = utils.circular_diff(int(pitch), int(swing))
+st.info(f"Diff: **{diff}** | Pitch Zone: **{utils.get_zone(int(pitch))}**")
+
+st.divider()
+
+# ------------------------------------------------------------------ rest of form
 
 with st.form("ab_form", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
@@ -79,17 +93,9 @@ with st.form("ab_form", clear_on_submit=True):
         if batter_name == "(new)":
             batter_name = st.text_input("Batter name", key="bname_new").strip()
 
-    st.markdown("**Numbers**")
-    col_p, col_s = st.columns(2)
-    with col_p:
-        pitch = st.number_input("Pitch (1-1000)", min_value=1, max_value=1000, value=500, step=1)
-    with col_s:
-        swing = st.number_input("Swing (1-1000)", min_value=1, max_value=1000, value=500, step=1)
-
-    diff = utils.circular_diff(int(pitch), int(swing))
-    st.caption(f"Diff: **{diff}** | Zone: **{utils.get_zone(int(pitch))}**")
-
-    result = st.selectbox("Result", utils.RESULTS)
+    result = st.selectbox("Result", utils.RESULTS + ["(other)"])
+    if result == "(other)":
+        result = st.text_input("Custom result").strip().upper()
 
     col_fp1, col_fp2 = st.columns(2)
     with col_fp1:
