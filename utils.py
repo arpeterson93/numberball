@@ -733,7 +733,7 @@ def swing_predictor_chart(
         ),
         yaxis=dict(visible=False, range=[-0.18, 1.20]),
         height=420,
-        margin=dict(l=10, r=10, t=75, b=120),
+        margin=dict(l=10, r=25, t=75, b=120),
         legend=dict(
             orientation="h", x=0.5, y=-0.6,
             xanchor="center", yanchor="top",
