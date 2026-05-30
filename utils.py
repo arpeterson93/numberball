@@ -689,7 +689,7 @@ def swing_predictor_chart(
             fig.add_annotation(
                 x=abs_pos, xref="x", y=1.10, yref="paper",
                 text=lbl, showarrow=False,
-                font=dict(size=10, color="rgba(180,180,180,0.95)"),
+                font=dict(size=11, color="rgba(180,180,180,0.95)"),
                 xanchor="center", yanchor="bottom",
             )
 
@@ -707,7 +707,7 @@ def swing_predictor_chart(
                 text=str(boundary),
                 showarrow=True, arrowhead=2, arrowsize=0.9, arrowwidth=2,
                 arrowcolor="#1a7d35",
-                font=dict(color="#1a7d35", size=9, weight="bold"),
+                font=dict(color="#1a7d35", size=10, weight="bold"),
                 bgcolor="rgba(255,255,255,0.8)",
                 borderpad=2,
             )
@@ -729,7 +729,7 @@ def swing_predictor_chart(
             range=[0.5, 1000.5],
             tickmode="array",
             tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
-            tickfont=dict(size=10),
+            tickfont=dict(size=11),
         ),
         yaxis=dict(visible=False, range=[-0.18, 1.20]),
         height=420,
