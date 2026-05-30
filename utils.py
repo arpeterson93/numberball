@@ -716,7 +716,7 @@ def swing_predictor_chart(
     pill_text = f"{ref_label} {swing}" + (f"<br>Δ{implied_delta:+d}" if implied_delta is not None else "")
     fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
     fig.add_annotation(
-        x=swing, xref="x", y=1.18, yref="paper",
+        x=swing, xref="x", y=1.05, yref="paper",
         text=pill_text,
         showarrow=False, font=dict(color="white", size=8),
         xanchor="center",
