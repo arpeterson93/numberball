@@ -725,7 +725,12 @@ def swing_predictor_chart(
     )
 
     fig.update_layout(
-        xaxis=dict(range=[0.5, 1000.5], tickmode="linear", dtick=100),
+        xaxis=dict(
+            range=[0.5, 1000.5],
+            tickmode="array",
+            tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            tickfont=dict(size=10),
+        ),
         yaxis=dict(visible=False, range=[-0.18, 1.20]),
         height=420,
         margin=dict(l=10, r=10, t=75, b=120),
