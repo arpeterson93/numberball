@@ -674,9 +674,9 @@ def swing_predictor_chart(
     if vals:
         last_val = vals[-1]
         implied_delta = circular_signed_delta(last_val, swing)
-        for delta in [-400, -300, -200, -100, 0, 100, 200, 300, 400]:
+        for delta in [-400, -300, -200, -100, 0, 100, 200, 300, 400, 500]:
             abs_pos = ((last_val + delta - 1) % 1000) + 1
-            lbl = f"+{delta}" if delta > 0 else ("0" if delta == 0 else str(delta))
+            lbl = "±500" if delta == 500 else (f"+{delta}" if delta > 0 else ("0" if delta == 0 else str(delta)))
             is_zero = delta == 0
             fig.add_shape(
                 type="line", xref="x", yref="paper",
@@ -689,7 +689,7 @@ def swing_predictor_chart(
             fig.add_annotation(
                 x=abs_pos, xref="x", y=1.10, yref="paper",
                 text=lbl, showarrow=False,
-                font=dict(size=9, color="rgba(180,180,180,0.95)"),
+                font=dict(size=10, color="rgba(180,180,180,0.95)"),
                 xanchor="center", yanchor="bottom",
             )
 
@@ -713,7 +713,7 @@ def swing_predictor_chart(
             )
 
     # Reference value pill — includes implied delta from last pitch if available
-    pill_text = f"{ref_label} {swing}" + (f"  Δ{implied_delta:+d}" if implied_delta is not None else "")
+    pill_text = f"{ref_label} {swing}" + (f"<br>Δ{implied_delta:+d}" if implied_delta is not None else "")
     fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
     fig.add_annotation(
         x=swing, xref="x", y=1.18, yref="paper",
