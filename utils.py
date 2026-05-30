@@ -687,7 +687,7 @@ def swing_predictor_chart(
                 ),
             )
             fig.add_annotation(
-                x=abs_pos, y=1.10, yref="paper",
+                x=abs_pos, xref="x", y=1.10, yref="paper",
                 text=lbl, showarrow=False,
                 font=dict(size=9, color="rgba(180,180,180,0.95)"),
                 xanchor="center", yanchor="bottom",
@@ -716,7 +716,8 @@ def swing_predictor_chart(
     pill_text = f"{ref_label} {swing}" + (f"  Δ{implied_delta:+d}" if implied_delta is not None else "")
     fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
     fig.add_annotation(
-        x=swing, y=1.22, text=pill_text,
+        x=swing, xref="x", y=1.18, yref="paper",
+        text=pill_text,
         showarrow=False, font=dict(color="white", size=8),
         xanchor="center",
         bgcolor="rgba(30, 80, 180, 0.85)",
@@ -724,11 +725,10 @@ def swing_predictor_chart(
     )
 
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.18, 1.20]),
-        height=440,
-        margin=dict(l=10, r=10, t=100, b=120),
+        height=420,
+        margin=dict(l=10, r=10, t=75, b=120),
         legend=dict(
             orientation="h", x=0.5, y=-0.6,
             xanchor="center", yanchor="top",
