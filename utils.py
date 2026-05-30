@@ -674,29 +674,22 @@ def swing_predictor_chart(
     if vals:
         last_val = vals[-1]
         implied_delta = circular_signed_delta(last_val, swing)
-        fig.add_annotation(
-            x=0.5, xref="paper", y=1.19, yref="paper",
-            text=f"← Δ from last ({last_val}) →",
-            showarrow=False,
-            font=dict(size=6, color="rgba(140,140,140,0.85)"),
-            xanchor="center", yanchor="bottom",
-        )
         for delta in [-400, -300, -200, -100, 0, 100, 200, 300, 400]:
             abs_pos = ((last_val + delta - 1) % 1000) + 1
             lbl = f"+{delta}" if delta > 0 else ("0" if delta == 0 else str(delta))
             is_zero = delta == 0
             fig.add_shape(
                 type="line", xref="x", yref="paper",
-                x0=abs_pos, x1=abs_pos, y0=1.02, y1=1.08,
+                x0=abs_pos, x1=abs_pos, y0=1.02, y1=1.09,
                 line=dict(
                     color="rgba(210,210,210,0.95)" if is_zero else "rgba(140,140,140,0.7)",
                     width=1.5 if is_zero else 1,
                 ),
             )
             fig.add_annotation(
-                x=abs_pos, y=1.09, yref="paper",
+                x=abs_pos, y=1.10, yref="paper",
                 text=lbl, showarrow=False,
-                font=dict(size=6, color="rgba(160,160,160,0.9)"),
+                font=dict(size=9, color="rgba(180,180,180,0.95)"),
                 xanchor="center", yanchor="bottom",
             )
 
@@ -723,7 +716,7 @@ def swing_predictor_chart(
     pill_text = f"{ref_label} {swing}" + (f"  Δ{implied_delta:+d}" if implied_delta is not None else "")
     fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
     fig.add_annotation(
-        x=swing, y=1.28, text=pill_text,
+        x=swing, y=1.22, text=pill_text,
         showarrow=False, font=dict(color="white", size=8),
         xanchor="center",
         bgcolor="rgba(30, 80, 180, 0.85)",
@@ -734,8 +727,8 @@ def swing_predictor_chart(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(range=[0.5, 1000.5], tickmode="linear", dtick=100),
         yaxis=dict(visible=False, range=[-0.18, 1.20]),
-        height=420,
-        margin=dict(l=10, r=10, t=80, b=120),
+        height=440,
+        margin=dict(l=10, r=10, t=100, b=120),
         legend=dict(
             orientation="h", x=0.5, y=-0.6,
             xanchor="center", yanchor="top",
