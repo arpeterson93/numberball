@@ -729,14 +729,14 @@ def optimal_swing_chart(
             text=f"↑{best_val} ({best_score:.3f})",
             showarrow=False, xanchor="left",
             font=dict(color="white", size=8),
-            bgcolor="rgba(0,0,0,0.55)", borderpad=1,
+            bgcolor="rgba(0,0,0,0.55)", borderpad=0,
         )
         fig.add_annotation(
             x=counter_val, y=0.22, yref="paper",
             text=f"↓{counter_val} ({counter_score:.3f})",
             showarrow=False, xanchor="left",
             font=dict(color="rgba(255,180,80,1)", size=8),
-            bgcolor="rgba(0,0,0,0.55)", borderpad=1,
+            bgcolor="rgba(0,0,0,0.55)", borderpad=0,
         )
     else:
         fig.add_annotation(
