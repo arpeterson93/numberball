@@ -131,6 +131,8 @@ pitcher_name_sheet = st.session_state.get("pred_sheet_pitcher", "")
 if result_ranges:
     _matchup_label = " vs ".join(filter(None, [pitcher_name_sheet, batter_name])) or f"{len(result_ranges)} ranges"
     st.caption(f"Matchup: **{_matchup_label}**")
+    if "_pending_swing_p" in st.session_state:
+        st.session_state["pred_swing_p"] = st.session_state.pop("_pending_swing_p")
     col_sw, col_n = st.columns([3, 1])
     with col_sw:
         proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
@@ -162,7 +164,7 @@ if result_ranges:
                 _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
-                    st.session_state["pred_swing_p"] = _opts[_sel]
+                    st.session_state["_pending_swing_p"] = _opts[_sel]
                     st.session_state[_pk] = None
                     st.rerun()
                 st.plotly_chart(
@@ -179,7 +181,7 @@ if result_ranges:
                 _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
-                    st.session_state["pred_swing_p"] = _opts[_sel]
+                    st.session_state["_pending_swing_p"] = _opts[_sel]
                     st.session_state[_pk] = None
                     st.rerun()
                 st.plotly_chart(
