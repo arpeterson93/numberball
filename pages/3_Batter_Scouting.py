@@ -174,18 +174,34 @@ if result_ranges:
     col_obp_b, col_slg_b = st.columns(2)
     with col_obp_b:
         st.markdown("**OBP**")
-        for _lbl, _vals in _opt_chart_rows_b:
+        for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_b):
             st.caption(_lbl)
             if _vals:
+                _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", False)
+                _pk = f"pill_obp_{_i}_b"
+                _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
+                _sel = st.pills("", list(_opts.keys()), key=_pk)
+                if _sel:
+                    st.session_state["pred_pitch_b"] = _opts[_sel]
+                    st.session_state[_pk] = None
+                    st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "obp", False, compact=True),
                     use_container_width=True,
                 )
     with col_slg_b:
         st.markdown("**SLG**")
-        for _lbl, _vals in _opt_chart_rows_b:
+        for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_b):
             st.caption(_lbl)
             if _vals:
+                _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", False)
+                _pk = f"pill_slg_{_i}_b"
+                _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
+                _sel = st.pills("", list(_opts.keys()), key=_pk)
+                if _sel:
+                    st.session_state["pred_pitch_b"] = _opts[_sel]
+                    st.session_state[_pk] = None
+                    st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "slg", False, compact=True),
                     use_container_width=True,
