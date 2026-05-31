@@ -149,6 +149,8 @@ if result_ranges:
     st.caption(f"Matchup: **{_matchup_label}**")
     if "_pending_pitch_b" in st.session_state:
         st.session_state["pred_pitch_b"] = st.session_state.pop("_pending_pitch_b")
+    for _pk_reset in st.session_state.pop("_pills_to_reset_b", []):
+        st.session_state[_pk_reset] = None
     col_p, col_n = st.columns([3, 1])
     with col_p:
         proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000, value=500, step=1, key="pred_pitch_b")
@@ -185,7 +187,7 @@ if result_ranges:
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
                     st.session_state["_pending_pitch_b"] = _opts[_sel]
-                    st.session_state[_pk] = None
+                    st.session_state.setdefault("_pills_to_reset_b", []).append(_pk)
                     st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "obp", False, compact=True),
@@ -202,7 +204,7 @@ if result_ranges:
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
                     st.session_state["_pending_pitch_b"] = _opts[_sel]
-                    st.session_state[_pk] = None
+                    st.session_state.setdefault("_pills_to_reset_b", []).append(_pk)
                     st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "slg", False, compact=True),

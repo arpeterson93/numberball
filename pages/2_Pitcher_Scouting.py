@@ -133,6 +133,8 @@ if result_ranges:
     st.caption(f"Matchup: **{_matchup_label}**")
     if "_pending_swing_p" in st.session_state:
         st.session_state["pred_swing_p"] = st.session_state.pop("_pending_swing_p")
+    for _pk_reset in st.session_state.pop("_pills_to_reset_p", []):
+        st.session_state[_pk_reset] = None
     col_sw, col_n = st.columns([3, 1])
     with col_sw:
         proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
@@ -165,7 +167,7 @@ if result_ranges:
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
                     st.session_state["_pending_swing_p"] = _opts[_sel]
-                    st.session_state[_pk] = None
+                    st.session_state.setdefault("_pills_to_reset_p", []).append(_pk)
                     st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "obp", True, compact=True),
@@ -182,7 +184,7 @@ if result_ranges:
                 _sel = st.pills("", list(_opts.keys()), key=_pk)
                 if _sel:
                     st.session_state["_pending_swing_p"] = _opts[_sel]
-                    st.session_state[_pk] = None
+                    st.session_state.setdefault("_pills_to_reset_p", []).append(_pk)
                     st.rerun()
                 st.plotly_chart(
                     utils.optimal_swing_chart(_vals, result_ranges, "slg", True, compact=True),
