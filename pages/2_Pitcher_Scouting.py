@@ -21,6 +21,14 @@ if df_all.empty:
     st.info("No at-bats in the database yet.")
     st.stop()
 
+# Apply auto-filter from Fetch Matchup before sidebar renders
+if "_auto_pitcher_filter" in st.session_state:
+    _apf = st.session_state.pop("_auto_pitcher_filter")
+    if _apf.get("team") and _apf["team"] in df_all["pitcher_team"].unique():
+        st.session_state["spt_filter"] = _apf["team"]
+    if _apf.get("pitcher") and _apf["pitcher"] in df_all["pitcher_name"].unique():
+        st.session_state["spitcher_filter"] = _apf["pitcher"]
+
 # ------------------------------------------------------------------ filters
 
 with st.sidebar:
@@ -29,13 +37,13 @@ with st.sidebar:
     selected_seasons = st.multiselect("Season", seasons, default=seasons)
 
     pitcher_teams = sorted(df_all["pitcher_team"].unique())
-    selected_pt = st.selectbox("Pitcher Team", ["All"] + pitcher_teams)
+    selected_pt = st.selectbox("Pitcher Team", ["All"] + pitcher_teams, key="spt_filter")
 
     if selected_pt != "All":
         pitcher_names = sorted(df_all[df_all["pitcher_team"] == selected_pt]["pitcher_name"].unique())
     else:
         pitcher_names = sorted(df_all["pitcher_name"].unique())
-    selected_pitcher = st.selectbox("Pitcher", ["All"] + pitcher_names)
+    selected_pitcher = st.selectbox("Pitcher", ["All"] + pitcher_names, key="spitcher_filter")
 
     sessions_list = sorted(df_all["session_id"].dropna().unique())
     selected_sessions = st.multiselect("Sessions", sessions_list, default=sessions_list, format_func=lambda x: f"Session {int(x)}")
@@ -97,20 +105,32 @@ with col_sheet:
         pred_sheet_url = None
 with col_btn:
     st.write("")
-    if sheet_urls and st.button("Pull Ranges", type="secondary", key="pull_ranges_p"):
+    if sheet_urls and st.button("Fetch Matchup", type="secondary", key="pull_ranges_p"):
         try:
-            fetched_ranges, fetched_batter = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+            fetched_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
             st.session_state["pred_result_ranges"] = fetched_ranges
             st.session_state["pred_sheet_batter"] = fetched_batter
-            st.success(f"Loaded {len(fetched_ranges)} ranges.")
+            st.session_state["pred_sheet_pitcher"] = fetched_pitcher
+            # Auto-filter sidebar to fetched pitcher
+            if fetched_pitcher:
+                all_players = db.get_all_players()
+                player = next((p for p in all_players if p["name"] == fetched_pitcher), None)
+                st.session_state["_auto_pitcher_filter"] = {
+                    "team": player.get("team") if player else None,
+                    "pitcher": fetched_pitcher,
+                }
+            st.toast(f"Loaded {len(fetched_ranges)} ranges.")
+            st.rerun()
         except Exception as e:
             st.error(str(e))
 
 result_ranges = st.session_state.get("pred_result_ranges")
 batter_name = st.session_state.get("pred_sheet_batter", "")
+pitcher_name_sheet = st.session_state.get("pred_sheet_pitcher", "")
 
 if result_ranges:
-    st.caption(f"Pulled {len(result_ranges)} ranges — Batter: **{batter_name}**")
+    _matchup_label = " vs ".join(filter(None, [pitcher_name_sheet, batter_name])) or f"{len(result_ranges)} ranges"
+    st.caption(f"Matchup: **{_matchup_label}**")
     col_sw, col_n = st.columns([3, 1])
     with col_sw:
         proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000, value=500, step=1, key="pred_swing_p")
@@ -123,16 +143,49 @@ if result_ranges:
         ),
         width='stretch',
     )
+
+    st.markdown("**Optimal Swing**")
+    _recent_p = df.sort_values("id").tail(n_pred)["pitch"].astype(int).tolist()
+    _delta_p = utils.project_from_deltas(_recent_p)
+    _opt_chart_rows_p = [
+        ("Recent Pitch Values", _recent_p),
+        ("Recent Pitch Δ",      _delta_p),
+    ]
+    col_obp_p, col_slg_p = st.columns(2)
+    with col_obp_p:
+        st.markdown("**OBP**")
+        for _lbl, _vals in _opt_chart_rows_p:
+            st.caption(_lbl)
+            if _vals:
+                st.plotly_chart(
+                    utils.optimal_swing_chart(_vals, result_ranges, "obp", True, compact=True),
+                    use_container_width=True,
+                )
+    with col_slg_p:
+        st.markdown("**SLG**")
+        for _lbl, _vals in _opt_chart_rows_p:
+            st.caption(_lbl)
+            if _vals:
+                st.plotly_chart(
+                    utils.optimal_swing_chart(_vals, result_ranges, "slg", True, compact=True),
+                    use_container_width=True,
+                )
 else:
-    st.info("Pull ranges from the session sheet above to enable the predictor.")
+    st.info("Fetch a matchup sheet above to enable the predictor.")
 
 # ------------------------------------------------------------------ last n pitches
 
 st.divider()
 st.subheader("Last N Pitches")
-n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
+col_ln_n, col_ln_off = st.columns([3, 1])
+with col_ln_n:
+    n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
+with col_ln_off:
+    swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
+                           help="+1: shifts swing markers right by one AB to show if current swing predicts next pitch.")
 st.plotly_chart(
-    utils.last_n_combined_chart(df, n=n_pitches, delta_col="pitch", title=f"Last {n_pitches} Pitches"),
+    utils.last_n_combined_chart(df, n=n_pitches, delta_col="pitch", title=f"Last {n_pitches} Pitches",
+                                swing_offset=(swing_off_p == "+1")),
     width='stretch',
 )
 
@@ -272,4 +325,4 @@ with st.expander("Raw At-Bat Data"):
                   "pitcher_name", "batter_name", "pitch", "swing", "diff", "result", "res_category"]].copy()
     display.columns = ["Season", "Session", "Inn", "Outs", "Runners",
                        "Pitcher", "Batter", "Pitch", "Swing", "Diff", "Result", "Category"]
-    st.dataframe(display, width='stretch', hide_index=True)
+    st.dataframe(display, use_container_width=True, hide_index=True)

@@ -21,6 +21,14 @@ if df_all.empty:
     st.info("No at-bats in the database yet.")
     st.stop()
 
+# Apply auto-filter from Fetch Matchup before sidebar renders
+if "_auto_batter_filter" in st.session_state:
+    _abf = st.session_state.pop("_auto_batter_filter")
+    if _abf.get("team") and _abf["team"] in df_all["batter_team"].unique():
+        st.session_state["sbt_filter"] = _abf["team"]
+    if _abf.get("batter") and _abf["batter"] in df_all["batter_name"].unique():
+        st.session_state["sbatter_filter"] = _abf["batter"]
+
 # ------------------------------------------------------------------ filters
 
 with st.sidebar:
@@ -29,13 +37,23 @@ with st.sidebar:
     selected_seasons = st.multiselect("Season", seasons, default=seasons)
 
     batter_teams = sorted(df_all["batter_team"].unique())
-    selected_bt = st.selectbox("Batter Team", ["All"] + batter_teams)
+    selected_bt = st.selectbox("Batter Team", ["All"] + batter_teams, key="sbt_filter")
 
     if selected_bt != "All":
         batter_names = sorted(df_all[df_all["batter_team"] == selected_bt]["batter_name"].unique())
     else:
         batter_names = sorted(df_all["batter_name"].unique())
-    selected_batter = st.selectbox("Batter", ["All"] + batter_names)
+    selected_batter = st.selectbox("Batter", ["All"] + batter_names, key="sbatter_filter")
+
+    # Toggle: show only selected batter's ABs or all team ABs
+    if selected_batter != "All":
+        batter_scope = st.radio(
+            "Scope", ["Solo", "Full Team"],
+            horizontal=True, key="batter_scope",
+            help="Solo: only this batter's ABs. Full Team: all ABs from their team.",
+        )
+    else:
+        batter_scope = "Solo"
 
     sessions_list = sorted(df_all["session_id"].dropna().unique())
     selected_sessions = st.multiselect("Sessions", sessions_list, default=sessions_list, format_func=lambda x: f"Session {int(x)}")
@@ -47,7 +65,9 @@ if selected_seasons:
 if selected_bt != "All":
     df = df[df["batter_team"] == selected_bt]
 if selected_batter != "All":
-    df = df[df["batter_name"] == selected_batter]
+    if batter_scope == "Solo":
+        df = df[df["batter_name"] == selected_batter]
+    # "Full Team" keeps the whole team filtered by selected_bt above
 if selected_sessions:
     df = df[df["session_id"].isin(selected_sessions)]
 
@@ -101,20 +121,32 @@ with col_sheet:
         pred_sheet_url = None
 with col_btn:
     st.write("")
-    if sheet_urls and st.button("Pull Ranges", type="secondary", key="pull_ranges_b"):
+    if sheet_urls and st.button("Fetch Matchup", type="secondary", key="pull_ranges_b"):
         try:
-            fetched_ranges, fetched_batter = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+            fetched_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
             st.session_state["pred_result_ranges"] = fetched_ranges
             st.session_state["pred_sheet_batter"] = fetched_batter
-            st.success(f"Loaded {len(fetched_ranges)} ranges.")
+            st.session_state["pred_sheet_pitcher"] = fetched_pitcher
+            # Auto-filter sidebar to fetched batter
+            if fetched_batter:
+                all_players = db.get_all_players()
+                player = next((p for p in all_players if p["name"] == fetched_batter), None)
+                st.session_state["_auto_batter_filter"] = {
+                    "team": player.get("team") if player else None,
+                    "batter": fetched_batter,
+                }
+            st.toast(f"Loaded {len(fetched_ranges)} ranges.")
+            st.rerun()
         except Exception as e:
             st.error(str(e))
 
 result_ranges = st.session_state.get("pred_result_ranges")
 batter_name = st.session_state.get("pred_sheet_batter", "")
+pitcher_name_sheet = st.session_state.get("pred_sheet_pitcher", "")
 
 if result_ranges:
-    st.caption(f"Pulled {len(result_ranges)} ranges — Batter: **{batter_name}**")
+    _matchup_label = " vs ".join(filter(None, [pitcher_name_sheet, batter_name])) or f"{len(result_ranges)} ranges"
+    st.caption(f"Matchup: **{_matchup_label}**")
     col_p, col_n = st.columns([3, 1])
     with col_p:
         proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000, value=500, step=1, key="pred_pitch_b")
@@ -131,16 +163,49 @@ if result_ranges:
         ),
         width='stretch',
     )
+
+    st.markdown("**Optimal Pitch**")
+    _recent_b = df.sort_values("id").tail(n_pred_b)["swing"].astype(int).tolist()
+    _delta_b = utils.project_from_deltas(_recent_b)
+    _opt_chart_rows_b = [
+        ("Recent Swing Values", _recent_b),
+        ("Recent Swing Δ",      _delta_b),
+    ]
+    col_obp_b, col_slg_b = st.columns(2)
+    with col_obp_b:
+        st.markdown("**OBP**")
+        for _lbl, _vals in _opt_chart_rows_b:
+            st.caption(_lbl)
+            if _vals:
+                st.plotly_chart(
+                    utils.optimal_swing_chart(_vals, result_ranges, "obp", False, compact=True),
+                    use_container_width=True,
+                )
+    with col_slg_b:
+        st.markdown("**SLG**")
+        for _lbl, _vals in _opt_chart_rows_b:
+            st.caption(_lbl)
+            if _vals:
+                st.plotly_chart(
+                    utils.optimal_swing_chart(_vals, result_ranges, "slg", False, compact=True),
+                    use_container_width=True,
+                )
 else:
-    st.info("Pull ranges from the session sheet above to enable the predictor.")
+    st.info("Fetch a matchup sheet above to enable the predictor.")
 
 # ------------------------------------------------------------------ last n swings
 
 st.divider()
 st.subheader("Last N Swings")
-n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
+col_ln_n_b, col_ln_off_b = st.columns([3, 1])
+with col_ln_n_b:
+    n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
+with col_ln_off_b:
+    swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
+                           help="+1: shifts swing markers right by one AB to show if current swing predicts next pitch.")
 st.plotly_chart(
-    utils.last_n_combined_chart(df, n=n_swings, delta_col="swing", title=f"Last {n_swings} Swings"),
+    utils.last_n_combined_chart(df, n=n_swings, delta_col="swing", title=f"Last {n_swings} Swings",
+                                swing_offset=(swing_off_b == "+1")),
     width='stretch',
 )
 
@@ -291,4 +356,4 @@ with st.expander("Raw At-Bat Data"):
                   "pitcher_name", "batter_name", "pitch", "swing", "diff", "result", "res_category"]].copy()
     display.columns = ["Season", "Session", "Inn", "Outs", "Runners",
                        "Pitcher", "Batter", "Pitch", "Swing", "Diff", "Result", "Category"]
-    st.dataframe(display, width='stretch', hide_index=True)
+    st.dataframe(display, use_container_width=True, hide_index=True)

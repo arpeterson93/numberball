@@ -58,6 +58,22 @@ with col3:
 
 obc = st.selectbox("Runners", utils.OBC_OPTIONS, key="obc_input")
 
+# Auto-populate pitcher/batter teams from the active session based on inning half
+_active_session = next(s for s in sessions if s["id"] == active_session_id)
+if half == "top":
+    _auto_pt = _active_session.get("home_team")
+    _auto_bt = _active_session.get("away_team")
+else:
+    _auto_pt = _active_session.get("away_team")
+    _auto_bt = _active_session.get("home_team")
+_team_ctx = (half, active_session_id)
+if st.session_state.get("_team_ctx") != _team_ctx:
+    if _auto_pt in utils.TEAMS:
+        st.session_state["pt"] = _auto_pt
+    if _auto_bt in utils.TEAMS:
+        st.session_state["bt"] = _auto_bt
+    st.session_state["_team_ctx"] = _team_ctx
+
 # ------------------------------------------------------------------ pitcher
 
 st.markdown("**Pitcher**")
@@ -128,7 +144,7 @@ def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
     )
 
 
-if st.button("Submit At-Bat", type="primary", width='stretch'):
+if st.button("Submit At-Bat", type="primary", use_container_width=True):
     if not pitcher_name or not batter_name:
         st.error("Pitcher and batter names are required.")
     elif not result:
@@ -162,7 +178,7 @@ if st.session_state.get("pending_warnings"):
         st.warning(w)
     col_confirm, col_cancel = st.columns(2)
     with col_confirm:
-        if st.button("Submit anyway", type="primary", width='stretch'):
+        if st.button("Submit anyway", type="primary", use_container_width=True):
             p = st.session_state["pending_ab"]
             do_insert(p["session_id"], p["inning"], p["half"], p["outs"], p["obc"],
                       p["pitcher_team"], p["batter_team"], p["pitcher_name"],
@@ -172,7 +188,7 @@ if st.session_state.get("pending_warnings"):
             reset_entry()
             st.rerun()
     with col_cancel:
-        if st.button("Cancel", width='stretch'):
+        if st.button("Cancel", use_container_width=True):
             st.session_state.pop("pending_ab", None)
             st.session_state.pop("pending_warnings", None)
             st.rerun()
@@ -195,7 +211,7 @@ if recent:
             "pitcher_name": "Pitcher", "batter_name": "Batter",
             "pitch": "Pitch", "swing": "Swing", "diff": "Diff", "result": "Result",
         }),
-        width='stretch',
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -203,12 +219,12 @@ if recent:
         st.warning("Delete the last entry? This cannot be undone.")
         col_yes, col_no = st.columns(2)
         with col_yes:
-            if st.button("Yes, delete", type="primary", width='stretch'):
+            if st.button("Yes, delete", type="primary", use_container_width=True):
                 db.delete_at_bat(int(df["id"].iloc[0]))
                 st.session_state.pop("_confirm_delete", None)
                 st.rerun()
         with col_no:
-            if st.button("Cancel", width='stretch'):
+            if st.button("Cancel", use_container_width=True):
                 st.session_state.pop("_confirm_delete", None)
                 st.rerun()
     else:

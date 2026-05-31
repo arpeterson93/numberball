@@ -160,6 +160,12 @@ _XBH  = {"HR", "3B", "2BWH", "2B"}
 _BB1B = {"1BWH2", "1BWH", "1B", "IF1B", "BB"}
 _OBR  = _XBH | _BB1B
 
+# Bases per hit result (walks excluded from SLG per baseball convention)
+_SLG_WEIGHTS = {
+    "HR": 4, "3B": 3, "2BWH": 2, "2B": 2,
+    "1BWH2": 1, "1BWH": 1, "1B": 1, "IF1B": 1, "BB": 1,
+}
+
 def get_res_category(result: str, diff: int) -> str:
     if diff >= 300:
         return "300+"
@@ -321,6 +327,7 @@ def zone_heatmap(
         xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
         margin=dict(l=10, r=10, t=45, b=10),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
@@ -340,6 +347,7 @@ def delta_histogram(deltas: pd.Series, title: str = "Pitch Delta Distribution") 
         yaxis_title="Count",
         height=280,
         margin=dict(l=40, r=10, t=45, b=40),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
@@ -441,8 +449,11 @@ def last_n_combined_chart(
     n: int = 20,
     delta_col: str = "pitch",
     title: str = "Last N Pitches",
+    swing_offset: bool = False,
 ) -> go.Figure:
-    """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis."""
+    """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
+    swing_offset: if True, shifts swing markers right by 1 to show whether swing predicts next pitch.
+    """
     df_last = df.sort_values("id").tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
@@ -459,6 +470,16 @@ def last_n_combined_chart(
         for i in range(1, n_actual)
     ]
 
+    # With offset: swing[i] is plotted at x = i+2 (next AB slot), pairing it with pitch[i+1]
+    if swing_offset and n_actual > 1:
+        swing_x = list(range(2, n_actual + 1))
+        swing_y = swings[:-1]
+        swing_text = [str(s) for s in swing_y]
+    else:
+        swing_x = x_all
+        swing_y = swings
+        swing_text = [str(s) for s in swings]
+
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
@@ -472,8 +493,9 @@ def last_n_combined_chart(
         textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
-        x=x_all, y=swings, mode="lines+markers+text", name="Swing",
-        text=[str(s) for s in swings], textposition="bottom center",
+        x=swing_x, y=swing_y, mode="lines+markers+text",
+        name="Swing" + (" (offset +1)" if swing_offset else ""),
+        text=swing_text, textposition="bottom center",
         textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
     ), row=1, col=1)
     fig.add_trace(go.Bar(
@@ -499,6 +521,7 @@ def last_n_combined_chart(
         height=560,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=45, r=10, t=60, b=40),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
@@ -577,14 +600,174 @@ def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]
         raise ValueError("Result table found but no rows could be parsed.")
 
     # H12 = row index 11, col index 7 — current batter name
-    try:
-        batter_name = str(raw.iloc[11, 7]).strip()
-        if batter_name.lower() in ("nan", ""):
-            batter_name = ""
-    except Exception:
-        batter_name = ""
+    # H11 = row index 10, col index 7 — current pitcher name
+    def _cell(r, c):
+        try:
+            v = str(raw.iloc[r, c]).strip()
+            return v if v.lower() not in ("nan", "") else ""
+        except Exception:
+            return ""
 
-    return ranges, batter_name
+    batter_name = _cell(11, 7)
+    pitcher_name = _cell(10, 7)
+
+    return ranges, batter_name, pitcher_name
+
+
+def project_from_deltas(recent_vals: list[int]) -> list[int]:
+    """Apply each recent circular delta to the most recent value to get projected next positions."""
+    if len(recent_vals) < 2:
+        return []
+    last_val = recent_vals[-1]
+    return [((last_val + circular_signed_delta(recent_vals[i - 1], recent_vals[i]) - 1) % 1000) + 1
+            for i in range(1, len(recent_vals))]
+
+
+def _build_weight_array(vals: list[int]) -> "import numpy; numpy.ndarray":
+    """Return a length-1000 probability weight array proportional to recent frequency."""
+    import numpy as np
+    from collections import Counter
+    w = np.zeros(1000)
+    if not vals:
+        w[:] = 1.0 / 1000
+        return w
+    total = len(vals)
+    for v, c in Counter(vals).items():
+        w[v - 1] += c / total
+    return w
+
+
+def _scores_via_fft(w: "numpy.ndarray", diff_score_arr: "numpy.ndarray") -> "numpy.ndarray":
+    """Circular convolution: scores[r] = Σ_v w[v] * diff_score[circ_dist(r+1, v+1)], via FFT."""
+    import numpy as np
+    kernel = np.array([diff_score_arr[min(d, 1000 - d)] for d in range(1000)])
+    return np.real(np.fft.ifft(np.fft.fft(w) * np.fft.fft(kernel)))
+
+
+def _diff_score_array(result_ranges: list, metric: str) -> "numpy.ndarray":
+    """Precompute a length-501 score array indexed by circular diff value."""
+    import numpy as np
+    arr = np.zeros(501)
+    for d in range(501):
+        r = _diff_to_result(d, result_ranges)
+        arr[d] = (1.0 if r in _OBR else 0.0) if metric == "obp" else float(_SLG_WEIGHTS.get(r, 0))
+    return arr
+
+
+def suggest_swing(
+    recent_opp_vals: list[int],
+    result_ranges: list,
+    metric: str = "obp",
+    maximize: bool = True,
+) -> tuple[int, float, int, float]:
+    """Return (best_val, best_score, counter_val, counter_score) via FFT convolution.
+
+    best: argmax if maximize else argmin. counter: the opposite extreme.
+    """
+    import numpy as np
+    if not recent_opp_vals:
+        return 500, 0.0, 500, 0.0
+    scores = _scores_via_fft(
+        _build_weight_array(recent_opp_vals),
+        _diff_score_array(result_ranges, metric),
+    )
+    best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
+    counter_idx = int(np.argmin(scores) if maximize else np.argmax(scores))
+    return best_idx + 1, float(scores[best_idx]), counter_idx + 1, float(scores[counter_idx])
+
+
+def optimal_swing_chart(
+    recent_opp_vals: list[int],
+    result_ranges: list,
+    metric: str = "obp",
+    maximize: bool = True,
+    title: str = "Expected Score by Swing Value",
+    compact: bool = False,
+) -> go.Figure:
+    """1-row gradient heatmap showing expected OBP or SLG for every possible swing value.
+
+    Marks both the best value (green vline) and the counter/worst value (orange dotted vline).
+    """
+    import numpy as np
+    scores = _scores_via_fft(
+        _build_weight_array(recent_opp_vals),
+        _diff_score_array(result_ranges, metric),
+    )
+    best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
+    counter_idx = int(np.argmin(scores) if maximize else np.argmax(scores))
+    best_val = best_idx + 1
+    best_score = float(scores[best_idx])
+    counter_val = counter_idx + 1
+    counter_score = float(scores[counter_idx])
+
+    colorscale = "RdYlGn" if maximize else "RdYlGn_r"
+    fig = go.Figure()
+    fig.add_trace(go.Heatmap(
+        z=[scores.tolist()],
+        x=list(range(1, 1001)),
+        y=[0],
+        colorscale=colorscale,
+        showscale=not compact,
+        colorbar=dict(title=dict(text=metric.upper(), side="right"), thickness=12, len=0.8),
+        hovertemplate=f"Swing: %{{x}}<br>Expected {metric.upper()}: %{{z:.3f}}<extra></extra>",
+    ))
+
+    # Best vline: two-layer (dark outline + white center)
+    for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,255,255,0.88)")]:
+        fig.add_shape(type="line", xref="x", yref="paper",
+                      x0=best_val, x1=best_val, y0=0, y1=1,
+                      line=dict(color=_lc, width=_lw))
+    # Counter vline: two-layer (dark outline + orange center), dotted
+    for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,140,0,0.9)")]:
+        fig.add_shape(type="line", xref="x", yref="paper",
+                      x0=counter_val, x1=counter_val, y0=0, y1=1,
+                      line=dict(color=_lc, width=_lw, dash="dot"))
+
+    if compact:
+        fig.add_annotation(
+            x=best_val, y=0.78, yref="paper",
+            text=f"↑{best_val} ({best_score:.3f})",
+            showarrow=False, xanchor="left",
+            font=dict(color="white", size=8),
+            bgcolor="rgba(0,0,0,0.55)", borderpad=1,
+        )
+        fig.add_annotation(
+            x=counter_val, y=0.22, yref="paper",
+            text=f"↓{counter_val} ({counter_score:.3f})",
+            showarrow=False, xanchor="left",
+            font=dict(color="rgba(255,180,80,1)", size=8),
+            bgcolor="rgba(0,0,0,0.55)", borderpad=1,
+        )
+    else:
+        fig.add_annotation(
+            x=best_val, y=0.75, yref="paper",
+            text=f"Best: {best_val}<br>({best_score:.3f})",
+            showarrow=True, arrowhead=2, arrowcolor="white", ax=40, ay=0,
+            font=dict(color="white", size=9),
+            bgcolor="rgba(0,0,0,0.6)", borderpad=2,
+        )
+        fig.add_annotation(
+            x=counter_val, y=0.25, yref="paper",
+            text=f"Counter: {counter_val}<br>({counter_score:.3f})",
+            showarrow=True, arrowhead=2, arrowcolor="rgba(255,140,0,0.9)", ax=-40, ay=0,
+            font=dict(color="rgba(255,180,80,1)", size=9),
+            bgcolor="rgba(0,0,0,0.6)", borderpad=2,
+        )
+    fig.update_layout(
+        xaxis=dict(
+            range=[0.5, 1000.5],
+            tickmode="array",
+            tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            tickfont=dict(size=10 if not compact else 8),
+        ),
+        yaxis=dict(visible=False),
+        height=110 if compact else 130,
+        margin=dict(l=10, r=10 if compact else 80, t=5 if compact else 10, b=35 if compact else 30),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
 
 
 def swing_predictor_chart(
@@ -665,7 +848,7 @@ def swing_predictor_chart(
             showscale=False,
             line=dict(width=0.5, color="white"),
         ),
-        name=tick_label,
+        name="Recent Pitches",
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
 
@@ -693,6 +876,36 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="bottom",
             )
 
+        # Delta triangles above zone bar — project each historical delta from most recent value
+        delta_col = f"{value_col}_circ_delta"
+        if delta_col in df_last.columns:
+            delta_raw = df_last[delta_col].tolist()
+            top_x, top_idx, top_d = [], [], []
+            for i, d in enumerate(delta_raw):
+                if not pd.isna(d):
+                    d_int = int(d)
+                    top_x.append(((last_val + d_int - 1) % 1000) + 1)
+                    top_idx.append(i)
+                    top_d.append(d_int)
+            if top_x:
+                fig.add_trace(go.Scatter(
+                    x=top_x,
+                    y=[1.08] * len(top_x),
+                    mode="markers",
+                    marker=dict(
+                        symbol="triangle-down", size=9,
+                        color=top_idx,
+                        colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
+                        cmin=0, cmax=n_vals - 1,
+                        showscale=False,
+                        line=dict(width=0.5, color="white"),
+                    ),
+                    text=[f"Δ{d:+d} → {x}" for d, x in zip(top_d, top_x)],
+                    hovertemplate="%{text}<extra></extra>",
+                    name="Recent Δ",
+                    showlegend=True,
+                ))
+
     # OBR boundary lines — offset clamped so labels stay on-screen at chart edges
     obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
     if obr_max > 0:
@@ -712,15 +925,20 @@ def swing_predictor_chart(
                 borderpad=2,
             )
 
-    # Reference value pill — includes implied delta from last pitch if available
+    # Reference value pill — same y as OBR labels (ay=0), white bg, green text
     pill_text = f"{ref_label} {swing}" + (f"<br>Δ{implied_delta:+d}" if implied_delta is not None else "")
-    fig.add_vline(x=swing, line_dash="dash", line_color="#4a90d9", line_width=2)
+    # Two-layer vline: dark outline first, white center on top → visible on both light and dark backgrounds
+    for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,255,255,0.88)")]:
+        fig.add_shape(type="line", xref="x", yref="paper",
+                      x0=swing, x1=swing, y0=0, y1=1,
+                      line=dict(color=_lc, width=_lw, dash="dash"))
     fig.add_annotation(
-        x=swing, xref="x", y=1.05, yref="paper",
+        x=swing, y=0.82,
         text=pill_text,
-        showarrow=False, font=dict(color="white", size=8),
-        xanchor="center",
-        bgcolor="rgba(30, 80, 180, 0.85)",
+        showarrow=False,
+        xanchor="center", yanchor="middle",
+        font=dict(color="#1a7d35", size=10, weight="bold"),
+        bgcolor="rgba(255,255,255,0.9)",
         borderpad=2,
     )
 
@@ -740,6 +958,7 @@ def swing_predictor_chart(
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=9, family="monospace"),
         ),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
@@ -792,6 +1011,7 @@ def hot_zone_matrix(
         yaxis=dict(title="Initial Pitch", autorange="reversed"),
         height=max(400, n_buckets * 42 + 100),
         margin=dict(l=80, r=10, t=80, b=10),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
@@ -818,6 +1038,7 @@ def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figu
         xaxis_title="% of ABs",
         height=max(200, len(labels) * 30 + 80),
         margin=dict(l=80, r=80, t=45, b=30),
+        dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
