@@ -117,6 +117,18 @@ DELTA_RANGES = [
     (401,  500,  "401 to 500"),
 ]
 
+TEAM_ABBREV: dict[str, str] = {
+    "CC": "Couriers",
+    "JJ": "Jammers",
+    "TT": "Tridents",
+    "SLS": "Sharks",
+}
+
+BRC_TO_OBC: dict[int, str] = {
+    0: "Empty", 1: "1B", 2: "2B", 3: "1&2B",
+    4: "3B", 5: "1&3B", 6: "2&3B", 7: "BL",
+}
+
 
 # ------------------------------------------------------------------ calculations
 
@@ -260,32 +272,35 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["is_meme_swing"] = df["swing"].isin(MEME_NUMBERS)
     df["pitch_last2"] = df["pitch"].apply(lambda p: int(str(int(p)).zfill(2)[-2:]))
     df["inning_label"] = df.apply(lambda r: inning_label(r["inning"], r["half"]), axis=1)
-    # Compute FP flags from insertion order within session
-    df = df.sort_values(["session_id", "id"])
-    df["is_fp_inn"] = ~df.duplicated(subset=["session_id", "inning", "half"], keep="first")
-    df["is_fp_app"] = ~df.duplicated(subset=["session_id", "pitcher_name"], keep="first")
+    # Compute FP flags from insertion order within game
+    df = df.sort_values(["game_id", "id"])
+    df["is_fp_inn"] = ~df.duplicated(subset=["game_id", "inning", "half"], keep="first")
+    df["is_fp_app"] = ~df.duplicated(subset=["game_id", "pitcher_name"], keep="first")
     # Linear delta (for reference)
-    df["pitch_delta"] = df.groupby(["session_id", "pitcher_name"])["pitch"].diff()
+    df["pitch_delta"] = df.groupby(["game_id", "pitcher_name"])["pitch"].diff()
     # Circular signed delta (shortest path on the 1-1000 wheel)
     df["pitch_circ_delta"] = (
-        df.groupby(["session_id", "pitcher_name"], group_keys=False)["pitch"].apply(_circ_delta_group)
+        df.groupby(["game_id", "pitcher_name"], group_keys=False)["pitch"].apply(_circ_delta_group)
     )
     df["swing_circ_delta"] = (
-        df.groupby(["session_id", "batter_name"], group_keys=False)["swing"].apply(_circ_delta_group)
+        df.groupby(["game_id", "batter_name"], group_keys=False)["swing"].apply(_circ_delta_group)
     )
     return df
 
 
-def flatten_sessions(at_bats: list[dict]) -> pd.DataFrame:
-    """Flatten nested session data from Supabase join into flat columns."""
+def flatten_games(at_bats: list[dict]) -> pd.DataFrame:
+    """Flatten nested game data from Supabase join into flat columns."""
     rows = []
     for ab in at_bats:
-        row = {k: v for k, v in ab.items() if k != "sessions"}
-        if ab.get("sessions"):
-            row["season"] = ab["sessions"].get("season")
-            row["session_number"] = ab["sessions"].get("session_number")
-            row["home_team"] = ab["sessions"].get("home_team")
-            row["away_team"] = ab["sessions"].get("away_team")
+        row = {k: v for k, v in ab.items() if k != "games"}
+        if ab.get("games"):
+            g = ab["games"]
+            row["season"] = g.get("season")
+            row["session_number"] = g.get("session_number")
+            row["home_team"] = g.get("home_team")
+            row["away_team"] = g.get("away_team")
+            row["game_code"] = g.get("game_code")
+            row["game_num"] = g.get("game_num")
         rows.append(row)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -974,12 +989,12 @@ def hot_zone_matrix(
 ) -> go.Figure:
     """Heatmap of consecutive pitch/swing zone transitions. bucket_size must divide 1000 evenly."""
     if group_cols is None:
-        group_cols = ["session_id", "pitcher_name"]
+        group_cols = ["game_id", "pitcher_name"]
 
     n_buckets = 1000 // bucket_size
     labels = [f"{i * bucket_size + 1}-{min((i + 1) * bucket_size, 1000)}" for i in range(n_buckets)]
 
-    df = df.sort_values(["session_id", "id"]).copy()
+    df = df.sort_values(["game_id", "id"]).copy()
     df["_next"] = df.groupby(group_cols)[value_col].shift(-1)
     df = df.dropna(subset=["_next"])
 
@@ -1016,6 +1031,143 @@ def hot_zone_matrix(
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
+
+
+# ------------------------------------------------------------------ sheet import helpers
+
+def _safe_int(val) -> int | None:
+    try:
+        return int(float(str(val).strip()))
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_inning(inning_str: str) -> tuple[int, str]:
+    """Parse 'T1' → (1, 'top'), 'B3' → (3, 'bottom')."""
+    s = str(inning_str).strip().upper()
+    if s.startswith("T"):
+        try:
+            return int(s[1:]), "top"
+        except ValueError:
+            pass
+    if s.startswith("B"):
+        try:
+            return int(s[1:]), "bottom"
+        except ValueError:
+            pass
+    try:
+        return int(s), "top"
+    except ValueError:
+        return 1, "top"
+
+
+def read_games_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Games' tab of a public Google Sheet and return a list of game dicts."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Games')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    games = []
+    for _, row in df.iterrows():
+        game_id_str = str(row.get("GameID", "")).strip()
+        if not game_id_str or len(game_id_str) < 4 or game_id_str.lower() == "nan":
+            continue
+        try:
+            season = int(game_id_str[:2])
+            session_num = int(game_id_str[2:4])
+        except ValueError:
+            continue
+        away_abbrev = str(row.get("Away", "")).strip()
+        home_abbrev = str(row.get("Home", "")).strip()
+        games.append({
+            "game_code": game_id_str,
+            "game_num": _safe_int(row.get("Game#") or row.get("Game_num")),
+            "season": season,
+            "session_number": session_num,
+            "away_team": TEAM_ABBREV.get(away_abbrev, away_abbrev),
+            "home_team": TEAM_ABBREV.get(home_abbrev, home_abbrev),
+            "away_score": _safe_int(row.get("a_Scr") or row.get("Away_Score")),
+            "home_score": _safe_int(row.get("h_Scr") or row.get("Home_Score")),
+        })
+    return games
+
+
+def read_plays_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Plays (Converted)' tab and return a list of play dicts."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Converted)')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    def _col(*names: str) -> str | None:
+        for n in names:
+            if n in df.columns:
+                return n
+        return None
+
+    col_play = _col("play_num", "Play_num", "Play#", "play#")
+    col_game = _col("game_id", "GameID", "game_code")
+    col_inn = _col("inning", "Inning")
+    col_batter = _col("batter", "Batter")
+    col_pitcher = _col("pitcher", "Pitcher")
+    col_batter_team = _col("batter_rc", "batter_team", "BatterTeam")
+    col_pitcher_team = _col("pitcher_rc", "pitcher_team", "PitcherTeam")
+    col_brc = _col("brc", "BRC", "base_runners")
+    col_result = _col("result", "Result")
+    col_outs = _col("outs", "Outs")
+    col_pitch = _col("pitch", "Pitch")
+    col_swing = _col("swing", "Swing")
+
+    plays = []
+    for _, row in df.iterrows():
+        play_num = _safe_int(row.get(col_play)) if col_play else None
+        game_code = str(row.get(col_game, "")).strip() if col_game else ""
+        if not play_num or not game_code or game_code.lower() == "nan":
+            continue
+
+        inning_str = str(row.get(col_inn, "")).strip() if col_inn else "T1"
+        inning_num, half = parse_inning(inning_str)
+
+        brc = _safe_int(row.get(col_brc)) if col_brc else None
+        obc = BRC_TO_OBC.get(brc, "Empty") if brc is not None else "Empty"
+
+        pitcher_name = str(row.get(col_pitcher, "")).strip() if col_pitcher else ""
+        batter_name = str(row.get(col_batter, "")).strip() if col_batter else ""
+        pitcher_team_abbrev = str(row.get(col_pitcher_team, "")).strip() if col_pitcher_team else ""
+        batter_team_abbrev = str(row.get(col_batter_team, "")).strip() if col_batter_team else ""
+        pitch = _safe_int(row.get(col_pitch)) if col_pitch else None
+        swing = _safe_int(row.get(col_swing)) if col_swing else None
+        result = str(row.get(col_result, "")).strip() if col_result else ""
+        outs = _safe_int(row.get(col_outs)) if col_outs else 0
+
+        if not pitcher_name or not batter_name or pitch is None or swing is None or not result:
+            continue
+        if pitcher_name.lower() == "nan" or batter_name.lower() == "nan":
+            continue
+
+        plays.append({
+            "play_num": play_num,
+            "game_code": game_code,
+            "inning": inning_num,
+            "half": half,
+            "outs": outs or 0,
+            "obc": obc,
+            "pitcher_team": TEAM_ABBREV.get(pitcher_team_abbrev, pitcher_team_abbrev),
+            "batter_team": TEAM_ABBREV.get(batter_team_abbrev, batter_team_abbrev),
+            "pitcher_name": pitcher_name,
+            "batter_name": batter_name,
+            "pitch": pitch,
+            "swing": swing,
+            "result": result,
+        })
+    return plays
 
 
 def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figure:

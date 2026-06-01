@@ -20,11 +20,11 @@ def _client() -> Client:
     return create_client(url, key)
 
 
-# ------------------------------------------------------------------ sessions
+# ------------------------------------------------------------------ games
 
-def get_sessions() -> list[dict]:
+def get_games() -> list[dict]:
     return (
-        _client().table("sessions")
+        _client().table("games")
         .select("*")
         .order("season", desc=True)
         .order("session_number", desc=True)
@@ -33,35 +33,97 @@ def get_sessions() -> list[dict]:
     )
 
 
-def get_session(session_id: int) -> dict | None:
+def get_game(game_id: int) -> dict | None:
     rows = (
-        _client().table("sessions")
+        _client().table("games")
         .select("*")
-        .eq("id", session_id)
+        .eq("id", game_id)
         .execute()
         .data
     )
     return rows[0] if rows else None
 
 
-def create_session(season: int, session_number: int, home_team: str, away_team: str, game_date=None, sheet_url: str | None = None) -> dict:
+def create_game(
+    season: int,
+    session_number: int,
+    home_team: str,
+    away_team: str,
+    start_date=None,
+    sheet_url: str | None = None,
+    game_code: str | None = None,
+    game_num: int | None = None,
+    away_score: int | None = None,
+    home_score: int | None = None,
+) -> dict:
     return (
-        _client().table("sessions")
+        _client().table("games")
         .insert({
             "season": season,
             "session_number": session_number,
             "home_team": home_team,
             "away_team": away_team,
-            "game_date": str(game_date) if game_date else None,
+            "start_date": str(start_date) if start_date else None,
             "sheet_url": sheet_url or None,
+            "game_code": game_code,
+            "game_num": game_num,
+            "away_score": away_score,
+            "home_score": home_score,
         })
         .execute()
         .data[0]
     )
 
 
-def delete_session(session_id: int) -> None:
-    _client().table("sessions").delete().eq("id", session_id).execute()
+def upsert_game(
+    game_code: str,
+    season: int,
+    session_number: int,
+    home_team: str,
+    away_team: str,
+    game_num: int | None = None,
+    away_score: int | None = None,
+    home_score: int | None = None,
+    sheet_url: str | None = None,
+) -> dict:
+    """Insert or update a game record keyed on game_code."""
+    existing = (
+        _client().table("games")
+        .select("id")
+        .eq("game_code", game_code)
+        .execute()
+        .data
+    )
+    payload: dict = {
+        "game_code": game_code,
+        "season": season,
+        "session_number": session_number,
+        "home_team": home_team,
+        "away_team": away_team,
+        "game_num": game_num,
+        "away_score": away_score,
+        "home_score": home_score,
+    }
+    if sheet_url is not None:
+        payload["sheet_url"] = sheet_url
+    if existing:
+        return (
+            _client().table("games")
+            .update(payload)
+            .eq("game_code", game_code)
+            .execute()
+            .data[0]
+        )
+    return (
+        _client().table("games")
+        .insert(payload)
+        .execute()
+        .data[0]
+    )
+
+
+def delete_game(game_id: int) -> None:
+    _client().table("games").delete().eq("id", game_id).execute()
 
 
 # ------------------------------------------------------------------ at_bats
@@ -69,26 +131,27 @@ def delete_session(session_id: int) -> None:
 def get_all_at_bats() -> list[dict]:
     return (
         _client().table("at_bats")
-        .select("*, sessions(season, session_number, home_team, away_team)")
+        .select("*, games(season, session_number, home_team, away_team, game_code, game_num)")
         .order("id", desc=False)
         .execute()
         .data
     )
 
 
-def get_at_bats_for_session(session_id: int) -> list[dict]:
+def get_at_bats_for_game(game_id: int) -> list[dict]:
     return (
         _client().table("at_bats")
         .select("*")
-        .eq("session_id", session_id)
+        .eq("game_id", game_id)
         .order("id", desc=False)
         .execute()
         .data
     )
 
 
-def insert_at_bat(
-    session_id: int,
+def upsert_at_bat(
+    game_id: int,
+    play_num: int,
     inning: int,
     half: str,
     outs: int,
@@ -103,24 +166,42 @@ def insert_at_bat(
     is_fp_app: bool = False,
     is_fp_inn: bool = False,
 ) -> dict:
+    """Insert or update an at-bat record keyed on play_num."""
+    existing = (
+        _client().table("at_bats")
+        .select("id")
+        .eq("play_num", play_num)
+        .execute()
+        .data
+    )
+    payload = {
+        "game_id": game_id,
+        "play_num": play_num,
+        "inning": inning,
+        "half": half,
+        "outs": outs,
+        "obc": obc,
+        "pitcher_team": pitcher_team,
+        "batter_team": batter_team,
+        "pitcher_name": pitcher_name,
+        "batter_name": batter_name,
+        "pitch": pitch,
+        "swing": swing,
+        "result": result,
+        "is_fp_app": is_fp_app,
+        "is_fp_inn": is_fp_inn,
+    }
+    if existing:
+        return (
+            _client().table("at_bats")
+            .update(payload)
+            .eq("play_num", play_num)
+            .execute()
+            .data[0]
+        )
     return (
         _client().table("at_bats")
-        .insert({
-            "session_id": session_id,
-            "inning": inning,
-            "half": half,
-            "outs": outs,
-            "obc": obc,
-            "pitcher_team": pitcher_team,
-            "batter_team": batter_team,
-            "pitcher_name": pitcher_name,
-            "batter_name": batter_name,
-            "pitch": pitch,
-            "swing": swing,
-            "result": result,
-            "is_fp_app": is_fp_app,
-            "is_fp_inn": is_fp_inn,
-        })
+        .insert(payload)
         .execute()
         .data[0]
     )
@@ -130,6 +211,7 @@ def delete_at_bat(at_bat_id: int) -> None:
     _client().table("at_bats").delete().eq("id", at_bat_id).execute()
 
 
+# ------------------------------------------------------------------ players
 
 @st.cache_data(ttl=300)
 def get_all_players() -> list[dict]:

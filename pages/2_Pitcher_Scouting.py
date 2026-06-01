@@ -13,7 +13,7 @@ def load_data() -> pd.DataFrame:
     raw = db.get_all_at_bats()
     if not raw:
         return pd.DataFrame()
-    df = utils.flatten_sessions(raw)
+    df = utils.flatten_games(raw)
     return utils.enrich_df(df)
 
 df_all = load_data()
@@ -45,8 +45,8 @@ with st.sidebar:
         pitcher_names = sorted(df_all["pitcher_name"].unique())
     selected_pitcher = st.selectbox("Pitcher", ["All"] + pitcher_names, key="spitcher_filter")
 
-    sessions_list = sorted(df_all["session_id"].dropna().unique())
-    selected_sessions = st.multiselect("Sessions", sessions_list, default=sessions_list, format_func=lambda x: f"Session {int(x)}")
+    games_list = sorted(df_all["game_id"].dropna().unique())
+    selected_games = st.multiselect("Games", games_list, default=games_list, format_func=lambda x: f"Game {int(x)}")
 
 # Apply filters
 df = df_all.copy()
@@ -56,8 +56,8 @@ if selected_pt != "All":
     df = df[df["pitcher_team"] == selected_pt]
 if selected_pitcher != "All":
     df = df[df["pitcher_name"] == selected_pitcher]
-if selected_sessions:
-    df = df[df["session_id"].isin(selected_sessions)]
+if selected_games:
+    df = df[df["game_id"].isin(selected_games)]
 
 if df.empty:
     st.warning("No at-bats match the current filters.")
@@ -81,11 +81,11 @@ st.divider()
 st.subheader("Swing Predictor")
 st.caption("Enter a proposed swing to see what result each of this pitcher's pitches would give and how recent pitches line up.")
 
-all_sessions = db.get_sessions()
-sessions_by_id = {s["id"]: s for s in all_sessions}
+all_games = db.get_games()
+games_by_id = {g["id"]: g for g in all_games}
 sheet_urls = list(dict.fromkeys(
-    s["sheet_url"] for sid in selected_sessions
-    if (s := sessions_by_id.get(sid)) and s.get("sheet_url")
+    g["sheet_url"] for gid in selected_games
+    if (g := games_by_id.get(gid)) and g.get("sheet_url")
 ))
 
 @st.cache_data(ttl=3600)
@@ -218,7 +218,7 @@ bucket_size_p = st.select_slider(
     "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="hz_bucket_pitch"
 )
 if selected_pitcher != "All":
-    group_cols = ["session_id", "pitcher_name"]
+    group_cols = ["game_id", "pitcher_name"]
 else:
     group_cols = ["pitcher_name"]
 st.plotly_chart(
@@ -341,8 +341,8 @@ st.plotly_chart(utils.result_bar(res_cat_counts, title="Result Category"), width
 # ------------------------------------------------------------------ raw data
 
 with st.expander("Raw At-Bat Data"):
-    display = df[["season", "session_id", "inning", "outs", "obc",
+    display = df[["season", "game_id", "inning", "outs", "obc",
                   "pitcher_name", "batter_name", "pitch", "swing", "diff", "result", "res_category"]].copy()
-    display.columns = ["Season", "Session", "Inn", "Outs", "Runners",
+    display.columns = ["Season", "Game", "Inn", "Outs", "Runners",
                        "Pitcher", "Batter", "Pitch", "Swing", "Diff", "Result", "Category"]
     st.dataframe(display, use_container_width=True, hide_index=True)

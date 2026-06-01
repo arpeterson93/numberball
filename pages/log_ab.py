@@ -45,6 +45,30 @@ active_session_id = session_options[selected_label]
 st.divider()
 st.subheader("Log At-Bat")
 
+# ------------------------------------------------------------------ prefill game state from last AB
+
+if st.session_state.pop("_prefill_game_state", False):
+    _prev_abs = sorted(db.get_at_bats_for_session(active_session_id), key=lambda e: e["id"])
+    if _prev_abs:
+        _p = _prev_abs[-1]
+        _prev_half = _p.get("half", "top")
+        _prev_inn = int(_p["inning"])
+        _prev_outs = int(_p["outs"])
+        _outs_after = _prev_outs + utils.outs_added(_p.get("result", ""))
+        if _outs_after >= 3:
+            if _prev_half == "top":
+                st.session_state["half_input"] = "▼ Bot"
+                st.session_state["inning_input"] = _prev_inn
+            else:
+                st.session_state["half_input"] = "▲ Top"
+                st.session_state["inning_input"] = _prev_inn + 1
+            st.session_state["outs_input"] = 0
+        else:
+            st.session_state["half_input"] = "▲ Top" if _prev_half == "top" else "▼ Bot"
+            st.session_state["inning_input"] = _prev_inn
+            st.session_state["outs_input"] = min(_outs_after, 2)
+        st.session_state["obc_input"] = "Empty"
+
 # ------------------------------------------------------------------ half / inning / outs / runners
 
 col1, col2, col3 = st.columns(3)
@@ -127,6 +151,7 @@ result = hit_pill or out_pill or ""
 
 def reset_entry():
     st.session_state["_reset_pending"] = True
+    st.session_state["_prefill_game_state"] = True
 
 
 def do_insert(session_id, inning, half, outs, obc, pitcher_team, batter_team,
