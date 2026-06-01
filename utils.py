@@ -488,12 +488,12 @@ def last_n_combined_chart(
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: if True, shifts swing markers right by 1 to show whether swing predicts next pitch.
     """
-    df_last = df.sort_values("id").tail(n).reset_index(drop=True)
+    df_last = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id").tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
     pitches = df_last["pitch"].astype(int).tolist()
     swings = df_last["swing"].astype(int).tolist()
-    delta_vals = df_last[delta_col].astype(int).tolist()
+    delta_vals = df_last[delta_col].dropna().astype(int).tolist()
 
     deltas = [circular_signed_delta(delta_vals[i - 1], delta_vals[i]) for i in range(1, n_actual)]
     linear = [delta_vals[i] - delta_vals[i - 1] for i in range(1, n_actual)]
