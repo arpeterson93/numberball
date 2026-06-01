@@ -879,14 +879,14 @@ def swing_predictor_chart(
                 type="line", xref="x", yref="paper",
                 x0=abs_pos, x1=abs_pos, y0=1.02, y1=1.09,
                 line=dict(
-                    color="rgba(210,210,210,0.95)" if is_zero else "rgba(140,140,140,0.7)",
+                    color="rgba(160,160,160,0.9)" if is_zero else "rgba(160,160,160,0.9)",
                     width=1.5 if is_zero else 1,
                 ),
             )
             fig.add_annotation(
                 x=abs_pos, xref="x", y=1.10, yref="paper",
                 text=lbl, showarrow=False,
-                font=dict(size=11, color="rgba(180,180,180,0.95)"),
+                font=dict(size=11, color="rgba(160,160,160,0.9)"),
                 xanchor="center", yanchor="bottom",
             )
 
