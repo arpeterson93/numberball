@@ -94,6 +94,11 @@ def _show_errors(errs: list[str]) -> None:
                 st.caption(m)
 
 
+# ------------------------------------------------------------------ sync results (survive rerun)
+
+if "_sync_errors" in st.session_state:
+    _show_errors(st.session_state.pop("_sync_errors"))
+
 # ------------------------------------------------------------------ sync buttons
 
 col_st, col_spl, col_sg, col_sp, col_sa = st.columns(5)
@@ -102,32 +107,36 @@ with col_st:
     if st.button("Sync Teams", use_container_width=True):
         with st.spinner("Reading Teams tab…"):
             n, errs = _sync_teams(_RLN_SHEET_ID)
-        st.success(f"{n} team(s) synced.")
-        _show_errors(errs)
+        st.toast(f"{n} team(s) synced.")
+        if errs:
+            st.session_state["_sync_errors"] = errs
         st.rerun()
 
 with col_spl:
     if st.button("Sync Players", use_container_width=True):
         with st.spinner("Reading Players tab…"):
             n, errs = _sync_players(_RLN_SHEET_ID)
-        st.success(f"{n} player(s) synced.")
-        _show_errors(errs)
+        st.toast(f"{n} player(s) synced.")
+        if errs:
+            st.session_state["_sync_errors"] = errs
         st.rerun()
 
 with col_sg:
     if st.button("Sync Games", use_container_width=True):
         with st.spinner("Reading Games tab…"):
             n, errs = _sync_games(_RLN_SHEET_ID)
-        st.success(f"{n} game(s) synced.")
-        _show_errors(errs)
+        st.toast(f"{n} game(s) synced.")
+        if errs:
+            st.session_state["_sync_errors"] = errs
         st.rerun()
 
 with col_sp:
     if st.button("Sync Plays", use_container_width=True):
         with st.spinner("Reading Plays tab…"):
             n, errs = _sync_plays(_RLN_SHEET_ID)
-        st.success(f"{n} play(s) synced.")
-        _show_errors(errs)
+        st.toast(f"{n} play(s) synced.")
+        if errs:
+            st.session_state["_sync_errors"] = errs
         st.rerun()
 
 with col_sa:
@@ -137,8 +146,10 @@ with col_sa:
             pl_n, pl_e = _sync_players(_RLN_SHEET_ID)
             g_n, g_e = _sync_games(_RLN_SHEET_ID)
             p_n, p_e = _sync_plays(_RLN_SHEET_ID)
-        st.success(f"Teams: {t_n} · Players: {pl_n} · Games: {g_n} · Plays: {p_n}")
-        _show_errors(t_e + pl_e + g_e + p_e)
+        st.toast(f"Teams: {t_n} · Players: {pl_n} · Games: {g_n} · Plays: {p_n}")
+        all_errs = t_e + pl_e + g_e + p_e
+        if all_errs:
+            st.session_state["_sync_errors"] = all_errs
         st.rerun()
 
 st.divider()
