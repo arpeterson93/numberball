@@ -263,9 +263,12 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     df = df.copy()
+    if "play_type" in df.columns:
+        df = df[df["play_type"].str.lower() != "steal"]
+    if df.empty:
+        return df
     df["half"] = df["half"].fillna("top")
 
-    # Swing plays have pitch+swing; steal plays do not
     sw = df["pitch"].notna() & df["swing"].notna()
 
     # Recompute diff for swing plays; steals already have diff stored from sheet
