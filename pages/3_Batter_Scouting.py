@@ -81,16 +81,7 @@ total = len(df)
 
 # ------------------------------------------------------------------ summary metrics
 
-avg_diff = df["diff"].mean()
-xbh_rate = (df["res_category"] == "XBH").mean() * 100
-obp_rate = df["res_category"].isin(["XBH", "BB/1B"]).mean() * 100
-meme_rate = df["is_meme_swing"].mean() * 100
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("At-Bats", total)
-col2.metric("Avg Diff", f"{avg_diff:.1f}")
-col3.metric("OB%", f"{obp_rate:.1f}%")
-col4.metric("XBH%", f"{xbh_rate:.1f}%")
+_metrics_slot_b = st.empty()
 
 st.divider()
 
@@ -445,6 +436,18 @@ elif pred_mode == "Manual Setup":
         pitcher_name_s = st.session_state.get("pred_calc_p_name", "")
         batter_name_s  = selected_batter
         df_for_pred    = df
+
+# ── fill summary metrics (ITD as of selected scenario) ───────────────────────
+
+with _metrics_slot_b.container():
+    _m_diff_b  = df_for_pred["diff"].mean() if not df_for_pred.empty else float("nan")
+    _m_obp_b   = df_for_pred["res_category"].isin(["XBH", "BB/1B"]).mean() * 100 if not df_for_pred.empty else 0.0
+    _m_xbh_b   = (df_for_pred["res_category"] == "XBH").mean() * 100 if not df_for_pred.empty else 0.0
+    _mc1b, _mc2b, _mc3b, _mc4b = st.columns(4)
+    _mc1b.metric("At-Bats", len(df_for_pred))
+    _mc2b.metric("Avg Diff", f"{_m_diff_b:.1f}" if not pd.isna(_m_diff_b) else "—")
+    _mc3b.metric("OB%", f"{_m_obp_b:.1f}%")
+    _mc4b.metric("XBH%", f"{_m_xbh_b:.1f}%")
 
 # ── pitch predictor chart + optimal pitch ─────────────────────────────────────
 

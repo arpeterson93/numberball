@@ -71,12 +71,7 @@ total = len(df)
 
 # ------------------------------------------------------------------ summary metrics
 
-avg_diff = df["diff"].mean()
-meme_rate = df["is_meme_pitch"].mean() * 100
-col1, col2, col3 = st.columns(3)
-col1.metric("At-Bats", total)
-col2.metric("Avg Diff", f"{avg_diff:.1f}")
-col3.metric("Meme Rate", f"{meme_rate:.1f}%")
+_metrics_slot_p = st.empty()
 
 st.divider()
 
@@ -428,6 +423,16 @@ elif pred_mode == "Manual Setup":
         batter_name    = st.session_state.get("pred_calc_b_name", "")
         pitcher_name_s = selected_pitcher
         df_for_pred    = df
+
+# ── fill summary metrics (ITD as of selected scenario) ───────────────────────
+
+with _metrics_slot_p.container():
+    _m_diff = df_for_pred["diff"].mean() if not df_for_pred.empty else float("nan")
+    _m_meme = df_for_pred["is_meme_pitch"].mean() * 100 if not df_for_pred.empty else 0.0
+    _mc1, _mc2, _mc3 = st.columns(3)
+    _mc1.metric("At-Bats", len(df_for_pred))
+    _mc2.metric("Avg Diff", f"{_m_diff:.1f}" if not pd.isna(_m_diff) else "—")
+    _mc3.metric("Meme Rate", f"{_m_meme:.1f}%")
 
 # ── swing predictor chart + optimal swing ────────────────────────────────────
 

@@ -68,6 +68,7 @@ _RESULT_ZONE_COLORS = {
     "FC":    "#c42020",
     "FC3rd": "#b82020",
     "GO":    "#aa1020",
+    "LO":    "#c8102e",
     "K":     "#b10026",
     # Double plays - dark red → maroon
     "DPRun": "#920026",
