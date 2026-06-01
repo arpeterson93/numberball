@@ -264,27 +264,47 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     df["half"] = df["half"].fillna("top")
-    df["diff"] = df.apply(lambda r: circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
-    df["pitch_zone"] = df["pitch"].apply(lambda p: get_zone(int(p)))
-    df["swing_zone"] = df["swing"].apply(lambda s: get_zone(int(s)))
-    df["res_category"] = df.apply(lambda r: get_res_category(r["result"], r["diff"]), axis=1)
+
+    # Swing plays have pitch+swing; steal plays do not
+    sw = df["pitch"].notna() & df["swing"].notna()
+
+    # Recompute diff for swing plays; steals already have diff stored from sheet
+    if sw.any():
+        df.loc[sw, "diff"] = df.loc[sw].apply(
+            lambda r: circular_diff(int(r["pitch"]), int(r["swing"])), axis=1
+        )
+
+    df["pitch_zone"] = df["pitch"].apply(lambda p: get_zone(int(p)) if pd.notna(p) else None)
+    df["swing_zone"] = df["swing"].apply(lambda s: get_zone(int(s)) if pd.notna(s) else None)
+    df["res_category"] = df.apply(
+        lambda r: get_res_category(r["result"], int(r["diff"])) if pd.notna(r.get("diff")) else "OUT",
+        axis=1,
+    )
     df["is_meme_pitch"] = df["pitch"].isin(MEME_NUMBERS)
     df["is_meme_swing"] = df["swing"].isin(MEME_NUMBERS)
-    df["pitch_last2"] = df["pitch"].apply(lambda p: int(str(int(p)).zfill(2)[-2:]))
+    df["pitch_last2"] = df["pitch"].apply(
+        lambda p: int(str(int(p)).zfill(2)[-2:]) if pd.notna(p) else None
+    )
     df["inning_label"] = df.apply(lambda r: inning_label(r["inning"], r["half"]), axis=1)
-    # Compute FP flags from insertion order within game
+
     df = df.sort_values(["game_id", "id"])
     df["is_fp_inn"] = ~df.duplicated(subset=["game_id", "inning", "half"], keep="first")
     df["is_fp_app"] = ~df.duplicated(subset=["game_id", "pitcher_name"], keep="first")
-    # Linear delta (for reference)
-    df["pitch_delta"] = df.groupby(["game_id", "pitcher_name"])["pitch"].diff()
-    # Circular signed delta (shortest path on the 1-1000 wheel)
-    df["pitch_circ_delta"] = (
-        df.groupby(["game_id", "pitcher_name"], group_keys=False)["pitch"].apply(_circ_delta_group)
-    )
-    df["swing_circ_delta"] = (
-        df.groupby(["game_id", "batter_name"], group_keys=False)["swing"].apply(_circ_delta_group)
-    )
+
+    # Deltas only meaningful for swing plays
+    df["pitch_delta"] = pd.NA
+    df["pitch_circ_delta"] = pd.NA
+    df["swing_circ_delta"] = pd.NA
+    if sw.any():
+        sw_df = df[sw]
+        df.loc[sw, "pitch_delta"] = sw_df.groupby(["game_id", "pitcher_name"])["pitch"].diff()
+        df.loc[sw, "pitch_circ_delta"] = sw_df.groupby(
+            ["game_id", "pitcher_name"], group_keys=False
+        )["pitch"].apply(_circ_delta_group)
+        df.loc[sw, "swing_circ_delta"] = sw_df.groupby(
+            ["game_id", "batter_name"], group_keys=False
+        )["swing"].apply(_circ_delta_group)
+
     return df
 
 
@@ -1138,11 +1158,11 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
 
 
 def read_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays (Converted)' tab and return a list of play dicts."""
+    """Read the 'Plays (Raw)' tab and return a list of play dicts."""
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Converted)')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
@@ -1169,7 +1189,10 @@ def read_plays_from_sheet(sheet_id: str) -> list[dict]:
         result = _str(row.get("Result"))
         play_type = _str(row.get("PlayType"))
 
-        if not pitcher_name or not batter_name or pitch is None or swing is None or not result:
+        is_steal = (play_type or "").lower() == "steal"
+        if not pitcher_name or not batter_name or not result:
+            continue
+        if not is_steal and (pitch is None or swing is None):
             continue
 
         plays.append({
