@@ -178,7 +178,11 @@ for g in games:
         if plays:
             df = pd.DataFrame(plays)
             df["half"] = df["half"].fillna("top") if "half" in df.columns else "top"
-            df["diff"] = df.apply(lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"])), axis=1)
+            df["diff"] = df.apply(
+                lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"]))
+                if pd.notna(r.get("pitch")) and pd.notna(r.get("swing")) else None,
+                axis=1,
+            )
             df["Inn"] = df.apply(lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
             st.dataframe(
                 df[["Inn", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]].rename(columns={
