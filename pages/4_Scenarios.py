@@ -40,8 +40,8 @@ def _show_ranges(ranges, swap_title="Normal Swing"):
         st.warning("Could not compute ranges.")
         return
     df_r = pd.DataFrame(ranges).rename(columns={"result": "Result", "range": "Range", "low": "Low", "high": "High"})
-    st.plotly_chart(utils.range_bar_chart(ranges, title=swap_title), use_container_width=True)
-    st.dataframe(df_r, use_container_width=True, hide_index=True)
+    st.plotly_chart(utils.range_bar_chart(ranges, title=swap_title), width='stretch')
+    st.dataframe(df_r, width='stretch', hide_index=True)
 
 
 # ------------------------------------------------------------------ source selector
