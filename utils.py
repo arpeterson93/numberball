@@ -1013,6 +1013,212 @@ def swing_predictor_chart(
     return fig
 
 
+# ------------------------------------------------------------------ at-bat range calculator
+# Derived from MLN Calculator 11.0 formulas (calculator tab).
+# OBR helper table: range widths at each differential -5..+5 for each result type.
+_DIFFS = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
+
+_OBR_TABLE: dict[str, list[int]] = {
+    "Hit":    [84, 99, 110, 119, 126, 132, 138, 145, 154, 165, 180],
+    "HR":     [1,  1,  8,  16,  18,  20,  22,  24,  32,  47,  62],
+    "3B":     [1,  1,  3,   4,   5,   6,   7,   8,   9,  11,  14],
+    "2B":     [15, 20, 24,  27,  29,  30,  31,  33,  36,  40,  45],
+    "IF1B":   [1,  2,  6,   8,   9,  10,  11,  12,  14,  18,  24],
+    "BB":     [1,  3, 14,  23,  30,  35,  40,  47,  56,  67,  78],
+    "FO_HND": [147,132,121,112, 105, 100,  95,  88,  79,  68,  53],  # /500 = FO%
+    "PO_HND": [188,171,158,146, 135, 125, 115, 104,  92,  79,  62],  # /500 = PO%
+    "K":      [183,160,142,127, 115, 105,  95,  83,  68,  50,  27],
+}
+
+# 1B extra adjustments (rows 40-43 of calculator tab)
+_1B_SPD_AWR = {-5:-3,-4:-3,-3:-2,-2:-2,-1:-1,0:0,1:1,2:2,3:2,4:3,5:3}
+_1B_PITCH_AWR = {-3:3,-2:2,-1:1,0:0,1:-1,2:-2,3:-3}  # keyed by pitcher_awr-3, clamped -3..3
+_1B_HIT_NEG = {-5:5,-4:5,-3:5,-2:5,-1:5,0:3,1:0,2:0,3:0,4:0,5:0}  # row 43
+
+# Steal safe-range table: differential -5..+5 in 0.5 steps (21 values)
+STEAL_DIFFS = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5]
+STEAL_TABLE: dict[str, list[int]] = {
+    "2nd":  [62,86,108,132,154,177,199,221,242,265,285,308,329,351,373,396,418,442,464,488,499],
+    "3rd":  [7,19,32,48,61,76,87,100,110,120,130,140,150,163,174,189,202,218,233,251,259],
+    "home": [2,4,7,11,14,18,20,22,23,25,25,27,28,30,32,36,39,43,47,53,55],
+}
+
+RESULT_COLORS = {
+    "HR":    "#e74c3c",
+    "3B":    "#e67e22",
+    "2B":    "#f1c40f",
+    "1B":    "#2ecc71",
+    "IF1B":  "#1abc9c",
+    "BB":    "#3498db",
+    "FO":    "#bdc3c7",
+    "PO":    "#95a5a6",
+    "GO":    "#7f8c8d",
+    "K":     "#2c3e50",
+    "LO":    "#6c7a7d",
+    "B1BWH": "#27ae60",
+    "B1B":   "#52be80",
+    "BFC":   "#7f8c8d",
+    "SacB":  "#a9cce3",
+    "BDP":   "#5d6d7e",
+}
+
+
+def _obr_lookup(key: str, diff: int) -> int:
+    idx = _DIFFS.index(max(-5, min(5, diff)))
+    return _OBR_TABLE[key][idx]
+
+
+def compute_at_bat_ranges(
+    pitcher_hand: str,
+    pitcher_mov: int,
+    pitcher_cmd: int,
+    pitcher_vel: int,
+    pitcher_awr: int,
+    batter_hand: str,
+    batter_con: int,
+    batter_eye: int,
+    batter_pow: int,
+    batter_spd: int,
+    bunt: bool = False,
+    hit_and_run: bool = False,
+    outs: int = 0,
+    runners_on: bool = False,
+) -> list[dict]:
+    """Compute at-bat result ranges from pitcher/batter stats.
+
+    Returns list of dicts: {result, range, low, high}.
+    Verified against MLN Calculator 11.0 (Fat Lever vs Cody Anderson example).
+    """
+    import math
+
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, int(v)))
+
+    # Handedness modifier
+    if str(batter_hand).upper() == "S":
+        hnd = 1.0
+    elif str(pitcher_hand).upper() == str(batter_hand).upper():
+        hnd = 0.975
+    else:
+        hnd = 1.025
+
+    # Stat differentials (clamped -5..+5)
+    d_hit = clamp(batter_con - pitcher_mov, -5, 5)
+    d_pow = clamp(batter_pow - pitcher_vel, -5, 5)
+    d_spd = clamp(batter_spd - pitcher_awr, -5, 5)
+    d_eye = clamp(batter_eye - pitcher_cmd, -5, 5)
+
+    def w_std(key, diff):
+        return max(1, math.floor(_obr_lookup(key, diff) * hnd))
+
+    w_hr = w_std("HR", d_pow)
+    w_3b = w_std("3B", d_spd)
+    w_2b = w_std("2B", d_spd)
+    w_if1b = 0 if hit_and_run else w_std("IF1B", d_spd)
+    w_bb = w_std("BB", d_eye)
+    w_k = w_std("K", d_hit)
+
+    # 1B: Hit-base * handedness + SPD/AWR modifier + pitcher-AWR modifier + constant - HR - 3B - 2B [+ HnR bonus]
+    hit_base = math.floor(_obr_lookup("Hit", d_hit) * hnd)
+    hnr_bonus = 20 if hit_and_run else 0
+    w_1b = max(1,
+        hit_base
+        + _1B_HIT_NEG[d_hit]
+        + _1B_SPD_AWR[d_spd]
+        + _1B_PITCH_AWR.get(clamp(pitcher_awr - 3, -3, 3), 0)
+        + 5
+        - w_hr - w_3b - w_2b
+        + hnr_bonus
+    )
+
+    # FO and PO: rate-based, each using the POW vs VEL differential
+    fo_rate = _obr_lookup("FO_HND", d_pow) / 500
+    po_rate = _obr_lookup("PO_HND", d_pow) / 500
+    after_hits = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb)
+    after_bb = 500 - w_bb
+    w_fo = max(1, math.floor(after_hits * fo_rate * (1 - po_rate)))
+    w_po = max(1, math.floor(after_bb * fo_rate * po_rate))
+
+    # LO: 4-wide slot inside GO, only with runners on and fewer than 2 outs
+    w_lo = 4 if (runners_on and outs < 2) else 0
+
+    # GO: remainder of 501 total (0-500 inclusive)
+    w_go = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb + w_fo + w_po + w_k + w_lo) + 1
+
+    if bunt:
+        b1bwh = 9
+        total_hit = w_hr + w_3b + w_2b + w_1b + w_if1b
+        base_hit = total_hit - 1
+        spd_mov = batter_spd - pitcher_mov
+        b1b = max(1, round((1 + spd_mov * 0.04) * base_hit) - b1bwh)
+        b_bb = w_bb
+        b_k = w_k
+        b_go = max(1, 500 - (b1bwh + b1b + b_bb + b_k) + 1)
+        rows: list[tuple[str, int]] = [
+            ("B1BWH", b1bwh), ("B1B", b1b), ("BB", b_bb), ("K", b_k), ("BFC", b_go),
+        ]
+    else:
+        rows = [
+            ("HR", w_hr), ("3B", w_3b), ("2B", w_2b), ("1B", w_1b),
+        ]
+        if not hit_and_run:
+            rows.append(("IF1B", w_if1b))
+        rows += [("BB", w_bb), ("FO", w_fo), ("PO", w_po)]
+        if w_lo > 0:
+            rows.append(("LO", w_lo))
+        rows += [("GO", w_go), ("K", w_k)]
+
+    result = []
+    pos = 0
+    for name, width in rows:
+        if width <= 0:
+            continue
+        result.append({"result": name, "range": width, "low": pos, "high": pos + width - 1})
+        pos += width
+    return result
+
+
+def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
+    """Horizontal stacked bar showing each result's share of the 0-500 number line."""
+    fig = go.Figure()
+    for r in ranges:
+        color = RESULT_COLORS.get(r["result"], "#888")
+        fig.add_trace(go.Bar(
+            x=[r["range"]],
+            y=[""],
+            orientation="h",
+            marker_color=color,
+            name=r["result"],
+            text=r["result"] if r["range"] > 12 else "",
+            textposition="inside",
+            insidetextanchor="middle",
+            hovertemplate=(
+                f"<b>{r['result']}</b><br>"
+                f"Range: {r['range']}<br>"
+                f"{r['low']} – {r['high']}<extra></extra>"
+            ),
+            width=0.5,
+        ))
+    fig.update_layout(
+        barmode="stack",
+        title=dict(text=title, font=dict(size=13)) if title else None,
+        height=110,
+        margin=dict(l=5, r=5, t=30 if title else 5, b=5),
+        showlegend=False,
+        xaxis=dict(
+            range=[0, 501],
+            tickvals=[0, 100, 200, 300, 400, 500],
+            tickfont=dict(size=10),
+            title=dict(text="0 → 500", font=dict(size=10)),
+        ),
+        yaxis=dict(visible=False),
+        dragmode=False,
+        modebar_remove=["zoom2d","pan2d","select2d","lasso2d","zoomIn2d",
+                        "zoomOut2d","autoScale2d","resetScale2d","toImage"],
+    )
+    return fig
+
+
 def hot_zone_matrix(
     df: pd.DataFrame,
     value_col: str = "pitch",
