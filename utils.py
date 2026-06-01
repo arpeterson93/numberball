@@ -1158,11 +1158,11 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
 
 
 def read_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays (Raw)' tab and return a list of play dicts."""
+    """Read the 'Plays (Converted)' tab and return a list of play dicts."""
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Converted)')}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
