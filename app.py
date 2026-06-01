@@ -13,7 +13,7 @@ st.markdown(
 )
 
 pages = [
-    st.Page("pages/1_Games.py", title="Games", icon="📅"),
+    st.Page("pages/1_Games.py", title="Sync Data", icon="🔄"),
     st.Page("pages/2_Pitcher_Scouting.py", title="Pitcher Scouting", icon="⚾"),
     st.Page("pages/3_Batter_Scouting.py", title="Batter Scouting", icon="🦇"),
 ]

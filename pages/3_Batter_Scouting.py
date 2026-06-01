@@ -10,7 +10,7 @@ st.title("Batter Scouting")
 
 @st.cache_data(ttl=60)
 def load_data() -> pd.DataFrame:
-    raw = db.get_all_at_bats()
+    raw = db.get_all_plays()
     if not raw:
         return pd.DataFrame()
     df = utils.flatten_games(raw)
@@ -24,7 +24,7 @@ if df_all.empty:
 # Apply auto-filter from Fetch Matchup before sidebar renders
 if "_auto_batter_filter" in st.session_state:
     _abf = st.session_state.pop("_auto_batter_filter")
-    if _abf.get("team") and _abf["team"] in df_all["batter_team"].unique():
+    if _abf.get("team") and _abf["team"] in df_all["off_team"].unique():
         st.session_state["sbt_filter"] = _abf["team"]
     if _abf.get("batter") and _abf["batter"] in df_all["batter_name"].unique():
         st.session_state["sbatter_filter"] = _abf["batter"]
@@ -36,11 +36,11 @@ with st.sidebar:
     seasons = sorted(df_all["season"].dropna().unique(), reverse=True)
     selected_seasons = st.multiselect("Season", seasons, default=seasons)
 
-    batter_teams = sorted(df_all["batter_team"].unique())
-    selected_bt = st.selectbox("Batter Team", ["All"] + batter_teams, key="sbt_filter")
+    off_teams = sorted(df_all["off_team"].unique())
+    selected_bt = st.selectbox("Batter Team", ["All"] + off_teams, key="sbt_filter")
 
     if selected_bt != "All":
-        batter_names = sorted(df_all[df_all["batter_team"] == selected_bt]["batter_name"].unique())
+        batter_names = sorted(df_all[df_all["off_team"] == selected_bt]["batter_name"].unique())
     else:
         batter_names = sorted(df_all["batter_name"].unique())
     selected_batter = st.selectbox("Batter", ["All"] + batter_names, key="sbatter_filter")
@@ -63,7 +63,7 @@ df = df_all.copy()
 if selected_seasons:
     df = df[df["season"].isin(selected_seasons)]
 if selected_bt != "All":
-    df = df[df["batter_team"] == selected_bt]
+    df = df[df["off_team"] == selected_bt]
 if selected_batter != "All":
     if batter_scope == "Solo":
         df = df[df["batter_name"] == selected_batter]

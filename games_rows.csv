@@ -1,0 +1,5 @@
+id,season,session_number,home_team,away_team,start_date,created_at,sheet_url,game_num,game_code,away_score,home_score
+1,13,1,Sharks,Tridents,2026-05-21,2026-05-21 16:00:00+00,,,,,
+2,13,2,Couriers,Jammers,2026-05-21,2026-05-21 17:00:00+00,,,,,
+3,13,3,Tridents,Couriers,2026-05-28,2026-05-28 16:00:00+00,https://docs.google.com/spreadsheets/d/1jkCZRCQHVDIBMww2OmrjfmQGhfqJhYFESIHKD4GeLF4/edit?gid=1498066521#gid=1498066521,,,,
+4,13,4,Jammers,Sharks,2026-05-28,2026-05-29 18:02:19.831945+00,https://docs.google.com/spreadsheets/d/1waeK23w9nQrs7Opc6Z8v8SbXlz0ISHVxVW786cI_ZsI/edit?gid=1498066521#gid=1498066521,,,,

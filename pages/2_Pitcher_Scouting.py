@@ -10,7 +10,7 @@ st.title("Pitcher Scouting")
 
 @st.cache_data(ttl=60)
 def load_data() -> pd.DataFrame:
-    raw = db.get_all_at_bats()
+    raw = db.get_all_plays()
     if not raw:
         return pd.DataFrame()
     df = utils.flatten_games(raw)
@@ -24,7 +24,7 @@ if df_all.empty:
 # Apply auto-filter from Fetch Matchup before sidebar renders
 if "_auto_pitcher_filter" in st.session_state:
     _apf = st.session_state.pop("_auto_pitcher_filter")
-    if _apf.get("team") and _apf["team"] in df_all["pitcher_team"].unique():
+    if _apf.get("team") and _apf["team"] in df_all["def_team"].unique():
         st.session_state["spt_filter"] = _apf["team"]
     if _apf.get("pitcher") and _apf["pitcher"] in df_all["pitcher_name"].unique():
         st.session_state["spitcher_filter"] = _apf["pitcher"]
@@ -36,11 +36,11 @@ with st.sidebar:
     seasons = sorted(df_all["season"].dropna().unique(), reverse=True)
     selected_seasons = st.multiselect("Season", seasons, default=seasons)
 
-    pitcher_teams = sorted(df_all["pitcher_team"].unique())
-    selected_pt = st.selectbox("Pitcher Team", ["All"] + pitcher_teams, key="spt_filter")
+    def_teams = sorted(df_all["def_team"].unique())
+    selected_pt = st.selectbox("Pitcher Team", ["All"] + def_teams, key="spt_filter")
 
     if selected_pt != "All":
-        pitcher_names = sorted(df_all[df_all["pitcher_team"] == selected_pt]["pitcher_name"].unique())
+        pitcher_names = sorted(df_all[df_all["def_team"] == selected_pt]["pitcher_name"].unique())
     else:
         pitcher_names = sorted(df_all["pitcher_name"].unique())
     selected_pitcher = st.selectbox("Pitcher", ["All"] + pitcher_names, key="spitcher_filter")
@@ -53,7 +53,7 @@ df = df_all.copy()
 if selected_seasons:
     df = df[df["season"].isin(selected_seasons)]
 if selected_pt != "All":
-    df = df[df["pitcher_team"] == selected_pt]
+    df = df[df["def_team"] == selected_pt]
 if selected_pitcher != "All":
     df = df[df["pitcher_name"] == selected_pitcher]
 if selected_games:

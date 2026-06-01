@@ -288,19 +288,18 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def flatten_games(at_bats: list[dict]) -> pd.DataFrame:
+def flatten_games(plays: list[dict]) -> pd.DataFrame:
     """Flatten nested game data from Supabase join into flat columns."""
     rows = []
-    for ab in at_bats:
-        row = {k: v for k, v in ab.items() if k != "games"}
-        if ab.get("games"):
-            g = ab["games"]
+    for play in plays:
+        row = {k: v for k, v in play.items() if k != "games"}
+        if play.get("games"):
+            g = play["games"]
             row["season"] = g.get("season")
             row["session_number"] = g.get("session_number")
             row["home_team"] = g.get("home_team")
             row["away_team"] = g.get("away_team")
             row["game_code"] = g.get("game_code")
-            row["game_num"] = g.get("game_num")
         rows.append(row)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -1061,6 +1060,12 @@ def parse_inning(inning_str: str) -> tuple[int, str]:
         return 1, "top"
 
 
+def _str(val) -> str:
+    """Return a clean string or None for blank/nan values."""
+    s = str(val).strip() if val is not None else ""
+    return s if s and s.lower() != "nan" else None
+
+
 def read_games_from_sheet(sheet_id: str) -> list[dict]:
     """Read the 'Games' tab of a public Google Sheet and return a list of game dicts."""
     import urllib.parse
@@ -1073,25 +1078,48 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
 
     games = []
     for _, row in df.iterrows():
-        game_id_str = str(row.get("GameID", "")).strip()
-        if not game_id_str or len(game_id_str) < 4 or game_id_str.lower() == "nan":
+        # "Game#" column holds the 6-digit code (e.g. 130101); "GameID" is the short code (e.g. JJCC01)
+        game_code = _str(row.get("Game#"))
+        if not game_code or len(game_code) < 4:
             continue
         try:
-            season = int(game_id_str[:2])
-            session_num = int(game_id_str[2:4])
+            season = int(game_code[:2])
+            session_num = int(game_code[2:4])
         except ValueError:
             continue
-        away_abbrev = str(row.get("Away", "")).strip()
-        home_abbrev = str(row.get("Home", "")).strip()
+        away_abbrev = _str(row.get("Away")) or ""
+        home_abbrev = _str(row.get("Home")) or ""
+
+        hms = [
+            v for col in ("Honorable Mention", "Honorable Mention.1", "Honorable Mention.2")
+            if (v := _str(row.get(col)))
+        ]
+
         games.append({
-            "game_code": game_id_str,
-            "game_num": _safe_int(row.get("Game#") or row.get("Game_num")),
+            "game_code": game_code,
+            "game_id_short": _str(row.get("GameID")),
             "season": season,
             "session_number": session_num,
             "away_team": TEAM_ABBREV.get(away_abbrev, away_abbrev),
             "home_team": TEAM_ABBREV.get(home_abbrev, home_abbrev),
-            "away_score": _safe_int(row.get("a_Scr") or row.get("Away_Score")),
-            "home_score": _safe_int(row.get("h_Scr") or row.get("Home_Score")),
+            "away_score": _safe_int(row.get("a_Scr")),
+            "home_score": _safe_int(row.get("h_Scr")),
+            "umpire": _str(row.get("Umpire Assignment")),
+            "winning_pitcher": _str(row.get("Winning Pitcher")),
+            "losing_pitcher": _str(row.get("Losing Pitcher")),
+            "save_pitcher": _str(row.get("Save")),
+            "player_of_game": _str(row.get("Player of the Game")),
+            "honorable_mentions": hms or None,
+            "start_time": _str(row.get("Start")),
+            "end_time": _str(row.get("End")),
+            "last_play": _str(row.get("Last Play")),
+            "last_inning": _str(row.get("Inning")),
+            "last_result": _str(row.get("Last Result")),
+            "win_team": _str(row.get("Win")),
+            "loss_team": _str(row.get("Loss")),
+            "league": _str(row.get("League")),
+            "division": _str(row.get("Division")),
+            "archive_sheet_id": _str(row.get("Archive Sheet ID")),
         })
     return games
 
@@ -1106,68 +1134,150 @@ def read_plays_from_sheet(sheet_id: str) -> list[dict]:
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
 
-    def _col(*names: str) -> str | None:
-        for n in names:
-            if n in df.columns:
-                return n
-        return None
-
-    col_play = _col("play_num", "Play_num", "Play#", "play#")
-    col_game = _col("game_id", "GameID", "game_code")
-    col_inn = _col("inning", "Inning")
-    col_batter = _col("batter", "Batter")
-    col_pitcher = _col("pitcher", "Pitcher")
-    col_batter_team = _col("batter_rc", "batter_team", "BatterTeam")
-    col_pitcher_team = _col("pitcher_rc", "pitcher_team", "PitcherTeam")
-    col_brc = _col("brc", "BRC", "base_runners")
-    col_result = _col("result", "Result")
-    col_outs = _col("outs", "Outs")
-    col_pitch = _col("pitch", "Pitch")
-    col_swing = _col("swing", "Swing")
-
     plays = []
     for _, row in df.iterrows():
-        play_num = _safe_int(row.get(col_play)) if col_play else None
-        game_code = str(row.get(col_game, "")).strip() if col_game else ""
-        if not play_num or not game_code or game_code.lower() == "nan":
+        # "Play" = full play identifier like 130101001; "Game" = game code like 130101
+        play_num = _safe_int(row.get("Play"))
+        game_code = _str(row.get("Game"))
+        if not play_num or not game_code:
             continue
 
-        inning_str = str(row.get(col_inn, "")).strip() if col_inn else "T1"
-        inning_num, half = parse_inning(inning_str)
-
-        brc = _safe_int(row.get(col_brc)) if col_brc else None
+        inning_num, half = parse_inning(_str(row.get("Inning")) or "T1")
+        brc = _safe_int(row.get("BRC"))
         obc = BRC_TO_OBC.get(brc, "Empty") if brc is not None else "Empty"
 
-        pitcher_name = str(row.get(col_pitcher, "")).strip() if col_pitcher else ""
-        batter_name = str(row.get(col_batter, "")).strip() if col_batter else ""
-        pitcher_team_abbrev = str(row.get(col_pitcher_team, "")).strip() if col_pitcher_team else ""
-        batter_team_abbrev = str(row.get(col_batter_team, "")).strip() if col_batter_team else ""
-        pitch = _safe_int(row.get(col_pitch)) if col_pitch else None
-        swing = _safe_int(row.get(col_swing)) if col_swing else None
-        result = str(row.get(col_result, "")).strip() if col_result else ""
-        outs = _safe_int(row.get(col_outs)) if col_outs else 0
+        pitcher_name = _str(row.get("Pitcher"))
+        batter_name = _str(row.get("Batter"))
+        # OFF = offensive (batting) team; DEF = defensive (pitching) team
+        off_abbrev = _str(row.get("OFF")) or ""
+        def_abbrev = _str(row.get("DEF")) or ""
+        pitch = _safe_int(row.get("Pitch #"))
+        swing = _safe_int(row.get("Swing #"))
+        result = _str(row.get("Result"))
+        play_type = _str(row.get("PlayType"))
 
         if not pitcher_name or not batter_name or pitch is None or swing is None or not result:
             continue
-        if pitcher_name.lower() == "nan" or batter_name.lower() == "nan":
-            continue
 
         plays.append({
-            "play_num": play_num,
             "game_code": game_code,
+            "inning_raw": _str(row.get("Inning")),
+            "play_num": play_num,
+            "outs": _safe_int(row.get("Outs")) or 0,
+            "brc": brc,
+            "off_team": TEAM_ABBREV.get(off_abbrev, off_abbrev),
+            "def_team": TEAM_ABBREV.get(def_abbrev, def_abbrev),
+            "play_type": play_type,
+            "pitcher_name": pitcher_name,
+            "pitch": pitch,
+            "batter_name": batter_name,
+            "swing": swing,
+            "catcher_name": _str(row.get("Catcher")),
+            "throw_num": _safe_int(row.get("Throw #")),
+            "runner_name": _str(row.get("Runner")),
+            "steal_num": _safe_int(row.get("Steal #")),
+            "result": result,
+            "runs": _safe_int(row.get("Runs")),
+            "pitcher_id": _safe_int(row.get("Pitcher ID")),
+            "batter_id": _safe_int(row.get("Batter ID")),
+            "catcher_id": _safe_int(row.get("Catcher Id")),
+            "runner_id": _safe_int(row.get("Runner ID")),
+            "diff": _safe_int(row.get("Diff")),
+            "session_num": _safe_int(row.get("Session #")),
+            # app-only (set during sync)
             "inning": inning_num,
             "half": half,
-            "outs": outs or 0,
             "obc": obc,
-            "pitcher_team": TEAM_ABBREV.get(pitcher_team_abbrev, pitcher_team_abbrev),
-            "batter_team": TEAM_ABBREV.get(batter_team_abbrev, batter_team_abbrev),
-            "pitcher_name": pitcher_name,
-            "batter_name": batter_name,
-            "pitch": pitch,
-            "swing": swing,
-            "result": result,
         })
     return plays
+
+
+def read_teams_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Teams' tab and return a list of team dicts."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Teams')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    teams = []
+    for _, row in df.iterrows():
+        abbrev = _str(row.get("Abv"))
+        if not abbrev:
+            continue
+        teams.append({
+            "team_id": _str(row.get("Team ID")),
+            "abbrev": abbrev,
+            "location": _str(row.get("Location")),
+            "team_name": _str(row.get("Team Name")),
+            "role_id": _str(row.get("Role ID")),
+            "hype_id": _str(row.get("Hype ID")),
+            "league": _str(row.get("League")),
+            "division": _str(row.get("Division")),
+            "logo_url": _str(row.get("Logo URL")),
+            "name": _str(row.get("Full Team")) or abbrev,
+            "stadium": _str(row.get("Stadium")),
+            "primary_hex": _str(row.get("Primary Hex")),
+            "ballpark_url": _str(row.get("Ballpark URL")),
+            "wins": _safe_int(row.get("W")),
+            "losses": _safe_int(row.get("L")),
+            "runs_scored": _safe_int(row.get("RS")),
+            "runs_allowed": _safe_int(row.get("RA")),
+        })
+    return teams
+
+
+def _parse_bool(val) -> bool | None:
+    s = str(val).strip().lower() if val is not None else ""
+    if s in ("true", "yes", "1"):
+        return True
+    if s in ("false", "no", "0"):
+        return False
+    return None
+
+
+def read_players_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Players' tab and return a list of player dicts."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Players')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    players = []
+    for _, row in df.iterrows():
+        player_id = _safe_int(row.get("ID"))
+        name = _str(row.get("Government Name"))
+        team = _str(row.get("Team"))
+        if not player_id or not name or not team:
+            continue
+        players.append({
+            "player_id": player_id,
+            "team": team,
+            "gm": _parse_bool(row.get("GM")),
+            "name": name,
+            "last_name": _str(row.get("Last Name")),
+            "discord_id": _str(row.get("Discord ID")),
+            "status": _str(row.get("Status")),
+            "primary_pos": _str(row.get("Primary")),
+            "secondary_pos": _str(row.get("Secondary")),
+            "hand": _str(row.get("HAND")),
+            "con": _safe_int(row.get("CON")),
+            "eye": _safe_int(row.get("EYE")),
+            "pwr": _safe_int(row.get("PWR")),
+            "spd": _safe_int(row.get("SPD")),
+            "mov": _safe_int(row.get("MOV")),
+            "cmd": _safe_int(row.get("CMD")),
+            "vel": _safe_int(row.get("VEL")),
+            "awr": _safe_int(row.get("AWR")),
+            "discord_nickname": _str(row.get("Discord Nickname")),
+            "is_rookie": _parse_bool(row.get("Rookie?")),
+        })
+    return players
 
 
 def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figure:
