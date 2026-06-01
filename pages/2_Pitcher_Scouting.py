@@ -523,6 +523,9 @@ st.plotly_chart(
     width='stretch',
 )
 
+df = df_for_pred
+total = len(df)
+
 # ------------------------------------------------------------------ hot zone matrix
 
 st.divider()
