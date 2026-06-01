@@ -231,7 +231,8 @@ if not games:
 
 for g in games:
     gc = g.get("game_code", "")
-    label = f"**{gc or f'S{g[\"season\"]} G{g[\"session_number\"]}'}** — {g['away_team']} @ {g['home_team']}"
+    gc_label = gc or f"S{g['season']} G{g['session_number']}"
+    label = f"**{gc_label}** — {g['away_team']} @ {g['home_team']}"
     if g.get("away_score") is not None and g.get("home_score") is not None:
         label += f" ({g['away_score']}–{g['home_score']})"
     if g.get("start_date"):
@@ -254,6 +255,6 @@ for g in games:
                 use_container_width=True,
                 hide_index=True,
             )
-        if st.button(f"Delete {gc or f'S{g[\"season\"]}G{g[\"session_number\"]}'}", key=f"del_{g['id']}"):
+        if st.button(f"Delete {gc_label}", key=f"del_{g['id']}"):
             db.delete_game(g["id"])
             st.rerun()
