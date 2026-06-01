@@ -1239,43 +1239,70 @@ def _parse_bool(val) -> bool | None:
 
 
 def read_players_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Players' tab and return a list of player dicts."""
+    """Read the 'Players' tab by column position (headers are mostly blank)."""
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
         f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Players')}"
     )
-    df = pd.read_csv(url, dtype=str)
-    df.columns = [c.strip() for c in df.columns]
+    df = pd.read_csv(url, dtype=str, header=0)
+
+    # Columns by position: ID, Team, GM, Gov Name, Last Name, Discord ID, Status,
+    # Primary, Secondary, Hand, CON, EYE, PWR, SPD, MOV, CMD, VEL, AWR,
+    # Discord Nickname, Rookie?
+    _col = lambda i: df.iloc[:, i] if i < len(df.columns) else pd.Series([None] * len(df))
+
+    df2 = pd.DataFrame({
+        "player_id":       _col(0),
+        "team":            _col(1),
+        "gm":              _col(2),
+        "name":            _col(3),
+        "last_name":       _col(4),
+        "discord_id":      _col(5),
+        "status":          _col(6),
+        "primary_pos":     _col(7),
+        "secondary_pos":   _col(8),
+        "hand":            _col(9),
+        "con":             _col(10),
+        "eye":             _col(11),
+        "pwr":             _col(12),
+        "spd":             _col(13),
+        "mov":             _col(14),
+        "cmd":             _col(15),
+        "vel":             _col(16),
+        "awr":             _col(17),
+        "discord_nickname": _col(18),
+        "is_rookie":       _col(19),
+    })
 
     players = []
-    for _, row in df.iterrows():
-        player_id = _safe_int(row.get("ID"))
-        name = _str(row.get("Government Name"))
-        team = _str(row.get("Team"))
+    for _, row in df2.iterrows():
+        player_id = _safe_int(row["player_id"])
+        name = _str(row["name"])
+        team = _str(row["team"])
         if not player_id or not name or not team:
             continue
         players.append({
-            "player_id": player_id,
-            "team": team,
-            "gm": _parse_bool(row.get("GM")),
-            "name": name,
-            "last_name": _str(row.get("Last Name")),
-            "discord_id": _str(row.get("Discord ID")),
-            "status": _str(row.get("Status")),
-            "primary_pos": _str(row.get("Primary")),
-            "secondary_pos": _str(row.get("Secondary")),
-            "hand": _str(row.get("HAND")),
-            "con": _safe_int(row.get("CON")),
-            "eye": _safe_int(row.get("EYE")),
-            "pwr": _safe_int(row.get("PWR")),
-            "spd": _safe_int(row.get("SPD")),
-            "mov": _safe_int(row.get("MOV")),
-            "cmd": _safe_int(row.get("CMD")),
-            "vel": _safe_int(row.get("VEL")),
-            "awr": _safe_int(row.get("AWR")),
-            "discord_nickname": _str(row.get("Discord Nickname")),
-            "is_rookie": _parse_bool(row.get("Rookie?")),
+            "player_id":       player_id,
+            "team":            team,
+            "gm":              _parse_bool(row["gm"]),
+            "name":            name,
+            "last_name":       _str(row["last_name"]),
+            "discord_id":      _str(row["discord_id"]),
+            "status":          _str(row["status"]),
+            "primary_pos":     _str(row["primary_pos"]),
+            "secondary_pos":   _str(row["secondary_pos"]),
+            "hand":            _str(row["hand"]),
+            "con":             _safe_int(row["con"]),
+            "eye":             _safe_int(row["eye"]),
+            "pwr":             _safe_int(row["pwr"]),
+            "spd":             _safe_int(row["spd"]),
+            "mov":             _safe_int(row["mov"]),
+            "cmd":             _safe_int(row["cmd"]),
+            "vel":             _safe_int(row["vel"]),
+            "awr":             _safe_int(row["awr"]),
+            "discord_nickname": _str(row["discord_nickname"]),
+            "is_rookie":       _parse_bool(row["is_rookie"]),
         })
     return players
 
