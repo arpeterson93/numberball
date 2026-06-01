@@ -1091,8 +1091,8 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
         home_abbrev = _str(row.get("Home")) or ""
 
         hms = [
-            v for col in ("Honorable Mention", "Honorable Mention.1", "Honorable Mention.2")
-            if (v := _str(row.get(col)))
+            _str(row.get(col))
+            for col in ("Honorable Mention", "Honorable Mention.1", "Honorable Mention.2")
         ]
 
         games.append({
@@ -1109,7 +1109,9 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
             "losing_pitcher": _str(row.get("Losing Pitcher")),
             "save_pitcher": _str(row.get("Save")),
             "player_of_game": _str(row.get("Player of the Game")),
-            "honorable_mentions": hms or None,
+            "honorable_mention_1": hms[0],
+            "honorable_mention_2": hms[1],
+            "honorable_mention_3": hms[2],
             "start_time": _str(row.get("Start")),
             "end_time": _str(row.get("End")),
             "last_play": _str(row.get("Last Play")),
