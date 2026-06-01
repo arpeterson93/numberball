@@ -131,8 +131,9 @@ with col_btn:
             if fetched_batter:
                 all_players = db.get_all_players()
                 player = next((p for p in all_players if p["name"] == fetched_batter), None)
+                _team_abbrev = player.get("team") if player else None
                 st.session_state["_auto_batter_filter"] = {
-                    "team": player.get("team") if player else None,
+                    "team": utils.TEAM_ABBREV.get(_team_abbrev, _team_abbrev),
                     "batter": fetched_batter,
                 }
             st.toast(f"Loaded {len(fetched_ranges)} ranges.")
