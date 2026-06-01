@@ -40,7 +40,7 @@ def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
         gc = play["game_code"]
         game_db_id = game_code_to_id.get(gc)
         if not game_db_id:
-            errors.append(f"Play {play['play_num']}: game {gc} not found — sync Games first.")
+            errors.append(f"Play {play['play_num']}: game {gc} not found - sync Games first.")
             continue
         inn_key = (play["inning"], play["half"])
         pitcher = play["pitcher_name"]
@@ -166,7 +166,7 @@ if not games:
 for g in games:
     gc = g.get("game_code", "")
     gc_label = gc or f"S{g['season']} G{g['session_number']}"
-    label = f"**{gc_label}** — {g['away_team']} @ {g['home_team']}"
+    label = f"**{gc_label}** - {g['away_team']} @ {g['home_team']}"
     if g.get("away_score") is not None and g.get("home_score") is not None:
         label += f" ({g['away_score']}–{g['home_score']})"
     if g.get("start_time"):

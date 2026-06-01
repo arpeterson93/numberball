@@ -24,7 +24,7 @@ RESULT_CATEGORIES = {
 
 MEME_NUMBERS = [42, 69, 420]
 
-# Result ranges: (result, diff_low, diff_high) — from the league result table
+# Result ranges: (result, diff_low, diff_high) - from the league result table
 RESULT_RANGES = [
     ("HR",    0,   20),
     ("3B",   21,   25),
@@ -46,7 +46,7 @@ RESULT_RANGES = [
 ]
 
 _RESULT_ZONE_COLORS = {
-    # Hits — green spectrum (best → marginal)
+    # Hits - green spectrum (best → marginal)
     "HR":    "#1a7d35",
     "3B":    "#2ca02c",
     "2BWH":  "#57b857",
@@ -56,26 +56,26 @@ _RESULT_ZONE_COLORS = {
     "1B":    "#e5f5c3",
     "IF1B":  "#fff7bc",
     "BB":    "#fee391",
-    # Soft outs / sac — yellow → orange
+    # Soft outs / sac - yellow → orange
     "GORA":  "#fec44f",
     "DSacF": "#fe9929",
     "DFO":   "#fd8c15",
     "SacF":  "#fd7a1a",
     "FO":    "#f56010",
-    # Standard outs — orange-red → red
+    # Standard outs - orange-red → red
     "PO":    "#f03b20",
     "FCH":   "#d42020",
     "FC":    "#c42020",
     "FC3rd": "#b82020",
     "GO":    "#aa1020",
     "K":     "#b10026",
-    # Double plays — dark red → maroon
+    # Double plays - dark red → maroon
     "DPRun": "#920026",
     "DP":    "#880026",
     "DP21":  "#800026",
     "DP31":  "#5a001a",
     "DPH1":  "#3d0014",
-    # Line-out DPs / triple plays — near black
+    # Line-out DPs / triple plays - near black
     "LODP":  "#2d000f",
     "TP":    "#220009",
     "LOTP":  "#180006",
@@ -222,7 +222,7 @@ def validate_ab(new: dict, prev: dict | None) -> list[str]:
     if same_half:
         if expected_outs >= 3:
             warnings.append(
-                f"Previous AB ({p_res}, {p_outs} outs) should have ended the half-inning — "
+                f"Previous AB ({p_res}, {p_outs} outs) should have ended the half-inning - "
                 f"expected a new half-inning, not the same one."
             )
         elif n_outs != expected_outs:
@@ -613,8 +613,8 @@ def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]
     if not ranges:
         raise ValueError("Result table found but no rows could be parsed.")
 
-    # H12 = row index 11, col index 7 — current batter name
-    # H11 = row index 10, col index 7 — current pitcher name
+    # H12 = row index 11, col index 7 - current batter name
+    # H11 = row index 10, col index 7 - current pitcher name
     def _cell(r, c):
         try:
             v = str(raw.iloc[r, c]).strip()
@@ -792,7 +792,7 @@ def swing_predictor_chart(
     result_ranges: list | None = None,
     tick_label: str = "Recent Pitches",
     value_col: str = "pitch",
-    x_label: str = "Pitch Value",
+    x_label: str = "Pitch Values",
     ref_label: str = "Swing",
     ref_color: str = "navy",
 ) -> go.Figure:
@@ -848,7 +848,7 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="middle",
             )
 
-    # Tick marks — triangles beneath the colored zone, blue=oldest → white → red=newest
+    # Tick marks - triangles beneath the colored zone, blue=oldest → white → red=newest
     df_last = df.sort_values("id").tail(n)
     vals = df_last[value_col].astype(int).tolist()
     n_vals = len(vals)
@@ -866,7 +866,7 @@ def swing_predictor_chart(
         hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
     ))
 
-    # Delta scale — tick marks above the zone bar showing Δ from the most recent value
+    # Delta scale - tick marks above the zone bar showing Δ from the most recent value
     implied_delta = None
     if vals:
         last_val = vals[-1]
@@ -890,7 +890,7 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="bottom",
             )
 
-        # Delta triangles above zone bar — project each historical delta from most recent value
+        # Delta triangles above zone bar - project each historical delta from most recent value
         delta_col = f"{value_col}_circ_delta"
         if delta_col in df_last.columns:
             delta_raw = df_last[delta_col].tolist()
@@ -920,7 +920,7 @@ def swing_predictor_chart(
                     showlegend=True,
                 ))
 
-    # OBR boundary lines — offset clamped so labels stay on-screen at chart edges
+    # OBR boundary lines - offset clamped so labels stay on-screen at chart edges
     obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
     if obr_max > 0:
         b_lo = ((swing - obr_max - 1) % 1000) + 1
@@ -939,7 +939,7 @@ def swing_predictor_chart(
                 borderpad=2,
             )
 
-    # Reference value pill — same y as OBR labels (ay=0), white bg, green text
+    # Reference value pill - same y as OBR labels (ay=0), white bg, green text
     pill_text = f"{ref_label} {swing}" + (f"<br>Δ{implied_delta:+d}" if implied_delta is not None else "")
     # Two-layer vline: dark outline first, white center on top → visible on both light and dark backgrounds
     for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,255,255,0.88)")]:
@@ -956,18 +956,29 @@ def swing_predictor_chart(
         borderpad=2,
     )
 
+    # Top axis label ("Pitch Δ" / "Swing Δ") - positioned above the delta tick marks
+    delta_axis_label = x_label.replace("Values", "Δ").replace("Value", "Δ")
+    fig.add_annotation(
+        x=500, xref="x", y=1.20, yref="paper",
+        text=f"<b>{delta_axis_label}</b>",
+        showarrow=False,
+        font=dict(size=11, color="rgba(160,160,160,0.9)"),
+        xanchor="center", yanchor="bottom",
+    )
+
     fig.update_layout(
         xaxis=dict(
             range=[0.5, 1000.5],
             tickmode="array",
             tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
             tickfont=dict(size=11),
+            title=dict(text=f"<b>{x_label}</b>", font=dict(size=11, color="rgba(160,160,160,0.9)"), standoff=8),
         ),
-        yaxis=dict(visible=False, range=[-0.18, 1.20]),
-        height=420,
-        margin=dict(l=10, r=25, t=75, b=120),
+        yaxis=dict(visible=False, range=[-0.18, 1.25]),
+        height=440,
+        margin=dict(l=10, r=25, t=90, b=130),
         legend=dict(
-            orientation="h", x=0.5, y=-0.6,
+            orientation="h", x=0.5, y=-0.55,
             xanchor="center", yanchor="top",
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=9, family="monospace"),

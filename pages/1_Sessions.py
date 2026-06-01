@@ -1,4 +1,4 @@
-"""Session management — create and view game sessions."""
+"""Session management: create and view game sessions."""
 import streamlit as st
 import pandas as pd
 import database as db
@@ -47,7 +47,7 @@ if not sessions:
     st.stop()
 
 for s in sessions:
-    label = f"**S{s['season']} G{s['session_number']}** — {s['home_team']} vs {s['away_team']}"
+    label = f"**S{s['season']} G{s['session_number']}** - {s['home_team']} vs {s['away_team']}"
     if s.get("game_date"):
         label += f" ({s['game_date']})"
 

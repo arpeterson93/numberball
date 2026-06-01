@@ -25,7 +25,7 @@ if not sessions:
     st.stop()
 
 session_options = {
-    f"S{s['season']} G{s['session_number']} — {s['home_team']} vs {s['away_team']}": s["id"]
+    f"S{s['season']} G{s['session_number']} - {s['home_team']} vs {s['away_team']}": s["id"]
     for s in sessions
 }
 session_labels = list(session_options.keys())

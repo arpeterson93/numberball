@@ -1,4 +1,4 @@
-"""Batter scouting — swing zones, hit results, tendencies."""
+"""Batter scouting: swing zones, hit results, tendencies."""
 import streamlit as st
 import pandas as pd
 import database as db
@@ -162,7 +162,7 @@ if result_ranges:
             result_ranges=result_ranges,
             tick_label=f"Last {n_pred_b} swings",
             value_col="swing",
-            x_label="Swing Value",
+            x_label="Swing Values",
             ref_label="Pitch",
         ),
         width='stretch',
@@ -172,14 +172,14 @@ if result_ranges:
     _recent_b = df.sort_values("id").tail(n_pred_b)["swing"].astype(int).tolist()
     _delta_b = utils.project_from_deltas(_recent_b)
     _opt_chart_rows_b = [
-        ("Recent Swing Values", _recent_b),
-        ("Recent Swing Δ",      _delta_b),
+        ("Based on Recent Swing Values", _recent_b),
+        ("Based on Recent Swing Δ",      _delta_b),
     ]
     col_obp_b, col_slg_b = st.columns(2)
     with col_obp_b:
         st.markdown("**OBP**")
         for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_b):
-            st.caption(_lbl)
+            st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>", unsafe_allow_html=True)
             if _vals:
                 _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", False)
                 _pk = f"pill_obp_{_i}_b"
@@ -196,7 +196,7 @@ if result_ranges:
     with col_slg_b:
         st.markdown("**SLG**")
         for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_b):
-            st.caption(_lbl)
+            st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>", unsafe_allow_html=True)
             if _vals:
                 _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", False)
                 _pk = f"pill_slg_{_i}_b"

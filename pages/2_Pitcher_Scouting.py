@@ -1,4 +1,4 @@
-"""Pitcher scouting — zone frequency, delta patterns, situational tendencies."""
+"""Pitcher scouting: zone frequency, delta patterns, situational tendencies."""
 import streamlit as st
 import pandas as pd
 import database as db
@@ -152,14 +152,14 @@ if result_ranges:
     _recent_p = df.sort_values("id").tail(n_pred)["pitch"].astype(int).tolist()
     _delta_p = utils.project_from_deltas(_recent_p)
     _opt_chart_rows_p = [
-        ("Recent Pitch Values", _recent_p),
-        ("Recent Pitch Δ",      _delta_p),
+        ("Based on Recent Pitch Values", _recent_p),
+        ("Based on Recent Pitch Δ",      _delta_p),
     ]
     col_obp_p, col_slg_p = st.columns(2)
     with col_obp_p:
         st.markdown("**OBP**")
         for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_p):
-            st.caption(_lbl)
+            st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>", unsafe_allow_html=True)
             if _vals:
                 _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", True)
                 _pk = f"pill_obp_{_i}_p"
@@ -176,7 +176,7 @@ if result_ranges:
     with col_slg_p:
         st.markdown("**SLG**")
         for _i, (_lbl, _vals) in enumerate(_opt_chart_rows_p):
-            st.caption(_lbl)
+            st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>", unsafe_allow_html=True)
             if _vals:
                 _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", True)
                 _pk = f"pill_slg_{_i}_p"
