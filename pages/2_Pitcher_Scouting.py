@@ -200,67 +200,67 @@ def _import_hist_play_p(play_id: int):
 _hand_opts_p   = ["R", "L", "S"]
 _runner_opts_p = ["Empty", _RUNNER_UNK_P] + _all_player_names_p
 
-def _render_calc_inputs_p(key_suffix: str = ""):
+def _render_calc_inputs_p():
     """Pitcher stat overrides + batter selection + situation + runners."""
     col_p, col_b = st.columns(2)
     with col_p:
         st.markdown(f"**Pitcher Stats** · *{selected_pitcher}*")
         if st.session_state.get("pred_calc_p_hand") not in _hand_opts_p:
             st.session_state["pred_calc_p_hand"] = "R"
-        st.selectbox(f"Hand##ph{key_suffix}", _hand_opts_p, key="pred_calc_p_hand")
-        st.number_input(f"MOV##pm{key_suffix}", min_value=1, max_value=5, key="pred_calc_p_mov")
-        st.number_input(f"CMD##pc{key_suffix}", min_value=1, max_value=5, key="pred_calc_p_cmd")
-        st.number_input(f"VEL##pv{key_suffix}", min_value=1, max_value=5, key="pred_calc_p_vel")
-        st.number_input(f"AWR##pa{key_suffix}", min_value=1, max_value=5, key="pred_calc_p_awr")
+        st.selectbox("Hand", _hand_opts_p, key="pred_calc_p_hand")
+        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov")
+        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd")
+        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel")
+        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr")
     with col_b:
         st.markdown("**Batter**")
         _b_team_opts = ["All"] + _all_teams_p
         if st.session_state.get("pred_calc_b_team") not in _b_team_opts:
             st.session_state["pred_calc_b_team"] = "All"
-        _b_team = st.selectbox(f"Team##bt{key_suffix}", _b_team_opts,
+        _b_team = st.selectbox("Team", _b_team_opts,
                                key="pred_calc_b_team", on_change=_on_calc_b_team_p)
         _b_name_opts = ["-- Manual --"] + _players_for_team_p(_b_team)
         if st.session_state.get("pred_calc_b_name") not in _b_name_opts:
             st.session_state["pred_calc_b_name"] = "-- Manual --"
-        st.selectbox(f"Batter##bn{key_suffix}", _b_name_opts,
+        st.selectbox("Batter", _b_name_opts,
                      key="pred_calc_b_name", on_change=_on_calc_batter_p)
         if st.session_state.get("pred_calc_b_hand") not in _hand_opts_p:
             st.session_state["pred_calc_b_hand"] = "R"
-        st.selectbox(f"Hand##bh{key_suffix}", _hand_opts_p, key="pred_calc_b_hand")
-        st.number_input(f"CON##bc{key_suffix}", min_value=1, max_value=5, key="pred_calc_b_con")
-        st.number_input(f"EYE##be{key_suffix}", min_value=1, max_value=5, key="pred_calc_b_eye")
-        st.number_input(f"POW##bp{key_suffix}", min_value=1, max_value=5, key="pred_calc_b_pow")
-        st.number_input(f"SPD##bs{key_suffix}", min_value=1, max_value=5, key="pred_calc_b_spd")
+        st.selectbox("Hand ", _hand_opts_p, key="pred_calc_b_hand")
+        st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con")
+        st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye")
+        st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow")
+        st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd")
 
     st.divider()
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
         if st.session_state.get("pred_calc_outs") not in [0, 1, 2]:
             st.session_state["pred_calc_outs"] = 0
-        st.radio(f"Outs##os{key_suffix}", [0, 1, 2], horizontal=True, key="pred_calc_outs")
+        st.radio("Outs", [0, 1, 2], horizontal=True, key="pred_calc_outs")
     with col_s2:
-        st.checkbox(f"Bunting?##bu{key_suffix}", key="pred_calc_bunt")
+        st.checkbox("Bunting?", key="pred_calc_bunt")
     with col_s3:
-        st.checkbox(f"Hit & Run?##hr{key_suffix}", key="pred_calc_hnr")
+        st.checkbox("Hit & Run?", key="pred_calc_hnr")
 
     st.markdown("**Baserunners**")
     col_1b, col_2b, col_3b = st.columns(3)
     with col_1b:
         if st.session_state["pred_calc_1b"] not in _runner_opts_p:
             st.session_state["pred_calc_1b"] = "Empty"
-        _r1 = st.selectbox(f"1B##r1{key_suffix}", _runner_opts_p, key="pred_calc_1b")
+        _r1 = st.selectbox("1B", _runner_opts_p, key="pred_calc_1b")
         if _r1 in _pbyn_p:
             st.caption(f"SPD: {_stat_p(_pbyn_p[_r1], 'spd')}")
     with col_2b:
         if st.session_state["pred_calc_2b"] not in _runner_opts_p:
             st.session_state["pred_calc_2b"] = "Empty"
-        _r2 = st.selectbox(f"2B##r2{key_suffix}", _runner_opts_p, key="pred_calc_2b")
+        _r2 = st.selectbox("2B", _runner_opts_p, key="pred_calc_2b")
         if _r2 in _pbyn_p:
             st.caption(f"SPD: {_stat_p(_pbyn_p[_r2], 'spd')}")
     with col_3b:
         if st.session_state["pred_calc_3b"] not in _runner_opts_p:
             st.session_state["pred_calc_3b"] = "Empty"
-        _r3 = st.selectbox(f"3B##r3{key_suffix}", _runner_opts_p, key="pred_calc_3b")
+        _r3 = st.selectbox("3B", _runner_opts_p, key="pred_calc_3b")
         if _r3 in _pbyn_p:
             st.caption(f"SPD: {_stat_p(_pbyn_p[_r3], 'spd')}")
 
@@ -391,7 +391,7 @@ elif pred_mode == "Historical Matchup":
                         )
 
             st.divider()
-            _render_calc_inputs_p("h")
+            _render_calc_inputs_p()
 
         _hist_id = st.session_state.get("pred_hist_loaded_id")
         _calc_r  = _calc_ranges_from_state()
@@ -421,7 +421,7 @@ elif pred_mode == "Manual Setup":
         st.warning("Select a specific pitcher in the sidebar to use Manual Setup.")
     else:
         with st.expander("Manual Setup", expanded=True):
-            _render_calc_inputs_p("m")
+            _render_calc_inputs_p()
 
         _calc_r_m      = _calc_ranges_from_state()
         result_ranges  = [(r["result"], r["low"], r["high"]) for r in _calc_r_m]
