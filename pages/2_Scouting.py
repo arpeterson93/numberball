@@ -471,20 +471,16 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state["pred_sheet_pitcher"] = fetched_pitcher
 
                     # Auto-populate tab data filters from fetched names
-                    if fetched_pitcher:
-                        _fp = _pbyn.get(fetched_pitcher, {})
-                        _p_tf = utils.TEAM_ABBREV.get(_fp.get("team",""), "All")
-                        if _p_tf in sorted(df_all["def_team"].unique()):
-                            st.session_state["tab_p_team"] = _p_tf
-                        if fetched_pitcher in df_all["pitcher_name"].unique():
-                            st.session_state["tab_p_pitcher"] = fetched_pitcher
-                    if fetched_batter:
-                        _fb = _pbyn.get(fetched_batter, {})
-                        _b_tf = utils.TEAM_ABBREV.get(_fb.get("team",""), "All")
-                        if _b_tf in sorted(df_all["off_team"].unique()):
-                            st.session_state["tab_b_team"] = _b_tf
-                        if fetched_batter in df_all["batter_name"].unique():
-                            st.session_state["tab_b_batter"] = fetched_batter
+                    if fetched_pitcher and fetched_pitcher in df_all["pitcher_name"].unique():
+                        st.session_state["tab_p_pitcher"] = fetched_pitcher
+                        _p_teams = df_all[df_all["pitcher_name"] == fetched_pitcher]["def_team"].mode()
+                        if not _p_teams.empty:
+                            st.session_state["tab_p_team"] = _p_teams.iloc[0]
+                    if fetched_batter and fetched_batter in df_all["batter_name"].unique():
+                        st.session_state["tab_b_batter"] = fetched_batter
+                        _b_teams = df_all[df_all["batter_name"] == fetched_batter]["off_team"].mode()
+                        if not _b_teams.empty:
+                            st.session_state["tab_b_team"] = _b_teams.iloc[0]
 
                     st.toast(f"Loaded {len(fetched_ranges)} ranges.")
                     st.rerun()
