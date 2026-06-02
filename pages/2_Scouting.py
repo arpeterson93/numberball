@@ -98,12 +98,20 @@ if selected_pt != "All":
     df_p = df_p[df_p["def_team"] == selected_pt]
 if selected_pitcher != "All":
     df_p = df_p[df_p["pitcher_name"] == selected_pitcher]
+if selected_bt != "All":
+    df_p = df_p[df_p["off_team"] == selected_bt]
+if selected_batter != "All" and batter_scope == "Solo":
+    df_p = df_p[df_p["batter_name"] == selected_batter]
 
 df_b = _base.copy()
 if selected_bt != "All":
     df_b = df_b[df_b["off_team"] == selected_bt]
 if selected_batter != "All" and batter_scope == "Solo":
     df_b = df_b[df_b["batter_name"] == selected_batter]
+if selected_pt != "All":
+    df_b = df_b[df_b["def_team"] == selected_pt]
+if selected_pitcher != "All":
+    df_b = df_b[df_b["pitcher_name"] == selected_pitcher]
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -350,9 +358,8 @@ def _play_picker(src_df: pd.DataFrame, season_key: str, game_key: str, play_key:
         _h_po = _df_hg[["id","inning","half","outs","obc","pitcher_name","batter_name","pitch","swing","result"]].copy()
         _h_po["label"] = _h_po.apply(
             lambda r: (
-                f"#{int(r['id'])}  Inn {int(r['inning'])}{r['half'][0].upper()}  "
-                f"{r['outs']}out  {r['obc']}  {r['pitcher_name']} vs {r['batter_name']}  "
-                f"P:{r['pitch']} S:{r['swing']} → {r['result']}"
+                f"{'▲' if str(r['half']).lower().startswith('t') else '▼'}{int(r['inning'])}"
+                f"  {r.get('result','')}  {r['batter_name']} vs {r['pitcher_name']}"
             ), axis=1,
         )
         _h_ids  = _h_po["id"].tolist()
@@ -421,13 +428,87 @@ if pred_mode == "Fetch Live Matchup":
     matchup_label = " vs ".join(filter(None, [_sp, _sb]))
 
 elif pred_mode == "Historical / Manual":
-    with st.expander("Matchup Setup", expanded=True):
-        _render_calc_inputs()
     _calc_r       = _calc_ranges()
     result_ranges = [(r["result"], r["low"], r["high"]) for r in _calc_r]
     _pn = st.session_state.get("pred_calc_p_name", "")
     _bn = st.session_state.get("pred_calc_b_name", "")
     matchup_label = " vs ".join(p for p in [_pn, _bn] if p and p != "-- Manual --")
+
+    with st.expander("Import from History", expanded=False):
+        _imp_tab_p, _imp_tab_b = st.tabs(["⚾ Pitcher Perspective", "🦇 Batter Perspective"])
+        with _imp_tab_p:
+            st.caption("Shows plays from selected pitcher. Imports opposing batter's stats.")
+            _h_play_p = _play_picker(df_p, "pred_hist_season_p", "pred_hist_game_p", "pred_hist_play_p")
+            col_hi_p, col_hinfo_p = st.columns([1, 5])
+            with col_hi_p:
+                if _h_play_p is not None and st.button("Import Play", type="primary",
+                                                       use_container_width=True, key="pred_hist_import_p"):
+                    _import_play(int(_h_play_p), df_p, fill_side="batter")
+                    st.session_state["pred_hist_loaded_id"] = int(_h_play_p)
+                    st.rerun()
+            with col_hinfo_p:
+                if _h_play_p is not None:
+                    _hpr_p = df_p[df_p["id"] == _h_play_p]
+                    if not _hpr_p.empty:
+                        _hr = _hpr_p.iloc[0]
+                        if pd.notna(_hr.get("pitch")) and pd.notna(_hr.get("swing")):
+                            _hd = utils.circular_diff(int(_hr["pitch"]), int(_hr["swing"]))
+                            st.caption(
+                                f"P:{int(_hr['pitch'])}  S:{int(_hr['swing'])}  "
+                                f"Diff:{_hd}  → **{_hr.get('result','')}**"
+                            )
+            if hist_id and result_ranges:
+                _hpr_row = df_p[df_p["id"] == hist_id]
+                if not _hpr_row.empty:
+                    _hpr2 = _hpr_row.iloc[0]
+                    if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
+                        _had2    = utils.circular_diff(int(_hpr2["pitch"]), int(_hpr2["swing"]))
+                        _calc_r2 = _calc_ranges()
+                        _hmatch  = next((r for r in _calc_r2 if r["low"] <= _had2 <= r["high"]), None)
+                        _hexp    = _hmatch["result"] if _hmatch else "?"
+                        _hicon   = "✓" if _hexp == _hpr2.get("result","") else "≠"
+                        st.caption(
+                            f"Loaded play #{hist_id} · Diff **{_had2}** → "
+                            f"calc expects **{_hexp}** {_hicon} actual **{_hpr2.get('result','')}**"
+                        )
+        with _imp_tab_b:
+            st.caption("Shows plays from selected batter. Imports opposing pitcher's stats.")
+            _h_play_b = _play_picker(df_b, "pred_hist_season_b", "pred_hist_game_b", "pred_hist_play_b")
+            col_hi_b, col_hinfo_b = st.columns([1, 5])
+            with col_hi_b:
+                if _h_play_b is not None and st.button("Import Play", type="primary",
+                                                       use_container_width=True, key="pred_hist_import_b"):
+                    _import_play(int(_h_play_b), df_b, fill_side="pitcher")
+                    st.session_state["pred_hist_loaded_id"] = int(_h_play_b)
+                    st.rerun()
+            with col_hinfo_b:
+                if _h_play_b is not None:
+                    _hpr_b = df_b[df_b["id"] == _h_play_b]
+                    if not _hpr_b.empty:
+                        _hrb = _hpr_b.iloc[0]
+                        if pd.notna(_hrb.get("pitch")) and pd.notna(_hrb.get("swing")):
+                            _hdb = utils.circular_diff(int(_hrb["pitch"]), int(_hrb["swing"]))
+                            st.caption(
+                                f"P:{int(_hrb['pitch'])}  S:{int(_hrb['swing'])}  "
+                                f"Diff:{_hdb}  → **{_hrb.get('result','')}**"
+                            )
+            if hist_id and result_ranges:
+                _hpr_row_b = df_b[df_b["id"] == hist_id]
+                if not _hpr_row_b.empty:
+                    _hpr2b = _hpr_row_b.iloc[0]
+                    if pd.notna(_hpr2b.get("pitch")) and pd.notna(_hpr2b.get("swing")):
+                        _had2b    = utils.circular_diff(int(_hpr2b["pitch"]), int(_hpr2b["swing"]))
+                        _calc_r2b = _calc_ranges()
+                        _hmatchb  = next((r for r in _calc_r2b if r["low"] <= _had2b <= r["high"]), None)
+                        _hexpb    = _hmatchb["result"] if _hmatchb else "?"
+                        _hiconb   = "✓" if _hexpb == _hpr2b.get("result","") else "≠"
+                        st.caption(
+                            f"Loaded play #{hist_id} · Diff **{_had2b}** → "
+                            f"calc expects **{_hexpb}** {_hiconb} actual **{_hpr2b.get('result','')}**"
+                        )
+
+    with st.expander("Matchup Setup", expanded=True):
+        _render_calc_inputs()
 
 # ── ITD slices (shared by both tabs) ──────────────────────────────────────────
 
@@ -451,54 +532,6 @@ with tab_p:
     if df_p.empty:
         st.warning("No at-bats match the current pitcher filter.")
     else:
-        # ── summary metrics ───────────────────────────────────────────────────
-        _p_avg  = df_p_pred["diff"].mean() if not df_p_pred.empty else float("nan")
-        _p_meme = df_p_pred["is_meme_pitch"].mean() * 100 if not df_p_pred.empty else 0.0
-        _pc1, _pc2, _pc3 = st.columns(3)
-        _pc1.metric("At-Bats", len(df_p_pred))
-        _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "—")
-        _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
-
-        st.divider()
-
-        # ── optional play import (Historical/Manual mode) ─────────────────────
-        if pred_mode == "Historical / Manual":
-            with st.expander("Import from Pitcher History", expanded=False):
-                st.caption("Import a play to set the ITD cutoff and pre-fill batter stats.")
-                _h_play_p = _play_picker(df_p, "pred_hist_season_p", "pred_hist_game_p", "pred_hist_play_p")
-                col_hi_p, col_hinfo_p = st.columns([1, 5])
-                with col_hi_p:
-                    if _h_play_p is not None and st.button("Import Play", type="primary",
-                                                           use_container_width=True, key="pred_hist_import_p"):
-                        _import_play(int(_h_play_p), df_p, fill_side="batter")
-                        st.session_state["pred_hist_loaded_id"] = int(_h_play_p)
-                        st.rerun()
-                with col_hinfo_p:
-                    if _h_play_p is not None:
-                        _hpr_p = df_p[df_p["id"] == _h_play_p]
-                        if not _hpr_p.empty:
-                            _hr = _hpr_p.iloc[0]
-                            if pd.notna(_hr.get("pitch")) and pd.notna(_hr.get("swing")):
-                                _hd = utils.circular_diff(int(_hr["pitch"]), int(_hr["swing"]))
-                                st.caption(
-                                    f"P:{int(_hr['pitch'])}  S:{int(_hr['swing'])}  "
-                                    f"Diff:{_hd}  → **{_hr.get('result','')}**"
-                                )
-                if hist_id and result_ranges:
-                    _hpr_row = df_p[df_p["id"] == hist_id]
-                    if not _hpr_row.empty:
-                        _hpr2 = _hpr_row.iloc[0]
-                        if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
-                            _had2   = utils.circular_diff(int(_hpr2["pitch"]), int(_hpr2["swing"]))
-                            _calc_r2 = _calc_ranges()
-                            _hmatch = next((r for r in _calc_r2 if r["low"] <= _had2 <= r["high"]), None)
-                            _hexp   = _hmatch["result"] if _hmatch else "?"
-                            _hicon  = "✓" if _hexp == _hpr2.get("result","") else "≠"
-                            st.caption(
-                                f"Loaded play #{hist_id} · Diff **{_had2}** → "
-                                f"calc expects **{_hexp}** {_hicon} actual **{_hpr2.get('result','')}**"
-                            )
-
         # ── swing predictor ───────────────────────────────────────────────────
         st.subheader("Swing Predictor")
         st.caption("Enter a proposed swing to see what each of this pitcher's recent pitches would give.")
@@ -516,7 +549,7 @@ with tab_p:
                 proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
                                                  step=1, key="pred_swing")
             with col_n:
-                n_pred_p = st.slider("# pitches", 5, 50, 20, key="pred_n_p")
+                n_pred_p = st.slider("# pitches", 5, 100, 20, key="pred_n_p")
 
             _df_tick_p = df_p_pred if not df_p_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
             _tick_lbl_p = f"Last {n_pred_p} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
@@ -574,7 +607,7 @@ with tab_p:
         st.subheader("Last N Pitches")
         col_ln_p, col_lo_p = st.columns([3, 1])
         with col_ln_p:
-            n_pitches = st.slider("# of at-bats", 5, 50, 20, key="last_n_pitch")
+            n_pitches = st.slider("# of at-bats", 5, 100, 20, key="last_n_pitch")
         with col_lo_p:
             swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
                                    help="+1: shifts swing markers right by one AB.")
@@ -597,6 +630,14 @@ with tab_p:
         group_cols_p = ["game_id","pitcher_name"] if selected_pitcher != "All" else ["pitcher_name"]
         st.plotly_chart(utils.hot_zone_matrix(df_p, value_col="pitch",
                                               group_cols=group_cols_p, bucket_size=bucket_p), width="stretch")
+
+        # ── summary metrics ───────────────────────────────────────────────────
+        _p_avg  = df_p["diff"].mean() if not df_p.empty else float("nan")
+        _p_meme = df_p["is_meme_pitch"].mean() * 100 if not df_p.empty else 0.0
+        _pc1, _pc2, _pc3 = st.columns(3)
+        _pc1.metric("At-Bats", _p_total)
+        _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "—")
+        _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
@@ -693,56 +734,6 @@ with tab_b:
     if df_b.empty:
         st.warning("No at-bats match the current batter filter.")
     else:
-        # ── summary metrics ───────────────────────────────────────────────────
-        _b_avg  = df_b_pred["diff"].mean() if not df_b_pred.empty else float("nan")
-        _b_obp  = df_b_pred["res_category"].isin(["XBH","BB/1B"]).mean() * 100 if not df_b_pred.empty else 0.0
-        _b_xbh  = (df_b_pred["res_category"] == "XBH").mean() * 100 if not df_b_pred.empty else 0.0
-        _bc1, _bc2, _bc3, _bc4 = st.columns(4)
-        _bc1.metric("At-Bats", len(df_b_pred))
-        _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "—")
-        _bc3.metric("OB%", f"{_b_obp:.1f}%")
-        _bc4.metric("XBH%", f"{_b_xbh:.1f}%")
-
-        st.divider()
-
-        # ── optional play import ──────────────────────────────────────────────
-        if pred_mode == "Historical / Manual":
-            with st.expander("Import from Batter History", expanded=False):
-                st.caption("Import a play to set the ITD cutoff and pre-fill pitcher stats.")
-                _h_play_b = _play_picker(df_b, "pred_hist_season_b", "pred_hist_game_b", "pred_hist_play_b")
-                col_hi_b, col_hinfo_b = st.columns([1, 5])
-                with col_hi_b:
-                    if _h_play_b is not None and st.button("Import Play", type="primary",
-                                                           use_container_width=True, key="pred_hist_import_b"):
-                        _import_play(int(_h_play_b), df_b, fill_side="pitcher")
-                        st.session_state["pred_hist_loaded_id"] = int(_h_play_b)
-                        st.rerun()
-                with col_hinfo_b:
-                    if _h_play_b is not None:
-                        _hpr_b = df_b[df_b["id"] == _h_play_b]
-                        if not _hpr_b.empty:
-                            _hrb = _hpr_b.iloc[0]
-                            if pd.notna(_hrb.get("pitch")) and pd.notna(_hrb.get("swing")):
-                                _hdb = utils.circular_diff(int(_hrb["pitch"]), int(_hrb["swing"]))
-                                st.caption(
-                                    f"P:{int(_hrb['pitch'])}  S:{int(_hrb['swing'])}  "
-                                    f"Diff:{_hdb}  → **{_hrb.get('result','')}**"
-                                )
-                if hist_id and result_ranges:
-                    _hpr_row_b = df_b[df_b["id"] == hist_id]
-                    if not _hpr_row_b.empty:
-                        _hpr2b = _hpr_row_b.iloc[0]
-                        if pd.notna(_hpr2b.get("pitch")) and pd.notna(_hpr2b.get("swing")):
-                            _had2b   = utils.circular_diff(int(_hpr2b["pitch"]), int(_hpr2b["swing"]))
-                            _calc_r2b = _calc_ranges()
-                            _hmatchb  = next((r for r in _calc_r2b if r["low"] <= _had2b <= r["high"]), None)
-                            _hexpb    = _hmatchb["result"] if _hmatchb else "?"
-                            _hiconb   = "✓" if _hexpb == _hpr2b.get("result","") else "≠"
-                            st.caption(
-                                f"Loaded play #{hist_id} · Diff **{_had2b}** → "
-                                f"calc expects **{_hexpb}** {_hiconb} actual **{_hpr2b.get('result','')}**"
-                            )
-
         # ── pitch predictor ───────────────────────────────────────────────────
         st.subheader("Pitch Predictor")
         st.caption("Enter a proposed pitch to see what each of this batter's recent swings would give.")
@@ -760,7 +751,7 @@ with tab_b:
                 proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
                                                  step=1, key="pred_pitch")
             with col_nb:
-                n_pred_b = st.slider("# swings", 5, 50, 20, key="pred_n_b")
+                n_pred_b = st.slider("# swings", 5, 100, 20, key="pred_n_b")
 
             _df_tick_b = df_b_pred if not df_b_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
             _tick_lbl_b = f"Last {n_pred_b} swings (pre-AB)" if hist_id and not df_b_pred.empty \
@@ -819,7 +810,7 @@ with tab_b:
         st.subheader("Last N Swings")
         col_ln_b, col_lo_b = st.columns([3, 1])
         with col_ln_b:
-            n_swings = st.slider("# of at-bats", 5, 50, 20, key="last_n_swing")
+            n_swings = st.slider("# of at-bats", 5, 100, 20, key="last_n_swing")
         with col_lo_b:
             swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
                                    help="+1: shifts swing markers right by one AB.")
@@ -842,6 +833,16 @@ with tab_b:
         group_cols_b = ["game_id","batter_name"] if selected_batter != "All" else ["batter_name"]
         st.plotly_chart(utils.hot_zone_matrix(df_b, value_col="swing",
                                               group_cols=group_cols_b, bucket_size=bucket_b), width="stretch")
+
+        # ── summary metrics ───────────────────────────────────────────────────
+        _b_avg  = df_b["diff"].mean() if not df_b.empty else float("nan")
+        _b_obp  = df_b["res_category"].isin(["XBH","BB/1B"]).mean() * 100 if not df_b.empty else 0.0
+        _b_xbh  = (df_b["res_category"] == "XBH").mean() * 100 if not df_b.empty else 0.0
+        _bc1, _bc2, _bc3, _bc4 = st.columns(4)
+        _bc1.metric("At-Bats", _b_total)
+        _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "—")
+        _bc3.metric("OB%", f"{_b_obp:.1f}%")
+        _bc4.metric("XBH%", f"{_b_xbh:.1f}%")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
