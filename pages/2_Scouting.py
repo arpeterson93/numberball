@@ -510,9 +510,6 @@ elif pred_mode == "Fetch Live Matchup":
 
 # ── ITD slices (shared placeholder — actual slicing is per-tab) ───────────────
 
-if matchup_label:
-    st.caption(f"Matchup: **{matchup_label}**")
-
 st.divider()
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
