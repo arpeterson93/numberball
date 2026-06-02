@@ -52,8 +52,9 @@ def _hand(p: dict) -> str:
     h = str(p.get("hand", "R")).upper()
     return h if h in ("L", "R", "S") else "R"
 
-_hand_opts = ["R", "L", "S"]
-_OBC_OPTIONS = utils.OBC_OPTIONS  # ["Empty","1B","2B","3B","1&2B","1&3B","2&3B","BL"]
+_hand_opts   = ["R", "L", "S"]
+_runner_opts = ["Empty"] + _all_player_names
+_pid_to_name = {str(p["player_id"]): p["name"] for p in _all_players if p.get("player_id") and p.get("name")}
 
 # ── session-state defaults ────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ _DEFS = {
     "pred_calc_b_team":"All","pred_calc_b_name":"-- Manual --",
     "pred_calc_b_hand":"R","pred_calc_b_con":3,"pred_calc_b_eye":3,"pred_calc_b_pow":3,"pred_calc_b_spd":3,
     "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,
-    "pred_calc_obc":"Empty",
+    "pred_calc_1b":"Empty","pred_calc_2b":"Empty","pred_calc_3b":"Empty",
 }
 for _k, _v in _DEFS.items():
     if _k not in st.session_state:
@@ -123,8 +124,10 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
         return
     r = row.iloc[0]
     st.session_state["pred_calc_outs"] = int(r.get("outs",0)) if pd.notna(r.get("outs")) else 0
-    _obc = r.get("obc", "Empty")
-    st.session_state["pred_calc_obc"] = _obc if _obc in _OBC_OPTIONS else "Empty"
+    for _base, _field in [(1, "on_first"), (2, "on_second"), (3, "on_third")]:
+        _pid = str(r.get(_field) or "-").strip()
+        _name = _pid_to_name.get(_pid, "Empty") if _pid != "-" else "Empty"
+        st.session_state[f"pred_calc_{_base}b"] = _name if _name in _runner_opts else "Empty"
 
     p_name = r.get("pitcher_name","")
     pp = _pbyn.get(p_name, {})
@@ -249,14 +252,29 @@ def _render_calc_inputs():
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
 
     # Row 6: Baserunners
-    col_obc, _ = st.columns([2, 3])
-    with col_obc:
-        if st.session_state.get("pred_calc_obc") not in _OBC_OPTIONS:
-            st.session_state["pred_calc_obc"] = "Empty"
-        st.selectbox("Baserunners", _OBC_OPTIONS, key="pred_calc_obc")
+    st.markdown("**Baserunners**")
+    col_1b, col_2b, col_3b = st.columns(3)
+    with col_1b:
+        if st.session_state.get("pred_calc_1b") not in _runner_opts:
+            st.session_state["pred_calc_1b"] = "Empty"
+        _r1 = st.selectbox("1B", _runner_opts, key="pred_calc_1b")
+        if _r1 != "Empty" and _r1 in _pbyn:
+            st.caption(f"SPD: {_stat(_pbyn[_r1],'spd')}")
+    with col_2b:
+        if st.session_state.get("pred_calc_2b") not in _runner_opts:
+            st.session_state["pred_calc_2b"] = "Empty"
+        _r2 = st.selectbox("2B", _runner_opts, key="pred_calc_2b")
+        if _r2 != "Empty" and _r2 in _pbyn:
+            st.caption(f"SPD: {_stat(_pbyn[_r2],'spd')}")
+    with col_3b:
+        if st.session_state.get("pred_calc_3b") not in _runner_opts:
+            st.session_state["pred_calc_3b"] = "Empty"
+        _r3 = st.selectbox("3B", _runner_opts, key="pred_calc_3b")
+        if _r3 != "Empty" and _r3 in _pbyn:
+            st.caption(f"SPD: {_stat(_pbyn[_r3],'spd')}")
 
 def _calc_ranges() -> list:
-    _runners = st.session_state.get("pred_calc_obc", "Empty") != "Empty"
+    _runners = any(st.session_state.get(f"pred_calc_{b}b", "Empty") != "Empty" for b in [1, 2, 3])
     return utils.compute_at_bat_ranges(
         pitcher_hand=st.session_state.get("pred_calc_p_hand","R"),
         pitcher_mov=int(st.session_state.get("pred_calc_p_mov",3)),
