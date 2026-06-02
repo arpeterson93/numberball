@@ -212,6 +212,22 @@ for g in games:
         label += f" · {str(g['start_time'])[:10]}"
 
     with st.expander(label):
+        # ── Session sheet URL ─────────────────────────────────────────────
+        _url_key = f"sheet_url_{g['id']}"
+        if _url_key not in st.session_state:
+            st.session_state[_url_key] = g.get("sheet_url") or ""
+        _cu, _cb = st.columns([5, 1])
+        with _cu:
+            st.text_input("Session sheet URL", key=_url_key, placeholder="https://docs.google.com/spreadsheets/d/…")
+        with _cb:
+            st.write("")
+            if st.button("Save", key=f"save_url_{g['id']}", use_container_width=True):
+                db.update_game_sheet_url(g["id"], st.session_state[_url_key].strip() or None)
+                st.toast("Sheet URL saved.")
+
+        st.divider()
+
+        # ── Plays ─────────────────────────────────────────────────────────
         plays = db.get_plays_for_game(g["id"])
         st.caption(f"{len(plays)} play(s) logged")
         if plays:

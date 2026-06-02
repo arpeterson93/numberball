@@ -173,32 +173,26 @@ def _render_calc_inputs():
         st.session_state["pred_calc_p_team"] = "All"
     _rp = st.columns([1, 2])
     with _rp[0]:
-        st.caption("Team")
-        _p_team = st.selectbox("p_team", _p_team_opts, key="pred_calc_p_team",
-                               on_change=_on_p_team, label_visibility="collapsed")
+        _p_team = st.selectbox("Team", _p_team_opts, key="pred_calc_p_team", on_change=_on_p_team)
     with _rp[1]:
         _p_name_opts = ["-- Manual --"] + _players_for_team(_p_team)
         if st.session_state.get("pred_calc_p_name") not in _p_name_opts:
             st.session_state["pred_calc_p_name"] = "-- Manual --"
-        st.caption("Pitcher")
-        st.selectbox("p_name", _p_name_opts, key="pred_calc_p_name",
-                     on_change=_on_pitcher, label_visibility="collapsed")
-    _scp = st.columns(5)
-    for _i, _lbl in enumerate(["Hand", "MOV", "CMD", "VEL", "AWR"]):
-        _scp[_i].caption(_lbl)
-    _icp = st.columns(5)
+        st.selectbox("Pitcher", _p_name_opts, key="pred_calc_p_name", on_change=_on_pitcher)
     if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
         st.session_state["pred_calc_p_hand"] = "R"
-    with _icp[0]:
-        st.selectbox("p_hand", _hand_opts, key="pred_calc_p_hand", label_visibility="collapsed")
-    with _icp[1]:
-        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov", label_visibility="collapsed")
-    with _icp[2]:
-        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd", label_visibility="collapsed")
-    with _icp[3]:
-        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel", label_visibility="collapsed")
-    with _icp[4]:
-        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr", label_visibility="collapsed")
+    _pa, _pb, _pc = st.columns(3)
+    with _pa:
+        st.selectbox("Hand", _hand_opts, key="pred_calc_p_hand")
+    with _pb:
+        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov")
+    with _pc:
+        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd")
+    _pd, _pe, _ = st.columns(3)
+    with _pd:
+        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel")
+    with _pe:
+        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr")
 
     st.divider()
 
@@ -209,32 +203,26 @@ def _render_calc_inputs():
         st.session_state["pred_calc_b_team"] = "All"
     _rb = st.columns([1, 2])
     with _rb[0]:
-        st.caption("Team")
-        _b_team = st.selectbox("b_team", _b_team_opts, key="pred_calc_b_team",
-                               on_change=_on_b_team, label_visibility="collapsed")
+        _b_team = st.selectbox("Team ", _b_team_opts, key="pred_calc_b_team", on_change=_on_b_team)
     with _rb[1]:
         _b_name_opts = ["-- Manual --"] + _players_for_team(_b_team)
         if st.session_state.get("pred_calc_b_name") not in _b_name_opts:
             st.session_state["pred_calc_b_name"] = "-- Manual --"
-        st.caption("Batter")
-        st.selectbox("b_name", _b_name_opts, key="pred_calc_b_name",
-                     on_change=_on_batter, label_visibility="collapsed")
-    _scb = st.columns(5)
-    for _i, _lbl in enumerate(["Hand", "CON", "EYE", "POW", "SPD"]):
-        _scb[_i].caption(_lbl)
-    _icb = st.columns(5)
+        st.selectbox("Batter", _b_name_opts, key="pred_calc_b_name", on_change=_on_batter)
     if st.session_state.get("pred_calc_b_hand") not in _hand_opts:
         st.session_state["pred_calc_b_hand"] = "R"
-    with _icb[0]:
-        st.selectbox("b_hand", _hand_opts, key="pred_calc_b_hand", label_visibility="collapsed")
-    with _icb[1]:
-        st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con", label_visibility="collapsed")
-    with _icb[2]:
-        st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye", label_visibility="collapsed")
-    with _icb[3]:
-        st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow", label_visibility="collapsed")
-    with _icb[4]:
-        st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd", label_visibility="collapsed")
+    _ba, _bb, _bc = st.columns(3)
+    with _ba:
+        st.selectbox("Hand ", _hand_opts, key="pred_calc_b_hand")
+    with _bb:
+        st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con")
+    with _bc:
+        st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye")
+    _bd, _be, _ = st.columns(3)
+    with _bd:
+        st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow")
+    with _be:
+        st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd")
 
     st.divider()
 

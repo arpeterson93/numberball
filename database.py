@@ -91,6 +91,10 @@ def delete_game(game_id: int) -> None:
     _client().table("games").delete().eq("id", game_id).execute()
 
 
+def update_game_sheet_url(game_id: int, sheet_url: str | None) -> None:
+    _client().table("games").update({"sheet_url": sheet_url or None}).eq("id", game_id).execute()
+
+
 # ------------------------------------------------------------------ plays
 
 def get_all_plays() -> list[dict]:
