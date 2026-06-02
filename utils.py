@@ -270,10 +270,6 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df["half"] = df["half"].fillna("top")
 
-    for _tc in ("def_team", "off_team"):
-        if _tc in df.columns:
-            df[_tc] = df[_tc].map(lambda t: TEAM_ABBREV.get(t, t) if pd.notna(t) else t)
-
     sw = df["pitch"].notna() & df["swing"].notna()
 
     # Recompute diff for swing plays; steals already have diff stored from sheet
@@ -328,6 +324,13 @@ def flatten_games(plays: list[dict]) -> pd.DataFrame:
             row["home_team"] = g.get("home_team")
             row["away_team"] = g.get("away_team")
             row["game_code"] = g.get("game_code")
+            # Re-derive off_team/def_team from game records (already full names)
+            if row.get("half") == "top":
+                row["off_team"] = g.get("away_team")
+                row["def_team"] = g.get("home_team")
+            else:
+                row["off_team"] = g.get("home_team")
+                row["def_team"] = g.get("away_team")
         rows.append(row)
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
