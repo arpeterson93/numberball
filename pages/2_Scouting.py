@@ -249,29 +249,14 @@ def _render_calc_inputs():
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
 
     # Row 6: Baserunners
-    st.markdown("**Baserunners**")
-    col_1b, col_2b, col_3b = st.columns(3)
-    with col_1b:
-        if st.session_state["pred_calc_1b"] not in _runner_opts:
-            st.session_state["pred_calc_1b"] = "Empty"
-        _r1 = st.selectbox("1B", _runner_opts, key="pred_calc_1b")
-        if _r1 != "Empty" and _r1 in _pbyn:
-            st.caption(f"SPD: {_stat(_pbyn[_r1],'spd')}")
-    with col_2b:
-        if st.session_state["pred_calc_2b"] not in _runner_opts:
-            st.session_state["pred_calc_2b"] = "Empty"
-        _r2 = st.selectbox("2B", _runner_opts, key="pred_calc_2b")
-        if _r2 != "Empty" and _r2 in _pbyn:
-            st.caption(f"SPD: {_stat(_pbyn[_r2],'spd')}")
-    with col_3b:
-        if st.session_state["pred_calc_3b"] not in _runner_opts:
-            st.session_state["pred_calc_3b"] = "Empty"
-        _r3 = st.selectbox("3B", _runner_opts, key="pred_calc_3b")
-        if _r3 != "Empty" and _r3 in _pbyn:
-            st.caption(f"SPD: {_stat(_pbyn[_r3],'spd')}")
+    col_obc, _ = st.columns([2, 3])
+    with col_obc:
+        if st.session_state.get("pred_calc_obc") not in _OBC_OPTIONS:
+            st.session_state["pred_calc_obc"] = "Empty"
+        st.selectbox("Baserunners", _OBC_OPTIONS, key="pred_calc_obc")
 
 def _calc_ranges() -> list:
-    _runners = any(st.session_state.get(f"pred_calc_{b}b","Empty") != "Empty" for b in [1,2,3])
+    _runners = st.session_state.get("pred_calc_obc", "Empty") != "Empty"
     return utils.compute_at_bat_ranges(
         pitcher_hand=st.session_state.get("pred_calc_p_hand","R"),
         pitcher_mov=int(st.session_state.get("pred_calc_p_mov",3)),
@@ -534,22 +519,18 @@ with tab_p:
                                          format_func=lambda x: f"Game {int(x)}")
         _pf3, _pf4 = st.columns(2)
         with _pf3:
-            _tp_team_val = st.session_state.get("tab_p_team", "All")
-            if _tp_team_val not in (["All"] + _def_teams_p):
-                _tp_team_val = "All"
+            if st.session_state.get("tab_p_team", "All") not in (["All"] + _def_teams_p):
+                st.session_state["tab_p_team"] = "All"
             tab_p_team = st.selectbox("Pitcher Team", ["All"] + _def_teams_p,
-                                      index=(["All"] + _def_teams_p).index(_tp_team_val),
                                       key="tab_p_team", on_change=_on_tab_p_team)
         with _pf4:
             _tab_p_pitchers = sorted(
                 df_all[df_all["def_team"] == tab_p_team]["pitcher_name"].unique()
                 if tab_p_team != "All" else df_all["pitcher_name"].unique()
             )
-            _tp_pitcher_val = st.session_state.get("tab_p_pitcher", "All")
-            if _tp_pitcher_val not in (["All"] + _tab_p_pitchers):
-                _tp_pitcher_val = "All"
+            if st.session_state.get("tab_p_pitcher", "All") not in (["All"] + _tab_p_pitchers):
+                st.session_state["tab_p_pitcher"] = "All"
             tab_p_pitcher = st.selectbox("Pitcher", ["All"] + _tab_p_pitchers,
-                                         index=(["All"] + _tab_p_pitchers).index(_tp_pitcher_val),
                                          key="tab_p_pitcher")
 
     # Build pitcher tab df
@@ -781,22 +762,18 @@ with tab_b:
                                          format_func=lambda x: f"Game {int(x)}")
         _bf3, _bf4, _bf5 = st.columns(3)
         with _bf3:
-            _tb_team_val = st.session_state.get("tab_b_team", "All")
-            if _tb_team_val not in (["All"] + _off_teams_b):
-                _tb_team_val = "All"
+            if st.session_state.get("tab_b_team", "All") not in (["All"] + _off_teams_b):
+                st.session_state["tab_b_team"] = "All"
             tab_b_team = st.selectbox("Batter Team", ["All"] + _off_teams_b,
-                                      index=(["All"] + _off_teams_b).index(_tb_team_val),
                                       key="tab_b_team", on_change=_on_tab_b_team)
         with _bf4:
             _tab_b_batters = sorted(
                 df_all[df_all["off_team"] == tab_b_team]["batter_name"].unique()
                 if tab_b_team != "All" else df_all["batter_name"].unique()
             )
-            _tb_batter_val = st.session_state.get("tab_b_batter", "All")
-            if _tb_batter_val not in (["All"] + _tab_b_batters):
-                _tb_batter_val = "All"
+            if st.session_state.get("tab_b_batter", "All") not in (["All"] + _tab_b_batters):
+                st.session_state["tab_b_batter"] = "All"
             tab_b_batter = st.selectbox("Batter", ["All"] + _tab_b_batters,
-                                        index=(["All"] + _tab_b_batters).index(_tb_batter_val),
                                         key="tab_b_batter")
         with _bf5:
             if tab_b_batter != "All":
