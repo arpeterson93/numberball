@@ -203,14 +203,14 @@ def _render_calc_inputs():
                      on_change=_on_batter, label_visibility="collapsed")
 
     # Row 3: stat captions  [Hand|MOV|CMD|VEL|AWR | gap | Hand|CON|EYE|POW|SPD]
-    _sc = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    _sc = st.columns([2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1])
     for _i, _lbl in enumerate(["Hand","MOV","CMD","VEL","AWR"]):
         _sc[_i].caption(_lbl)
     for _i, _lbl in enumerate(["Hand","CON","EYE","POW","SPD"]):
         _sc[6 + _i].caption(_lbl)
 
     # Row 4: stat inputs
-    _ic = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    _ic = st.columns([2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1])
     if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
         st.session_state["pred_calc_p_hand"] = "R"
     with _ic[0]:
@@ -444,22 +444,9 @@ if pred_mode == "Historical / Manual":
 
 elif pred_mode == "Fetch Live Matchup":
     with st.expander("Live Matchup", expanded=True):
-        _all_seasons = sorted(df_all["season"].dropna().unique(), reverse=True)
-        _all_game_ids = sorted(df_all["game_id"].dropna().unique())
-
-        # Season/game selectors for sheet lookup
-        _lm_c1, _lm_c2 = st.columns(2)
-        with _lm_c1:
-            _lm_seasons = st.multiselect("Season", _all_seasons, default=_all_seasons, key="lm_seasons")
-        with _lm_c2:
-            _lm_games = st.multiselect("Games", _all_game_ids, default=_all_game_ids, key="lm_games",
-                                       format_func=lambda x: f"Game {int(x)}")
-
         all_games_sw = db.get_games()
-        games_by_id  = {g["id"]: g for g in all_games_sw}
         sheet_urls   = list(dict.fromkeys(
-            g["sheet_url"] for gid in (_lm_games or _all_game_ids)
-            if (g := games_by_id.get(gid)) and g.get("sheet_url")
+            g["sheet_url"] for g in all_games_sw if g.get("sheet_url")
         ))
 
         col_sh, col_btn = st.columns([3, 1])
@@ -470,7 +457,7 @@ elif pred_mode == "Fetch Live Matchup":
                     format_func=_sheet_name,
                 )
             else:
-                st.caption("No sheet linked to selected session(s).")
+                st.caption("No sheets linked to any games.")
                 pred_sheet_url = None
         with col_btn:
             st.write("")
