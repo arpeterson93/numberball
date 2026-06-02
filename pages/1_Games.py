@@ -25,16 +25,19 @@ def _sync_games(sheet_id: str) -> tuple[int, list[str]]:
 def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
     plays = utils.read_plays_from_sheet(sheet_id)
     if not plays:
-        return 0, ["No plays found in the Plays (Converted) tab."]
+        return 0, ["No plays found in the Plays (Raw) tab."]
 
-    all_games = db.get_games()
-    game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
+    all_games   = db.get_games()
+    all_players = db.get_all_players()
+    game_code_to_id  = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
+    player_id_to_name = {p["player_id"]: p["name"] for p in all_players if p.get("player_id") and p.get("name")}
 
     plays_sorted = sorted(plays, key=lambda p: p["play_num"])
-    seen_inn: dict[str, set] = {}
+    seen_inn:     dict[str, set] = {}
     seen_pitcher: dict[str, set] = {}
+    outs_tracker: dict[tuple, int] = {}   # (game_code, inning, half) → outs before this play
     errors: list[str] = []
-    rows: list[dict] = []
+    rows:   list[dict] = []
 
     for play in plays_sorted:
         gc = play["game_code"]
@@ -42,17 +45,53 @@ def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
         if not game_db_id:
             errors.append(f"Play {play['play_num']}: game {gc} not found - sync Games first.")
             continue
-        inn_key = (play["inning"], play["half"])
-        pitcher = play["pitcher_name"]
-        is_fp_inn = inn_key not in seen_inn.setdefault(gc, set())
-        is_fp_app = pitcher not in seen_pitcher.setdefault(gc, set())
-        seen_inn[gc].add(inn_key)
-        seen_pitcher[gc].add(pitcher)
+
+        # Player name lookups
+        pitcher_name = player_id_to_name.get(play.get("pitcher_id"), "")
+        batter_name  = player_id_to_name.get(play.get("batter_id"),  "")
+        catcher_name = player_id_to_name.get(play.get("catcher_id"))
+        runner_name  = player_id_to_name.get(play.get("runner_id"))
+
+        # off/def team from away/home + inning half
+        away_full = utils.TEAM_ABBREV.get(play.get("away") or "", play.get("away") or "")
+        home_full = utils.TEAM_ABBREV.get(play.get("home") or "", play.get("home") or "")
+        if play["half"] == "top":
+            off_team, def_team = away_full, home_full
+        else:
+            off_team, def_team = home_full, away_full
+
+        # Circular diff
+        pitch, swing = play.get("pitch"), play.get("swing")
+        diff = utils.circular_diff(int(pitch), int(swing)) if pitch is not None and swing is not None else None
+
+        # Outs: running count per half-inning
+        inn_key = (gc, play["inning"], play["half"])
+        if inn_key not in outs_tracker:
+            outs_tracker[inn_key] = 0
+        outs = outs_tracker[inn_key]
+        outs_tracker[inn_key] = min(3, outs + utils.outs_added(play.get("result") or ""))
+
+        # First-pitch flags (keyed on pitcher_name)
+        fp_inn_key = (play["inning"], play["half"])
+        is_fp_inn = fp_inn_key not in seen_inn.setdefault(gc, set())
+        is_fp_app = pitcher_name not in seen_pitcher.setdefault(gc, set())
+        seen_inn[gc].add(fp_inn_key)
+        if pitcher_name:
+            seen_pitcher[gc].add(pitcher_name)
+
         rows.append({
             **{k: v for k, v in play.items() if k != "game_code"},
-            "game_id": game_db_id,
-            "is_fp_inn": is_fp_inn,
-            "is_fp_app": is_fp_app,
+            "game_id":      game_db_id,
+            "pitcher_name": pitcher_name,
+            "batter_name":  batter_name,
+            "catcher_name": catcher_name,
+            "runner_name":  runner_name,
+            "off_team":     off_team,
+            "def_team":     def_team,
+            "diff":         diff,
+            "outs":         outs,
+            "is_fp_inn":    is_fp_inn,
+            "is_fp_app":    is_fp_app,
         })
 
     if not rows:

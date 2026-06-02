@@ -52,9 +52,8 @@ def _hand(p: dict) -> str:
     h = str(p.get("hand", "R")).upper()
     return h if h in ("L", "R", "S") else "R"
 
-_hand_opts   = ["R", "L", "S"]
-_runner_opts = ["Empty"] + _all_player_names
-_OBC_BASES   = {"Empty":[],"1B":[1],"2B":[2],"3B":[3],"1&2B":[1,2],"1&3B":[1,3],"2&3B":[2,3],"BL":[1,2,3]}
+_hand_opts = ["R", "L", "S"]
+_OBC_OPTIONS = utils.OBC_OPTIONS  # ["Empty","1B","2B","3B","1&2B","1&3B","2&3B","BL"]
 
 # ── session-state defaults ────────────────────────────────────────────────────
 
@@ -64,7 +63,7 @@ _DEFS = {
     "pred_calc_b_team":"All","pred_calc_b_name":"-- Manual --",
     "pred_calc_b_hand":"R","pred_calc_b_con":3,"pred_calc_b_eye":3,"pred_calc_b_pow":3,"pred_calc_b_spd":3,
     "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,
-    "pred_calc_1b":"Empty","pred_calc_2b":"Empty","pred_calc_3b":"Empty",
+    "pred_calc_obc":"Empty",
 }
 for _k, _v in _DEFS.items():
     if _k not in st.session_state:
@@ -124,8 +123,8 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
         return
     r = row.iloc[0]
     st.session_state["pred_calc_outs"] = int(r.get("outs",0)) if pd.notna(r.get("outs")) else 0
-    for _b in [1, 2, 3]:
-        st.session_state[f"pred_calc_{_b}b"] = "Empty"
+    _obc = r.get("obc", "Empty")
+    st.session_state["pred_calc_obc"] = _obc if _obc in _OBC_OPTIONS else "Empty"
 
     p_name = r.get("pitcher_name","")
     pp = _pbyn.get(p_name, {})
@@ -637,7 +636,7 @@ with tab_p:
                                         use_container_width=True, key=f"p_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
-                st.info("Fetch a matchup sheet above to enable the predictor.")
+                st.info("Select a matchup above to enable the predictor.")
 
         # ── last N pitches ────────────────────────────────────────────────────
         st.divider()
@@ -891,7 +890,7 @@ with tab_b:
                                         use_container_width=True, key=f"b_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
-                st.info("Fetch a matchup sheet above to enable the predictor.")
+                st.info("Select a matchup above to enable the predictor.")
 
         # ── last N swings ─────────────────────────────────────────────────────
         st.divider()

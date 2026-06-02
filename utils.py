@@ -1412,72 +1412,83 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
 
 
 def read_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays (Converted)' tab and return a list of play dicts."""
+    """Read the 'Plays (Raw)' tab and return a list of play dicts."""
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Converted)')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
 
     plays = []
     for _, row in df.iterrows():
-        # "Play" = full play identifier like 130101001; "Game" = game code like 130101
         play_num = _safe_int(row.get("Play"))
         game_code = _str(row.get("Game"))
         if not play_num or not game_code:
             continue
 
-        inning_num, half = parse_inning(_str(row.get("Inning")) or "T1")
-        brc = _safe_int(row.get("BRC"))
-        obc = BRC_TO_OBC.get(brc, "Empty") if brc is not None else "Empty"
+        inning_raw = _str(row.get("Inning")) or "T1"
+        inning_num, half = parse_inning(inning_raw)
 
-        pitcher_name = _str(row.get("Pitcher"))
-        batter_name = _str(row.get("Batter"))
-        # OFF = offensive (batting) team; DEF = defensive (pitching) team
-        off_abbrev = _str(row.get("OFF")) or ""
-        def_abbrev = _str(row.get("DEF")) or ""
-        pitch = _safe_int(row.get("Pitch #"))
-        swing = _safe_int(row.get("Swing #"))
-        result = _str(row.get("Result"))
         play_type = _str(row.get("PlayType"))
+        result = _str(row.get("Result"))
+        pitch = _safe_int(row.get("Pitch"))
+        swing = _safe_int(row.get("Swing"))
 
         is_steal = (play_type or "").lower() == "steal"
-        if not pitcher_name or not batter_name or not result:
+        if not result:
             continue
         if not is_steal and (pitch is None or swing is None):
             continue
 
+        # OBC from runner fields ("-" means empty base)
+        on_first  = _str(row.get("OnFirst"))  or "-"
+        on_second = _str(row.get("OnSecond")) or "-"
+        on_third  = _str(row.get("OnThird"))  or "-"
+        brc = (
+            (1 if on_first  != "-" else 0)
+            | (2 if on_second != "-" else 0)
+            | (4 if on_third  != "-" else 0)
+        )
+        obc = BRC_TO_OBC.get(brc, "Empty")
+
         plays.append({
-            "game_code": game_code,
-            "inning_raw": _str(row.get("Inning")),
-            "play_num": play_num,
-            "outs": _safe_int(row.get("Outs")) or 0,
-            "brc": brc,
-            "off_team": TEAM_ABBREV.get(off_abbrev, off_abbrev),
-            "def_team": TEAM_ABBREV.get(def_abbrev, def_abbrev),
-            "play_type": play_type,
-            "pitcher_name": pitcher_name,
-            "pitch": pitch,
-            "batter_name": batter_name,
-            "swing": swing,
-            "catcher_name": _str(row.get("Catcher")),
-            "throw_num": _safe_int(row.get("Throw #")),
-            "runner_name": _str(row.get("Runner")),
-            "steal_num": _safe_int(row.get("Steal #")),
-            "result": result,
-            "runs": _safe_int(row.get("Runs")),
-            "pitcher_id": _safe_int(row.get("Pitcher ID")),
-            "batter_id": _safe_int(row.get("Batter ID")),
-            "catcher_id": _safe_int(row.get("Catcher Id")),
-            "runner_id": _safe_int(row.get("Runner ID")),
-            "diff": _safe_int(row.get("Diff")),
-            "session_num": _safe_int(row.get("Session #")),
-            # app-only (set during sync)
+            "game_code":  game_code,
+            "play_num":   play_num,
+            "timestamp":  _str(row.get("Timestamp")),
+            "umpire":     _str(row.get("Umpire")),
+            "away":       _str(row.get("Away")),
+            "home":       _str(row.get("Home")),
+            "inning_raw": inning_raw,
+            "away_score": _safe_int(row.get("a_Scr")),
+            "home_score": _safe_int(row.get("h_Scr")),
+            "play_type":  play_type,
+            "result":     result,
+            "play_code":  _str(row.get("Playcode")),
+            "pitcher_id": _safe_int(row.get("Pitcher")),
+            "catcher_id": _safe_int(row.get("Catcher")),
+            "pos":        _str(row.get("Pos")),
+            "batter_id":  _safe_int(row.get("Batter")),
+            "on_first":   on_first,
+            "on_second":  on_second,
+            "on_third":   on_third,
+            "scored2":    _str(row.get("scored2")),
+            "scored3":    _str(row.get("scored3")),
+            "scored4":    _str(row.get("scored4")),
+            "er1":        _str(row.get("er1")),
+            "er2":        _str(row.get("er2")),
+            "er3":        _str(row.get("er3")),
+            "er4":        _str(row.get("er4")),
+            "pitch":      pitch,
+            "swing":      swing,
+            "throw_num":  _safe_int(row.get("Throw")),
+            "runner_id":  _safe_int(row.get("Runner")),
+            "steal_num":  _safe_int(row.get("Steal")),
+            # app-computed (half, obc here; rest filled in _sync_plays)
             "inning": inning_num,
-            "half": half,
-            "obc": obc,
+            "half":   half,
+            "obc":    obc,
         })
     return plays
 
