@@ -166,81 +166,79 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
 # ── compact calc inputs (Option D) ────────────────────────────────────────────
 
 def _render_calc_inputs():
-    # Row 1: headers
-    _hc = st.columns([5, 1, 5])
-    _hc[0].markdown("**Pitcher**")
-    _hc[2].markdown("**Batter**")
-
-    # Row 2: team + name selectors
+    # ── Pitcher ──────────────────────────────────────────────────────────
+    st.markdown("**⚾ Pitcher**")
     _p_team_opts = ["All"] + _all_teams
     if st.session_state.get("pred_calc_p_team") not in _p_team_opts:
         st.session_state["pred_calc_p_team"] = "All"
-    _b_team_opts = ["All"] + _all_teams
-    if st.session_state.get("pred_calc_b_team") not in _b_team_opts:
-        st.session_state["pred_calc_b_team"] = "All"
-
-    _rc = st.columns([2, 3, 1, 2, 3])
-    with _rc[0]:
+    _rp = st.columns([1, 2])
+    with _rp[0]:
         st.caption("Team")
         _p_team = st.selectbox("p_team", _p_team_opts, key="pred_calc_p_team",
                                on_change=_on_p_team, label_visibility="collapsed")
-    with _rc[1]:
+    with _rp[1]:
         _p_name_opts = ["-- Manual --"] + _players_for_team(_p_team)
         if st.session_state.get("pred_calc_p_name") not in _p_name_opts:
             st.session_state["pred_calc_p_name"] = "-- Manual --"
         st.caption("Pitcher")
         st.selectbox("p_name", _p_name_opts, key="pred_calc_p_name",
                      on_change=_on_pitcher, label_visibility="collapsed")
-    # gap col
-    with _rc[3]:
+    _scp = st.columns(5)
+    for _i, _lbl in enumerate(["Hand", "MOV", "CMD", "VEL", "AWR"]):
+        _scp[_i].caption(_lbl)
+    _icp = st.columns(5)
+    if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
+        st.session_state["pred_calc_p_hand"] = "R"
+    with _icp[0]:
+        st.selectbox("p_hand", _hand_opts, key="pred_calc_p_hand", label_visibility="collapsed")
+    with _icp[1]:
+        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov", label_visibility="collapsed")
+    with _icp[2]:
+        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd", label_visibility="collapsed")
+    with _icp[3]:
+        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel", label_visibility="collapsed")
+    with _icp[4]:
+        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr", label_visibility="collapsed")
+
+    st.divider()
+
+    # ── Batter ───────────────────────────────────────────────────────────
+    st.markdown("**🦇 Batter**")
+    _b_team_opts = ["All"] + _all_teams
+    if st.session_state.get("pred_calc_b_team") not in _b_team_opts:
+        st.session_state["pred_calc_b_team"] = "All"
+    _rb = st.columns([1, 2])
+    with _rb[0]:
         st.caption("Team")
         _b_team = st.selectbox("b_team", _b_team_opts, key="pred_calc_b_team",
                                on_change=_on_b_team, label_visibility="collapsed")
-    with _rc[4]:
+    with _rb[1]:
         _b_name_opts = ["-- Manual --"] + _players_for_team(_b_team)
         if st.session_state.get("pred_calc_b_name") not in _b_name_opts:
             st.session_state["pred_calc_b_name"] = "-- Manual --"
         st.caption("Batter")
         st.selectbox("b_name", _b_name_opts, key="pred_calc_b_name",
                      on_change=_on_batter, label_visibility="collapsed")
-
-    # Row 3: stat captions  [Hand|MOV|CMD|VEL|AWR | gap | Hand|CON|EYE|POW|SPD]
-    _sc = st.columns([2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1])
-    for _i, _lbl in enumerate(["Hand","MOV","CMD","VEL","AWR"]):
-        _sc[_i].caption(_lbl)
-    for _i, _lbl in enumerate(["Hand","CON","EYE","POW","SPD"]):
-        _sc[6 + _i].caption(_lbl)
-
-    # Row 4: stat inputs
-    _ic = st.columns([2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1])
-    if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
-        st.session_state["pred_calc_p_hand"] = "R"
-    with _ic[0]:
-        st.selectbox("p_hand", _hand_opts, key="pred_calc_p_hand", label_visibility="collapsed")
-    with _ic[1]:
-        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov", label_visibility="collapsed")
-    with _ic[2]:
-        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd", label_visibility="collapsed")
-    with _ic[3]:
-        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel", label_visibility="collapsed")
-    with _ic[4]:
-        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr", label_visibility="collapsed")
-    # gap col [5]
+    _scb = st.columns(5)
+    for _i, _lbl in enumerate(["Hand", "CON", "EYE", "POW", "SPD"]):
+        _scb[_i].caption(_lbl)
+    _icb = st.columns(5)
     if st.session_state.get("pred_calc_b_hand") not in _hand_opts:
         st.session_state["pred_calc_b_hand"] = "R"
-    with _ic[6]:
+    with _icb[0]:
         st.selectbox("b_hand", _hand_opts, key="pred_calc_b_hand", label_visibility="collapsed")
-    with _ic[7]:
+    with _icb[1]:
         st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con", label_visibility="collapsed")
-    with _ic[8]:
+    with _icb[2]:
         st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye", label_visibility="collapsed")
-    with _ic[9]:
+    with _icb[3]:
         st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow", label_visibility="collapsed")
-    with _ic[10]:
+    with _icb[4]:
         st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd", label_visibility="collapsed")
 
-    # Row 5: Outs / Bunt / HnR
-    st.markdown("")
+    st.divider()
+
+    # ── Situation ────────────────────────────────────────────────────────
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
         if st.session_state.get("pred_calc_outs") not in [0, 1, 2]:
@@ -251,7 +249,7 @@ def _render_calc_inputs():
     with col_s3:
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
 
-    # Row 6: Baserunners
+    # ── Baserunners ──────────────────────────────────────────────────────
     st.markdown("**Baserunners**")
     col_1b, col_2b, col_3b = st.columns(3)
     with col_1b:
