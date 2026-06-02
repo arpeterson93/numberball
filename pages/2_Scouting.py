@@ -211,40 +211,28 @@ def _import_play(play_id: int, src_df: pd.DataFrame, fill_side: str):
     st.session_state["pred_calc_outs"] = int(r.get("outs",0)) if pd.notna(r.get("outs")) else 0
     for _b in [1, 2, 3]:
         st.session_state[f"pred_calc_{_b}b"] = "Empty"
-    if fill_side == "batter":
-        b_name = r.get("batter_name","")
-        bp = _pbyn.get(b_name, {})
-        b_tf = utils.TEAM_ABBREV.get(bp.get("team",""), "All")
-        if b_tf in _all_teams:
-            st.session_state["pred_calc_b_team"] = b_tf
-        st.session_state["pred_calc_b_name"] = b_name if b_name in _pbyn else "-- Manual --"
-        st.session_state["pred_calc_b_hand"] = _hand(bp) if bp else "R"
-        st.session_state["pred_calc_b_con"]  = _stat(bp,"con") if bp else 3
-        st.session_state["pred_calc_b_eye"]  = _stat(bp,"eye") if bp else 3
-        st.session_state["pred_calc_b_pow"]  = _stat(bp,"pow") if bp else 3
-        st.session_state["pred_calc_b_spd"]  = _stat(bp,"spd") if bp else 3
-        if b_name in _pbyn:
-            st.session_state["_auto_batter_filter"] = {
-                "team": utils.TEAM_ABBREV.get(_pbyn[b_name].get("team",""), "All"),
-                "batter": b_name,
-            }
-    else:
-        p_name = r.get("pitcher_name","")
-        pp = _pbyn.get(p_name, {})
-        p_tf = utils.TEAM_ABBREV.get(pp.get("team",""), "All")
-        if p_tf in _all_teams:
-            st.session_state["pred_calc_p_team"] = p_tf
-        st.session_state["pred_calc_p_name"] = p_name if p_name in _pbyn else "-- Manual --"
-        st.session_state["pred_calc_p_hand"] = _hand(pp) if pp else "R"
-        st.session_state["pred_calc_p_mov"]  = _stat(pp,"mov") if pp else 3
-        st.session_state["pred_calc_p_cmd"]  = _stat(pp,"cmd") if pp else 3
-        st.session_state["pred_calc_p_vel"]  = _stat(pp,"vel") if pp else 3
-        st.session_state["pred_calc_p_awr"]  = _stat(pp,"awr") if pp else 3
-        if p_name in _pbyn:
-            st.session_state["_auto_pitcher_filter"] = {
-                "team": utils.TEAM_ABBREV.get(_pbyn[p_name].get("team",""), "All"),
-                "pitcher": p_name,
-            }
+    p_name = r.get("pitcher_name","")
+    pp = _pbyn.get(p_name, {})
+    p_tf = utils.TEAM_ABBREV.get(pp.get("team",""), "All")
+    if p_tf in _all_teams:
+        st.session_state["pred_calc_p_team"] = p_tf
+    st.session_state["pred_calc_p_name"] = p_name if p_name in _pbyn else "-- Manual --"
+    st.session_state["pred_calc_p_hand"] = _hand(pp) if pp else "R"
+    st.session_state["pred_calc_p_mov"]  = _stat(pp,"mov") if pp else 3
+    st.session_state["pred_calc_p_cmd"]  = _stat(pp,"cmd") if pp else 3
+    st.session_state["pred_calc_p_vel"]  = _stat(pp,"vel") if pp else 3
+    st.session_state["pred_calc_p_awr"]  = _stat(pp,"awr") if pp else 3
+    b_name = r.get("batter_name","")
+    bp = _pbyn.get(b_name, {})
+    b_tf = utils.TEAM_ABBREV.get(bp.get("team",""), "All")
+    if b_tf in _all_teams:
+        st.session_state["pred_calc_b_team"] = b_tf
+    st.session_state["pred_calc_b_name"] = b_name if b_name in _pbyn else "-- Manual --"
+    st.session_state["pred_calc_b_hand"] = _hand(bp) if bp else "R"
+    st.session_state["pred_calc_b_con"]  = _stat(bp,"con") if bp else 3
+    st.session_state["pred_calc_b_eye"]  = _stat(bp,"eye") if bp else 3
+    st.session_state["pred_calc_b_pow"]  = _stat(bp,"pow") if bp else 3
+    st.session_state["pred_calc_b_spd"]  = _stat(bp,"spd") if bp else 3
 
 # ── shared calculator widget block ────────────────────────────────────────────
 
@@ -434,78 +422,40 @@ elif pred_mode == "Historical / Manual":
     _bn = st.session_state.get("pred_calc_b_name", "")
     matchup_label = " vs ".join(p for p in [_pn, _bn] if p and p != "-- Manual --")
 
-    with st.expander("Import from History", expanded=False):
-        _imp_tab_p, _imp_tab_b = st.tabs(["⚾ Pitcher Perspective", "🦇 Batter Perspective"])
-        with _imp_tab_p:
-            st.caption("Shows plays from selected pitcher. Imports opposing batter's stats.")
-            _h_play_p = _play_picker(df_p, "pred_hist_season_p", "pred_hist_game_p", "pred_hist_play_p")
-            col_hi_p, col_hinfo_p = st.columns([1, 5])
-            with col_hi_p:
-                if _h_play_p is not None and st.button("Import Play", type="primary",
-                                                       use_container_width=True, key="pred_hist_import_p"):
-                    _import_play(int(_h_play_p), df_p, fill_side="batter")
-                    st.session_state["pred_hist_loaded_id"] = int(_h_play_p)
-                    st.rerun()
-            with col_hinfo_p:
-                if _h_play_p is not None:
-                    _hpr_p = df_p[df_p["id"] == _h_play_p]
-                    if not _hpr_p.empty:
-                        _hr = _hpr_p.iloc[0]
-                        if pd.notna(_hr.get("pitch")) and pd.notna(_hr.get("swing")):
-                            _hd = utils.circular_diff(int(_hr["pitch"]), int(_hr["swing"]))
-                            st.caption(
-                                f"P:{int(_hr['pitch'])}  S:{int(_hr['swing'])}  "
-                                f"Diff:{_hd}  → **{_hr.get('result','')}**"
-                            )
-            if hist_id and result_ranges:
-                _hpr_row = df_p[df_p["id"] == hist_id]
-                if not _hpr_row.empty:
-                    _hpr2 = _hpr_row.iloc[0]
-                    if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
-                        _had2    = utils.circular_diff(int(_hpr2["pitch"]), int(_hpr2["swing"]))
-                        _calc_r2 = _calc_ranges()
-                        _hmatch  = next((r for r in _calc_r2 if r["low"] <= _had2 <= r["high"]), None)
-                        _hexp    = _hmatch["result"] if _hmatch else "?"
-                        _hicon   = "✓" if _hexp == _hpr2.get("result","") else "≠"
+    with st.expander("Import from History", expanded=True):
+        _h_play = _play_picker(df_p, "pred_hist_season", "pred_hist_game", "pred_hist_play")
+        col_hi, col_hinfo = st.columns([1, 5])
+        with col_hi:
+            if _h_play is not None and st.button("Import Play", type="primary",
+                                                  use_container_width=True, key="pred_hist_import"):
+                _import_play(int(_h_play), df_p, fill_side="both")
+                st.session_state["pred_hist_loaded_id"] = int(_h_play)
+                st.rerun()
+        with col_hinfo:
+            if _h_play is not None:
+                _hpr = df_p[df_p["id"] == _h_play]
+                if not _hpr.empty:
+                    _hr = _hpr.iloc[0]
+                    if pd.notna(_hr.get("pitch")) and pd.notna(_hr.get("swing")):
+                        _hd = utils.circular_diff(int(_hr["pitch"]), int(_hr["swing"]))
                         st.caption(
-                            f"Loaded play #{hist_id} · Diff **{_had2}** → "
-                            f"calc expects **{_hexp}** {_hicon} actual **{_hpr2.get('result','')}**"
+                            f"P:{int(_hr['pitch'])}  S:{int(_hr['swing'])}  "
+                            f"Diff:{_hd}  → **{_hr.get('result','')}**"
                         )
-        with _imp_tab_b:
-            st.caption("Shows plays from selected batter. Imports opposing pitcher's stats.")
-            _h_play_b = _play_picker(df_b, "pred_hist_season_b", "pred_hist_game_b", "pred_hist_play_b")
-            col_hi_b, col_hinfo_b = st.columns([1, 5])
-            with col_hi_b:
-                if _h_play_b is not None and st.button("Import Play", type="primary",
-                                                       use_container_width=True, key="pred_hist_import_b"):
-                    _import_play(int(_h_play_b), df_b, fill_side="pitcher")
-                    st.session_state["pred_hist_loaded_id"] = int(_h_play_b)
-                    st.rerun()
-            with col_hinfo_b:
-                if _h_play_b is not None:
-                    _hpr_b = df_b[df_b["id"] == _h_play_b]
-                    if not _hpr_b.empty:
-                        _hrb = _hpr_b.iloc[0]
-                        if pd.notna(_hrb.get("pitch")) and pd.notna(_hrb.get("swing")):
-                            _hdb = utils.circular_diff(int(_hrb["pitch"]), int(_hrb["swing"]))
-                            st.caption(
-                                f"P:{int(_hrb['pitch'])}  S:{int(_hrb['swing'])}  "
-                                f"Diff:{_hdb}  → **{_hrb.get('result','')}**"
-                            )
-            if hist_id and result_ranges:
-                _hpr_row_b = df_b[df_b["id"] == hist_id]
-                if not _hpr_row_b.empty:
-                    _hpr2b = _hpr_row_b.iloc[0]
-                    if pd.notna(_hpr2b.get("pitch")) and pd.notna(_hpr2b.get("swing")):
-                        _had2b    = utils.circular_diff(int(_hpr2b["pitch"]), int(_hpr2b["swing"]))
-                        _calc_r2b = _calc_ranges()
-                        _hmatchb  = next((r for r in _calc_r2b if r["low"] <= _had2b <= r["high"]), None)
-                        _hexpb    = _hmatchb["result"] if _hmatchb else "?"
-                        _hiconb   = "✓" if _hexpb == _hpr2b.get("result","") else "≠"
-                        st.caption(
-                            f"Loaded play #{hist_id} · Diff **{_had2b}** → "
-                            f"calc expects **{_hexpb}** {_hiconb} actual **{_hpr2b.get('result','')}**"
-                        )
+        if hist_id and result_ranges:
+            _hpr_row = df_p[df_p["id"] == hist_id]
+            if not _hpr_row.empty:
+                _hpr2 = _hpr_row.iloc[0]
+                if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
+                    _had2    = utils.circular_diff(int(_hpr2["pitch"]), int(_hpr2["swing"]))
+                    _calc_r2 = _calc_ranges()
+                    _hmatch  = next((r for r in _calc_r2 if r["low"] <= _had2 <= r["high"]), None)
+                    _hexp    = _hmatch["result"] if _hmatch else "?"
+                    _hicon   = "✓" if _hexp == _hpr2.get("result","") else "≠"
+                    st.caption(
+                        f"Loaded play #{hist_id} · Diff **{_had2}** → "
+                        f"calc expects **{_hexp}** {_hicon} actual **{_hpr2.get('result','')}**"
+                    )
 
     with st.expander("Matchup Setup", expanded=True):
         _render_calc_inputs()
@@ -557,7 +507,7 @@ with tab_p:
             st.plotly_chart(
                 utils.swing_predictor_chart(_df_tick_p, swing=int(proposed_swing), n=n_pred_p,
                                             result_ranges=result_ranges, tick_label=_tick_lbl_p),
-                width="stretch",
+                width="stretch", key="p_swing_pred",
             )
 
             st.markdown("**Optimal Swing**")
@@ -581,7 +531,7 @@ with tab_p:
                             st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                             st.rerun()
                         st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "obp", True, compact=True),
-                                        use_container_width=True)
+                                        use_container_width=True, key=f"p_opt_obp_{_i}")
             with col_slg_p:
                 st.markdown("**SLG**")
                 for _i, (_lbl, _vals) in enumerate(_opt_rows_p):
@@ -597,7 +547,7 @@ with tab_p:
                             st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                             st.rerun()
                         st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "slg", True, compact=True),
-                                        use_container_width=True)
+                                        use_container_width=True, key=f"p_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
                 st.info("Fetch a matchup sheet above to enable the predictor.")
@@ -615,7 +565,7 @@ with tab_p:
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {n_pitches} Pitches",
                                         swing_offset=(swing_off_p == "+1")),
-            width="stretch",
+            width="stretch", key="p_last_n",
         )
 
         # rebind so all sections below are ITD
@@ -629,7 +579,7 @@ with tab_p:
         bucket_p = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_p")
         group_cols_p = ["game_id","pitcher_name"] if selected_pitcher != "All" else ["pitcher_name"]
         st.plotly_chart(utils.hot_zone_matrix(df_p, value_col="pitch",
-                                              group_cols=group_cols_p, bucket_size=bucket_p), width="stretch")
+                                              group_cols=group_cols_p, bucket_size=bucket_p), width="stretch", key="p_hot_zone")
 
         # ── summary metrics ───────────────────────────────────────────────────
         _p_avg  = df_p["diff"].mean() if not df_p.empty else float("nan")
@@ -643,7 +593,7 @@ with tab_p:
         st.divider()
         st.subheader("Zone Distribution (All)")
         st.plotly_chart(utils.zone_heatmap(df_p["pitch_zone"].value_counts().to_dict(),
-                                           title="Pitch Zone Frequency"), width="stretch")
+                                           title="Pitch Zone Frequency"), width="stretch", key="p_zone_all")
 
         # ── first pitch tendencies ────────────────────────────────────────────
         st.subheader("First Pitch Tendencies")
@@ -652,12 +602,12 @@ with tab_p:
             _fpa = df_p[df_p["is_fp_app"] == True]
             st.plotly_chart(utils.zone_heatmap(_fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {},
                                                title=f"First Pitch of Appearance (n={len(_fpa)})"),
-                            width="stretch", config={"displayModeBar": False})
+                            width="stretch", config={"displayModeBar": False}, key="p_fpa")
         with col_b_p:
             _fpi = df_p[df_p["is_fp_inn"] == True]
             st.plotly_chart(utils.zone_heatmap(_fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {},
                                                title=f"First Pitch of Inning (n={len(_fpi)})"),
-                            width="stretch", config={"displayModeBar": False})
+                            width="stretch", config={"displayModeBar": False}, key="p_fpi")
 
         # ── zone by out count ─────────────────────────────────────────────────
         st.subheader("Zone by Out Count")
@@ -666,7 +616,7 @@ with tab_p:
             _dfo = df_p[df_p["outs"] == _oc]
             with _cols_p[_i]:
                 st.plotly_chart(utils.zone_heatmap(_dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {},
-                                                   title=f"{_oc} Outs (n={len(_dfo)})"), width="stretch")
+                                                   title=f"{_oc} Outs (n={len(_dfo)})"), width="stretch", key=f"p_oc_{_oc}")
 
         # ── zone by base state ────────────────────────────────────────────────
         st.subheader("Zone by Base State")
@@ -678,14 +628,14 @@ with tab_p:
             _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
             with _col:
                 st.plotly_chart(utils.zone_heatmap(_df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {},
-                                                   title=f"{_lbl} (n={len(_df_obc)})"), width="stretch")
+                                                   title=f"{_lbl} (n={len(_df_obc)})"), width="stretch", key=f"p_obc_{_lbl}")
 
         # ── delta ─────────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Pitch Delta (Change from Previous AB)")
         _deltas_p = df_p["pitch_circ_delta"].dropna()
         if not _deltas_p.empty:
-            st.plotly_chart(utils.delta_histogram(_deltas_p), width="stretch")
+            st.plotly_chart(utils.delta_histogram(_deltas_p), width="stretch", key="p_delta")
             _dc1, _dc2, _dc3 = st.columns(3)
             _dc1.metric("Avg Delta", f"{_deltas_p.mean():+.1f}")
             _dc2.metric("Avg |Delta|", f"{_deltas_p.abs().mean():.1f}")
@@ -714,9 +664,9 @@ with tab_p:
         st.divider()
         st.subheader("Results Allowed")
         st.plotly_chart(utils.result_bar(df_p["result"].value_counts().to_dict(),
-                                         title="Result Distribution"), width="stretch")
+                                         title="Result Distribution"), width="stretch", key="p_res_dist")
         st.plotly_chart(utils.result_bar(df_p["res_category"].value_counts().to_dict(),
-                                         title="Result Category"), width="stretch")
+                                         title="Result Category"), width="stretch", key="p_res_cat")
 
         # ── raw data ──────────────────────────────────────────────────────────
         with st.expander("Raw At-Bat Data"):
@@ -760,7 +710,7 @@ with tab_b:
                 utils.swing_predictor_chart(_df_tick_b, swing=int(proposed_pitch), n=n_pred_b,
                                             result_ranges=result_ranges, tick_label=_tick_lbl_b,
                                             value_col="swing", x_label="Swing Values", ref_label="Pitch"),
-                width="stretch",
+                width="stretch", key="b_swing_pred",
             )
 
             st.markdown("**Optimal Pitch**")
@@ -784,7 +734,7 @@ with tab_b:
                             st.session_state.setdefault("_pills_rst_b", []).append(_pk)
                             st.rerun()
                         st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "obp", False, compact=True),
-                                        use_container_width=True)
+                                        use_container_width=True, key=f"b_opt_obp_{_i}")
             with col_slg_b:
                 st.markdown("**SLG**")
                 for _i, (_lbl, _vals) in enumerate(_opt_rows_b):
@@ -800,7 +750,7 @@ with tab_b:
                             st.session_state.setdefault("_pills_rst_b", []).append(_pk)
                             st.rerun()
                         st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "slg", False, compact=True),
-                                        use_container_width=True)
+                                        use_container_width=True, key=f"b_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
                 st.info("Fetch a matchup sheet above to enable the predictor.")
@@ -818,7 +768,7 @@ with tab_b:
             utils.last_n_combined_chart(df_b_pred, n=n_swings, delta_col="swing",
                                         title=f"Last {n_swings} Swings",
                                         swing_offset=(swing_off_b == "+1")),
-            width="stretch",
+            width="stretch", key="b_last_n",
         )
 
         # rebind so all sections below are ITD
@@ -832,7 +782,7 @@ with tab_b:
         bucket_b = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_b")
         group_cols_b = ["game_id","batter_name"] if selected_batter != "All" else ["batter_name"]
         st.plotly_chart(utils.hot_zone_matrix(df_b, value_col="swing",
-                                              group_cols=group_cols_b, bucket_size=bucket_b), width="stretch")
+                                              group_cols=group_cols_b, bucket_size=bucket_b), width="stretch", key="b_hot_zone")
 
         # ── summary metrics ───────────────────────────────────────────────────
         _b_avg  = df_b["diff"].mean() if not df_b.empty else float("nan")
@@ -848,7 +798,7 @@ with tab_b:
         st.divider()
         st.subheader("Swing Zone Distribution (All)")
         st.plotly_chart(utils.zone_heatmap(df_b["swing_zone"].value_counts().to_dict(),
-                                           title="Swing Zone Frequency"), width="stretch")
+                                           title="Swing Zone Frequency"), width="stretch", key="b_zone_all")
 
         # ── first pitch swing tendencies ──────────────────────────────────────
         st.subheader("First Pitch Swing Tendencies")
@@ -857,12 +807,12 @@ with tab_b:
             _fpab = df_b[df_b["is_fp_app"] == True]
             st.plotly_chart(utils.zone_heatmap(_fpab["swing_zone"].value_counts().to_dict() if not _fpab.empty else {},
                                                title=f"First Pitch of Appearance (n={len(_fpab)})"),
-                            width="stretch", config={"displayModeBar": False})
+                            width="stretch", config={"displayModeBar": False}, key="b_fpa")
         with col_b_b:
             _fpib = df_b[df_b["is_fp_inn"] == True]
             st.plotly_chart(utils.zone_heatmap(_fpib["swing_zone"].value_counts().to_dict() if not _fpib.empty else {},
                                                title=f"First Pitch of Inning (n={len(_fpib)})"),
-                            width="stretch", config={"displayModeBar": False})
+                            width="stretch", config={"displayModeBar": False}, key="b_fpi")
 
         # ── zone by out count ─────────────────────────────────────────────────
         st.subheader("Swing Zone by Out Count")
@@ -871,7 +821,7 @@ with tab_b:
             _dfo_b = df_b[df_b["outs"] == _oc]
             with _cols_b[_i]:
                 st.plotly_chart(utils.zone_heatmap(_dfo_b["swing_zone"].value_counts().to_dict() if not _dfo_b.empty else {},
-                                                   title=f"{_oc} Outs (n={len(_dfo_b)})"), width="stretch")
+                                                   title=f"{_oc} Outs (n={len(_dfo_b)})"), width="stretch", key=f"b_oc_{_oc}")
 
         # ── zone by base state ────────────────────────────────────────────────
         st.subheader("Swing Zone by Base State")
@@ -883,7 +833,7 @@ with tab_b:
             _df_obc_b = df_b[df_b["obc"].isin(_obc_vals)]
             with _col:
                 st.plotly_chart(utils.zone_heatmap(_df_obc_b["swing_zone"].value_counts().to_dict() if not _df_obc_b.empty else {},
-                                                   title=f"{_lbl} (n={len(_df_obc_b)})"), width="stretch")
+                                                   title=f"{_lbl} (n={len(_df_obc_b)})"), width="stretch", key=f"b_obc_{_lbl}")
 
         # ── zone by result ────────────────────────────────────────────────────
         st.subheader("Swing Zone by Result")
@@ -892,14 +842,14 @@ with tab_b:
             _df_res = df_b[df_b["res_category"].isin(_cats)]
             with _col:
                 st.plotly_chart(utils.zone_heatmap(_df_res["swing_zone"].value_counts().to_dict() if not _df_res.empty else {},
-                                                   title=f"{_lbl} (n={len(_df_res)})"), width="stretch")
+                                                   title=f"{_lbl} (n={len(_df_res)})"), width="stretch", key=f"b_res_{_lbl}")
 
         # ── delta ─────────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Swing Delta (Change from Previous AB)")
         _deltas_b = df_b["swing_circ_delta"].dropna()
         if not _deltas_b.empty:
-            st.plotly_chart(utils.delta_histogram(_deltas_b, title="Swing Delta Distribution"), width="stretch")
+            st.plotly_chart(utils.delta_histogram(_deltas_b, title="Swing Delta Distribution"), width="stretch", key="b_delta")
             _dc1b, _dc2b, _dc3b = st.columns(3)
             _dc1b.metric("Avg Delta", f"{_deltas_b.mean():+.1f}")
             _dc2b.metric("Avg |Delta|", f"{_deltas_b.abs().mean():.1f}")
@@ -928,9 +878,9 @@ with tab_b:
         st.divider()
         st.subheader("Results")
         st.plotly_chart(utils.result_bar(df_b["result"].value_counts().to_dict(),
-                                         title="Result Distribution"), width="stretch")
+                                         title="Result Distribution"), width="stretch", key="b_res_dist")
         st.plotly_chart(utils.result_bar(df_b["res_category"].value_counts().to_dict(),
-                                         title="Result Category"), width="stretch")
+                                         title="Result Category"), width="stretch", key="b_res_cat")
 
         # ── raw data ──────────────────────────────────────────────────────────
         with st.expander("Raw At-Bat Data"):
