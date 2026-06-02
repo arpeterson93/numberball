@@ -488,9 +488,11 @@ def last_n_combined_chart(
     delta_col: str = "pitch",
     title: str = "Last N Pitches",
     swing_offset: bool = False,
+    highlight_name: str | None = None,
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: if True, shifts swing markers right by 1 to show whether swing predicts next pitch.
+    highlight_name: if set and batter_name column exists, swing markers for that batter use a star symbol.
     """
     df_last = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id").tail(n).reset_index(drop=True)
     n_actual = len(df_last)
@@ -513,10 +515,18 @@ def last_n_combined_chart(
         swing_x = list(range(2, n_actual + 1))
         swing_y = swings[:-1]
         swing_text = [str(s) for s in swing_y]
+        highlight_mask = (
+            df_last["batter_name"].iloc[:-1].eq(highlight_name).tolist()
+            if highlight_name and "batter_name" in df_last.columns else [False] * len(swing_x)
+        )
     else:
         swing_x = x_all
         swing_y = swings
         swing_text = [str(s) for s in swings]
+        highlight_mask = (
+            df_last["batter_name"].eq(highlight_name).tolist()
+            if highlight_name and "batter_name" in df_last.columns else [False] * n_actual
+        )
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -530,12 +540,46 @@ def last_n_combined_chart(
         text=[str(p) for p in pitches], textposition="top center",
         textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
     ), row=1, col=1)
-    fig.add_trace(go.Scatter(
-        x=swing_x, y=swing_y, mode="lines+markers+text",
-        name="Swing" + (" (offset +1)" if swing_offset else ""),
-        text=swing_text, textposition="bottom center",
-        textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
-    ), row=1, col=1)
+
+    swing_name = "Swing" + (" (offset +1)" if swing_offset else "")
+    if highlight_name and any(highlight_mask):
+        # Two traces: stars for highlighted batter, circles for others — share the line via one combined trace
+        # Draw the connecting line first (no markers, full series)
+        fig.add_trace(go.Scatter(
+            x=swing_x, y=swing_y, mode="lines",
+            name=swing_name, line=dict(color="#2166ac", width=2),
+            showlegend=True, hoverinfo="skip",
+        ), row=1, col=1)
+        # Circle markers for non-highlighted rows
+        _cx = [x for x, h in zip(swing_x, highlight_mask) if not h]
+        _cy = [y for y, h in zip(swing_y, highlight_mask) if not h]
+        _ct = [t for t, h in zip(swing_text, highlight_mask) if not h]
+        if _cx:
+            fig.add_trace(go.Scatter(
+                x=_cx, y=_cy, mode="markers+text", text=_ct,
+                textposition="bottom center", textfont=dict(size=10),
+                marker=dict(size=5, color="#2166ac"),
+                showlegend=False, name=swing_name, hoverinfo="skip",
+            ), row=1, col=1)
+        # Star markers for highlighted batter
+        _sx = [x for x, h in zip(swing_x, highlight_mask) if h]
+        _sy = [y for y, h in zip(swing_y, highlight_mask) if h]
+        _st = [t for t, h in zip(swing_text, highlight_mask) if h]
+        if _sx:
+            fig.add_trace(go.Scatter(
+                x=_sx, y=_sy, mode="markers+text", text=_st,
+                textposition="bottom center", textfont=dict(size=10),
+                marker=dict(symbol="star", size=10, color="#2166ac",
+                            line=dict(color="white", width=0.5)),
+                showlegend=False, name=swing_name, hoverinfo="skip",
+            ), row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(
+            x=swing_x, y=swing_y, mode="lines+markers+text",
+            name=swing_name,
+            text=swing_text, textposition="bottom center",
+            textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
+        ), row=1, col=1)
     fig.add_trace(go.Bar(
         x=x_delta, y=[abs(d) for d in deltas], marker_color=colors,
         text=[f"{d:+d}" for d in deltas], textposition="outside",

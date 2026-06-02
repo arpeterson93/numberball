@@ -36,83 +36,6 @@ _all_teams        = sorted({utils.TEAM_ABBREV.get(p.get("team",""), p.get("team"
 _full_to_abbrev   = {v: k for k, v in utils.TEAM_ABBREV.items()}
 _all_player_names = sorted(p["name"] for p in _all_players if p.get("name"))
 
-# ── auto-filters from cross-tab imports ──────────────────────────────────────
-
-if "_auto_pitcher_filter" in st.session_state:
-    _apf = st.session_state.pop("_auto_pitcher_filter")
-    if _apf.get("team") and _apf["team"] in df_all["def_team"].unique():
-        st.session_state["spt_filter"] = _apf["team"]
-    if _apf.get("pitcher") and _apf["pitcher"] in df_all["pitcher_name"].unique():
-        st.session_state["spitcher_filter"] = _apf["pitcher"]
-
-if "_auto_batter_filter" in st.session_state:
-    _abf = st.session_state.pop("_auto_batter_filter")
-    if _abf.get("team") and _abf["team"] in df_all["off_team"].unique():
-        st.session_state["sbt_filter"] = _abf["team"]
-    if _abf.get("batter") and _abf["batter"] in df_all["batter_name"].unique():
-        st.session_state["sbatter_filter"] = _abf["batter"]
-
-# ── sidebar ───────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    st.header("Filters")
-    seasons = sorted(df_all["season"].dropna().unique(), reverse=True)
-    selected_seasons = st.multiselect("Season", seasons, default=seasons)
-    games_list = sorted(df_all["game_id"].dropna().unique())
-    selected_games = st.multiselect("Games", games_list, default=games_list,
-                                    format_func=lambda x: f"Game {int(x)}")
-    st.divider()
-    st.subheader("Pitcher")
-    def_teams = sorted(df_all["def_team"].unique())
-    selected_pt = st.selectbox("Team", ["All"] + def_teams, key="spt_filter")
-    if selected_pt != "All":
-        pitcher_names = sorted(df_all[df_all["def_team"] == selected_pt]["pitcher_name"].unique())
-    else:
-        pitcher_names = sorted(df_all["pitcher_name"].unique())
-    selected_pitcher = st.selectbox("Pitcher", ["All"] + pitcher_names, key="spitcher_filter")
-    st.divider()
-    st.subheader("Batter")
-    off_teams = sorted(df_all["off_team"].unique())
-    selected_bt = st.selectbox("Team", ["All"] + off_teams, key="sbt_filter")
-    if selected_bt != "All":
-        batter_names = sorted(df_all[df_all["off_team"] == selected_bt]["batter_name"].unique())
-    else:
-        batter_names = sorted(df_all["batter_name"].unique())
-    selected_batter = st.selectbox("Batter", ["All"] + batter_names, key="sbatter_filter")
-    if selected_batter != "All":
-        batter_scope = st.radio("Scope", ["Solo", "Full Team"], horizontal=True, key="batter_scope",
-                                help="Solo: only this batter. Full Team: all ABs from their team.")
-    else:
-        batter_scope = "Solo"
-
-# ── filtered DataFrames ───────────────────────────────────────────────────────
-
-_base = df_all.copy()
-if selected_seasons:
-    _base = _base[_base["season"].isin(selected_seasons)]
-if selected_games:
-    _base = _base[_base["game_id"].isin(selected_games)]
-
-df_p = _base.copy()
-if selected_pt != "All":
-    df_p = df_p[df_p["def_team"] == selected_pt]
-if selected_pitcher != "All":
-    df_p = df_p[df_p["pitcher_name"] == selected_pitcher]
-if selected_bt != "All":
-    df_p = df_p[df_p["off_team"] == selected_bt]
-if selected_batter != "All" and batter_scope == "Solo":
-    df_p = df_p[df_p["batter_name"] == selected_batter]
-
-df_b = _base.copy()
-if selected_bt != "All":
-    df_b = df_b[df_b["off_team"] == selected_bt]
-if selected_batter != "All" and batter_scope == "Solo":
-    df_b = df_b[df_b["batter_name"] == selected_batter]
-if selected_pt != "All":
-    df_b = df_b[df_b["def_team"] == selected_pt]
-if selected_pitcher != "All":
-    df_b = df_b[df_b["pitcher_name"] == selected_pitcher]
-
 # ── shared helpers ────────────────────────────────────────────────────────────
 
 def _players_for_team(team_full: str) -> list[str]:
@@ -129,9 +52,9 @@ def _hand(p: dict) -> str:
     h = str(p.get("hand", "R")).upper()
     return h if h in ("L", "R", "S") else "R"
 
-_hand_opts    = ["R", "L", "S"]
-_runner_opts  = ["Empty"] + _all_player_names
-_OBC_BASES    = {"Empty":[],"1B":[1],"2B":[2],"3B":[3],"1&2B":[1,2],"1&3B":[1,3],"2&3B":[2,3],"BL":[1,2,3]}
+_hand_opts   = ["R", "L", "S"]
+_runner_opts = ["Empty"] + _all_player_names
+_OBC_BASES   = {"Empty":[],"1B":[1],"2B":[2],"3B":[3],"1&2B":[1,2],"1&3B":[1,3],"2&3B":[2,3],"BL":[1,2,3]}
 
 # ── session-state defaults ────────────────────────────────────────────────────
 
@@ -146,26 +69,6 @@ _DEFS = {
 for _k, _v in _DEFS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
-
-# ── auto-sync sidebar → calculator ───────────────────────────────────────────
-
-_pitcher_rec = _pbyn.get(selected_pitcher, {}) if selected_pitcher != "All" else {}
-if selected_pitcher != "All" and st.session_state.get("_loaded_pitcher") != selected_pitcher:
-    st.session_state["_loaded_pitcher"] = selected_pitcher
-    st.session_state.update({
-        "pred_calc_p_hand": _hand(_pitcher_rec),
-        "pred_calc_p_mov": _stat(_pitcher_rec,"mov"), "pred_calc_p_cmd": _stat(_pitcher_rec,"cmd"),
-        "pred_calc_p_vel": _stat(_pitcher_rec,"vel"), "pred_calc_p_awr": _stat(_pitcher_rec,"awr"),
-    })
-
-_batter_rec = _pbyn.get(selected_batter, {}) if selected_batter != "All" else {}
-if selected_batter != "All" and st.session_state.get("_loaded_batter") != selected_batter:
-    st.session_state["_loaded_batter"] = selected_batter
-    st.session_state.update({
-        "pred_calc_b_hand": _hand(_batter_rec),
-        "pred_calc_b_con": _stat(_batter_rec,"con"), "pred_calc_b_eye": _stat(_batter_rec,"eye"),
-        "pred_calc_b_pow": _stat(_batter_rec,"pow"), "pred_calc_b_spd": _stat(_batter_rec,"spd"),
-    })
 
 # ── callbacks ─────────────────────────────────────────────────────────────────
 
@@ -198,12 +101,24 @@ def _on_batter():
         st.session_state.update({
             "pred_calc_b_hand": _hand(bp),
             "pred_calc_b_con": _stat(bp,"con"), "pred_calc_b_eye": _stat(bp,"eye"),
-            "pred_calc_b_pow": _stat(bp,"pow"), "pred_calc_b_spd": _stat(bp,"spd"),
+            "pred_calc_b_pow": _stat(bp,"pwr"), "pred_calc_b_spd": _stat(bp,"spd"),
         })
+
+def _on_srch_pt():
+    st.session_state["srch_pitcher"] = "All"
+
+def _on_srch_bt():
+    st.session_state["srch_batter"] = "All"
+
+def _on_tab_p_team():
+    st.session_state["tab_p_pitcher"] = "All"
+
+def _on_tab_b_team():
+    st.session_state["tab_b_batter"] = "All"
 
 # ── import helper ─────────────────────────────────────────────────────────────
 
-def _import_play(play_id: int, src_df: pd.DataFrame, fill_side: str):
+def _import_play(play_id: int, src_df: pd.DataFrame):
     row = src_df[src_df["id"] == play_id]
     if row.empty:
         return
@@ -211,6 +126,7 @@ def _import_play(play_id: int, src_df: pd.DataFrame, fill_side: str):
     st.session_state["pred_calc_outs"] = int(r.get("outs",0)) if pd.notna(r.get("outs")) else 0
     for _b in [1, 2, 3]:
         st.session_state[f"pred_calc_{_b}b"] = "Empty"
+
     p_name = r.get("pitcher_name","")
     pp = _pbyn.get(p_name, {})
     p_tf = utils.TEAM_ABBREV.get(pp.get("team",""), "All")
@@ -222,6 +138,7 @@ def _import_play(play_id: int, src_df: pd.DataFrame, fill_side: str):
     st.session_state["pred_calc_p_cmd"]  = _stat(pp,"cmd") if pp else 3
     st.session_state["pred_calc_p_vel"]  = _stat(pp,"vel") if pp else 3
     st.session_state["pred_calc_p_awr"]  = _stat(pp,"awr") if pp else 3
+
     b_name = r.get("batter_name","")
     bp = _pbyn.get(b_name, {})
     b_tf = utils.TEAM_ABBREV.get(bp.get("team",""), "All")
@@ -231,51 +148,97 @@ def _import_play(play_id: int, src_df: pd.DataFrame, fill_side: str):
     st.session_state["pred_calc_b_hand"] = _hand(bp) if bp else "R"
     st.session_state["pred_calc_b_con"]  = _stat(bp,"con") if bp else 3
     st.session_state["pred_calc_b_eye"]  = _stat(bp,"eye") if bp else 3
-    st.session_state["pred_calc_b_pow"]  = _stat(bp,"pow") if bp else 3
+    st.session_state["pred_calc_b_pow"]  = _stat(bp,"pwr") if bp else 3
     st.session_state["pred_calc_b_spd"]  = _stat(bp,"spd") if bp else 3
 
-# ── shared calculator widget block ────────────────────────────────────────────
+    # Auto-populate tab data filters
+    _p_def_teams = sorted(df_all["def_team"].unique())
+    _b_off_teams = sorted(df_all["off_team"].unique())
+    if p_tf in _p_def_teams:
+        st.session_state["tab_p_team"] = p_tf
+    st.session_state["tab_p_pitcher"] = p_name if p_name in df_all["pitcher_name"].unique() else "All"
+    if b_tf in _b_off_teams:
+        st.session_state["tab_b_team"] = b_tf
+    st.session_state["tab_b_batter"] = b_name if b_name in df_all["batter_name"].unique() else "All"
+
+# ── compact calc inputs (Option D) ────────────────────────────────────────────
 
 def _render_calc_inputs():
-    col_p, col_b = st.columns(2)
-    with col_p:
-        p_lbl = "**Pitcher**" + (f" · *{selected_pitcher}*" if selected_pitcher != "All" else "")
-        st.markdown(p_lbl)
-        _p_team_opts = ["All"] + _all_teams
-        if st.session_state.get("pred_calc_p_team") not in _p_team_opts:
-            st.session_state["pred_calc_p_team"] = "All"
-        _p_team = st.selectbox("Team", _p_team_opts, key="pred_calc_p_team", on_change=_on_p_team)
+    # Row 1: headers
+    _hc = st.columns([5, 1, 5])
+    _hc[0].markdown("**Pitcher**")
+    _hc[2].markdown("**Batter**")
+
+    # Row 2: team + name selectors
+    _p_team_opts = ["All"] + _all_teams
+    if st.session_state.get("pred_calc_p_team") not in _p_team_opts:
+        st.session_state["pred_calc_p_team"] = "All"
+    _b_team_opts = ["All"] + _all_teams
+    if st.session_state.get("pred_calc_b_team") not in _b_team_opts:
+        st.session_state["pred_calc_b_team"] = "All"
+
+    _rc = st.columns([2, 3, 1, 2, 3])
+    with _rc[0]:
+        st.caption("Team")
+        _p_team = st.selectbox("p_team", _p_team_opts, key="pred_calc_p_team",
+                               on_change=_on_p_team, label_visibility="collapsed")
+    with _rc[1]:
         _p_name_opts = ["-- Manual --"] + _players_for_team(_p_team)
         if st.session_state.get("pred_calc_p_name") not in _p_name_opts:
             st.session_state["pred_calc_p_name"] = "-- Manual --"
-        st.selectbox("Pitcher", _p_name_opts, key="pred_calc_p_name", on_change=_on_pitcher)
-        if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
-            st.session_state["pred_calc_p_hand"] = "R"
-        st.selectbox("Hand", _hand_opts, key="pred_calc_p_hand")
-        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov")
-        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd")
-        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel")
-        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr")
-    with col_b:
-        b_lbl = "**Batter**" + (f" · *{selected_batter}*" if selected_batter != "All" else "")
-        st.markdown(b_lbl)
-        _b_team_opts = ["All"] + _all_teams
-        if st.session_state.get("pred_calc_b_team") not in _b_team_opts:
-            st.session_state["pred_calc_b_team"] = "All"
-        _b_team = st.selectbox("Team ", _b_team_opts, key="pred_calc_b_team", on_change=_on_b_team)
+        st.caption("Pitcher")
+        st.selectbox("p_name", _p_name_opts, key="pred_calc_p_name",
+                     on_change=_on_pitcher, label_visibility="collapsed")
+    # gap col
+    with _rc[3]:
+        st.caption("Team")
+        _b_team = st.selectbox("b_team", _b_team_opts, key="pred_calc_b_team",
+                               on_change=_on_b_team, label_visibility="collapsed")
+    with _rc[4]:
         _b_name_opts = ["-- Manual --"] + _players_for_team(_b_team)
         if st.session_state.get("pred_calc_b_name") not in _b_name_opts:
             st.session_state["pred_calc_b_name"] = "-- Manual --"
-        st.selectbox("Batter", _b_name_opts, key="pred_calc_b_name", on_change=_on_batter)
-        if st.session_state.get("pred_calc_b_hand") not in _hand_opts:
-            st.session_state["pred_calc_b_hand"] = "R"
-        st.selectbox("Hand ", _hand_opts, key="pred_calc_b_hand")
-        st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con")
-        st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye")
-        st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow")
-        st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd")
+        st.caption("Batter")
+        st.selectbox("b_name", _b_name_opts, key="pred_calc_b_name",
+                     on_change=_on_batter, label_visibility="collapsed")
 
-    st.divider()
+    # Row 3: stat captions  [Hand|MOV|CMD|VEL|AWR | gap | Hand|CON|EYE|POW|SPD]
+    _sc = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    for _i, _lbl in enumerate(["Hand","MOV","CMD","VEL","AWR"]):
+        _sc[_i].caption(_lbl)
+    for _i, _lbl in enumerate(["Hand","CON","EYE","POW","SPD"]):
+        _sc[6 + _i].caption(_lbl)
+
+    # Row 4: stat inputs
+    _ic = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    if st.session_state.get("pred_calc_p_hand") not in _hand_opts:
+        st.session_state["pred_calc_p_hand"] = "R"
+    with _ic[0]:
+        st.selectbox("p_hand", _hand_opts, key="pred_calc_p_hand", label_visibility="collapsed")
+    with _ic[1]:
+        st.number_input("MOV", min_value=1, max_value=5, key="pred_calc_p_mov", label_visibility="collapsed")
+    with _ic[2]:
+        st.number_input("CMD", min_value=1, max_value=5, key="pred_calc_p_cmd", label_visibility="collapsed")
+    with _ic[3]:
+        st.number_input("VEL", min_value=1, max_value=5, key="pred_calc_p_vel", label_visibility="collapsed")
+    with _ic[4]:
+        st.number_input("AWR", min_value=1, max_value=5, key="pred_calc_p_awr", label_visibility="collapsed")
+    # gap col [5]
+    if st.session_state.get("pred_calc_b_hand") not in _hand_opts:
+        st.session_state["pred_calc_b_hand"] = "R"
+    with _ic[6]:
+        st.selectbox("b_hand", _hand_opts, key="pred_calc_b_hand", label_visibility="collapsed")
+    with _ic[7]:
+        st.number_input("CON", min_value=1, max_value=5, key="pred_calc_b_con", label_visibility="collapsed")
+    with _ic[8]:
+        st.number_input("EYE", min_value=1, max_value=5, key="pred_calc_b_eye", label_visibility="collapsed")
+    with _ic[9]:
+        st.number_input("POW", min_value=1, max_value=5, key="pred_calc_b_pow", label_visibility="collapsed")
+    with _ic[10]:
+        st.number_input("SPD", min_value=1, max_value=5, key="pred_calc_b_spd", label_visibility="collapsed")
+
+    # Row 5: Outs / Bunt / HnR
+    st.markdown("")
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1:
         if st.session_state.get("pred_calc_outs") not in [0, 1, 2]:
@@ -286,6 +249,7 @@ def _render_calc_inputs():
     with col_s3:
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
 
+    # Row 6: Baserunners
     st.markdown("**Baserunners**")
     col_1b, col_2b, col_3b = st.columns(3)
     with col_1b:
@@ -326,7 +290,7 @@ def _calc_ranges() -> list:
         runners_on=_runners,
     )
 
-# ── play picker helper (used inside each tab) ─────────────────────────────────
+# ── play picker helper ────────────────────────────────────────────────────────
 
 def _play_picker(src_df: pd.DataFrame, season_key: str, game_key: str, play_key: str):
     """Render season/game/play selectors and return the selected play ID (or None)."""
@@ -359,6 +323,20 @@ def _play_picker(src_df: pd.DataFrame, season_key: str, game_key: str, play_key:
         )
     return _h_play
 
+# ── stat display helper (read-only attrs block) ───────────────────────────────
+
+def _player_attrs_md(p: dict, side: str) -> str:
+    if not p:
+        return ""
+    if side == "pitcher":
+        h = _hand(p)
+        return (f"Hand **{h}** · MOV **{_stat(p,'mov')}** · CMD **{_stat(p,'cmd')}** · "
+                f"VEL **{_stat(p,'vel')}** · AWR **{_stat(p,'awr')}**")
+    else:
+        h = _hand(p)
+        return (f"Hand **{h}** · CON **{_stat(p,'con')}** · EYE **{_stat(p,'eye')}** · "
+                f"PWR **{_stat(p,'pwr')}** · SPD **{_stat(p,'spd')}**")
+
 # ── matchup source ────────────────────────────────────────────────────────────
 
 st.subheader("Matchup Setup")
@@ -369,53 +347,7 @@ result_ranges = None
 hist_id       = st.session_state.get("pred_hist_loaded_id") if pred_mode == "Historical / Manual" else None
 matchup_label = ""
 
-if pred_mode == "Fetch Live Matchup":
-    with st.expander("Live Matchup", expanded=True):
-        all_games_sw = db.get_games()
-        games_by_id  = {g["id"]: g for g in all_games_sw}
-        sheet_urls   = list(dict.fromkeys(
-            g["sheet_url"] for gid in selected_games
-            if (g := games_by_id.get(gid)) and g.get("sheet_url")
-        ))
-        col_sh, col_btn = st.columns([3, 1])
-        with col_sh:
-            if sheet_urls:
-                pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
-                    "Session sheet", sheet_urls, key="pred_sheet_sel",
-                    format_func=_sheet_name,
-                )
-                st.caption(f"Linked: {_sheet_name(pred_sheet_url)}")
-            else:
-                st.caption("No sheet linked to selected session(s).")
-                pred_sheet_url = None
-        with col_btn:
-            st.write("")
-            if sheet_urls and st.button("Fetch Matchup", type="secondary", key="pull_ranges"):
-                try:
-                    fetched_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
-                    st.session_state["pred_result_ranges"] = fetched_ranges
-                    st.session_state["pred_sheet_batter"]  = fetched_batter
-                    st.session_state["pred_sheet_pitcher"] = fetched_pitcher
-                    for _fname, _fkey, _fteam_key, _ffilter_key in [
-                        (fetched_pitcher, "pitcher", "spt_filter", "_auto_pitcher_filter"),
-                        (fetched_batter,  "batter",  "sbt_filter", "_auto_batter_filter"),
-                    ]:
-                        if _fname:
-                            _fp = next((p for p in _all_players if p["name"] == _fname), None)
-                            _ta = _fp.get("team") if _fp else None
-                            st.session_state[_ffilter_key] = {
-                                "team": utils.TEAM_ABBREV.get(_ta, _ta), _fkey: _fname,
-                            }
-                    st.toast(f"Loaded {len(fetched_ranges)} ranges.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(str(e))
-    result_ranges = st.session_state.get("pred_result_ranges")
-    _sb = st.session_state.get("pred_sheet_batter", "")
-    _sp = st.session_state.get("pred_sheet_pitcher", "")
-    matchup_label = " vs ".join(filter(None, [_sp, _sb]))
-
-elif pred_mode == "Historical / Manual":
+if pred_mode == "Historical / Manual":
     _calc_r       = _calc_ranges()
     result_ranges = [(r["result"], r["low"], r["high"]) for r in _calc_r]
     _pn = st.session_state.get("pred_calc_p_name", "")
@@ -423,17 +355,67 @@ elif pred_mode == "Historical / Manual":
     matchup_label = " vs ".join(p for p in [_pn, _bn] if p and p != "-- Manual --")
 
     with st.expander("Import from History", expanded=True):
-        _h_play = _play_picker(df_p, "pred_hist_season", "pred_hist_game", "pred_hist_play")
+        # ── Search Filters ────────────────────────────────────────────────────
+        st.markdown("**Search Filters**")
+        _srch_seasons_all = sorted(df_all["season"].dropna().unique(), reverse=True)
+        _srch_games_all   = sorted(df_all["game_id"].dropna().unique())
+        _srch_def_teams   = sorted(df_all["def_team"].unique())
+        _srch_off_teams   = sorted(df_all["off_team"].unique())
+
+        _sc1, _sc2 = st.columns(2)
+        with _sc1:
+            srch_seasons = st.multiselect("Season", _srch_seasons_all, default=_srch_seasons_all, key="srch_seasons")
+        with _sc2:
+            srch_games = st.multiselect("Games", _srch_games_all, default=_srch_games_all, key="srch_games",
+                                        format_func=lambda x: f"Game {int(x)}")
+
+        _sc3, _sc4, _sc5, _sc6 = st.columns(4)
+        with _sc3:
+            srch_pt = st.selectbox("Pitcher Team", ["All"] + _srch_def_teams, key="srch_pt", on_change=_on_srch_pt)
+        with _sc4:
+            _srch_pitchers = sorted(
+                df_all[df_all["def_team"] == srch_pt]["pitcher_name"].unique()
+                if srch_pt != "All" else df_all["pitcher_name"].unique()
+            )
+            srch_pitcher = st.selectbox("Pitcher", ["All"] + _srch_pitchers, key="srch_pitcher")
+        with _sc5:
+            srch_bt = st.selectbox("Batter Team", ["All"] + _srch_off_teams, key="srch_bt", on_change=_on_srch_bt)
+        with _sc6:
+            _srch_batters = sorted(
+                df_all[df_all["off_team"] == srch_bt]["batter_name"].unique()
+                if srch_bt != "All" else df_all["batter_name"].unique()
+            )
+            srch_batter = st.selectbox("Batter", ["All"] + _srch_batters, key="srch_batter")
+
+        # Build search-filtered df for the play picker
+        df_srch = df_all.copy()
+        if srch_seasons:
+            df_srch = df_srch[df_srch["season"].isin(srch_seasons)]
+        if srch_games:
+            df_srch = df_srch[df_srch["game_id"].isin(srch_games)]
+        if srch_pt != "All":
+            df_srch = df_srch[df_srch["def_team"] == srch_pt]
+        if srch_pitcher != "All":
+            df_srch = df_srch[df_srch["pitcher_name"] == srch_pitcher]
+        if srch_bt != "All":
+            df_srch = df_srch[df_srch["off_team"] == srch_bt]
+        if srch_batter != "All":
+            df_srch = df_srch[df_srch["batter_name"] == srch_batter]
+
+        st.divider()
+
+        # ── Play picker ───────────────────────────────────────────────────────
+        _h_play = _play_picker(df_srch, "pred_hist_season", "pred_hist_game", "pred_hist_play")
         col_hi, col_hinfo = st.columns([1, 5])
         with col_hi:
             if _h_play is not None and st.button("Import Play", type="primary",
                                                   use_container_width=True, key="pred_hist_import"):
-                _import_play(int(_h_play), df_p, fill_side="both")
+                _import_play(int(_h_play), df_srch)
                 st.session_state["pred_hist_loaded_id"] = int(_h_play)
                 st.rerun()
         with col_hinfo:
             if _h_play is not None:
-                _hpr = df_p[df_p["id"] == _h_play]
+                _hpr = df_srch[df_srch["id"] == _h_play]
                 if not _hpr.empty:
                     _hr = _hpr.iloc[0]
                     if pd.notna(_hr.get("pitch")) and pd.notna(_hr.get("swing")):
@@ -443,7 +425,7 @@ elif pred_mode == "Historical / Manual":
                             f"Diff:{_hd}  → **{_hr.get('result','')}**"
                         )
         if hist_id and result_ranges:
-            _hpr_row = df_p[df_p["id"] == hist_id]
+            _hpr_row = df_all[df_all["id"] == hist_id]
             if not _hpr_row.empty:
                 _hpr2 = _hpr_row.iloc[0]
                 if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
@@ -460,10 +442,86 @@ elif pred_mode == "Historical / Manual":
     with st.expander("Matchup Setup", expanded=True):
         _render_calc_inputs()
 
-# ── ITD slices (shared by both tabs) ──────────────────────────────────────────
+elif pred_mode == "Fetch Live Matchup":
+    with st.expander("Live Matchup", expanded=True):
+        _all_seasons = sorted(df_all["season"].dropna().unique(), reverse=True)
+        _all_game_ids = sorted(df_all["game_id"].dropna().unique())
 
-df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
-df_b_pred = df_b[df_b["id"] < hist_id] if hist_id else df_b
+        # Season/game selectors for sheet lookup
+        _lm_c1, _lm_c2 = st.columns(2)
+        with _lm_c1:
+            _lm_seasons = st.multiselect("Season", _all_seasons, default=_all_seasons, key="lm_seasons")
+        with _lm_c2:
+            _lm_games = st.multiselect("Games", _all_game_ids, default=_all_game_ids, key="lm_games",
+                                       format_func=lambda x: f"Game {int(x)}")
+
+        all_games_sw = db.get_games()
+        games_by_id  = {g["id"]: g for g in all_games_sw}
+        sheet_urls   = list(dict.fromkeys(
+            g["sheet_url"] for gid in (_lm_games or _all_game_ids)
+            if (g := games_by_id.get(gid)) and g.get("sheet_url")
+        ))
+
+        col_sh, col_btn = st.columns([3, 1])
+        with col_sh:
+            if sheet_urls:
+                pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
+                    "Session sheet", sheet_urls, key="pred_sheet_sel",
+                    format_func=_sheet_name,
+                )
+            else:
+                st.caption("No sheet linked to selected session(s).")
+                pred_sheet_url = None
+        with col_btn:
+            st.write("")
+            if sheet_urls and st.button("Fetch Matchup", type="secondary", key="pull_ranges"):
+                try:
+                    fetched_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+                    st.session_state["pred_result_ranges"] = fetched_ranges
+                    st.session_state["pred_sheet_batter"]  = fetched_batter
+                    st.session_state["pred_sheet_pitcher"] = fetched_pitcher
+
+                    # Auto-populate tab data filters from fetched names
+                    if fetched_pitcher:
+                        _fp = _pbyn.get(fetched_pitcher, {})
+                        _p_tf = utils.TEAM_ABBREV.get(_fp.get("team",""), "All")
+                        if _p_tf in sorted(df_all["def_team"].unique()):
+                            st.session_state["tab_p_team"] = _p_tf
+                        if fetched_pitcher in df_all["pitcher_name"].unique():
+                            st.session_state["tab_p_pitcher"] = fetched_pitcher
+                    if fetched_batter:
+                        _fb = _pbyn.get(fetched_batter, {})
+                        _b_tf = utils.TEAM_ABBREV.get(_fb.get("team",""), "All")
+                        if _b_tf in sorted(df_all["off_team"].unique()):
+                            st.session_state["tab_b_team"] = _b_tf
+                        if fetched_batter in df_all["batter_name"].unique():
+                            st.session_state["tab_b_batter"] = fetched_batter
+
+                    st.toast(f"Loaded {len(fetched_ranges)} ranges.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(str(e))
+
+        result_ranges = st.session_state.get("pred_result_ranges")
+        _sb = st.session_state.get("pred_sheet_batter", "")
+        _sp = st.session_state.get("pred_sheet_pitcher", "")
+
+        if _sp or _sb:
+            _col_sp, _col_sb = st.columns(2)
+            with _col_sp:
+                if _sp:
+                    _sp_rec = _pbyn.get(_sp, {})
+                    st.markdown(f"**{_sp}** (P)")
+                    st.caption(_player_attrs_md(_sp_rec, "pitcher"))
+            with _col_sb:
+                if _sb:
+                    _sb_rec = _pbyn.get(_sb, {})
+                    st.markdown(f"**{_sb}** (B)")
+                    st.caption(_player_attrs_md(_sb_rec, "batter"))
+
+        matchup_label = " vs ".join(filter(None, [_sp, _sb]))
+
+# ── ITD slices (shared placeholder — actual slicing is per-tab) ───────────────
 
 if matchup_label:
     st.caption(f"Matchup: **{matchup_label}**")
@@ -479,6 +537,51 @@ tab_p, tab_b = st.tabs(["⚾ Pitcher", "🦇 Batter"])
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_p:
+    # ── per-tab data filters ──────────────────────────────────────────────────
+    _all_seasons_p = sorted(df_all["season"].dropna().unique(), reverse=True)
+    _all_games_p   = sorted(df_all["game_id"].dropna().unique())
+    _def_teams_p   = sorted(df_all["def_team"].unique())
+
+    with st.expander("Data Filters", expanded=True):
+        _pf1, _pf2 = st.columns(2)
+        with _pf1:
+            tab_p_seasons = st.multiselect("Season", _all_seasons_p, default=_all_seasons_p, key="tab_p_seasons")
+        with _pf2:
+            tab_p_games = st.multiselect("Games", _all_games_p, default=_all_games_p, key="tab_p_games",
+                                         format_func=lambda x: f"Game {int(x)}")
+        _pf3, _pf4 = st.columns(2)
+        with _pf3:
+            _tp_team_val = st.session_state.get("tab_p_team", "All")
+            if _tp_team_val not in (["All"] + _def_teams_p):
+                _tp_team_val = "All"
+            tab_p_team = st.selectbox("Pitcher Team", ["All"] + _def_teams_p,
+                                      index=(["All"] + _def_teams_p).index(_tp_team_val),
+                                      key="tab_p_team", on_change=_on_tab_p_team)
+        with _pf4:
+            _tab_p_pitchers = sorted(
+                df_all[df_all["def_team"] == tab_p_team]["pitcher_name"].unique()
+                if tab_p_team != "All" else df_all["pitcher_name"].unique()
+            )
+            _tp_pitcher_val = st.session_state.get("tab_p_pitcher", "All")
+            if _tp_pitcher_val not in (["All"] + _tab_p_pitchers):
+                _tp_pitcher_val = "All"
+            tab_p_pitcher = st.selectbox("Pitcher", ["All"] + _tab_p_pitchers,
+                                         index=(["All"] + _tab_p_pitchers).index(_tp_pitcher_val),
+                                         key="tab_p_pitcher")
+
+    # Build pitcher tab df
+    df_p = df_all.copy()
+    if tab_p_seasons:
+        df_p = df_p[df_p["season"].isin(tab_p_seasons)]
+    if tab_p_games:
+        df_p = df_p[df_p["game_id"].isin(tab_p_games)]
+    if tab_p_team != "All":
+        df_p = df_p[df_p["def_team"] == tab_p_team]
+    if tab_p_pitcher != "All":
+        df_p = df_p[df_p["pitcher_name"] == tab_p_pitcher]
+
+    df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
+
     if df_p.empty:
         st.warning("No at-bats match the current pitcher filter.")
     else:
@@ -572,15 +675,6 @@ with tab_p:
         df_p = df_p_pred
         _p_total = len(df_p)
 
-        # ── hot zone ─────────────────────────────────────────────────────────
-        st.divider()
-        st.subheader("Hot Zone Pitch Matrix")
-        st.caption("How often each pitch range is followed by each other pitch range.")
-        bucket_p = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_p")
-        group_cols_p = ["game_id","pitcher_name"] if selected_pitcher != "All" else ["pitcher_name"]
-        st.plotly_chart(utils.hot_zone_matrix(df_p, value_col="pitch",
-                                              group_cols=group_cols_p, bucket_size=bucket_p), width="stretch", key="p_hot_zone")
-
         # ── summary metrics ───────────────────────────────────────────────────
         _p_avg  = df_p["diff"].mean() if not df_p.empty else float("nan")
         _p_meme = df_p["is_meme_pitch"].mean() * 100 if not df_p.empty else 0.0
@@ -588,6 +682,15 @@ with tab_p:
         _pc1.metric("At-Bats", _p_total)
         _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "—")
         _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
+
+        # ── hot zone ─────────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("Hot Zone Pitch Matrix")
+        st.caption("How often each pitch range is followed by each other pitch range.")
+        bucket_p = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_p")
+        group_cols_p = ["game_id","pitcher_name"] if tab_p_pitcher != "All" else ["pitcher_name"]
+        st.plotly_chart(utils.hot_zone_matrix(df_p, value_col="pitch",
+                                              group_cols=group_cols_p, bucket_size=bucket_p), width="stretch", key="p_hot_zone")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
@@ -681,6 +784,57 @@ with tab_p:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_b:
+    # ── per-tab data filters ──────────────────────────────────────────────────
+    _all_seasons_b = sorted(df_all["season"].dropna().unique(), reverse=True)
+    _all_games_b   = sorted(df_all["game_id"].dropna().unique())
+    _off_teams_b   = sorted(df_all["off_team"].unique())
+
+    with st.expander("Data Filters", expanded=True):
+        _bf1, _bf2 = st.columns(2)
+        with _bf1:
+            tab_b_seasons = st.multiselect("Season", _all_seasons_b, default=_all_seasons_b, key="tab_b_seasons")
+        with _bf2:
+            tab_b_games = st.multiselect("Games", _all_games_b, default=_all_games_b, key="tab_b_games",
+                                         format_func=lambda x: f"Game {int(x)}")
+        _bf3, _bf4, _bf5 = st.columns(3)
+        with _bf3:
+            _tb_team_val = st.session_state.get("tab_b_team", "All")
+            if _tb_team_val not in (["All"] + _off_teams_b):
+                _tb_team_val = "All"
+            tab_b_team = st.selectbox("Batter Team", ["All"] + _off_teams_b,
+                                      index=(["All"] + _off_teams_b).index(_tb_team_val),
+                                      key="tab_b_team", on_change=_on_tab_b_team)
+        with _bf4:
+            _tab_b_batters = sorted(
+                df_all[df_all["off_team"] == tab_b_team]["batter_name"].unique()
+                if tab_b_team != "All" else df_all["batter_name"].unique()
+            )
+            _tb_batter_val = st.session_state.get("tab_b_batter", "All")
+            if _tb_batter_val not in (["All"] + _tab_b_batters):
+                _tb_batter_val = "All"
+            tab_b_batter = st.selectbox("Batter", ["All"] + _tab_b_batters,
+                                        index=(["All"] + _tab_b_batters).index(_tb_batter_val),
+                                        key="tab_b_batter")
+        with _bf5:
+            if tab_b_batter != "All":
+                tab_b_scope = st.radio("Scope", ["Solo", "Full Team"], horizontal=True, key="tab_b_scope",
+                                       help="Solo: only this batter. Full Team: all ABs from their team.")
+            else:
+                tab_b_scope = "Solo"
+
+    # Build batter tab df
+    df_b = df_all.copy()
+    if tab_b_seasons:
+        df_b = df_b[df_b["season"].isin(tab_b_seasons)]
+    if tab_b_games:
+        df_b = df_b[df_b["game_id"].isin(tab_b_games)]
+    if tab_b_team != "All":
+        df_b = df_b[df_b["off_team"] == tab_b_team]
+    if tab_b_batter != "All" and tab_b_scope == "Solo":
+        df_b = df_b[df_b["batter_name"] == tab_b_batter]
+
+    df_b_pred = df_b[df_b["id"] < hist_id] if hist_id else df_b
+
     if df_b.empty:
         st.warning("No at-bats match the current batter filter.")
     else:
@@ -764,25 +918,19 @@ with tab_b:
         with col_lo_b:
             swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
                                    help="+1: shifts swing markers right by one AB.")
+
+        _hl_name = tab_b_batter if (tab_b_batter != "All" and tab_b_scope == "Full Team") else None
         st.plotly_chart(
             utils.last_n_combined_chart(df_b_pred, n=n_swings, delta_col="swing",
                                         title=f"Last {n_swings} Swings",
-                                        swing_offset=(swing_off_b == "+1")),
+                                        swing_offset=(swing_off_b == "+1"),
+                                        highlight_name=_hl_name),
             width="stretch", key="b_last_n",
         )
 
         # rebind so all sections below are ITD
         df_b = df_b_pred
         _b_total = len(df_b)
-
-        # ── hot zone ─────────────────────────────────────────────────────────
-        st.divider()
-        st.subheader("Hot Zone Swing Matrix")
-        st.caption("How often each swing range is followed by each other swing range.")
-        bucket_b = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_b")
-        group_cols_b = ["game_id","batter_name"] if selected_batter != "All" else ["batter_name"]
-        st.plotly_chart(utils.hot_zone_matrix(df_b, value_col="swing",
-                                              group_cols=group_cols_b, bucket_size=bucket_b), width="stretch", key="b_hot_zone")
 
         # ── summary metrics ───────────────────────────────────────────────────
         _b_avg  = df_b["diff"].mean() if not df_b.empty else float("nan")
@@ -793,6 +941,15 @@ with tab_b:
         _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "—")
         _bc3.metric("OB%", f"{_b_obp:.1f}%")
         _bc4.metric("XBH%", f"{_b_xbh:.1f}%")
+
+        # ── hot zone ─────────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("Hot Zone Swing Matrix")
+        st.caption("How often each swing range is followed by each other swing range.")
+        bucket_b = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_b")
+        group_cols_b = ["game_id","batter_name"] if tab_b_batter != "All" else ["batter_name"]
+        st.plotly_chart(utils.hot_zone_matrix(df_b, value_col="swing",
+                                              group_cols=group_cols_b, bucket_size=bucket_b), width="stretch", key="b_hot_zone")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
