@@ -34,10 +34,19 @@ def _sheet_name(url: str) -> str:
 
 # ── selectors (shown before any data load) ───────────────────────────────────
 
-_source_label = st.radio(
-    "Data source", ["Real Games", "Scrimmages", "All"],
-    horizontal=True, key="scouting_source",
-)
+_src_col, _clr_col = st.columns([5, 1])
+with _src_col:
+    _source_label = st.radio(
+        "Data source", ["Real Games", "Scrimmages", "All"],
+        horizontal=True, key="scouting_source",
+    )
+with _clr_col:
+    st.write("")
+    if st.button("Refresh data", key="clear_play_cache"):
+        _load_rln_plays.clear()
+        _load_mln_plays.clear()
+        _load_scrimmage_plays.clear()
+        st.rerun()
 _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
 
 _sel_leagues: list[str] = []
