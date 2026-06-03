@@ -233,6 +233,12 @@ def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
+_GAMES_TABLE_COLS = {
+    "game_code", "league", "season", "session_number",
+    "away_team", "home_team", "away_score", "home_score",
+    "start_date", "sheet_url", "link",
+}
+
 def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
     games = utils.read_mln_games_from_sheet(sheet_id)
     if not games:
@@ -241,6 +247,8 @@ def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
     for g in games:
         g["away_team"] = abbrev_to_full.get(g["away_team"], g["away_team"])
         g["home_team"] = abbrev_to_full.get(g["home_team"], g["home_team"])
+    # Strip MLN-only fields that don't exist in the games table schema.
+    games = [{k: v for k, v in g.items() if k in _GAMES_TABLE_COLS} for g in games]
     try:
         n = db.bulk_upsert_games(games)
         return n, []
@@ -255,6 +263,9 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     all_games = db.get_games()
     game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
+    mln_game_codes_in_db = [g["game_code"] for g in all_games if g.get("league") == "MLN" and g.get("game_code")]
+    if not mln_game_codes_in_db:
+        return 0, ["No MLN games found in database. Sync MLN Games first."]
 
     mln_teams = db.get_mln_teams_for_lookup()
     team_id_to_full = {t["team_id"]: t["full_team"] for t in mln_teams if t.get("team_id") and t.get("full_team")}
