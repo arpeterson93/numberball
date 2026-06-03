@@ -208,8 +208,9 @@ def _sync_mln_teams(sheet_id: str) -> tuple[int, list[str]]:
     teams = utils.read_mln_teams_from_sheet(sheet_id)
     if not teams:
         return 0, ["No teams found in the MLN Teams tab."]
+    deduped = list({t["s_team"]: t for t in teams}.values())
     try:
-        n = db.bulk_upsert_mln_teams(teams)
+        n = db.bulk_upsert_mln_teams(deduped)
         return n, []
     except Exception as e:
         return 0, [str(e)]
@@ -219,8 +220,11 @@ def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
     players = utils.read_mln_players_from_sheet(sheet_id)
     if not players:
         return 0, ["No players found in the MLN Rosters tab."]
+    # Deduplicate on s_id — source sheet may list the same player twice in one season.
+    # Keep the last occurrence so the most recent data wins within a batch.
+    deduped = list({p["s_id"]: p for p in players}.values())
     try:
-        n = db.bulk_upsert_mln_players(players)
+        n = db.bulk_upsert_mln_players(deduped)
         return n, []
     except Exception as e:
         return 0, [str(e)]
