@@ -1367,8 +1367,8 @@ def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
     return fig
 
 
-_DIFF_HM_BINS   = [-1, 25, 100, 200, 300, 501]
-_DIFF_HM_LABELS = ["0–25 (HR)", "26–100", "101–200", "201–300", "301–500"]
+_DIFF_HM_BINS   = [-1, 25, 50, 100, 150, 200, 300, 501]
+_DIFF_HM_LABELS = ["0–25", "26–50", "51-100", "101–150", "151-200", "201–300", "301–500"]
 
 _DELTA_HM_BINS   = [-501, -200, -100, -50, 0, 50, 100, 200, 501]
 _DELTA_HM_LABELS = ["≤ −200", "−200 to −100", "−100 to −50",
