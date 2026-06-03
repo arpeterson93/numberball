@@ -9,20 +9,20 @@ st.title("Scouting")
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
-def load_data(source: str = "real") -> pd.DataFrame:
-    dfs = []
-    if source in ("real", "all"):
-        raw = db.get_all_plays()
-        if raw:
-            dfs.append(utils.enrich_df(utils.flatten_games(raw)))
-    if source in ("scrimmage", "all"):
-        raw = db.get_all_scrimmage_plays()
-        if raw:
-            dfs.append(utils.enrich_df(utils.flatten_scrimmage(raw)))
-    if not dfs:
-        return pd.DataFrame()
-    return pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+@st.cache_data(ttl=300)
+def _load_rln_plays() -> pd.DataFrame:
+    raw = db.get_all_plays(league="RLN")
+    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def _load_mln_plays() -> pd.DataFrame:
+    raw = db.get_all_plays(league="MLN")
+    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def _load_scrimmage_plays() -> pd.DataFrame:
+    raw = db.get_all_scrimmage_plays()
+    return utils.enrich_df(utils.flatten_scrimmage(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def _load_all_players() -> list:
@@ -32,25 +32,42 @@ def _load_all_players() -> list:
 def _sheet_name(url: str) -> str:
     return utils.get_sheet_name(url)
 
+# ── selectors (shown before any data load) ───────────────────────────────────
+
 _source_label = st.radio(
     "Data source", ["Real Games", "Scrimmages", "All"],
     horizontal=True, key="scouting_source",
 )
 _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
 
-df_all = load_data(_source_key)
+_sel_leagues: list[str] = []
+if _source_key in ("real", "all"):
+    _sel_leagues = st.multiselect(
+        "League", ["RLN", "MLN"], default=["RLN"], key="scouting_league",
+    )
+
+# ── load only what was selected ──────────────────────────────────────────────
+
+_dfs = []
+if _source_key in ("real", "all"):
+    if "RLN" in _sel_leagues:
+        _df = _load_rln_plays()
+        if not _df.empty:
+            _dfs.append(_df)
+    if "MLN" in _sel_leagues:
+        _df = _load_mln_plays()
+        if not _df.empty:
+            _dfs.append(_df)
+if _source_key in ("scrimmage", "all"):
+    _df = _load_scrimmage_plays()
+    if not _df.empty:
+        _dfs.append(_df)
+
+df_all = pd.concat(_dfs, ignore_index=True) if _dfs else pd.DataFrame()
+
 if df_all.empty:
     st.info("No at-bats in the database yet.")
     st.stop()
-
-if "league" in df_all.columns:
-    _leagues = sorted(df_all["league"].dropna().unique())
-    if len(_leagues) > 1:
-        _league_sel = st.multiselect(
-            "League", _leagues, default=_leagues, key="scouting_league",
-        )
-        if _league_sel:
-            df_all = df_all[df_all["league"].isin(_league_sel)]
 
 _all_players      = _load_all_players()
 _pbyn             = {p["name"]: p for p in _all_players if p.get("name")}

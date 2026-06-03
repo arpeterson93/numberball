@@ -108,12 +108,15 @@ def update_game_sheet_url(game_id: int, sheet_url: str | None) -> None:
 
 # ------------------------------------------------------------------ plays
 
-def get_all_plays() -> list[dict]:
-    return _fetch_all(
+def get_all_plays(league: str | None = None) -> list[dict]:
+    q = (
         _client().table("plays")
         .select("*, games(season, session_number, home_team, away_team, game_code)")
         .order("id", desc=False)
     )
+    if league:
+        q = q.eq("league", league)
+    return _fetch_all(q)
 
 
 def get_plays_for_game(game_id: int) -> list[dict]:
