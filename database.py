@@ -148,23 +148,19 @@ def delete_play(play_id: int) -> None:
 
 def get_mln_teams_for_lookup() -> list[dict]:
     """Return MLN team records for name resolution during archive sync."""
-    return (
+    return _fetch_all(
         _client().table("teams")
         .select("team_id, abbrev, full_team")
         .eq("league", "MLN")
-        .execute()
-        .data
     )
 
 
 def get_mln_players_for_lookup() -> list[dict]:
     """Return MLN player records for name resolution during archive sync."""
-    return (
+    return _fetch_all(
         _client().table("players")
         .select("s_id, name")
         .eq("league", "MLN")
-        .execute()
-        .data
     )
 
 
@@ -181,12 +177,10 @@ def bulk_upsert_mln_players(players: list[dict]) -> int:
 # ------------------------------------------------------------------ scrimmage plays
 
 def get_all_scrimmage_plays() -> list[dict]:
-    return (
+    return _fetch_all(
         _client().table("scrimmage_plays")
         .select("*")
         .order("id", desc=False)
-        .execute()
-        .data
     )
 
 
@@ -197,7 +191,7 @@ def bulk_upsert_scrimmage_plays(plays: list[dict]) -> int:
 # ------------------------------------------------------------------ teams
 
 def get_all_teams() -> list[dict]:
-    return _client().table("teams").select("*").order("abbrev").execute().data
+    return _fetch_all(_client().table("teams").select("*").order("abbrev"))
 
 
 def bulk_upsert_teams(teams: list[dict]) -> int:
@@ -209,12 +203,10 @@ def bulk_upsert_teams(teams: list[dict]) -> int:
 
 @st.cache_data(ttl=300)
 def get_all_players() -> list[dict]:
-    return (
+    return _fetch_all(
         _client().table("players")
         .select("player_id, name, team, primary_pos, secondary_pos, status, gm, hand, con, eye, pwr, spd, mov, cmd, vel, awr")
         .order("name")
-        .execute()
-        .data
     )
 
 
