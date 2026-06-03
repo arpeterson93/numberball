@@ -230,9 +230,7 @@ def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
     games = utils.read_mln_games_from_sheet(sheet_id)
     if not games:
         return 0, ["No games found in the MLN Games tab."]
-    # Resolve team abbreviations → full names using already-synced MLN teams
-    mln_teams = db.get_mln_teams_for_lookup()
-    abbrev_to_full = {t["abbrev"]: t["full_team"] for t in mln_teams if t.get("abbrev") and t.get("full_team")}
+    abbrev_to_full = utils.read_mln_team_abbrev_lookup(sheet_id)
     for g in games:
         g["away_team"] = abbrev_to_full.get(g["away_team"], g["away_team"])
         g["home_team"] = abbrev_to_full.get(g["home_team"], g["home_team"])

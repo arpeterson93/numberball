@@ -662,6 +662,14 @@ with tab_p:
         _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "—")
         _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
 
+        st.divider()
+        st.subheader("Next Pitch Delta vs Prior Diff")
+        st.caption("How does a pitcher adjust their next pitch based on how close the previous swing was?")
+        st.plotly_chart(
+            utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
+            width="stretch", config={"displayModeBar": False}, key="p_diff_delta_hm",
+        )
+
         # ── hot zone ─────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Hot Zone Pitch Matrix")
@@ -724,13 +732,6 @@ with tab_p:
             _dc3.metric("# with Delta", len(_deltas_p))
         else:
             st.caption("Need at least 2 at-bats from the same pitcher in a session.")
-
-        st.subheader("Next Pitch Delta vs Prior Diff")
-        st.caption("How does a pitcher adjust their next pitch based on how close the previous swing was?")
-        st.plotly_chart(
-            utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
-            width="stretch", config={"displayModeBar": False}, key="p_diff_delta_hm",
-        )
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()

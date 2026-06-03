@@ -1802,7 +1802,9 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
             "sub_league":   _str(row.get("League")),
             "division":     _str(row.get("Division")),
             "team_id":      _str(row.get("Team ID")),
-            "abbrev":       _str(row.get("Abv")),
+            # abbrev intentionally omitted — same abbreviation repeats across seasons
+            # and the teams table has a UNIQUE constraint on abbrev (used by RLN).
+            # MLN short codes are available via team_id ("T1001").
             "location":     _str(row.get("Location")),
             "team_name":    _str(row.get("Team Name")),
             "full_team":    _str(row.get("Full Team")),
@@ -1858,6 +1860,22 @@ def read_mln_players_from_sheet(sheet_id: str) -> list[dict]:
             "rookie":           _parse_bool(row.get("Rookie?")),
         })
     return players
+
+
+def read_mln_team_abbrev_lookup(sheet_id: str) -> dict[str, str]:
+    """Return {abbrev: full_team} for resolving team names in MLN Games/Plays."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Teams')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    return {
+        _str(row.get("Abv")): _str(row.get("Full Team"))
+        for _, row in df.iterrows()
+        if _str(row.get("Abv")) and _str(row.get("Full Team"))
+    }
 
 
 def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
