@@ -774,6 +774,7 @@ with tab_p:
             st.markdown("**Most Common Last 2 Digits**")
             _last2_p = df_p["pitch_last2"].value_counts().head(5)
             for _dig, _cnt in _last2_p.items():
+                _dig = int(_dig)
                 st.write(f"  **{_dig:02d}**: {_cnt} ({_cnt / _p_total * 100:.1f}%)" if _p_total else f"  **{_dig:02d}**: {_cnt}")
 
         # ── results ───────────────────────────────────────────────────────────
