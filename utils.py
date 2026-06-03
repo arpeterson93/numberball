@@ -1461,7 +1461,7 @@ def hot_zone_matrix(
     n_buckets = 1000 // bucket_size
     labels = [f"{i * bucket_size + 1}-{min((i + 1) * bucket_size, 1000)}" for i in range(n_buckets)]
 
-    df = df.sort_values(["game_id", "id"]).copy()
+    df = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
     df["_next"] = df.groupby(group_cols)[value_col].shift(-1)
     df = df.dropna(subset=["_next"])
 
