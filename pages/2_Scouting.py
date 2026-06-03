@@ -43,6 +43,15 @@ if df_all.empty:
     st.info("No at-bats in the database yet.")
     st.stop()
 
+if "league" in df_all.columns:
+    _leagues = sorted(df_all["league"].dropna().unique())
+    if len(_leagues) > 1:
+        _league_sel = st.multiselect(
+            "League", _leagues, default=_leagues, key="scouting_league",
+        )
+        if _league_sel:
+            df_all = df_all[df_all["league"].isin(_league_sel)]
+
 _all_players      = _load_all_players()
 _pbyn             = {p["name"]: p for p in _all_players if p.get("name")}
 _all_teams        = sorted({utils.TEAM_ABBREV.get(p.get("team",""), p.get("team","?"))

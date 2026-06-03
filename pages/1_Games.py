@@ -15,6 +15,9 @@ def _sync_games(sheet_id: str) -> tuple[int, list[str]]:
     games = utils.read_games_from_sheet(sheet_id)
     if not games:
         return 0, ["No games found in the Games tab."]
+    # The RLN sheet's "League" column is a spreadsheet boolean, not the league name.
+    for g in games:
+        g["league"] = "RLN"
     try:
         n = db.bulk_upsert_games(games)
         return n, []
@@ -506,12 +509,19 @@ st.divider()
 
 # ------------------------------------------------------------------ game list
 
+st.subheader("Games")
+if "show_games" not in st.session_state:
+    st.session_state["show_games"] = False
+if st.button("Show / Hide Game List", key="toggle_games"):
+    st.session_state["show_games"] = not st.session_state["show_games"]
+
+if not st.session_state["show_games"]:
+    st.stop()
+
 games = db.get_games()
 if not games:
     st.info("No games yet. Click Sync All above.")
     st.stop()
-
-st.subheader("Games")
 
 # Group: league → season → [games], each bucket sorted by id desc
 from collections import defaultdict as _dd
@@ -522,10 +532,10 @@ for _g in sorted(games, key=lambda x: x["id"], reverse=True):
 for _league in sorted(_by_league.keys()):
     _seasons = _by_league[_league]
     _league_total = sum(len(v) for v in _seasons.values())
-    with st.expander(f"**{_league}** — {_league_total} game(s)", expanded=(_league == "RLN")):
+    with st.expander(f"**{_league}** - {_league_total} game(s)", expanded=(_league == "RLN")):
         for _season in sorted(_seasons.keys(), reverse=True):
             _season_games = _seasons[_season]
-            with st.expander(f"Season {_season} — {len(_season_games)} game(s)"):
+            with st.expander(f"Season {_season} - {len(_season_games)} game(s)"):
                 for g in _season_games:
                     gc = g.get("game_code", "")
                     gc_label = gc or f"S{g['season']} G{g['session_number']}"
