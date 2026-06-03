@@ -357,6 +357,7 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     if not rows:
         return 0, diag + errors
+    rows = list({(r["play_num"], r.get("league", "MLN")): r for r in rows}.values())
     try:
         n = db.bulk_upsert_mln_plays(rows)
         return n, diag + errors
