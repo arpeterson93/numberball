@@ -1797,13 +1797,11 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
         teams.append({
             "league":       "MLN",
             "s_team":       s_team,
+            "abbrev":       _str(row.get("Abv")),
             "season":       _safe_int(row.get("Season")),
             "sub_league":   _str(row.get("League")),
             "division":     _str(row.get("Division")),
             "team_id":      _str(row.get("Team ID")),
-            # abbrev intentionally omitted — same abbreviation repeats across seasons
-            # and the teams table has a UNIQUE constraint on abbrev (used by RLN).
-            # MLN short codes are available via team_id ("T1001").
             "location":     _str(row.get("Location")),
             "team_name":    _str(row.get("Team Name")),
             "full_team":    _str(row.get("Full Team")),
