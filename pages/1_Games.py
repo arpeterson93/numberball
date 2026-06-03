@@ -349,13 +349,13 @@ if "_sync_msg" in st.session_state:
 if "_sync_errors" in st.session_state:
     _show_errors(st.session_state.pop("_sync_errors"))
 
+# ------------------------------------------------------------------ RLN sync
+
+st.subheader("RLN")
 # ------------------------------------------------------------------ sync buttons
 
 col_st, col_spl, col_sg, col_sp, col_sa = st.columns(5)
 
-# ------------------------------------------------------------------ RLN sync
-
-st.subheader("RLN")
 with col_st:
     if st.button("RLN Teams", use_container_width=True):
         with st.spinner("Reading Teams tab…"):
