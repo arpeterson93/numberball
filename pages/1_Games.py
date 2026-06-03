@@ -353,8 +353,11 @@ if "_sync_errors" in st.session_state:
 
 col_st, col_spl, col_sg, col_sp, col_sa = st.columns(5)
 
+# ------------------------------------------------------------------ RLN sync
+
+st.subheader("RLN")
 with col_st:
-    if st.button("Sync Teams", use_container_width=True):
+    if st.button("RLN Teams", use_container_width=True):
         with st.spinner("Reading Teams tab…"):
             n, errs = _sync_teams(_RLN_SHEET_ID)
         st.session_state["_sync_msg"] = f"{n} team(s) synced."
@@ -363,7 +366,7 @@ with col_st:
         st.rerun()
 
 with col_spl:
-    if st.button("Sync Players", use_container_width=True):
+    if st.button("RLN Players", use_container_width=True):
         with st.spinner("Reading Players tab…"):
             n, errs = _sync_players(_RLN_SHEET_ID)
         st.session_state["_sync_msg"] = f"{n} player(s) synced."
@@ -372,7 +375,7 @@ with col_spl:
         st.rerun()
 
 with col_sg:
-    if st.button("Sync Games", use_container_width=True):
+    if st.button("RLN Games", use_container_width=True):
         with st.spinner("Reading Games tab…"):
             n, errs = _sync_games(_RLN_SHEET_ID)
         st.session_state["_sync_msg"] = f"{n} game(s) synced."
@@ -381,7 +384,7 @@ with col_sg:
         st.rerun()
 
 with col_sp:
-    if st.button("Sync Plays", use_container_width=True):
+    if st.button("RLN Plays", use_container_width=True):
         with st.spinner("Reading Plays tab…"):
             n, errs = _sync_plays(_RLN_SHEET_ID)
         st.session_state["_sync_msg"] = f"{n} play(s) synced."
@@ -447,7 +450,7 @@ _mln_disabled = not bool(_mln_sid)
 _mmt, _mmp, _mmg, _mmpl, _mma = st.columns(5)
 
 with _mmt:
-    if st.button("Sync Teams", use_container_width=True, disabled=_mln_disabled):
+    if st.button("MLN Teams", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Teams tab…"):
             n, errs = _sync_mln_teams(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN team(s) synced."
@@ -456,7 +459,7 @@ with _mmt:
         st.rerun()
 
 with _mmp:
-    if st.button("Sync Players", use_container_width=True, disabled=_mln_disabled):
+    if st.button("MLN Players", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Rosters tab…"):
             n, errs = _sync_mln_players(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN player(s) synced."
@@ -465,7 +468,7 @@ with _mmp:
         st.rerun()
 
 with _mmg:
-    if st.button("Sync Games", use_container_width=True, disabled=_mln_disabled):
+    if st.button("MLN Games", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Games tab…"):
             n, errs = _sync_mln_games(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN game(s) synced."
@@ -474,7 +477,7 @@ with _mmg:
         st.rerun()
 
 with _mmpl:
-    if st.button("Sync Plays", use_container_width=True, disabled=_mln_disabled):
+    if st.button("MLN Plays", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Plays tab…"):
             n, errs = _sync_mln_plays(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN play(s) synced."
