@@ -480,7 +480,7 @@ elif pred_mode == "Fetch Live Matchup":
         col_sh, col_btn = st.columns([3, 1])
         with col_sh:
             if sheet_urls:
-                pred_sheet_url = sheet_urls[0] if len(sheet_urls) == 1 else st.selectbox(
+                pred_sheet_url = st.selectbox(
                     "Session sheet", sheet_urls, key="pred_sheet_sel",
                     format_func=_sheet_name,
                 )
