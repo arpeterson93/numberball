@@ -127,6 +127,22 @@ def delete_play(play_id: int) -> None:
     _client().table("plays").delete().eq("id", play_id).execute()
 
 
+# ------------------------------------------------------------------ scrimmage plays
+
+def get_all_scrimmage_plays() -> list[dict]:
+    return (
+        _client().table("scrimmage_plays")
+        .select("*")
+        .order("id", desc=False)
+        .execute()
+        .data
+    )
+
+
+def bulk_upsert_scrimmage_plays(plays: list[dict]) -> int:
+    return _bulk_upsert("scrimmage_plays", plays, "play_num")
+
+
 # ------------------------------------------------------------------ teams
 
 def get_all_teams() -> list[dict]:

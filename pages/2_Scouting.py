@@ -10,11 +10,19 @@ st.title("Scouting")
 # ── data ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
-def load_data() -> pd.DataFrame:
-    raw = db.get_all_plays()
-    if not raw:
+def load_data(source: str = "real") -> pd.DataFrame:
+    dfs = []
+    if source in ("real", "all"):
+        raw = db.get_all_plays()
+        if raw:
+            dfs.append(utils.enrich_df(utils.flatten_games(raw)))
+    if source in ("scrimmage", "all"):
+        raw = db.get_all_scrimmage_plays()
+        if raw:
+            dfs.append(utils.enrich_df(utils.flatten_scrimmage(raw)))
+    if not dfs:
         return pd.DataFrame()
-    return utils.enrich_df(utils.flatten_games(raw))
+    return pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
 
 @st.cache_data(ttl=300)
 def _load_all_players() -> list:
@@ -24,7 +32,13 @@ def _load_all_players() -> list:
 def _sheet_name(url: str) -> str:
     return utils.get_sheet_name(url)
 
-df_all = load_data()
+_source_label = st.radio(
+    "Data source", ["Real Games", "Scrimmages", "All"],
+    horizontal=True, key="scouting_source",
+)
+_source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
+
+df_all = load_data(_source_key)
 if df_all.empty:
     st.info("No at-bats in the database yet.")
     st.stop()
@@ -631,7 +645,8 @@ with tab_p:
         st.plotly_chart(
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {n_pitches} Pitches",
-                                        swing_offset=(swing_off_p == "+1")),
+                                        swing_offset=(swing_off_p == "+1"),
+                                        segment_games=True),
             width="stretch", key="p_last_n",
         )
 

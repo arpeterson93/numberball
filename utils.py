@@ -335,6 +335,22 @@ def flatten_games(plays: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+def flatten_scrimmage(plays: list[dict]) -> pd.DataFrame:
+    """Convert flat scrimmage_plays rows into a DataFrame matching flatten_games schema."""
+    if not plays:
+        return pd.DataFrame()
+    df = pd.DataFrame(plays)
+    # Synthesize a numeric game_id from scrimmage_code so Scouting filters work
+    if "scrimmage_code" in df.columns:
+        df["game_id"] = pd.factorize(df["scrimmage_code"])[0] + 1
+        df["game_code"] = df["scrimmage_code"]
+    # Apply TEAM_ABBREV so team names are always full names
+    for _tc in ("def_team", "off_team"):
+        if _tc in df.columns:
+            df[_tc] = df[_tc].map(lambda t: TEAM_ABBREV.get(t, t) if pd.notna(t) else t)
+    return df
+
+
 # ------------------------------------------------------------------ charts
 
 def zone_heatmap(
@@ -496,16 +512,18 @@ def last_n_combined_chart(
     title: str = "Last N Pitches",
     swing_offset: bool = False,
     highlight_name: str | None = None,
+    segment_games: bool = False,
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
-    swing_offset: if True, shifts swing markers right by 1 to show whether swing predicts next pitch.
-    highlight_name: if set and batter_name column exists, swing markers for that batter use a star symbol.
+    swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
+    highlight_name: swing markers for that batter use a star symbol.
+    segment_games: breaks lines at game boundaries; dashes lines across inning boundaries.
     """
     df_last = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id").tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
     pitches = df_last["pitch"].astype(int).tolist()
-    swings = df_last["swing"].astype(int).tolist()
+    swings  = df_last["swing"].astype(int).tolist()
     delta_vals = df_last[delta_col].dropna().astype(int).tolist()
 
     deltas = [circular_signed_delta(delta_vals[i - 1], delta_vals[i]) for i in range(1, n_actual)]
@@ -517,47 +535,102 @@ def last_n_combined_chart(
         for i in range(1, n_actual)
     ]
 
-    # With offset: swing[i] is plotted at x = i+2 (next AB slot), pairing it with pitch[i+1]
     if swing_offset and n_actual > 1:
-        swing_x = list(range(2, n_actual + 1))
-        swing_y = swings[:-1]
+        swing_x    = list(range(2, n_actual + 1))
+        swing_y    = swings[:-1]
         swing_text = [str(s) for s in swing_y]
+        n_swing_rows = n_actual - 1
         highlight_mask = (
             df_last["batter_name"].iloc[:-1].eq(highlight_name).tolist()
             if highlight_name and "batter_name" in df_last.columns else [False] * len(swing_x)
         )
     else:
-        swing_x = x_all
-        swing_y = swings
+        swing_x    = x_all
+        swing_y    = swings
         swing_text = [str(s) for s in swings]
+        n_swing_rows = n_actual
         highlight_mask = (
             df_last["batter_name"].eq(highlight_name).tolist()
             if highlight_name and "batter_name" in df_last.columns else [False] * n_actual
         )
 
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        row_heights=[0.65, 0.35],
-        vertical_spacing=0.06,
+    # ── segmentation helper ───────────────────────────────────────────────────
+    can_segment = (
+        segment_games
+        and n_actual > 0
+        and all(c in df_last.columns for c in ("game_id", "inning", "half"))
     )
 
-    fig.add_trace(go.Scatter(
-        x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
-        text=[str(p) for p in pitches], textposition="top center",
-        textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
-    ), row=1, col=1)
+    def _segs(xs, ys, n_rows):
+        """Return (solid_x, solid_y, dash_x, dash_y).
+        Inserts None into solid at game breaks; adds dashed connector pairs for inning breaks.
+        n_rows: number of df_last rows that correspond to entries in xs/ys.
+        """
+        sx, sy, dx, dy = [], [], [], []
+        for i, (xi, yi) in enumerate(zip(xs, ys)):
+            sx.append(xi); sy.append(yi)
+            if i < len(xs) - 1 and i < n_rows - 1:
+                r0 = df_last.iloc[i]
+                r1 = df_last.iloc[i + 1]
+                same_game = r0["game_id"] == r1["game_id"]
+                same_inn  = (r0["inning"] == r1["inning"] and r0["half"] == r1["half"])
+                if not same_game:
+                    sx.append(None); sy.append(None)
+                elif not same_inn:
+                    sx.append(None); sy.append(None)
+                    dx += [xi, xs[i + 1], None]
+                    dy += [yi, ys[i + 1], None]
+        return sx, sy, dx, dy
 
+    def _text(ys):
+        return ["" if v is None else str(int(v)) for v in ys]
+
+    # ── build figure ──────────────────────────────────────────────────────────
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.65, 0.35], vertical_spacing=0.06,
+    )
+
+    # Pitch trace
+    if can_segment:
+        p_sx, p_sy, p_dx, p_dy = _segs(x_all, pitches, n_actual)
+        fig.add_trace(go.Scatter(
+            x=p_sx, y=p_sy, mode="lines+markers+text", name="Pitch",
+            text=_text(p_sy), textposition="top center", textfont=dict(size=10),
+            line=dict(color="#d6604d", width=2), marker=dict(size=5),
+        ), row=1, col=1)
+        if p_dx:
+            fig.add_trace(go.Scatter(
+                x=p_dx, y=p_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                line=dict(color="#d6604d", width=2, dash="dash"),
+            ), row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(
+            x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
+            text=[str(p) for p in pitches], textposition="top center",
+            textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
+        ), row=1, col=1)
+
+    # Swing trace
     swing_name = "Swing" + (" (offset +1)" if swing_offset else "")
     if highlight_name and any(highlight_mask):
-        # Two traces: stars for highlighted batter, circles for others — share the line via one combined trace
-        # Draw the connecting line first (no markers, full series)
-        fig.add_trace(go.Scatter(
-            x=swing_x, y=swing_y, mode="lines",
-            name=swing_name, line=dict(color="#2166ac", width=2),
-            showlegend=True, hoverinfo="skip",
-        ), row=1, col=1)
-        # Circle markers for non-highlighted rows
+        # Connecting line (segmented or plain), then separate marker traces
+        if can_segment:
+            s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
+            fig.add_trace(go.Scatter(
+                x=s_sx, y=s_sy, mode="lines", name=swing_name,
+                line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
+            ), row=1, col=1)
+            if s_dx:
+                fig.add_trace(go.Scatter(
+                    x=s_dx, y=s_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                    line=dict(color="#2166ac", width=2, dash="dash"),
+                ), row=1, col=1)
+        else:
+            fig.add_trace(go.Scatter(
+                x=swing_x, y=swing_y, mode="lines", name=swing_name,
+                line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
+            ), row=1, col=1)
         _cx = [x for x, h in zip(swing_x, highlight_mask) if not h]
         _cy = [y for y, h in zip(swing_y, highlight_mask) if not h]
         _ct = [t for t, h in zip(swing_text, highlight_mask) if not h]
@@ -568,25 +641,37 @@ def last_n_combined_chart(
                 marker=dict(size=5, color="#2166ac"),
                 showlegend=False, name=swing_name, hoverinfo="skip",
             ), row=1, col=1)
-        # Star markers for highlighted batter
-        _sx = [x for x, h in zip(swing_x, highlight_mask) if h]
-        _sy = [y for y, h in zip(swing_y, highlight_mask) if h]
-        _st = [t for t, h in zip(swing_text, highlight_mask) if h]
-        if _sx:
+        _hx = [x for x, h in zip(swing_x, highlight_mask) if h]
+        _hy = [y for y, h in zip(swing_y, highlight_mask) if h]
+        _ht = [t for t, h in zip(swing_text, highlight_mask) if h]
+        if _hx:
             fig.add_trace(go.Scatter(
-                x=_sx, y=_sy, mode="markers+text", text=_st,
+                x=_hx, y=_hy, mode="markers+text", text=_ht,
                 textposition="bottom center", textfont=dict(size=10),
                 marker=dict(symbol="star", size=10, color="#2166ac",
                             line=dict(color="white", width=0.5)),
                 showlegend=False, name=swing_name, hoverinfo="skip",
             ), row=1, col=1)
     else:
-        fig.add_trace(go.Scatter(
-            x=swing_x, y=swing_y, mode="lines+markers+text",
-            name=swing_name,
-            text=swing_text, textposition="bottom center",
-            textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
-        ), row=1, col=1)
+        if can_segment:
+            s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
+            fig.add_trace(go.Scatter(
+                x=s_sx, y=s_sy, mode="lines+markers+text", name=swing_name,
+                text=_text(s_sy), textposition="bottom center", textfont=dict(size=10),
+                line=dict(color="#2166ac", width=2), marker=dict(size=5),
+            ), row=1, col=1)
+            if s_dx:
+                fig.add_trace(go.Scatter(
+                    x=s_dx, y=s_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                    line=dict(color="#2166ac", width=2, dash="dash"),
+                ), row=1, col=1)
+        else:
+            fig.add_trace(go.Scatter(
+                x=swing_x, y=swing_y, mode="lines+markers+text", name=swing_name,
+                text=swing_text, textposition="bottom center",
+                textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
+            ), row=1, col=1)
+
     fig.add_trace(go.Bar(
         x=x_delta, y=[abs(d) for d in deltas], marker_color=colors,
         text=[f"{d:+d}" for d in deltas], textposition="outside",

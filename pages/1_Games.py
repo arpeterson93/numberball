@@ -104,6 +104,83 @@ def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
         return 0, errors + [str(e)]
 
 
+def _sync_scrimmage_plays(sheet_id: str) -> tuple[int, list[str]]:
+    plays = utils.read_plays_from_sheet(sheet_id)
+    if not plays:
+        return 0, ["No plays found in the Plays (Raw) tab of the scrimmage sheet."]
+
+    all_players = db.get_all_players()
+    player_id_to_name = {p["player_id"]: p["name"] for p in all_players if p.get("player_id") and p.get("name")}
+
+    plays_sorted = sorted(plays, key=lambda p: p["play_num"])
+    seen_inn:     dict[str, set] = {}
+    seen_pitcher: dict[str, set] = {}
+    outs_tracker: dict[tuple, int] = {}
+    errors: list[str] = []
+    rows:   list[dict] = []
+
+    for play in plays_sorted:
+        gc = play["game_code"]
+
+        # Try to parse season from scrimmage code (first 2 digits)
+        try:
+            season = int(gc[:2])
+        except (ValueError, TypeError):
+            season = None
+
+        pitcher_name = player_id_to_name.get(play.get("pitcher_id"), "")
+        batter_name  = player_id_to_name.get(play.get("batter_id"),  "")
+        catcher_name = player_id_to_name.get(play.get("catcher_id"))
+        runner_name  = player_id_to_name.get(play.get("runner_id"))
+
+        away_full = utils.TEAM_ABBREV.get(play.get("away") or "", play.get("away") or "")
+        home_full = utils.TEAM_ABBREV.get(play.get("home") or "", play.get("home") or "")
+        if play["half"] == "top":
+            off_team, def_team = away_full, home_full
+        else:
+            off_team, def_team = home_full, away_full
+
+        pitch, swing = play.get("pitch"), play.get("swing")
+        diff = utils.circular_diff(int(pitch), int(swing)) if pitch is not None and swing is not None else None
+
+        inn_key = (gc, play["inning"], play["half"])
+        if inn_key not in outs_tracker:
+            outs_tracker[inn_key] = 0
+        outs = outs_tracker[inn_key]
+        outs_tracker[inn_key] = min(3, outs + utils.outs_added(play.get("result") or ""))
+
+        fp_inn_key = (play["inning"], play["half"])
+        is_fp_inn = fp_inn_key not in seen_inn.setdefault(gc, set())
+        is_fp_app = pitcher_name not in seen_pitcher.setdefault(gc, set())
+        seen_inn[gc].add(fp_inn_key)
+        if pitcher_name:
+            seen_pitcher[gc].add(pitcher_name)
+
+        rows.append({
+            **{k: v for k, v in play.items() if k != "game_code"},
+            "scrimmage_code": gc,
+            "season":         season,
+            "pitcher_name":   pitcher_name,
+            "batter_name":    batter_name,
+            "catcher_name":   catcher_name,
+            "runner_name":    runner_name,
+            "off_team":       off_team,
+            "def_team":       def_team,
+            "diff":           diff,
+            "outs":           outs,
+            "is_fp_inn":      is_fp_inn,
+            "is_fp_app":      is_fp_app,
+        })
+
+    if not rows:
+        return 0, errors
+    try:
+        n = db.bulk_upsert_scrimmage_plays(rows)
+        return n, errors
+    except Exception as e:
+        return 0, errors + [str(e)]
+
+
 def _sync_teams(sheet_id: str) -> tuple[int, list[str]]:
     teams = utils.read_teams_from_sheet(sheet_id)
     if not teams:
@@ -192,6 +269,32 @@ with col_sa:
         if all_errs:
             st.session_state["_sync_errors"] = all_errs
         st.rerun()
+
+st.divider()
+
+# ------------------------------------------------------------------ scrimmage sync
+
+st.subheader("Scrimmage Plays")
+_ss_key = "scrim_sheet_id"
+if _ss_key not in st.session_state:
+    st.session_state[_ss_key] = ""
+_css1, _css2 = st.columns([4, 1])
+with _css1:
+    st.text_input("Scrimmage sheet ID", key=_ss_key,
+                  placeholder="Google Sheet ID (the long string in the URL)")
+with _css2:
+    st.write("")
+    if st.button("Sync Scrimmage", type="secondary", use_container_width=True):
+        _sid = st.session_state[_ss_key].strip()
+        if not _sid:
+            st.warning("Enter a sheet ID first.")
+        else:
+            with st.spinner("Reading scrimmage sheet…"):
+                _sn, _se = _sync_scrimmage_plays(_sid)
+            st.session_state["_sync_msg"] = f"{_sn} scrimmage play(s) synced."
+            if _se:
+                st.session_state["_sync_errors"] = _se
+            st.rerun()
 
 st.divider()
 
