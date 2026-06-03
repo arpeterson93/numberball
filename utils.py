@@ -1408,20 +1408,31 @@ def diff_vs_next_pitch_delta_heatmap(
     ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_diff_cat"]).reindex(
         index=_DELTA_HM_LABELS, columns=_DIFF_HM_LABELS, fill_value=0
     )
-    z = ct.values.tolist()
-    text = [[str(v) if v > 0 else "" for v in row] for row in z]
+    # Normalize each column to 0–100 % so colour reflects within-column distribution.
+    col_totals = ct.sum(axis=0).replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw  = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(_DIFF_HM_LABELS))]
+        for i in range(len(_DELTA_HM_LABELS))
+    ]
+    # Flat raw counts for hover (customdata)
+    customdata = z_raw
 
     fig = go.Figure(go.Heatmap(
-        z=z,
+        z=z_norm,
         x=_DIFF_HM_LABELS,
         y=_DELTA_HM_LABELS,
         text=text,
         texttemplate="%{text}",
+        customdata=customdata,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
         showscale=False,
         xgap=2,
         ygap=2,
-        hovertemplate="Prior diff: %{x}<br>Next pitch |Δ|: %{y}<br>Count: %{z}<extra></extra>",
+        hovertemplate="Prior diff: %{x}<br>Next pitch |Δ|: %{y}<br>%{z:.1f}% of column (%{customdata} pitches)<extra></extra>",
     ))
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
