@@ -235,7 +235,7 @@ def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
 
 _GAMES_TABLE_COLS = {
     "game_code", "league", "season", "session_number",
-    "away_team", "home_team", "away_score", "home_score",
+    "away_team", "home_team",
     "start_date", "sheet_url", "link",
 }
 
@@ -263,9 +263,24 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     all_games = db.get_games()
     game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
-    mln_game_codes_in_db = [g["game_code"] for g in all_games if g.get("league") == "MLN" and g.get("game_code")]
+    mln_game_codes_in_db = sorted(
+        g["game_code"] for g in all_games if g.get("league") == "MLN" and g.get("game_code")
+    )
+    play_game_codes = sorted({p["game_code"] for p in plays})
     if not mln_game_codes_in_db:
-        return 0, ["No MLN games found in database. Sync MLN Games first."]
+        return 0, [
+            f"No MLN games found in database — sync MLN Games first. "
+            f"Plays expect game codes like: {play_game_codes[:5]}"
+        ]
+    missing = sorted(set(play_game_codes) - set(mln_game_codes_in_db))
+    if missing:
+        diag = [
+            f"DB has {len(mln_game_codes_in_db)} MLN game(s) e.g. {mln_game_codes_in_db[:5]}",
+            f"Plays expect {len(play_game_codes)} game(s) e.g. {play_game_codes[:5]}",
+            f"{len(missing)} game code(s) missing from DB e.g. {missing[:5]}",
+        ]
+    else:
+        diag = []
 
     mln_teams = db.get_mln_teams_for_lookup()
     team_id_to_full = {t["team_id"]: t["full_team"] for t in mln_teams if t.get("team_id") and t.get("full_team")}
@@ -341,12 +356,12 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
         })
 
     if not rows:
-        return 0, errors
+        return 0, diag + errors
     try:
         n = db.bulk_upsert_mln_plays(rows)
-        return n, errors
+        return n, diag + errors
     except Exception as e:
-        return 0, errors + [str(e)]
+        return 0, diag + errors + [str(e)]
 
 
 def _show_errors(errs: list[str]) -> None:
