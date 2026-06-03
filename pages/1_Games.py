@@ -447,7 +447,7 @@ _mln_disabled = not bool(_mln_sid)
 _mmt, _mmp, _mmg, _mmpl, _mma = st.columns(5)
 
 with _mmt:
-    if st.button("Sync MLN Teams", use_container_width=True, disabled=_mln_disabled):
+    if st.button("Sync Teams", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Teams tab…"):
             n, errs = _sync_mln_teams(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN team(s) synced."
@@ -456,7 +456,7 @@ with _mmt:
         st.rerun()
 
 with _mmp:
-    if st.button("Sync MLN Players", use_container_width=True, disabled=_mln_disabled):
+    if st.button("Sync Players", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Rosters tab…"):
             n, errs = _sync_mln_players(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN player(s) synced."
@@ -465,7 +465,7 @@ with _mmp:
         st.rerun()
 
 with _mmg:
-    if st.button("Sync MLN Games", use_container_width=True, disabled=_mln_disabled):
+    if st.button("Sync Games", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Games tab…"):
             n, errs = _sync_mln_games(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN game(s) synced."
@@ -474,7 +474,7 @@ with _mmg:
         st.rerun()
 
 with _mmpl:
-    if st.button("Sync MLN Plays", use_container_width=True, disabled=_mln_disabled):
+    if st.button("Sync Plays", use_container_width=True, disabled=_mln_disabled):
         with st.spinner("Reading MLN Plays tab…"):
             n, errs = _sync_mln_plays(_mln_sid)
         st.session_state["_sync_msg"] = f"{n} MLN play(s) synced."
@@ -508,52 +508,71 @@ if not games:
     st.info("No games yet. Click Sync All above.")
     st.stop()
 
-for g in games:
-    gc = g.get("game_code", "")
-    gc_label = gc or f"S{g['season']} G{g['session_number']}"
-    label = f"**{gc_label}** - {g['away_team']} @ {g['home_team']}"
-    if g.get("away_score") is not None and g.get("home_score") is not None:
-        label += f" ({g['away_score']}–{g['home_score']})"
-    if g.get("start_time"):
-        label += f" · {str(g['start_time'])[:10]}"
+st.subheader("Games")
 
-    with st.expander(label):
-        # ── Session sheet URL ─────────────────────────────────────────────
-        _url_key = f"sheet_url_{g['id']}"
-        if _url_key not in st.session_state:
-            st.session_state[_url_key] = g.get("sheet_url") or ""
-        _cu, _cb = st.columns([5, 1])
-        with _cu:
-            st.text_input("Session sheet URL", key=_url_key, placeholder="https://docs.google.com/spreadsheets/d/…")
-        with _cb:
-            st.write("")
-            if st.button("Save", key=f"save_url_{g['id']}", use_container_width=True):
-                db.update_game_sheet_url(g["id"], st.session_state[_url_key].strip() or None)
-                st.toast("Sheet URL saved.")
+# Group: league → season → [games], each bucket sorted by id desc
+from collections import defaultdict as _dd
+_by_league: dict[str, dict[int, list]] = _dd(lambda: _dd(list))
+for _g in sorted(games, key=lambda x: x["id"], reverse=True):
+    _by_league[_g.get("league") or "RLN"][_g.get("season") or 0].append(_g)
 
-        st.divider()
+for _league in sorted(_by_league.keys()):
+    _seasons = _by_league[_league]
+    _league_total = sum(len(v) for v in _seasons.values())
+    with st.expander(f"**{_league}** — {_league_total} game(s)", expanded=(_league == "RLN")):
+        for _season in sorted(_seasons.keys(), reverse=True):
+            _season_games = _seasons[_season]
+            with st.expander(f"Season {_season} — {len(_season_games)} game(s)"):
+                for g in _season_games:
+                    gc = g.get("game_code", "")
+                    gc_label = gc or f"S{g['season']} G{g['session_number']}"
+                    label = f"**{gc_label}** — {g['away_team']} @ {g['home_team']}"
+                    if g.get("away_score") is not None and g.get("home_score") is not None:
+                        label += f" ({g['away_score']}–{g['home_score']})"
+                    if g.get("start_time"):
+                        label += f" · {str(g['start_time'])[:10]}"
 
-        # ── Plays ─────────────────────────────────────────────────────────
-        plays = db.get_plays_for_game(g["id"])
-        st.caption(f"{len(plays)} play(s) logged")
-        if plays:
-            df = pd.DataFrame(plays)
-            df["half"] = df["half"].fillna("top") if "half" in df.columns else "top"
-            df["diff"] = df.apply(
-                lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"]))
-                if pd.notna(r.get("pitch")) and pd.notna(r.get("swing")) else None,
-                axis=1,
-            )
-            df["Inn"] = df.apply(lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
-            st.dataframe(
-                df[["Inn", "outs", "obc", "pitcher_name", "batter_name", "pitch", "swing", "diff", "result"]].rename(columns={
-                    "outs": "Outs", "obc": "Runners",
-                    "pitcher_name": "Pitcher", "batter_name": "Batter",
-                    "pitch": "Pitch", "swing": "Swing", "diff": "Diff", "result": "Result",
-                }),
-                use_container_width=True,
-                hide_index=True,
-            )
-        if st.button(f"Delete {gc_label}", key=f"del_{g['id']}"):
-            db.delete_game(g["id"])
-            st.rerun()
+                    with st.expander(label):
+                        # ── Session sheet URL ─────────────────────────────
+                        _url_key = f"sheet_url_{g['id']}"
+                        if _url_key not in st.session_state:
+                            st.session_state[_url_key] = g.get("sheet_url") or ""
+                        _cu, _cb = st.columns([5, 1])
+                        with _cu:
+                            st.text_input("Session sheet URL", key=_url_key,
+                                          placeholder="https://docs.google.com/spreadsheets/d/…")
+                        with _cb:
+                            st.write("")
+                            if st.button("Save", key=f"save_url_{g['id']}", use_container_width=True):
+                                db.update_game_sheet_url(g["id"], st.session_state[_url_key].strip() or None)
+                                st.toast("Sheet URL saved.")
+
+                        st.divider()
+
+                        # ── Plays ─────────────────────────────────────────
+                        plays = db.get_plays_for_game(g["id"])
+                        st.caption(f"{len(plays)} play(s) logged")
+                        if plays:
+                            df = pd.DataFrame(plays)
+                            df["half"] = df["half"].fillna("top") if "half" in df.columns else "top"
+                            df["diff"] = df.apply(
+                                lambda r: utils.circular_diff(int(r["pitch"]), int(r["swing"]))
+                                if pd.notna(r.get("pitch")) and pd.notna(r.get("swing")) else None,
+                                axis=1,
+                            )
+                            df["Inn"] = df.apply(
+                                lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
+                            st.dataframe(
+                                df[["Inn", "outs", "obc", "pitcher_name", "batter_name",
+                                    "pitch", "swing", "diff", "result"]].rename(columns={
+                                    "outs": "Outs", "obc": "Runners",
+                                    "pitcher_name": "Pitcher", "batter_name": "Batter",
+                                    "pitch": "Pitch", "swing": "Swing",
+                                    "diff": "Diff", "result": "Result",
+                                }),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                        if st.button(f"Delete {gc_label}", key=f"del_{g['id']}"):
+                            db.delete_game(g["id"])
+                            st.rerun()

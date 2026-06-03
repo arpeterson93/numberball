@@ -1922,7 +1922,7 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
 
 
 def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays (Raw)' tab from an MLN archive sheet.
+    """Read the 'Plays' tab from an MLN archive sheet.
 
     Away/Home contain Team IDs (e.g. T1009); Pitcher/Batter/Catcher/Runner contain
     MLN player IDs. Caller resolves these to names via get_mln_teams/players_for_lookup().
@@ -1930,7 +1930,7 @@ def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays')}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
