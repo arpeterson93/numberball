@@ -1890,7 +1890,7 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
     df.columns = [c.strip() for c in df.columns]
     games = []
     for _, row in df.iterrows():
-        game_num = _str(row.get("Game#"))
+        game_num = _safe_int(row.get("Game#"))
         if not game_num:
             continue
         game_code = str(game_num).zfill(6)
@@ -1937,7 +1937,7 @@ def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
     plays = []
     for _, row in df.iterrows():
         play_num = _safe_int(row.get("Play"))
-        game_raw = _str(row.get("Game"))
+        game_raw = _safe_int(row.get("Game"))
         result   = _str(row.get("Result"))
         if not play_num or not game_raw or not result:
             continue
