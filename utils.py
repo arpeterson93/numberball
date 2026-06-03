@@ -1473,20 +1473,28 @@ def hot_zone_matrix(
         .reindex(index=range(n_buckets), columns=range(n_buckets), fill_value=0)
     )
 
-    z = matrix.values.tolist()
-    text = [[str(v) if v > 0 else "" for v in row] for row in z]
+    row_totals = matrix.sum(axis=1).replace(0, 1)
+    matrix_norm = matrix.div(row_totals, axis=0) * 100
+    z_norm = matrix_norm.values.tolist()
+    z_raw  = matrix.values.tolist()
+    text = [
+        [f"{matrix_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(n_buckets)]
+        for i in range(n_buckets)
+    ]
 
     fig = go.Figure(go.Heatmap(
-        z=z,
+        z=z_norm,
         x=labels,
         y=labels,
         text=text,
         texttemplate="%{text}",
+        customdata=z_raw,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
         showscale=False,
         xgap=2,
         ygap=2,
-        hovertemplate="From %{y} → %{x}<br>Count: %{z}<extra></extra>",
+        hovertemplate="From %{y} → %{x}<br>%{z:.1f}% of row (%{customdata} pitches)<extra></extra>",
     ))
     fig.update_layout(
         xaxis=dict(title="Following Pitch", tickangle=45, side="top"),
