@@ -1961,10 +1961,6 @@ def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
         pitch = _safe_int(row.get("Pitch"))
         swing = _safe_int(row.get("Swing"))
 
-        is_steal = (play_type or "").lower() == "steal"
-        if not is_steal and (pitch is None or swing is None):
-            continue
-
         # OBC: "0" means empty base in MLN
         on_first  = _str(row.get("OnFirst"))  or "0"
         on_second = _str(row.get("OnSecond")) or "0"

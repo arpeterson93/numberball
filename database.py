@@ -33,16 +33,27 @@ def _bulk_upsert(table: str, rows: list[dict], on_conflict: str) -> int:
     return total
 
 
+def _fetch_all(query) -> list[dict]:
+    """Paginate through a Supabase query, bypassing the default 1000-row limit."""
+    results = []
+    offset = 0
+    while True:
+        batch = query.range(offset, offset + _CHUNK - 1).execute().data
+        results.extend(batch)
+        if len(batch) < _CHUNK:
+            break
+        offset += _CHUNK
+    return results
+
+
 # ------------------------------------------------------------------ games
 
 def get_games() -> list[dict]:
-    return (
+    return _fetch_all(
         _client().table("games")
         .select("*")
         .order("season", desc=True)
         .order("session_number", desc=True)
-        .execute()
-        .data
     )
 
 
@@ -98,12 +109,10 @@ def update_game_sheet_url(game_id: int, sheet_url: str | None) -> None:
 # ------------------------------------------------------------------ plays
 
 def get_all_plays() -> list[dict]:
-    return (
+    return _fetch_all(
         _client().table("plays")
         .select("*, games(season, session_number, home_team, away_team, game_code)")
         .order("id", desc=False)
-        .execute()
-        .data
     )
 
 
