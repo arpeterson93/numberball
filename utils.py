@@ -1368,20 +1368,19 @@ def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
 
 
 _DIFF_HM_BINS   = [-1, 25, 50, 100, 150, 200, 300, 501]
-_DIFF_HM_LABELS = ["0–25", "26–50", "51-100", "101–150", "151-200", "201–300", "301–500"]
+_DIFF_HM_LABELS = ["0–25", "26–50", "51–100", "101–150", "151–200", "201–300", "301–500"]
 
-_DELTA_HM_BINS   = [-501, -200, -100, -50, 0, 50, 100, 200, 501]
-_DELTA_HM_LABELS = ["≤ −200", "−200 to −100", "−100 to −50",
-                    "−50 to 0", "0 to 50", "50 to 100", "100 to 200", "≥ 200"]
+_DELTA_HM_BINS   = list(range(0, 501, 50))          # [0, 50, 100, …, 500]
+_DELTA_HM_LABELS = [f"{i}–{i + 50}" for i in range(0, 500, 50)]  # 10 bins
 
 
 def diff_vs_next_pitch_delta_heatmap(
     df: pd.DataFrame,
-    title: str = "Next Pitch Δ vs Prior Diff",
+    title: str = "Next Pitch |Δ| vs Prior Diff",
 ) -> go.Figure:
-    """Heatmap: how does a pitcher's next pitch delta relate to the previous play's diff?
+    """Heatmap: unsigned next-pitch delta vs previous play's diff.
 
-    X = prior diff bin; Y = next pitch circular-signed delta bin; Color = count.
+    X = prior diff bin; Y = abs circular delta to next pitch (0 at bottom, 500 at top).
     Only consecutive pitches from the same pitcher within the same game are counted.
     """
     df_sw = df[df["pitch"].notna() & df["diff"].notna()].copy()
@@ -1395,7 +1394,7 @@ def diff_vs_next_pitch_delta_heatmap(
         return go.Figure()
 
     df_sw["_next_delta"] = df_sw.apply(
-        lambda r: circular_signed_delta(int(r["pitch"]), int(r["_next_pitch"])), axis=1
+        lambda r: circular_diff(int(r["pitch"]), int(r["_next_pitch"])), axis=1
     )
     df_sw["_diff_cat"] = pd.cut(
         df_sw["diff"].astype(int),
@@ -1422,14 +1421,14 @@ def diff_vs_next_pitch_delta_heatmap(
         showscale=False,
         xgap=2,
         ygap=2,
-        hovertemplate="Prior diff: %{x}<br>Next pitch Δ: %{y}<br>Count: %{z}<extra></extra>",
+        hovertemplate="Prior diff: %{x}<br>Next pitch |Δ|: %{y}<br>Count: %{z}<extra></extra>",
     ))
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Prior diff (abs)", side="bottom"),
-        yaxis=dict(title="Next pitch Δ (circular signed)", autorange="reversed"),
+        yaxis=dict(title="Next pitch |Δ|", autorange=True),
         height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
-        margin=dict(l=130, r=10, t=50, b=70),
+        margin=dict(l=80, r=10, t=50, b=70),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
