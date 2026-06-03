@@ -725,6 +725,13 @@ with tab_p:
         else:
             st.caption("Need at least 2 at-bats from the same pitcher in a session.")
 
+        st.subheader("Next Pitch Delta vs Prior Diff")
+        st.caption("How does a pitcher adjust their next pitch based on how close the previous swing was?")
+        st.plotly_chart(
+            utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
+            width="stretch", config={"displayModeBar": False}, key="p_diff_delta_hm",
+        )
+
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Tendencies")

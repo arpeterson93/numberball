@@ -81,6 +81,7 @@ def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
 
         rows.append({
             **{k: v for k, v in play.items() if k != "game_code"},
+            "league":       "RLN",
             "game_id":      game_db_id,
             "pitcher_name": pitcher_name,
             "batter_name":  batter_name,
@@ -203,6 +204,135 @@ def _sync_players(sheet_id: str) -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
+def _sync_mln_teams(sheet_id: str) -> tuple[int, list[str]]:
+    teams = utils.read_mln_teams_from_sheet(sheet_id)
+    if not teams:
+        return 0, ["No teams found in the MLN Teams tab."]
+    try:
+        n = db.bulk_upsert_mln_teams(teams)
+        return n, []
+    except Exception as e:
+        return 0, [str(e)]
+
+
+def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
+    players = utils.read_mln_players_from_sheet(sheet_id)
+    if not players:
+        return 0, ["No players found in the MLN Rosters tab."]
+    try:
+        n = db.bulk_upsert_mln_players(players)
+        return n, []
+    except Exception as e:
+        return 0, [str(e)]
+
+
+def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
+    games = utils.read_mln_games_from_sheet(sheet_id)
+    if not games:
+        return 0, ["No games found in the MLN Games tab."]
+    # Resolve team abbreviations → full names using already-synced MLN teams
+    mln_teams = db.get_mln_teams_for_lookup()
+    abbrev_to_full = {t["abbrev"]: t["full_team"] for t in mln_teams if t.get("abbrev") and t.get("full_team")}
+    for g in games:
+        g["away_team"] = abbrev_to_full.get(g["away_team"], g["away_team"])
+        g["home_team"] = abbrev_to_full.get(g["home_team"], g["home_team"])
+    try:
+        n = db.bulk_upsert_games(games)
+        return n, []
+    except Exception as e:
+        return 0, [str(e)]
+
+
+def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
+    plays = utils.read_mln_plays_from_sheet(sheet_id)
+    if not plays:
+        return 0, ["No plays found in the MLN Plays (Raw) tab."]
+
+    all_games = db.get_games()
+    game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
+
+    mln_teams = db.get_mln_teams_for_lookup()
+    team_id_to_full = {t["team_id"]: t["full_team"] for t in mln_teams if t.get("team_id") and t.get("full_team")}
+
+    mln_players = db.get_mln_players_for_lookup()
+    # s_id format: "{season}_{player_id}" e.g. "1_1111"
+    sid_to_name = {p["s_id"]: p["name"] for p in mln_players if p.get("s_id") and p.get("name")}
+
+    plays_sorted = sorted(plays, key=lambda p: p["play_num"])
+    seen_inn:     dict[str, set] = {}
+    seen_pitcher: dict[str, set] = {}
+    outs_tracker: dict[tuple, int] = {}
+    errors: list[str] = []
+    rows:   list[dict] = []
+
+    for play in plays_sorted:
+        gc = play["game_code"]
+        season = play.get("season")
+        game_db_id = game_code_to_id.get(gc)
+        if not game_db_id:
+            errors.append(f"Play {play['play_num']}: game {gc} not found - sync MLN Games first.")
+            continue
+
+        def _sid(pid):
+            return f"{season}_{pid}" if season and pid else None
+
+        pitcher_sid = _sid(play.get("pitcher_id"))
+        batter_sid  = _sid(play.get("batter_id"))
+        catcher_sid = _sid(play.get("catcher_id"))
+        runner_sid  = _sid(play.get("runner_id"))
+
+        pitcher_name = sid_to_name.get(pitcher_sid, "") if pitcher_sid else ""
+        batter_name  = sid_to_name.get(batter_sid,  "") if batter_sid  else ""
+        catcher_name = sid_to_name.get(catcher_sid)     if catcher_sid else None
+        runner_name  = sid_to_name.get(runner_sid)      if runner_sid  else None
+
+        away_full = team_id_to_full.get(play.get("away") or "", play.get("away") or "")
+        home_full = team_id_to_full.get(play.get("home") or "", play.get("home") or "")
+        if play["half"] == "top":
+            off_team, def_team = away_full, home_full
+        else:
+            off_team, def_team = home_full, away_full
+
+        pitch, swing = play.get("pitch"), play.get("swing")
+        diff = utils.circular_diff(int(pitch), int(swing)) if pitch is not None and swing is not None else None
+
+        inn_key = (gc, play["inning"], play["half"])
+        if inn_key not in outs_tracker:
+            outs_tracker[inn_key] = 0
+        outs = outs_tracker[inn_key]
+        outs_tracker[inn_key] = min(3, outs + utils.outs_added(play.get("result") or ""))
+
+        fp_inn_key = (play["inning"], play["half"])
+        is_fp_inn = fp_inn_key not in seen_inn.setdefault(gc, set())
+        is_fp_app = pitcher_name not in seen_pitcher.setdefault(gc, set())
+        seen_inn[gc].add(fp_inn_key)
+        if pitcher_name:
+            seen_pitcher[gc].add(pitcher_name)
+
+        rows.append({
+            **{k: v for k, v in play.items() if k not in ("game_code", "away", "home")},
+            "game_id":      game_db_id,
+            "pitcher_name": pitcher_name,
+            "batter_name":  batter_name,
+            "catcher_name": catcher_name,
+            "runner_name":  runner_name,
+            "off_team":     off_team,
+            "def_team":     def_team,
+            "diff":         diff,
+            "outs":         outs,
+            "is_fp_inn":    is_fp_inn,
+            "is_fp_app":    is_fp_app,
+        })
+
+    if not rows:
+        return 0, errors
+    try:
+        n = db.bulk_upsert_mln_plays(rows)
+        return n, errors
+    except Exception as e:
+        return 0, errors + [str(e)]
+
+
 def _show_errors(errs: list[str]) -> None:
     if errs:
         with st.expander(f"{len(errs)} issue(s)"):
@@ -295,6 +425,77 @@ with _css2:
             if _se:
                 st.session_state["_sync_errors"] = _se
             st.rerun()
+
+st.divider()
+
+# ------------------------------------------------------------------ MLN archive sync
+
+st.subheader("MLN Archive")
+_mln_sid_key = "mln_archive_sheet_id"
+if _mln_sid_key not in st.session_state:
+    st.session_state[_mln_sid_key] = ""
+_mln_col1, _mln_col2 = st.columns([4, 1])
+with _mln_col1:
+    st.text_input("MLN archive sheet ID", key=_mln_sid_key,
+                  placeholder="Google Sheet ID (the long string in the URL)")
+
+_mln_sid = st.session_state.get(_mln_sid_key, "").strip()
+_mln_disabled = not bool(_mln_sid)
+
+_mmt, _mmp, _mmg, _mmpl, _mma = st.columns(5)
+
+with _mmt:
+    if st.button("Sync MLN Teams", use_container_width=True, disabled=_mln_disabled):
+        with st.spinner("Reading MLN Teams tab…"):
+            n, errs = _sync_mln_teams(_mln_sid)
+        st.session_state["_sync_msg"] = f"{n} MLN team(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mmp:
+    if st.button("Sync MLN Players", use_container_width=True, disabled=_mln_disabled):
+        with st.spinner("Reading MLN Rosters tab…"):
+            n, errs = _sync_mln_players(_mln_sid)
+        st.session_state["_sync_msg"] = f"{n} MLN player(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mmg:
+    if st.button("Sync MLN Games", use_container_width=True, disabled=_mln_disabled):
+        with st.spinner("Reading MLN Games tab…"):
+            n, errs = _sync_mln_games(_mln_sid)
+        st.session_state["_sync_msg"] = f"{n} MLN game(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mmpl:
+    if st.button("Sync MLN Plays", use_container_width=True, disabled=_mln_disabled):
+        with st.spinner("Reading MLN Plays tab…"):
+            n, errs = _sync_mln_plays(_mln_sid)
+        st.session_state["_sync_msg"] = f"{n} MLN play(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mma:
+    if st.button("Sync MLN All", type="primary", use_container_width=True, disabled=_mln_disabled):
+        with st.spinner("Syncing all MLN tables (Teams → Players → Games → Plays)…"):
+            mt_n,  mt_e  = _sync_mln_teams(_mln_sid)
+            mp_n,  mp_e  = _sync_mln_players(_mln_sid)
+            mg_n,  mg_e  = _sync_mln_games(_mln_sid)
+            mpl_n, mpl_e = _sync_mln_plays(_mln_sid)
+        st.session_state["_sync_msg"] = (
+            f"MLN — Teams: {mt_n} · Players: {mp_n} · Games: {mg_n} · Plays: {mpl_n}"
+        )
+        all_errs = mt_e + mp_e + mg_e + mpl_e
+        if all_errs:
+            st.session_state["_sync_errors"] = all_errs
+        st.rerun()
+
+st.caption("Sync order: Teams → Players → Games → Plays (each step depends on the previous).")
 
 st.divider()
 

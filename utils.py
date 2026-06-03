@@ -596,17 +596,20 @@ def last_n_combined_chart(
         p_sx, p_sy, p_dx, p_dy = _segs(x_all, pitches, n_actual)
         fig.add_trace(go.Scatter(
             x=p_sx, y=p_sy, mode="lines+markers+text", name="Pitch",
+            legendgroup="pitch",
             text=_text(p_sy), textposition="top center", textfont=dict(size=10),
             line=dict(color="#d6604d", width=2), marker=dict(size=5),
         ), row=1, col=1)
         if p_dx:
             fig.add_trace(go.Scatter(
-                x=p_dx, y=p_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                x=p_dx, y=p_dy, mode="lines",
+                legendgroup="pitch", showlegend=False, hoverinfo="skip",
                 line=dict(color="#d6604d", width=2, dash="dash"),
             ), row=1, col=1)
     else:
         fig.add_trace(go.Scatter(
             x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
+            legendgroup="pitch",
             text=[str(p) for p in pitches], textposition="top center",
             textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
         ), row=1, col=1)
@@ -619,16 +622,19 @@ def last_n_combined_chart(
             s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
             fig.add_trace(go.Scatter(
                 x=s_sx, y=s_sy, mode="lines", name=swing_name,
+                legendgroup="swing",
                 line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
             ), row=1, col=1)
             if s_dx:
                 fig.add_trace(go.Scatter(
-                    x=s_dx, y=s_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                    x=s_dx, y=s_dy, mode="lines",
+                    legendgroup="swing", showlegend=False, hoverinfo="skip",
                     line=dict(color="#2166ac", width=2, dash="dash"),
                 ), row=1, col=1)
         else:
             fig.add_trace(go.Scatter(
                 x=swing_x, y=swing_y, mode="lines", name=swing_name,
+                legendgroup="swing",
                 line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
             ), row=1, col=1)
         _cx = [x for x, h in zip(swing_x, highlight_mask) if not h]
@@ -637,6 +643,7 @@ def last_n_combined_chart(
         if _cx:
             fig.add_trace(go.Scatter(
                 x=_cx, y=_cy, mode="markers+text", text=_ct,
+                legendgroup="swing",
                 textposition="bottom center", textfont=dict(size=10),
                 marker=dict(size=5, color="#2166ac"),
                 showlegend=False, name=swing_name, hoverinfo="skip",
@@ -647,6 +654,7 @@ def last_n_combined_chart(
         if _hx:
             fig.add_trace(go.Scatter(
                 x=_hx, y=_hy, mode="markers+text", text=_ht,
+                legendgroup="swing",
                 textposition="bottom center", textfont=dict(size=10),
                 marker=dict(symbol="star", size=10, color="#2166ac",
                             line=dict(color="white", width=0.5)),
@@ -657,17 +665,20 @@ def last_n_combined_chart(
             s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
             fig.add_trace(go.Scatter(
                 x=s_sx, y=s_sy, mode="lines+markers+text", name=swing_name,
+                legendgroup="swing",
                 text=_text(s_sy), textposition="bottom center", textfont=dict(size=10),
                 line=dict(color="#2166ac", width=2), marker=dict(size=5),
             ), row=1, col=1)
             if s_dx:
                 fig.add_trace(go.Scatter(
-                    x=s_dx, y=s_dy, mode="lines", showlegend=False, hoverinfo="skip",
+                    x=s_dx, y=s_dy, mode="lines",
+                    legendgroup="swing", showlegend=False, hoverinfo="skip",
                     line=dict(color="#2166ac", width=2, dash="dash"),
                 ), row=1, col=1)
         else:
             fig.add_trace(go.Scatter(
                 x=swing_x, y=swing_y, mode="lines+markers+text", name=swing_name,
+                legendgroup="swing",
                 text=swing_text, textposition="bottom center",
                 textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
             ), row=1, col=1)
@@ -1356,6 +1367,76 @@ def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
     return fig
 
 
+_DIFF_HM_BINS   = [-1, 25, 100, 200, 300, 501]
+_DIFF_HM_LABELS = ["0–25 (HR)", "26–100", "101–200", "201–300", "301–500"]
+
+_DELTA_HM_BINS   = [-501, -200, -100, -50, 0, 50, 100, 200, 501]
+_DELTA_HM_LABELS = ["≤ −200", "−200 to −100", "−100 to −50",
+                    "−50 to 0", "0 to 50", "50 to 100", "100 to 200", "≥ 200"]
+
+
+def diff_vs_next_pitch_delta_heatmap(
+    df: pd.DataFrame,
+    title: str = "Next Pitch Δ vs Prior Diff",
+) -> go.Figure:
+    """Heatmap: how does a pitcher's next pitch delta relate to the previous play's diff?
+
+    X = prior diff bin; Y = next pitch circular-signed delta bin; Color = count.
+    Only consecutive pitches from the same pitcher within the same game are counted.
+    """
+    df_sw = df[df["pitch"].notna() & df["diff"].notna()].copy()
+    if len(df_sw) < 2:
+        return go.Figure()
+
+    df_sw = df_sw.sort_values(["game_id", "pitcher_name", "id"])
+    df_sw["_next_pitch"] = df_sw.groupby(["game_id", "pitcher_name"])["pitch"].shift(-1)
+    df_sw = df_sw.dropna(subset=["_next_pitch"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_next_delta"] = df_sw.apply(
+        lambda r: circular_signed_delta(int(r["pitch"]), int(r["_next_pitch"])), axis=1
+    )
+    df_sw["_diff_cat"] = pd.cut(
+        df_sw["diff"].astype(int),
+        bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS, right=True, include_lowest=True,
+    )
+    df_sw["_delta_cat"] = pd.cut(
+        df_sw["_next_delta"],
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_diff_cat"]).reindex(
+        index=_DELTA_HM_LABELS, columns=_DIFF_HM_LABELS, fill_value=0
+    )
+    z = ct.values.tolist()
+    text = [[str(v) if v > 0 else "" for v in row] for row in z]
+
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        x=_DIFF_HM_LABELS,
+        y=_DELTA_HM_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Prior diff: %{x}<br>Next pitch Δ: %{y}<br>Count: %{z}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Prior diff (abs)", side="bottom"),
+        yaxis=dict(title="Next pitch Δ (circular signed)", autorange="reversed"),
+        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        margin=dict(l=130, r=10, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def hot_zone_matrix(
     df: pd.DataFrame,
     value_col: str = "pitch",
@@ -1698,6 +1779,208 @@ def read_players_from_sheet(sheet_id: str) -> list[dict]:
             "is_rookie":       _parse_bool(row["is_rookie"]),
         })
     return players
+
+
+def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Teams' tab from an MLN archive sheet."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Teams')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    teams = []
+    for _, row in df.iterrows():
+        s_team = _str(row.get("S_Team"))
+        if not s_team:
+            continue
+        teams.append({
+            "league":       "MLN",
+            "s_team":       s_team,
+            "season":       _safe_int(row.get("Season")),
+            "sub_league":   _str(row.get("League")),
+            "division":     _str(row.get("Division")),
+            "team_id":      _str(row.get("Team ID")),
+            "abbrev":       _str(row.get("Abv")),
+            "location":     _str(row.get("Location")),
+            "team_name":    _str(row.get("Team Name")),
+            "full_team":    _str(row.get("Full Team")),
+            "primary_hex":  _str(row.get("Primary Hex")),
+            "wins":         _safe_int(row.get("W")),
+            "losses":       _safe_int(row.get("L")),
+            "runs_scored":  _safe_int(row.get("RS")),
+            "runs_allowed": _safe_int(row.get("RA")),
+        })
+    return teams
+
+
+def read_mln_players_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Rosters' tab from an MLN archive sheet."""
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Rosters')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    players = []
+    for _, row in df.iterrows():
+        s_id = _str(row.get("S_ID"))
+        name = _str(row.get("Full Player Name"))
+        if not s_id or not name:
+            continue
+        players.append({
+            "league":           "MLN",
+            "s_id":             s_id,
+            "season":           _safe_int(row.get("Season")),
+            "name":             name,
+            "first_name":       _str(row.get("First Name")),
+            "last_name":        _str(row.get("Last Name")),
+            "suffix":           _str(row.get("Suffix")),
+            "discord_id":       _str(row.get("Discord ID*")),
+            "discord_nickname": _str(row.get("Discord Nickname*")),
+            "team":             _str(row.get("Team")),
+            "gm":               _parse_bool(row.get("GM")),
+            "status":           _str(row.get("Status*")),
+            "session_added":    _str(row.get("Session*")),
+            "primary_pos":      _str(row.get("Primary")),
+            "secondary_pos":    _str(row.get("Secondary")),
+            "hand":             _str(row.get("HAND")),
+            "con":              _safe_int(row.get("CON")),
+            "eye":              _safe_int(row.get("EYE")),
+            "pwr":              _safe_int(row.get("PWR")),
+            "spd":              _safe_int(row.get("SPD")),
+            "mov":              _safe_int(row.get("MOV")),
+            "cmd":              _safe_int(row.get("CMD")),
+            "vel":              _safe_int(row.get("VEL")),
+            "awr":              _safe_int(row.get("AWR")),
+            "rookie":           _parse_bool(row.get("Rookie?")),
+        })
+    return players
+
+
+def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Games' tab from an MLN archive sheet.
+
+    Away/Home columns contain team abbreviations; caller resolves them to full names
+    via get_mln_teams_for_lookup() before upserting.
+    """
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Games')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    games = []
+    for _, row in df.iterrows():
+        game_num = _str(row.get("Game#"))
+        if not game_num:
+            continue
+        game_code = str(game_num).zfill(6)
+        try:
+            season = int(game_code[:2])
+            session_num = int(game_code[2:4])
+        except ValueError:
+            continue
+        games.append({
+            "league":              "MLN",
+            "game_code":           game_code,
+            "game_id_short":       _str(row.get("GameID")),
+            "season":              season,
+            "session_number":      session_num,
+            "away_team":           _str(row.get("Away")),   # raw abbrev; caller resolves
+            "home_team":           _str(row.get("Home")),   # raw abbrev; caller resolves
+            "away_score":          _safe_int(row.get("a_scr")),
+            "home_score":          _safe_int(row.get("h_scr")),
+            "winning_pitcher":     _str(row.get("WP")),
+            "losing_pitcher":      _str(row.get("LP")),
+            "save_pitcher":        _str(row.get("SV")),
+            "player_of_game":      _str(row.get("PotG")),
+            "honorable_mention_1": _str(row.get("HM1")),
+            "honorable_mention_2": _str(row.get("HM2")),
+            "honorable_mention_3": _str(row.get("HM3")),
+            "link":                _str(row.get("Link")),
+        })
+    return games
+
+
+def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
+    """Read the 'Plays (Raw)' tab from an MLN archive sheet.
+
+    Away/Home contain Team IDs (e.g. T1009); Pitcher/Batter/Catcher/Runner contain
+    MLN player IDs. Caller resolves these to names via get_mln_teams/players_for_lookup().
+    """
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+    plays = []
+    for _, row in df.iterrows():
+        play_num = _safe_int(row.get("Play"))
+        game_raw = _str(row.get("Game"))
+        result   = _str(row.get("Result"))
+        if not play_num or not game_raw or not result:
+            continue
+        game_code = str(game_raw).zfill(6)
+
+        inning_raw = _str(row.get("Inning")) or "T1"
+        inning_num, half = parse_inning(inning_raw)
+
+        play_type = _str(row.get("PlayType"))
+        pitch = _safe_int(row.get("Pitch"))
+        swing = _safe_int(row.get("Swing"))
+
+        is_steal = (play_type or "").lower() == "steal"
+        if not is_steal and (pitch is None or swing is None):
+            continue
+
+        # OBC: "0" means empty base in MLN
+        on_first  = _str(row.get("OnFirst"))  or "0"
+        on_second = _str(row.get("OnSecond")) or "0"
+        on_third  = _str(row.get("OnThird"))  or "0"
+        brc = (
+            (1 if on_first  not in ("0", "-") else 0)
+            | (2 if on_second not in ("0", "-") else 0)
+            | (4 if on_third  not in ("0", "-") else 0)
+        )
+        obc = BRC_TO_OBC.get(brc, "Empty")
+
+        plays.append({
+            "league":     "MLN",
+            "season":     _safe_int(row.get("Season")),
+            "game_code":  game_code,
+            "play_num":   play_num,
+            "away":       _str(row.get("Away")),    # Team ID e.g. T1009
+            "home":       _str(row.get("Home")),    # Team ID e.g. T1003
+            "inning":     inning_num,
+            "half":       half,
+            "away_score": _safe_int(row.get("a_Scr")),
+            "home_score": _safe_int(row.get("h_Scr")),
+            "play_type":  play_type,
+            "result":     result,
+            "play_code":  _str(row.get("Playcode")),
+            "pitcher_id": _safe_int(row.get("Pitcher")),
+            "catcher_id": _safe_int(row.get("Catcher")),
+            "batter_id":  _safe_int(row.get("Batter")),
+            "on_first":   on_first,
+            "on_second":  on_second,
+            "on_third":   on_third,
+            "scored2":    _str(row.get("scored2")),
+            "scored3":    _str(row.get("scored3")),
+            "scored4":    _str(row.get("scored4")),
+            "pitch":      pitch,
+            "swing":      swing,
+            "throw_num":  _safe_int(row.get("Throw")),
+            "runner_id":  _safe_int(row.get("Runner")),
+            "steal_num":  _safe_int(row.get("Steal")),
+            "obc":        obc,
+        })
+    return plays
 
 
 def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figure:

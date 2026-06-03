@@ -119,12 +119,51 @@ def get_plays_for_game(game_id: int) -> list[dict]:
 
 
 def bulk_upsert_plays(plays: list[dict]) -> int:
-    """Upsert a list of play dicts keyed on play_num. Returns rows processed."""
-    return _bulk_upsert("plays", plays, "play_num")
+    """Upsert a list of play dicts keyed on (play_num, league). Returns rows processed."""
+    return _bulk_upsert("plays", plays, "play_num,league")
+
+
+def bulk_upsert_mln_plays(plays: list[dict]) -> int:
+    """Upsert MLN archive plays keyed on (play_num, league). Returns rows processed."""
+    return _bulk_upsert("plays", plays, "play_num,league")
 
 
 def delete_play(play_id: int) -> None:
     _client().table("plays").delete().eq("id", play_id).execute()
+
+
+# ------------------------------------------------------------------ MLN archive
+
+def get_mln_teams_for_lookup() -> list[dict]:
+    """Return MLN team records for name resolution during archive sync."""
+    return (
+        _client().table("teams")
+        .select("team_id, abbrev, full_team")
+        .eq("league", "MLN")
+        .execute()
+        .data
+    )
+
+
+def get_mln_players_for_lookup() -> list[dict]:
+    """Return MLN player records for name resolution during archive sync."""
+    return (
+        _client().table("players")
+        .select("s_id, name")
+        .eq("league", "MLN")
+        .execute()
+        .data
+    )
+
+
+def bulk_upsert_mln_teams(teams: list[dict]) -> int:
+    """Upsert MLN teams keyed on s_team. Returns rows processed."""
+    return _bulk_upsert("teams", teams, "s_team")
+
+
+def bulk_upsert_mln_players(players: list[dict]) -> int:
+    """Upsert MLN players keyed on s_id. Returns rows processed."""
+    return _bulk_upsert("players", players, "s_id")
 
 
 # ------------------------------------------------------------------ scrimmage plays
