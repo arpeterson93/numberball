@@ -1037,9 +1037,9 @@ with tab_b:
                 st.write(f"  **{_num}**: {_cnt} ({_cnt / _b_total * 100:.1f}%)" if _b_total else f"  **{_num}**: {_cnt}")
         with _tl_b:
             st.markdown("**Most Common Last 2 Digits**")
-            _last2_b = df_b["swing"].apply(lambda s: int(str(int(s)).zfill(2)[-2:])).value_counts().head(5)
+            _last2_b = df_b["swing"].dropna().apply(lambda s: int(str(int(s)).zfill(2)[-2:])).value_counts().head(5)
             for _dig, _cnt in _last2_b.items():
-                st.write(f"  **{_dig:02d}**: {_cnt} ({_cnt / _b_total * 100:.1f}%)" if _b_total else f"  **{_dig:02d}**: {_cnt}")
+                st.write(f"  **{int(_dig):02d}**: {_cnt} ({_cnt / _b_total * 100:.1f}%)" if _b_total else f"  **{int(_dig):02d}**: {_cnt}")
 
         # ── results ───────────────────────────────────────────────────────────
         st.divider()
