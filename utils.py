@@ -1682,8 +1682,8 @@ def bases_diamond_fig(obc: str, outs: int) -> go.Figure:
     fig.update_layout(
         xaxis=dict(visible=False, range=[-0.25, 1.25]),
         yaxis=dict(visible=False, range=[-0.45, 1.25]),
-        width=130, height=130,
-        margin=dict(l=0, r=0, t=0, b=0),
+        width=115, height=130,
+        margin=dict(l=0, r=8, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         dragmode=False,
