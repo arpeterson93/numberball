@@ -653,7 +653,9 @@ with tab_p:
             _recent_p = df_p_pred.sort_values("id").tail(n_pitches)["pitch"].dropna().astype(int).tolist() \
                         if not df_p_pred.empty else []
             _delta_p  = utils.project_from_deltas(_recent_p)
-            _opt_rows_p = [("Based on Recent Pitch Values", _recent_p), ("Based on Recent Pitch Δ", _delta_p)]
+            _delta2_p = utils.project_from_delta2s(_recent_p)
+            _opt_rows_p = [("Based on Recent Pitch Values", _recent_p), ("Based on Recent Pitch Δ", _delta_p),
+                           ("Based on Recent Pitch Δ²", _delta2_p)]
             col_obp_p, col_slg_p = st.columns(2)
             with col_obp_p:
                 st.markdown("**OBP**")
@@ -693,12 +695,13 @@ with tab_p:
 
         # ── last N pitches ────────────────────────────────────────────────────
         st.divider()
-        st.subheader(f"Last {n_pitches} Pitches")
+        _actual_pitches_p = len(df_p_pred.sort_values("id").tail(n_pitches)) if not df_p_pred.empty else 0
+        st.subheader(f"Last {_actual_pitches_p} Pitches")
         swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
                                help="+1: shifts swing markers right by one AB.")
         st.plotly_chart(
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
-                                        title=f"Last {n_pitches} Pitches",
+                                        title=f"Last {_actual_pitches_p} Pitches",
                                         swing_offset=(swing_off_p == "+1"),
                                         segment_games=True),
             width="stretch", key="p_last_n",
@@ -708,45 +711,18 @@ with tab_p:
         df_p = df_p_pred
         _p_total = len(df_p)
 
-        # ── summary metrics ───────────────────────────────────────────────────
-        _p_avg  = df_p["diff"].mean() if not df_p.empty else float("nan")
-        _p_meme = df_p["is_meme_pitch"].mean() * 100 if not df_p.empty else 0.0
-        _pc1, _pc2, _pc3 = st.columns(3)
-        _pc1.metric("At-Bats", _p_total)
-        _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "-")
-        _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
+        # Calculate deltas for downstream sections (game-scoped)
+        _deltas_p = df_p["pitch_circ_delta"].dropna()
+        _delta2_p = df_p["pitch_circ_delta2"].dropna()
+        _approach_p = df_p["pitch_approach"].dropna()
 
-        _xgame_p = st.checkbox(
-            "Include cross-game span", value=False, key="p_xgame_delta",
-            help="When off, delta stats reset at the start of each game",
+        st.divider()
+        st.subheader("Next Pitch Delta vs Prior Pitch Delta")
+        st.caption("How does a pitcher adjust their next pitch movement based on their previous pitch movement?")
+        st.plotly_chart(
+            utils.next_delta_vs_prior_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Pitch Δ", value_col="pitch"),
+            width="stretch", config={"displayModeBar": False}, key="p_delta_delta_hm",
         )
-        _sw_mask_p = df_p["swing"].notna()
-        if _xgame_p and _sw_mask_p.any():
-            _sw_xg = df_p[_sw_mask_p]
-            _deltas_p_raw = _sw_xg.groupby("pitcher_name", group_keys=False)["pitch"].apply(utils._circ_delta_group)
-            _delta2_p_raw = _deltas_p_raw.abs().groupby(df_p.loc[_sw_mask_p, "pitcher_name"]).diff().abs()
-            _approach_p_raw = _sw_xg.groupby("pitcher_name", group_keys=False)[["pitch", "swing"]].apply(utils._approach_group)
-            _deltas_p = _deltas_p_raw.dropna()
-            _delta2_p = _delta2_p_raw.dropna()
-            _approach_p = _approach_p_raw.dropna()
-        else:
-            _deltas_p = df_p["pitch_circ_delta"].dropna()
-            _delta2_p = df_p["pitch_circ_delta2"].dropna()
-            _approach_p = df_p["pitch_approach"].dropna()
-        if not _deltas_p.empty:
-            _dc1, _dc2, _dc3, _dc4, _dc5 = st.columns(5)
-            _dc1.metric("Avg Delta", f"{_deltas_p.mean():+.1f}")
-            _dc2.metric("Avg |Delta|", f"{_deltas_p.abs().mean():.1f}")
-            _dc3.metric("# with Delta", len(_deltas_p))
-            if not _delta2_p.empty:
-                _dc4.metric("Avg |Δ²|", f"{_delta2_p.abs().mean():.1f}",
-                            help="Average absolute change in delta (pitch acceleration)")
-            if not _approach_p.empty:
-                _dc5.metric("Shadow %", f"{_approach_p.mean() * 100:.1f}%",
-                            help=f"How often this pitcher's next pitch moves closer to the previous batter's swing "
-                                 f"({int(_approach_p.sum())}/{len(_approach_p)} pitches)")
-        else:
-            st.caption("Need at least 2 at-bats from the same pitcher in a session.")
 
         st.divider()
         st.subheader("Next Pitch Delta vs Prior Diff")
@@ -935,7 +911,9 @@ with tab_b:
             _recent_b = df_b_pred.sort_values("id").tail(n_swings)["swing"].dropna().astype(int).tolist() \
                         if not df_b_pred.empty else []
             _delta_b  = utils.project_from_deltas(_recent_b)
-            _opt_rows_b = [("Based on Recent Swing Values", _recent_b), ("Based on Recent Swing Δ", _delta_b)]
+            _delta2_b = utils.project_from_delta2s(_recent_b)
+            _opt_rows_b = [("Based on Recent Swing Values", _recent_b), ("Based on Recent Swing Δ", _delta_b),
+                           ("Based on Recent Swing Δ²", _delta2_b)]
             col_obp_b, col_slg_b = st.columns(2)
             with col_obp_b:
                 st.markdown("**OBP**")
@@ -975,14 +953,15 @@ with tab_b:
 
         # ── last N swings ─────────────────────────────────────────────────────
         st.divider()
-        st.subheader("Last N Swings")
+        _actual_swings_b = len(df_b_pred.sort_values("id").tail(n_swings)) if not df_b_pred.empty else 0
+        st.subheader(f"Last {_actual_swings_b} Swings")
         swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
                                help="+1: shifts swing markers right by one AB.")
 
         _hl_name = tab_b_batter if (tab_b_batter != "All" and tab_b_scope == "Full Team") else None
         st.plotly_chart(
             utils.last_n_combined_chart(df_b_pred, n=n_swings, delta_col="swing",
-                                        title=f"Last {n_swings} Swings",
+                                        title=f"Last {_actual_swings_b} Swings",
                                         swing_offset=(swing_off_b == "+1"),
                                         highlight_name=_hl_name),
             width="stretch", key="b_last_n",
@@ -992,15 +971,24 @@ with tab_b:
         df_b = df_b_pred
         _b_total = len(df_b)
 
-        # ── summary metrics ───────────────────────────────────────────────────
-        _b_avg  = df_b["diff"].mean() if not df_b.empty else float("nan")
-        _b_obp  = df_b["res_category"].isin(["XBH","BB/1B"]).mean() * 100 if not df_b.empty else 0.0
-        _b_xbh  = (df_b["res_category"] == "XBH").mean() * 100 if not df_b.empty else 0.0
-        _bc1, _bc2, _bc3, _bc4 = st.columns(4)
-        _bc1.metric("At-Bats", _b_total)
-        _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "-")
-        _bc3.metric("OB%", f"{_b_obp:.1f}%")
-        _bc4.metric("XBH%", f"{_b_xbh:.1f}%")
+        # Calculate swing deltas for downstream sections (game-scoped)
+        _deltas_b = df_b["swing_circ_delta"].dropna() if "swing_circ_delta" in df_b.columns else pd.Series(dtype=float)
+
+        st.divider()
+        st.subheader("Next Swing Delta vs Prior Swing Delta")
+        st.caption("How does a batter adjust their next swing based on their previous swing movement?")
+        st.plotly_chart(
+            utils.next_delta_vs_prior_delta_heatmap(df_b, title="Next Swing Δ vs Prior Swing Δ", value_col="swing"),
+            width="stretch", config={"displayModeBar": False}, key="b_delta_delta_hm",
+        )
+
+        st.divider()
+        st.subheader("Next Swing Delta vs Prior Diff")
+        st.caption("How does a batter adjust their next swing based on how close the previous pitch was?")
+        st.plotly_chart(
+            utils.diff_vs_next_pitch_delta_heatmap(df_b, value_col="swing", title="Next Swing Δ vs Prior Diff"),
+            width="stretch", config={"displayModeBar": False}, key="b_diff_delta_hm",
+        )
 
         # ── hot zone ─────────────────────────────────────────────────────────
         st.divider()

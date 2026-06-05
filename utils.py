@@ -561,6 +561,7 @@ def last_n_combined_chart(
     x_all = list(range(1, n_actual + 1))
     pitches = df_last["pitch"].astype(int).tolist()
     swings  = df_last["swing"].astype(int).tolist()
+    results = df_last["result"].tolist() if "result" in df_last.columns else [None] * n_actual
     delta_vals = df_last[delta_col].dropna().astype(int).tolist()
 
     deltas = [circular_signed_delta(delta_vals[i - 1], delta_vals[i]) for i in range(1, n_actual)]
@@ -568,13 +569,14 @@ def last_n_combined_chart(
     x_delta = list(range(2, n_actual + 1))
     colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in deltas]
     hover = [
-        f"AB {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
+        f"PA {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
         for i in range(1, n_actual)
     ]
 
     if swing_offset and n_actual > 1:
         swing_x    = list(range(2, n_actual + 1))
         swing_y    = swings[:-1]
+        result_offset = results[1:]
         swing_text = [str(s) for s in swing_y]
         n_swing_rows = n_actual - 1
         highlight_mask = (
@@ -585,6 +587,7 @@ def last_n_combined_chart(
         swing_x    = x_all
         swing_y    = swings
         swing_text = [str(s) for s in swings]
+        result_offset = results
         n_swing_rows = n_actual
         highlight_mask = (
             df_last["batter_name"].eq(highlight_name).tolist()
@@ -727,22 +730,37 @@ def last_n_combined_chart(
         name="Delta", showlegend=False,
     ), row=2, col=1)
 
+    # Add result labels as text below the delta bars
+    result_text = [str(r) if r else "" for r in result_offset]
+    result_x = list(range(1, len(result_offset) + 1)) if not swing_offset else list(range(2, len(result_offset) + 2))
+    fig.add_trace(go.Scatter(
+        x=result_x, y=[-20] * len(result_x),
+        mode="text",
+        text=result_text,
+        textposition="bottom center",
+        textfont=dict(size=9, color="gray"),
+        showlegend=False,
+        hoverinfo="skip",
+        xaxis="x2", yaxis="y2",
+    ), row=2, col=1)
+
     x_range = [0.5, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
     fig.update_xaxes(
-        title_text="← Older  ·  At-Bat #  ·  Newer →",
+        title_text="← Older  ·  PA #  ·  Newer →",
         tickmode="linear", dtick=1, range=x_range, row=2, col=1,
     )
     fig.update_yaxes(range=[0, 1080], row=1, col=1)
     fig.update_yaxes(
-        range=[0, 540], title_text="Delta", row=2, col=1,
+        range=[-60, 540], title_text="Delta", row=2, col=1,
         tickmode="array", tickvals=[100, 200, 300, 400, 500],
     )
+
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         height=560,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=45, r=10, t=60, b=40),
+        margin=dict(l=45, r=10, t=60, b=60),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -843,6 +861,18 @@ def project_from_deltas(recent_vals: list[int]) -> list[int]:
     last_val = recent_vals[-1]
     return [((last_val + circular_signed_delta(recent_vals[i - 1], recent_vals[i]) - 1) % 1000) + 1
             for i in range(1, len(recent_vals))]
+
+
+def project_from_delta2s(recent_vals: list[int]) -> list[int]:
+    """Apply delta2 (pitch movement acceleration) patterns to project positions."""
+    if len(recent_vals) < 3:
+        return []
+    deltas = [circular_signed_delta(recent_vals[i - 1], recent_vals[i]) for i in range(1, len(recent_vals))]
+    delta2s = [abs(abs(deltas[i]) - abs(deltas[i - 1])) for i in range(1, len(deltas))]
+    last_val = recent_vals[-1]
+    last_delta = deltas[-1]
+    return [((last_val + int(last_delta + (delta2s[i] if i < len(delta2s) else delta2s[-1])) - 1) % 1000) + 1
+            for i in range(len(delta2s))]
 
 
 def _build_weight_array(vals: list[int]) -> "import numpy; numpy.ndarray":
@@ -1414,24 +1444,26 @@ _DELTA_HM_LABELS = [f"{i}–{i + 50}" for i in range(0, 500, 50)]  # 10 bins
 def diff_vs_next_pitch_delta_heatmap(
     df: pd.DataFrame,
     title: str = "Next Pitch |Δ| vs Prior Diff",
+    value_col: str = "pitch",
 ) -> go.Figure:
-    """Heatmap: unsigned next-pitch delta vs previous play's diff.
+    """Heatmap: unsigned next-value delta vs previous play's diff.
 
-    X = prior diff bin; Y = abs circular delta to next pitch (0 at bottom, 500 at top).
-    Only consecutive pitches from the same pitcher within the same game are counted.
+    X = prior diff bin; Y = abs circular delta to next value (0 at bottom, 500 at top).
+    Only consecutive values from the same player within the same game are counted.
     """
-    df_sw = df[df["pitch"].notna() & df["diff"].notna()].copy()
+    df_sw = df[df[value_col].notna() & df["diff"].notna()].copy()
     if len(df_sw) < 2:
         return go.Figure()
 
-    df_sw = df_sw.sort_values(["game_id", "pitcher_name", "id"])
-    df_sw["_next_pitch"] = df_sw.groupby(["game_id", "pitcher_name"])["pitch"].shift(-1)
-    df_sw = df_sw.dropna(subset=["_next_pitch"])
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_sw = df_sw.sort_values(["game_id", group_col, "id"])
+    df_sw["_next_val"] = df_sw.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_sw = df_sw.dropna(subset=["_next_val"])
     if df_sw.empty:
         return go.Figure()
 
     df_sw["_next_delta"] = df_sw.apply(
-        lambda r: circular_diff(int(r["pitch"]), int(r["_next_pitch"])), axis=1
+        lambda r: circular_diff(int(r[value_col]), int(r["_next_val"])), axis=1
     )
     df_sw["_diff_cat"] = pd.cut(
         df_sw["diff"].astype(int),
@@ -1475,6 +1507,86 @@ def diff_vs_next_pitch_delta_heatmap(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Prior diff (abs)", side="bottom"),
         yaxis=dict(title="Next pitch |Δ|", autorange=True),
+        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        margin=dict(l=80, r=10, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def next_delta_vs_prior_delta_heatmap(
+    df: pd.DataFrame,
+    title: str = "Next Pitch Δ vs Prior Pitch Δ",
+    value_col: str = "pitch",
+) -> go.Figure:
+    """Heatmap: next delta vs prior delta for consecutive plays.
+
+    Shows how pitcher/batter adjusts their next movement based on their previous movement.
+    X = prior pitch/swing delta bin; Y = next pitch/swing delta bin.
+    """
+    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+
+    df_sw = df[df[value_col].notna()].copy()
+    if len(df_sw) < 2:
+        return go.Figure()
+
+    df_sw = df_sw.sort_values(["game_id", group_col, "id"])
+
+    # Always recalculate deltas fresh to ensure proper grouping for filtered data
+    df_sw[delta_col] = df_sw.groupby(["game_id", group_col], group_keys=False)[value_col].apply(_circ_delta_group)
+
+    df_sw = df_sw[df_sw[delta_col].notna()].copy()
+    if len(df_sw) < 2:
+        return go.Figure()
+
+    df_sw["_next_delta"] = df_sw.groupby(["game_id", group_col])[delta_col].shift(-1)
+    df_sw = df_sw.dropna(subset=["_next_delta"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_prior_delta_cat"] = pd.cut(
+        df_sw[delta_col].abs().astype(int),
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+    df_sw["_next_delta_cat"] = pd.cut(
+        df_sw["_next_delta"].abs().astype(int),
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_next_delta_cat"], df_sw["_prior_delta_cat"]).reindex(
+        index=_DELTA_HM_LABELS, columns=_DELTA_HM_LABELS, fill_value=0
+    )
+    col_totals = ct.sum(axis=0).replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(_DELTA_HM_LABELS))]
+        for i in range(len(_DELTA_HM_LABELS))
+    ]
+    customdata = z_raw
+
+    fig = go.Figure(go.Heatmap(
+        z=z_norm,
+        x=_DELTA_HM_LABELS,
+        y=_DELTA_HM_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        customdata=customdata,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Prior |Δ|: %{x}<br>Next |Δ|: %{y}<br>%{z:.1f}% of column (%{customdata} instances)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Prior |Δ|"),
+        yaxis=dict(title="Next |Δ|"),
         height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
         margin=dict(l=80, r=10, t=50, b=70),
         dragmode=False,
@@ -2320,8 +2432,10 @@ def pitcher_percentile_card(
                                    text=f"<i>{rrv}</i>",
                                    showarrow=False, xanchor="left", font=dict(size=14))
 
+    career_ab = row.get("ab_count") if "ab_count" in row.index else None
+    career_ab_str = f" ({int(career_ab)} PA)" if career_ab and not pd.isna(career_ab) else ""
     subtitle = (
-        f"<br><sup>Top = Career  |  Bottom = Recent ({recent_n} PA)</sup>"
+        f"<br><sup>Top = Career{career_ab_str}  |  Bottom = Recent ({recent_n} PA)</sup>"
         if has_recent else ""
     )
     fig.update_layout(
