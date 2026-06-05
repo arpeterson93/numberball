@@ -1,0 +1,9 @@
+Result,Range,Prob,OBC After,Outs After,ER After,Runs
+2B,28-57,6.0%,three circles showing runners on 3rd 2nd 1st respectively,0 1 or 2,Exp Runs of the game state following the result,Any runs scored from the result directly
+1B,58-130,14.60%,,,,
+IF1B,131-140,2.00%,,,,
+BB,141-181,8.20%,,,,
+FO,182-227,9.20%,,,,
+PO,228-247,4.00%,,,,
+GO,248-370,24.60%,,,,
+K,371-500,26.00%,,,,

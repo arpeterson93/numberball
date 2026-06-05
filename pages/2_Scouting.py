@@ -29,6 +29,11 @@ def _load_all_players() -> list:
     return db.get_all_players()
 
 @st.cache_data(ttl=3600)
+def _load_run_lookup(_v: int = 3) -> dict:
+    # (result, before_obc, outs) -> (runs, new_obc, nout_after)
+    return utils.load_run_lookup_from_csv("import_BRC.csv")
+
+@st.cache_data(ttl=3600)
 def _load_pitcher_stats() -> pd.DataFrame:
     rows = db.get_pitcher_stats()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -507,8 +512,9 @@ elif pred_mode == "Fetch Live Matchup":
             st.write("")
             if sheet_urls and st.button("Fetch Matchup", type="secondary", key="pull_ranges"):
                 try:
-                    fetched_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
+                    fetched_ranges, fetched_bunt_ranges, fetched_batter, fetched_pitcher = utils.parse_result_ranges_from_sheet(pred_sheet_url)
                     st.session_state["pred_result_ranges"] = fetched_ranges
+                    st.session_state["pred_bunt_ranges"]   = fetched_bunt_ranges
                     st.session_state["pred_sheet_batter"]  = fetched_batter
                     st.session_state["pred_sheet_pitcher"] = fetched_pitcher
 
@@ -524,7 +530,18 @@ elif pred_mode == "Fetch Live Matchup":
                         if not _b_teams.empty:
                             st.session_state["tab_b_team"] = _b_teams.iloc[0]
 
-                    st.toast(f"Loaded {len(fetched_ranges)} ranges.")
+                    fetched_gameplay = utils.parse_gameplay_from_sheet(pred_sheet_url)
+                    st.session_state["steal_runner_data"]  = fetched_gameplay["steal_runners"]
+                    st.session_state["mgr_sheet_outs"]     = fetched_gameplay["outs"]
+                    st.session_state["mgr_sheet_obc"]      = fetched_gameplay["obc"]
+
+                    _bunt_msg  = " + bunt ranges" if fetched_bunt_ranges else ""
+                    _runners   = fetched_gameplay["steal_runners"]
+                    _steal_msg = f" + {len(_runners)} runner(s)" if _runners else ""
+                    _state_msg = (f" + game state ({fetched_gameplay['outs']} outs, "
+                                  f"{utils.obc_display(fetched_gameplay['obc'])})"
+                                  if fetched_gameplay["outs"] is not None else "")
+                    st.toast(f"Loaded {len(fetched_ranges)} ranges{_bunt_msg}{_steal_msg}{_state_msg}.")
                     st.rerun()
                 except Exception as e:
                     st.error(str(e))
@@ -554,7 +571,7 @@ st.divider()
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-tab_p, tab_b = st.tabs(["⚾ Pitcher", "🦇 Batter"])
+tab_p, tab_b, tab_m = st.tabs(["⚾ Pitcher", "🦇 Batter", "📊 Manager"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PITCHER TAB
@@ -774,8 +791,8 @@ with tab_p:
         st.subheader("Zone by Base State")
         _col_e_p, _col_r_p = st.columns(2)
         for _col, (_lbl, _obc_vals) in zip([_col_e_p, _col_r_p], [
-            ("Empty", ["Empty"]),
-            ("Runner(s) On", ["1B","2B","3B","1&2B","1&3B","2&3B","BL"]),
+            ("Empty", ["000"]),
+            ("Runner(s) On", ["001","010","100","011","101","110","111"]),
         ]):
             _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
             with _col:
@@ -817,11 +834,13 @@ with tab_p:
                                          title="Result Category"), width="stretch", key="p_res_cat")
 
         # ── raw data ──────────────────────────────────────────────────────────
-        with st.expander("Raw At-Bat Data"):
+        with st.expander("Raw Plate Appearance Data"):
             _disp_p = df_p[["season","game_id","inning","outs","obc","pitcher_name","batter_name",
                              "pitch","swing","diff","result","res_category"]].copy()
+            _disp_p["obc"] = _disp_p["obc"].map(utils.obc_display)
             _disp_p.columns = ["Season","Game","Inn","Outs","Runners","Pitcher","Batter",
                                 "Pitch","Swing","Diff","Result","Category"]
+            _disp_p = _disp_p.iloc[::-1].reset_index(drop=True)
             st.dataframe(_disp_p, use_container_width=True, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1032,8 +1051,8 @@ with tab_b:
         st.subheader("Swing Zone by Base State")
         _col_e_b, _col_r_b = st.columns(2)
         for _col, (_lbl, _obc_vals) in zip([_col_e_b, _col_r_b], [
-            ("Empty", ["Empty"]),
-            ("Runner(s) On", ["1B","2B","3B","1&2B","1&3B","2&3B","BL"]),
+            ("Empty", ["000"]),
+            ("Runner(s) On", ["001","010","100","011","101","110","111"]),
         ]):
             _df_obc_b = df_b[df_b["obc"].isin(_obc_vals)]
             with _col:
@@ -1088,9 +1107,309 @@ with tab_b:
                                          title="Result Category"), width="stretch", key="b_res_cat")
 
         # ── raw data ──────────────────────────────────────────────────────────
-        with st.expander("Raw At-Bat Data"):
+        with st.expander("Raw Plate Appearance Data"):
             _disp_b = df_b[["season","game_id","inning","outs","obc","pitcher_name","batter_name",
                              "pitch","swing","diff","result","res_category"]].copy()
+            _disp_b["obc"] = _disp_b["obc"].map(utils.obc_display)
             _disp_b.columns = ["Season","Game","Inn","Outs","Runners","Pitcher","Batter",
                                 "Pitch","Swing","Diff","Result","Category"]
+            _disp_b = _disp_b.iloc[::-1].reset_index(drop=True)
             st.dataframe(_disp_b, use_container_width=True, hide_index=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MANAGER TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_m:
+    if df_all.empty:
+        st.warning("No at-bats available for analysis.")
+        st.stop()
+
+    # Prefer live game state from sheet fetch; fall back to last play in data
+    _sheet_outs = st.session_state.get("mgr_sheet_outs")
+    _sheet_obc  = st.session_state.get("mgr_sheet_obc")
+    if _sheet_outs is not None and _sheet_obc is not None:
+        _current_outs = int(_sheet_outs)
+        _current_obc  = _sheet_obc
+    else:
+        _current_pa   = df_all.iloc[-1]
+        _current_outs = int(_current_pa["outs"])
+        _current_obc  = _current_pa["obc"]
+    _current_er   = utils.get_expected_runs(_current_outs, _current_obc) or 0
+    _run_lookup   = _load_run_lookup()
+
+
+    def _norm(entry):
+        if isinstance(entry, dict):
+            return entry["result"], entry["low"], entry["high"]
+        return entry
+
+    def _lookup(result, obc, outs=None):
+        """Return (runs, new_obc, nout_after) from import_BRC.
+        nout_after = total outs after the play (eOuts from CSV).
+        """
+        o = _current_outs if outs is None else outs
+        entry = _run_lookup.get((result, obc, o))
+        if entry is not None and len(entry) == 3:
+            return entry
+        new_obc, _ = utils.advance_runners(result, obc, o)
+        return 0.0, new_obc, min(o + utils.outs_added(result), 3)
+
+    def _calc_ev(ranges):
+        ev = 0.0
+        for entry in (ranges or []):
+            _r, _dl, _dh = _norm(entry)
+            _prob  = min((_dh - _dl + 1) * 2 / 1000, 1.0)
+            _runs, _nobc, _nout = _lookup(_r, _current_obc)
+            _nout  = min(_nout, 3)
+            _ner   = utils.get_expected_runs(_nout, _nobc) or 0 if _nout < 3 else 0
+            ev    += _prob * (_runs + _ner)
+        return ev
+
+    def _outcome_grid(ranges, obc, outs):
+        """Build flat outcome breakdown DataFrame sorted by (ER After + Runs) desc."""
+        rows = []
+        for entry in (ranges or []):
+            r, lo, hi = _norm(entry)
+            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+
+            if r == "Safe":
+                runs = 0
+                new_obc_code, _ = utils.steal_advance(obc, outs)
+                nout = outs
+            elif r == "Out":
+                # Caught stealing: runner is removed, outs + 1
+                runs = 0
+                on_3b = obc[0] == "1"
+                on_2b = obc[1] == "1"
+                on_1b = obc[2] == "1"
+                # Remove the lead runner (highest base)
+                if on_3b:
+                    new_obc_code = f"0{obc[1]}{obc[2]}"
+                elif on_2b:
+                    new_obc_code = f"{obc[0]}0{obc[2]}"
+                else:
+                    new_obc_code = f"{obc[0]}{obc[1]}0"
+                nout = min(outs + 1, 3)
+            else:
+                runs, new_obc_code, nout = _lookup(r, obc, outs)
+                nout = min(nout, 3)
+
+            er_after = round(utils.get_expected_runs(nout, new_obc_code) or 0, 2) if nout < 3 else 0.0
+            total    = runs + er_after
+
+            _display_r = "SB" if r == "Safe" else ("CS" if r == "Out" else r)
+            rows.append({
+                "_sort":      total,
+                "Result":     _display_r,
+                "Range":      f"{lo}-{hi}",
+                "Prob":       f"{prob * 100:.1f}%",
+                "3-2-1":      utils.obc_circles(new_obc_code),
+                "Outs After": "End" if nout >= 3 else nout,
+                "Runs":       int(runs),
+                "ER After":   er_after,
+            })
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        return df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
+
+    def _outcome_scatter(grid):
+        import plotly.graph_objects as go
+        from collections import defaultdict
+
+        probs      = grid["Prob"].str.rstrip("%").astype(float)
+        total_runs = grid["Runs"].astype(float) + grid["ER After"].astype(float)
+
+        # Stack probabilities at each unique x value, collect result names
+        prob_at: dict[float, float]       = defaultdict(float)
+        names_at: dict[float, list[str]]  = defaultdict(list)
+        for x, p, r in zip(total_runs, probs, grid["Result"]):
+            xr = round(float(x), 3)
+            prob_at[xr]  += float(p)
+            names_at[xr].append(r)
+
+        xs     = sorted(prob_at.keys())
+        ys     = [prob_at[x] for x in xs]
+        labels = ["/".join(names_at[x]) for x in xs]
+
+        fig = go.Figure()
+
+        # Stems: vertical lines from y=0 to y=prob for each x
+        stem_x, stem_y = [], []
+        for x, y in zip(xs, ys):
+            stem_x += [x, x, None]
+            stem_y += [0, y, None]
+        fig.add_trace(go.Scatter(
+            x=stem_x, y=stem_y,
+            mode="lines",
+            line=dict(color="rgba(100,160,255,0.7)", width=2),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+        # Dots + labels at the top of each stem
+        fig.add_trace(go.Scatter(
+            x=xs, y=ys,
+            mode="markers+text",
+            marker=dict(size=9, color="rgba(100,160,255,1)", line=dict(color="white", width=1)),
+            text=labels,
+            textposition="top center",
+            textfont=dict(size=11),
+            hovertemplate="%{text}<br>Total: %{x:.3f}<br>Prob: %{y:.1f}%<extra></extra>",
+            showlegend=False,
+        ))
+
+        fig.update_layout(
+            xaxis=dict(title=dict(text="Runs + ER After", font=dict(size=10)),
+                       gridcolor="#333", zeroline=False),
+            yaxis=dict(title=dict(text="Prob %", font=dict(size=10)), gridcolor="#333",
+                       rangemode="tozero", range=[0, max(ys) * 1.35]),
+            height=260,
+            margin=dict(l=45, r=10, t=30, b=40),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            dragmode=False, showlegend=False,
+            modebar_remove=["zoom2d","pan2d","select2d","lasso2d","zoomIn2d",
+                            "zoomOut2d","autoScale2d","resetScale2d","toImage"],
+        )
+        return fig
+
+    def _show_outcome_grid(ranges, obc, outs, key):
+        grid = _outcome_grid(ranges, obc, outs)
+        if grid.empty:
+            return
+        st.plotly_chart(_outcome_scatter(grid), use_container_width=True, key=f"{key}_scatter")
+        with st.expander("Outcome Breakdown", expanded=False):
+            st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
+
+    def _calc_ev_steal(safe_range):
+        safe_prob = min(safe_range * 2 / 1000, 1.0)
+        out_prob  = 1.0 - safe_prob
+        safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
+        safe_ner  = utils.get_expected_runs(_current_outs, safe_obc) or 0
+        # Caught stealing: remove lead runner, add 1 out
+        _ob3, _ob2, _ob1 = _current_obc[0], _current_obc[1], _current_obc[2]
+        if _ob3 == "1":
+            out_obc = f"0{_ob2}{_ob1}"
+        elif _ob2 == "1":
+            out_obc = f"{_ob3}0{_ob1}"
+        else:
+            out_obc = f"{_ob3}{_ob2}0"
+        out_nout = min(_current_outs + 1, 3)
+        out_ner  = utils.get_expected_runs(out_nout, out_obc) or 0 if out_nout < 3 else 0
+        return safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
+
+    _bunt_ranges = st.session_state.get("pred_bunt_ranges") or result_ranges
+    _hnr_ranges  = utils.compute_at_bat_ranges(
+        pitcher_hand=st.session_state.get("pred_calc_p_hand", "R"),
+        pitcher_mov=int(st.session_state.get("pred_calc_p_mov", 3)),
+        pitcher_cmd=int(st.session_state.get("pred_calc_p_cmd", 3)),
+        pitcher_vel=int(st.session_state.get("pred_calc_p_vel", 3)),
+        pitcher_awr=int(st.session_state.get("pred_calc_p_awr", 3)),
+        batter_hand=st.session_state.get("pred_calc_b_hand", "R"),
+        batter_con=int(st.session_state.get("pred_calc_b_con", 3)),
+        batter_eye=int(st.session_state.get("pred_calc_b_eye", 3)),
+        batter_pow=int(st.session_state.get("pred_calc_b_pow", 3)),
+        batter_spd=int(st.session_state.get("pred_calc_b_spd", 3)),
+        bunt=False, hit_and_run=True,
+        outs=_current_outs,
+        runners_on=_current_obc != "000",
+    )
+
+    _steal_runners = st.session_state.get("steal_runner_data") or []
+    # Default safe range: lead runner from sheet, or fallback to 50
+    _default_safe_rng = _steal_runners[0]["safe_range"] if _steal_runners else 50
+
+    @st.fragment
+    def _manager_fragment():
+        # Steal: sheet value drives the color bar; editable input drives the EV table
+        _sheet_safe_rng = _default_safe_rng  # locked to sheet pull
+        if _steal_runners:
+            _steal_opts = {
+                f"{r['base']} (range: {r['safe_range']})": r["safe_range"]
+                for r in _steal_runners
+            }
+            _steal_sel = st.selectbox("Stealing runner", list(_steal_opts.keys()),
+                                      key="mgr_steal_runner")
+            _sheet_safe_rng = _steal_opts[_steal_sel]
+
+        _has_runners = _current_obc != "000" and bool(_steal_runners)
+
+        if _has_runners:
+            _steal_ev_rng = st.number_input(
+                "Steal Safe Diff Range (for EV)", min_value=1, max_value=500,
+                value=int(_sheet_safe_rng), step=1, key="mgr_steal_ev_range",
+            )
+        else:
+            _steal_ev_rng = _sheet_safe_rng
+
+        ev_swing = _calc_ev(result_ranges)
+        ev_bunt  = _calc_ev(_bunt_ranges)
+        ev_steal = _calc_ev_steal(_steal_ev_rng) if _has_runners else None
+        ev_hr    = _calc_ev(_hnr_ranges)        if _has_runners else None
+
+        # Game state + EV summary table side by side
+        _gs_col, _tbl_col = st.columns([1, 2])
+        with _gs_col:
+            st.caption(f"Baseline ER: {_current_er:.2f}")
+            st.plotly_chart(utils.bases_diamond_fig(_current_obc, _current_outs),
+                            use_container_width=False, key="mgr_diamond",
+                            config={"displayModeBar": False})
+        with _tbl_col:
+            _decisions = ["Normal Swing", "Bunt"]
+            _exp_runs  = [f"{ev_swing:.2f}", f"{ev_bunt:.2f}"]
+            _vs_base   = [f"{ev_swing - _current_er:+.2f}", f"{ev_bunt - _current_er:+.2f}"]
+            if _has_runners:
+                _decisions += ["Steal", "Hit and Run"]
+                _exp_runs  += [f"{ev_steal:.2f}", f"{ev_hr:.2f}"]
+                _vs_base   += [f"{ev_steal - _current_er:+.2f}", f"{ev_hr - _current_er:+.2f}"]
+            st.dataframe(
+                pd.DataFrame({"Decision": _decisions, "Exp Runs": _exp_runs, "vs Baseline": _vs_base}),
+                use_container_width=True, hide_index=True,
+            )
+
+        _proposed = st.number_input("Proposed Value", min_value=1, max_value=1000,
+                                    value=500, step=1, key="mgr_proposed")
+
+        st.divider()
+
+        st.subheader("Normal Swing")
+        st.plotly_chart(utils.manager_color_bar(int(_proposed), result_ranges,
+                        label="Swing", x_label="Swing Values"),
+                        use_container_width=True, key="mgr_bar_swing")
+        _show_outcome_grid(result_ranges, _current_obc, _current_outs, "grid_swing")
+
+        st.divider()
+
+        st.subheader("Bunt")
+        if not st.session_state.get("pred_bunt_ranges"):
+            st.caption("No bunt ranges fetched - showing normal ranges as fallback")
+        st.plotly_chart(utils.manager_color_bar(int(_proposed), _bunt_ranges,
+                        label="Bunt", x_label="Bunt Values"),
+                        use_container_width=True, key="mgr_bar_bunt")
+        _show_outcome_grid(_bunt_ranges, _current_obc, _current_outs, "grid_bunt")
+
+        if _has_runners:
+            st.divider()
+            st.subheader("Steal")
+            st.caption(f"Color bar uses sheet safe range: {_sheet_safe_rng}")
+            st.plotly_chart(utils.steal_color_bar(int(_proposed), int(_sheet_safe_rng),
+                            label="Steal", x_label="Steal Values"),
+                            use_container_width=True, key="mgr_bar_steal")
+            # Steal grid: Safe and Out as the two results
+            _steal_ranges_for_grid = [
+                ("Safe", 1, _sheet_safe_rng),
+                ("Out",  _sheet_safe_rng + 1, 500),
+            ]
+            _show_outcome_grid(_steal_ranges_for_grid, _current_obc, _current_outs, "grid_steal")
+
+            st.divider()
+            st.subheader("Hit and Run")
+            st.caption("Computed from matchup stats with H&R adjustments")
+            st.plotly_chart(utils.manager_color_bar(int(_proposed), _hnr_ranges,
+                            label="Swing", x_label="Swing Values"),
+                            use_container_width=True, key="mgr_bar_hr")
+            _show_outcome_grid(_hnr_ranges, _current_obc, _current_outs, "grid_hr")
+
+    _manager_fragment()

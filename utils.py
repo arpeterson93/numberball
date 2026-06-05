@@ -9,7 +9,27 @@ from plotly.subplots import make_subplots
 
 TEAMS = ["Couriers", "Jammers", "Sharks", "Tridents"]
 
-OBC_OPTIONS = ["Empty", "1B", "2B", "3B", "1&2B", "1&3B", "2&3B", "BL"]
+OBC_OPTIONS = ["000", "001", "010", "100", "011", "101", "110", "111"]
+
+OBC_DISPLAY = {
+    "000": "Empty",
+    "001": "1B",
+    "010": "2B",
+    "100": "3B",
+    "011": "1B&2B",
+    "101": "1B&3B",
+    "110": "2B&3B",
+    "111": "Loaded",
+}
+
+def obc_display(code: str) -> str:
+    """Return the friendly display name for a binary OBC code."""
+    return OBC_DISPLAY.get(code, code)
+
+
+def obc_circles(code: str) -> str:
+    """Return 3 circle chars for 3rd/2nd/1st base occupancy (filled if runner present)."""
+    return " ".join("●" if b == "1" else "○" for b in code)
 
 RESULTS_HITS = ["HR", "3B", "2BWH", "2B", "1BWH2", "1BWH", "1B", "IF1B", "BB"]
 RESULTS_OUTS = ["DSacF", "DFO", "SacF", "FO", "PO", "GORA", "FCH", "FC", "GO",
@@ -23,6 +43,16 @@ RESULT_CATEGORIES = {
 }
 
 MEME_NUMBERS = [42, 69, 420]
+
+# Run Expectancy Matrix: (outs, obc) -> expected runs
+RUN_EXPECTANCY = {
+    (0, "000"): 0.67, (0, "001"): 1.00, (0, "010"): 1.31, (0, "100"): 1.52,
+    (0, "011"): 1.61, (0, "101"): 1.89, (0, "110"): 2.02, (0, "111"): 2.51,
+    (1, "000"): 0.39, (1, "001"): 0.65, (1, "010"): 0.79, (1, "100"): 1.01,
+    (1, "011"): 1.06, (1, "101"): 1.23, (1, "110"): 1.50, (1, "111"): 1.55,
+    (2, "000"): 0.17, (2, "001"): 0.35, (2, "010"): 0.41, (2, "100"): 0.48,
+    (2, "011"): 0.63, (2, "101"): 0.72, (2, "110"): 0.82, (2, "111"): 0.98,
+}
 
 # Result ranges: (result, diff_low, diff_high) - from the league result table
 RESULT_RANGES = [
@@ -82,6 +112,26 @@ _RESULT_ZONE_COLORS = {
     "LOTP":  "#180006",
 }
 
+# Bunt result -> swing equivalent for color lookup
+_BUNT_TO_SWING: dict[str, str] = {
+    "SacB":   "SacF",
+    "DSacB":  "DSacF",
+}
+
+def _result_color(result: str) -> str:
+    """Return the zone color for a result, mapping bunt variants to their swing equivalents."""
+    if result in _RESULT_ZONE_COLORS:
+        return _RESULT_ZONE_COLORS[result]
+    # Explicit bunt overrides (e.g. SacB -> SacF)
+    swing = _BUNT_TO_SWING.get(result)
+    if swing:
+        return _RESULT_ZONE_COLORS.get(swing, "#cccccc")
+    # Generic B-prefix stripping: B1B -> 1B, BFC -> FC, BGO -> GO, etc.
+    if result.startswith("B") and result[1:] in _RESULT_ZONE_COLORS:
+        return _RESULT_ZONE_COLORS[result[1:]]
+    return "#cccccc"
+
+
 ZONES = [
     (1,   111,  "1-111"),
     (112, 222,  "112-222"),
@@ -126,8 +176,8 @@ TEAM_ABBREV: dict[str, str] = {
 }
 
 BRC_TO_OBC: dict[int, str] = {
-    0: "Empty", 1: "1B", 2: "2B", 3: "1&2B",
-    4: "3B", 5: "1&3B", 6: "2&3B", 7: "BL",
+    0: "000", 1: "001", 2: "010", 3: "011",
+    4: "100", 5: "101", 6: "110", 7: "111",
 }
 
 
@@ -212,16 +262,110 @@ def get_res_category(result: str, diff: int) -> str:
     return "OUT"
 
 
-_OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "FC"}
-_DP_RESULTS  = {"DP", "DPH1"}
+_OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "FC", "LO",
+                "LCO", "DFO", "FC3rd"}
+_DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP"}
+_TP_RESULTS  = {"TP", "LOTP"}
 
 
 def outs_added(result: str) -> int:
+    if result in _TP_RESULTS:
+        return 3
     if result in _DP_RESULTS:
         return 2
     if result in _OUT_RESULTS:
         return 1
     return 0
+
+
+def get_expected_runs(outs: int, obc: str) -> float | None:
+    """Look up expected runs for a given game state."""
+    return RUN_EXPECTANCY.get((outs, obc))
+
+
+def steal_advance(obc: str, outs: int) -> tuple[str, int]:
+    """Return (new_obc, runs_scored) for a successful steal (lead runner advances one base)."""
+    on_3b = obc[0] == "1"
+    on_2b = obc[1] == "1"
+    on_1b = obc[2] == "1"
+
+    runs = 0
+    if on_3b and not on_2b and not on_1b:
+        runs, n3, n2, n1 = 1, False, False, False
+    elif on_3b and on_2b and not on_1b:
+        runs, n3, n2, n1 = 1, False, True,  False
+    elif on_3b and not on_2b and on_1b:
+        runs, n3, n2, n1 = 1, False, False, True
+    elif on_3b and on_2b and on_1b:
+        runs, n3, n2, n1 = 1, False, True,  True
+    elif on_2b and not on_1b:
+        n3, n2, n1 = True, False, False
+    elif on_2b and on_1b:
+        n3, n2, n1 = True, False, True
+    elif on_1b:
+        n3, n2, n1 = False, True, False
+    else:
+        n3, n2, n1 = on_3b, on_2b, on_1b
+
+    return f"{'1' if n3 else '0'}{'1' if n2 else '0'}{'1' if n1 else '0'}", runs
+
+
+def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
+    """Map a result to new OBC and runs scored.
+
+    Returns (new_obc, runs_scored)
+    """
+    # Parse current runners from binary OBC code (3B|2B|1B)
+    on_3b = obc[0] == "1"
+    on_2b = obc[1] == "1"
+    on_1b = obc[2] == "1"
+
+    runs = 0
+    new_1b = False
+    new_2b = False
+    new_3b = False
+
+    if result == "HR":
+        runs = (1 if on_1b else 0) + (1 if on_2b else 0) + (1 if on_3b else 0) + 1
+    elif result in ("3B",):
+        runs = 1 if on_3b else 0
+        new_3b = True
+    elif result in ("2B", "2BWH"):
+        runs = (1 if on_3b else 0) + (1 if on_2b else 0)
+        new_3b = on_1b
+        new_2b = True
+    elif result in ("1B", "1BWH", "IF1B"):
+        runs = 1 if on_3b else 0
+        new_3b = on_2b
+        new_2b = on_1b
+        new_1b = True
+    elif result == "BB":
+        # Force chain: runner on 1B forced to 2B; if 2B also occupied, 2B runner forced to 3B;
+        # if 3B also occupied AND 1B&2B both occupied, 3B runner scores.
+        new_1b = True
+        if on_1b:
+            new_2b = True
+            if on_2b:
+                new_3b = True
+                # 3B runner scores (runs tracked via run_lookup)
+            else:
+                new_3b = on_3b
+        else:
+            new_2b = on_2b
+            new_3b = on_3b
+    elif result == "SacF":
+        runs = 1 if on_3b else 0
+        new_3b = False
+        new_2b = on_2b
+        new_1b = on_1b
+    elif result in _TP_RESULTS:
+        pass  # triple play: all bases cleared, no new runners (new_1b/2b/3b stay False)
+    elif result in _OUT_RESULTS:
+        new_3b = on_3b
+        new_2b = on_2b
+        new_1b = on_1b
+
+    return f"{'1' if new_3b else '0'}{'1' if new_2b else '0'}{'1' if new_1b else '0'}", runs
 
 
 def validate_ab(new: dict, prev: dict | None) -> list[str]:
@@ -799,8 +943,12 @@ def get_sheet_name(sheet_url: str) -> str:
     return f"Sheet {sheet_id[:12]}…"
 
 
-def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]:
-    """Fetch and parse the result ranges table from a public Google Sheet."""
+def parse_result_ranges_from_sheet(sheet_url: str):
+    """Fetch and parse result range tables from a public Google Sheet.
+
+    Returns (normal_ranges, bunt_ranges, batter_name, pitcher_name).
+    bunt_ranges is None if no second Result table is found.
+    """
     import re
     sheet_id_match = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
     gid_match = re.search(r"[?&]gid=(\d+)", sheet_url)
@@ -812,35 +960,37 @@ def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]
 
     raw = pd.read_csv(csv_url, header=None, dtype=str)
 
-    # Locate the "Result" header cell
-    result_col = header_row = None
+    def _parse_table(start_row, col):
+        low_col, high_col = col + 2, col + 3
+        out: list[tuple[str, int, int]] = []
+        for i in range(start_row + 1, len(raw)):
+            name = str(raw.iloc[i, col]).strip()
+            if not name or name.lower() == "nan":
+                break
+            try:
+                lo = int(float(str(raw.iloc[i, low_col]).strip()))
+                hi = int(float(str(raw.iloc[i, high_col]).strip()))
+                out.append((name, lo, hi))
+            except (ValueError, IndexError):
+                break
+        return out or None
+
+    # Find all "Result" header cells
+    result_headers: list[tuple[int, int]] = []
     for i in range(len(raw)):
         for j in range(len(raw.columns)):
             if str(raw.iloc[i, j]).strip().lower() == "result":
-                result_col, header_row = j, i
-                break
-        if result_col is not None:
-            break
-    if result_col is None:
+                result_headers.append((i, j))
+
+    if not result_headers:
         raise ValueError("Could not find a 'Result' header in the sheet.")
 
-    low_col, high_col = result_col + 2, result_col + 3
-    ranges: list[tuple[str, int, int]] = []
-    for i in range(header_row + 1, len(raw)):
-        name = str(raw.iloc[i, result_col]).strip()
-        if not name or name.lower() == "nan":
-            break
-        try:
-            lo = int(float(str(raw.iloc[i, low_col]).strip()))
-            hi = int(float(str(raw.iloc[i, high_col]).strip()))
-            ranges.append((name, lo, hi))
-        except (ValueError, IndexError):
-            break
-    if not ranges:
+    normal_ranges = _parse_table(*result_headers[0])
+    if not normal_ranges:
         raise ValueError("Result table found but no rows could be parsed.")
 
-    # H12 = row index 11, col index 7 - current batter name
-    # H11 = row index 10, col index 7 - current pitcher name
+    bunt_ranges = _parse_table(*result_headers[1]) if len(result_headers) > 1 else None
+
     def _cell(r, c):
         try:
             v = str(raw.iloc[r, c]).strip()
@@ -848,10 +998,147 @@ def parse_result_ranges_from_sheet(sheet_url: str) -> list[tuple[str, int, int]]
         except Exception:
             return ""
 
-    batter_name = _cell(11, 7)
+    batter_name  = _cell(11, 7)
     pitcher_name = _cell(10, 7)
 
-    return ranges, batter_name, pitcher_name
+    return normal_ranges, bunt_ranges, batter_name, pitcher_name
+
+
+_OBC_CODE_TO_STRING = {
+    0: "000",
+    1: "001",
+    2: "010",
+    3: "100",
+    4: "011",
+    5: "101",
+    6: "110",
+    7: "111",
+}
+
+
+def parse_gameplay_from_sheet(sheet_url: str) -> dict:
+    """Fetch game state from two Gameplay sheet tabs.
+
+    Outs: gid 1498066521 (Gameday), L8 (row 7, col 11)
+    Runners: gid 533199361, S6/T6/U6 (row 5, cols 18/19/20) - non-zero = runner present
+
+    Returns dict with keys: outs (int|None), obc (str|None), steal_runners (list).
+    """
+    import re as _re
+    sheet_id_match = _re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
+    if not sheet_id_match:
+        return {"outs": None, "obc": None, "steal_runners": []}
+    sheet_id = sheet_id_match.group(1)
+    base_url = "https://docs.google.com/spreadsheets/d/" + sheet_id + "/export?format=csv&gid="
+
+    def _read_tab(gid):
+        try:
+            return pd.read_csv(base_url + gid, header=None, dtype=str)
+        except Exception:
+            return None
+
+    def _cell(raw, r, c):
+        try:
+            v = str(raw.iloc[r, c]).strip()
+            return v if v.lower() not in ("nan", "") else None
+        except IndexError:
+            return None
+
+    # --- Outs from runner tab (gid 533199361), X9 (row 8, col 23) ---
+    outs = None
+    raw_gameday = _read_tab("1498066521")  # kept for steal ranges
+
+    # --- Runners + outs from gid 533199361 ---
+    # Outs: X9 (row 8, col 23); Runners: S6/T6/U6 (row 5, cols 18/19/20)
+    on_1b = on_2b = on_3b = False
+    raw_runners = _read_tab("533199361")
+    if raw_runners is not None:
+        _outs_raw = _cell(raw_runners, 8, 23)
+        if _outs_raw:
+            _m = _re.search(r'\d+', _outs_raw)
+            if _m:
+                outs = int(_m.group())
+        s6 = _cell(raw_runners, 5, 18)  # S6 - runner on 1B
+        t6 = _cell(raw_runners, 5, 19)  # T6 - runner on 2B
+        u6 = _cell(raw_runners, 5, 20)  # U6 - runner on 3B
+        on_1b = s6 is not None and s6 != "0"
+        on_2b = t6 is not None and t6 != "0"
+        on_3b = u6 is not None and u6 != "0"
+
+    obc = f"{'1' if on_3b else '0'}{'1' if on_2b else '0'}{'1' if on_1b else '0'}"
+
+    # Steal runner stubs (base only - safe range lookup TBD)
+    runners = []
+    base_order = {"3B": 0, "2B": 1, "1B": 2}
+    for base, present in [("3B", on_3b), ("2B", on_2b), ("1B", on_1b)]:
+        if present:
+            runners.append({"base": base, "safe_range": _default_safe_rng_for(base, raw_runners)})
+    runners.sort(key=lambda r: base_order.get(r["base"], 9))
+
+    return {"outs": outs, "obc": obc, "steal_runners": runners}
+
+
+def _default_safe_rng_for(base: str, raw_runners) -> int:
+    """Read steal safe range from AB20:AB22 on runner tab (gid 533199361); default 50."""
+    if raw_runners is None:
+        return 50
+    base_to_row = {"1B": 19, "2B": 20, "3B": 21}
+    row_idx = base_to_row.get(base, 21)
+    try:
+        v = str(raw_runners.iloc[row_idx, 27]).strip()
+        if v.lower() not in ("nan", ""):
+            return int(float(v))
+    except (IndexError, ValueError):
+        pass
+    return 50
+
+
+def load_run_lookup_from_csv(csv_path: str = "import_BRC.csv") -> dict[tuple[str, str, int], tuple[float, str, int]]:
+    """Load runs, after-OBC, and eOuts from import_BRC.csv.
+
+    Returns dict mapping (result, before_obc, outs) -> (runs_scored, new_obc_code, eouts).
+    eOuts = outs added by the play (0=hit/walk, 1=single out, 2=double play).
+    Key includes outs because end-of-inning rows clear runners differently.
+    """
+    import os
+    if not os.path.exists(csv_path):
+        return {}
+
+    df = pd.read_csv(csv_path)
+    lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
+
+    if "Situation" not in df.columns or "Runs" not in df.columns:
+        return {}
+
+    cols = list(df.columns)
+
+    for _, row in df.iterrows():
+        situation = str(row["Situation"]).strip()
+        try:
+            runs   = float(row["Runs"])
+            eouts  = int(float(row["eOuts"])) if "eOuts" in cols else 0
+        except (ValueError, TypeError):
+            continue
+
+        parts = situation.split("_")
+        if len(parts) < 3:
+            continue
+        try:
+            outs      = int(parts[0])
+            obc_code  = int(parts[1])
+            result    = "_".join(parts[2:])
+            before_obc = _OBC_CODE_TO_STRING.get(obc_code, "000")
+        except (ValueError, KeyError):
+            continue
+
+        try:
+            new_obc = _OBC_CODE_TO_STRING[int(float(row["OBC"]))]
+        except (ValueError, TypeError, KeyError):
+            continue
+
+        lookup[(result, before_obc, outs)] = (runs, new_obc, eouts)
+
+    return lookup
 
 
 def project_from_deltas(recent_vals: list[int]) -> list[int]:
@@ -1065,7 +1352,7 @@ def swing_predictor_chart(
     # Draw colored rectangles for each zone
     seen: set[str] = set()
     for result, lo, hi in zones:
-        color = _RESULT_ZONE_COLORS.get(result, "#cccccc")
+        color = _result_color(result)
         if result not in seen:
             d_lo, d_hi, w = diff_info.get(result, (0, 0, 0))
             label = f"{result}: {d_lo}–{d_hi} ({w})"
@@ -1217,6 +1504,269 @@ def swing_predictor_chart(
         margin=dict(l=10, r=25, t=90, b=130),
         legend=dict(
             orientation="h", x=0.5, y=-0.55,
+            xanchor="center", yanchor="top",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=9, family="monospace"),
+        ),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def _normalize_ranges(raw: list) -> list[tuple[str, int, int]]:
+    """Convert list of dicts or 3-tuples into a uniform list of (result, lo, hi) tuples."""
+    out = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            out.append((entry["result"], entry["low"], entry["high"]))
+        else:
+            out.append(tuple(entry))
+    return out
+
+
+def manager_color_bar(proposed_value: int, result_ranges: list | None = None,
+                      label: str = "Swing", x_label: str = "Swing Values") -> go.Figure:
+    """Color-coded number line matching swing_predictor_chart style, without triangles or delta scale."""
+    ranges = _normalize_ranges(result_ranges) if result_ranges else RESULT_RANGES
+    pitch_result = [_diff_to_result(circular_diff(p, proposed_value), ranges) for p in range(1, 1001)]
+
+    zones: list[tuple[str, int, int]] = []
+    curr, lo = pitch_result[0], 1
+    for p, r in enumerate(pitch_result[1:], 2):
+        if r != curr:
+            zones.append((curr, lo, p - 1))
+            curr, lo = r, p
+    zones.append((curr, lo, 1000))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[0.5, 1000.5], y=[0.5, 0.5],
+        mode="markers", marker=dict(opacity=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    diff_info = {r: (lo, hi, hi - lo + 1) for r, lo, hi in ranges}
+
+    seen: set[str] = set()
+    for result, lo, hi in zones:
+        color = _result_color(result)
+        if result not in seen:
+            d_lo, d_hi, w = diff_info.get(result, (0, 0, 0))
+            _legend_lbl = f"{result}: {d_lo}-{d_hi} ({w})"
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode="markers",
+                marker=dict(color=color, size=10, symbol="square"),
+                name=_legend_lbl, showlegend=True,
+            ))
+            seen.add(result)
+        fig.add_shape(
+            type="rect", x0=lo - 0.5, x1=hi + 0.5, y0=0, y1=1,
+            fillcolor=color, line=dict(width=0), layer="below",
+        )
+        if hi - lo >= len(result) * 12:
+            fig.add_annotation(
+                x=(lo + hi) / 2, y=0.5, text=result,
+                showarrow=False, font=dict(size=9, color="white"),
+                xanchor="center", yanchor="middle",
+            )
+
+    obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
+    if obr_max > 0:
+        b_lo = ((proposed_value - obr_max - 1) % 1000) + 1
+        b_hi = ((proposed_value + obr_max - 1) % 1000) + 1
+        for boundary, default_ax in [(b_lo, -40), (b_hi, 40)]:
+            ax = 40 if boundary < 120 else (-40 if boundary > 880 else default_ax)
+            fig.add_vline(x=boundary, line_dash="dot", line_color="#1a7d35", line_width=1.5)
+            fig.add_annotation(
+                x=boundary, y=0.82, ax=ax, ay=0, text=str(boundary),
+                showarrow=True, arrowhead=2, arrowsize=0.9, arrowwidth=2,
+                arrowcolor="#1a7d35",
+                font=dict(color="#1a7d35", size=10, weight="bold"),
+                bgcolor="rgba(255,255,255,0.8)", borderpad=2,
+            )
+
+    for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,255,255,0.88)")]:
+        fig.add_shape(type="line", xref="x", yref="paper",
+                      x0=proposed_value, x1=proposed_value, y0=0, y1=1,
+                      line=dict(color=_lc, width=_lw, dash="dash"))
+    fig.add_annotation(
+        x=proposed_value, y=0.82, text=f"{label} {proposed_value}",
+        showarrow=False, xanchor="center", yanchor="middle",
+        font=dict(color="#1a7d35", size=10, weight="bold"),
+        bgcolor="rgba(255,255,255,0.9)", borderpad=2,
+    )
+
+    fig.update_layout(
+        xaxis=dict(
+            range=[0.5, 1000.5],
+            tickmode="array",
+            tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            tickfont=dict(size=11),
+            title=dict(text=f"<b>{x_label}</b>", font=dict(size=11), standoff=8),
+        ),
+        yaxis=dict(visible=False, range=[-0.1, 1.1]),
+        height=260,
+        margin=dict(l=10, r=25, t=10, b=130),
+        legend=dict(
+            orientation="h", x=0.5, y=-0.65,
+            xanchor="center", yanchor="top",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=9, family="monospace"),
+        ),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def bases_diamond_fig(obc: str, outs: int) -> go.Figure:
+    """Broadcast-style base diamond with occupied bases highlighted in gold."""
+    on_3b = obc[0] == "1"
+    on_2b = obc[1] == "1"
+    on_1b = obc[2] == "1"
+
+    gold        = "#FFD700"
+    gold_border = "#FFA500"
+    empty       = "#2d2d2d"
+    empty_border = "#666666"
+
+    fig = go.Figure()
+
+    # Basepath outline
+    fig.add_trace(go.Scatter(
+        x=[0.5, 1.0, 0.5, 0.0, 0.5],
+        y=[0.0, 0.5, 1.0, 0.5, 0.0],
+        mode="lines",
+        line=dict(color="#555555", width=1.5),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    # Base markers: home=bottom, 1B=right, 2B=top, 3B=left
+    for x, y, occupied, label in [
+        (0.5, 1.0, on_2b, "2B"),
+        (1.0, 0.5, on_1b, "1B"),
+        (0.0, 0.5, on_3b, "3B"),
+        (0.5, 0.0, False, "H"),
+    ]:
+        fig.add_trace(go.Scatter(
+            x=[x], y=[y],
+            mode="markers",
+            marker=dict(
+                symbol="square",
+                size=16,
+                color=gold if occupied else empty,
+                line=dict(color=gold_border if occupied else empty_border, width=2),
+                angle=45,
+            ),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    # Outs dots below home plate
+    for i in range(3):
+        filled = i < outs
+        fig.add_trace(go.Scatter(
+            x=[0.35 + i * 0.15], y=[-0.28],
+            mode="markers",
+            marker=dict(
+                symbol="circle",
+                size=8,
+                color="#FFD700" if filled else "#2d2d2d",
+                line=dict(color="#888888", width=1.5),
+            ),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    fig.update_layout(
+        xaxis=dict(visible=False, range=[-0.25, 1.25]),
+        yaxis=dict(visible=False, range=[-0.45, 1.25]),
+        width=130, height=130,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        dragmode=False,
+        showlegend=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def steal_color_bar(proposed_value: int, safe_range: int,
+                    label: str = "Steal", x_label: str = "Steal Values") -> go.Figure:
+    """Color bar for a steal attempt: Safe zone vs Out zone."""
+    safe_color = "#2ca02c"
+    out_color  = "#b10026"
+
+    pitch_result = [
+        "Safe" if circular_diff(p, proposed_value) <= safe_range else "Out"
+        for p in range(1, 1001)
+    ]
+
+    zones: list[tuple[str, int, int]] = []
+    curr, lo = pitch_result[0], 1
+    for p, r in enumerate(pitch_result[1:], 2):
+        if r != curr:
+            zones.append((curr, lo, p - 1))
+            curr, lo = r, p
+    zones.append((curr, lo, 1000))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[0.5, 1000.5], y=[0.5, 0.5],
+        mode="markers", marker=dict(opacity=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    seen: set[str] = set()
+    for result, lo, hi in zones:
+        color = safe_color if result == "Safe" else out_color
+        if result not in seen:
+            prob = round(safe_range * 2 / 1000 * 100, 1)
+            _legend_lbl = f"Safe: diff <= {safe_range} ({prob}%)" if result == "Safe" else f"Out: diff > {safe_range}"
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode="markers",
+                marker=dict(color=color, size=10, symbol="square"),
+                name=_legend_lbl, showlegend=True,
+            ))
+            seen.add(result)
+        fig.add_shape(
+            type="rect", x0=lo - 0.5, x1=hi + 0.5, y0=0, y1=1,
+            fillcolor=color, line=dict(width=0), layer="below",
+        )
+        if hi - lo >= len(result) * 12:
+            fig.add_annotation(
+                x=(lo + hi) / 2, y=0.5, text=result,
+                showarrow=False, font=dict(size=9, color="white"),
+                xanchor="center", yanchor="middle",
+            )
+
+    for _lw, _lc in [(3, "rgba(0,0,0,0.28)"), (1.5, "rgba(255,255,255,0.88)")]:
+        fig.add_shape(type="line", xref="x", yref="paper",
+                      x0=proposed_value, x1=proposed_value, y0=0, y1=1,
+                      line=dict(color=_lc, width=_lw, dash="dash"))
+    fig.add_annotation(
+        x=proposed_value, y=0.82, text=f"{label} {proposed_value}",
+        showarrow=False, xanchor="center", yanchor="middle",
+        font=dict(color="#1a7d35", size=10, weight="bold"),
+        bgcolor="rgba(255,255,255,0.9)", borderpad=2,
+    )
+
+    fig.update_layout(
+        xaxis=dict(
+            range=[0.5, 1000.5],
+            tickmode="array",
+            tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            tickfont=dict(size=11),
+            title=dict(text=f"<b>{x_label}</b>", font=dict(size=11), standoff=8),
+        ),
+        yaxis=dict(visible=False, range=[-0.1, 1.1]),
+        height=260,
+        margin=dict(l=10, r=25, t=10, b=80),
+        legend=dict(
+            orientation="h", x=0.5, y=-0.45,
             xanchor="center", yanchor="top",
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=9, family="monospace"),

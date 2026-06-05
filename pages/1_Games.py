@@ -630,6 +630,7 @@ for _league in sorted(_by_league.keys()):
                             )
                             df["Inn"] = df.apply(
                                 lambda r: utils.inning_label(r["inning"], r["half"]), axis=1)
+                            df["obc"] = df["obc"].map(utils.obc_display)
                             st.dataframe(
                                 df[["Inn", "outs", "obc", "pitcher_name", "batter_name",
                                     "pitch", "swing", "diff", "result"]].rename(columns={
