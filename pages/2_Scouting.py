@@ -1353,9 +1353,8 @@ with tab_m:
         _gs_col, _tbl_col = st.columns([1, 2])
         with _gs_col:
             st.caption(f"Baseline ER: {_current_er:.2f}")
-            st.plotly_chart(utils.bases_diamond_fig(_current_obc, _current_outs),
-                            use_container_width=False, key="mgr_diamond",
-                            config={"displayModeBar": False, "responsive": False})
+            st.markdown(utils.bases_diamond_svg(_current_obc, _current_outs),
+                        unsafe_allow_html=True)
         with _tbl_col:
             _decisions = ["Normal Swing", "Bunt"]
             _exp_runs  = [f"{ev_swing:.2f}", f"{ev_bunt:.2f}"]

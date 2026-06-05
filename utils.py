@@ -1694,6 +1694,41 @@ def bases_diamond_fig(obc: str, outs: int) -> go.Figure:
     return fig
 
 
+def bases_diamond_svg(obc: str, outs: int) -> str:
+    """Fixed-size SVG base diamond - immune to Plotly/Streamlit resize events."""
+    on_3b = obc[0] == "1"
+    on_2b = obc[1] == "1"
+    on_1b = obc[2] == "1"
+
+    gold, g_bdr  = "#FFD700", "#FFA500"
+    empty, e_bdr = "#2d2d2d", "#666666"
+
+    # Base positions (115×130 canvas):  2B=top, 1B=right, 3B=left, home=bottom
+    home   = (57, 96)
+    first  = (96, 57)
+    second = (57, 19)
+    third  = (19, 57)
+
+    def base(cx, cy, filled):
+        r = 9
+        pts = f"{cx},{cy-r} {cx+r},{cy} {cx},{cy+r} {cx-r},{cy}"
+        c, b = (gold, g_bdr) if filled else (empty, e_bdr)
+        return f'<polygon points="{pts}" fill="{c}" stroke="{b}" stroke-width="2.5"/>'
+
+    def ln(p1, p2):
+        return (f'<line x1="{p1[0]}" y1="{p1[1]}" '
+                f'x2="{p2[0]}" y2="{p2[1]}" stroke="#555" stroke-width="1.5"/>')
+
+    path  = ln(home, first) + ln(first, second) + ln(second, third) + ln(third, home)
+    bases = base(*home, False) + base(*first, on_1b) + base(*second, on_2b) + base(*third, on_3b)
+    dots  = "".join(
+        f'<circle cx="{46 + i*11}" cy="117" r="5" '
+        f'fill="{"#FFD700" if i < outs else "#2d2d2d"}" stroke="#888" stroke-width="1.5"/>'
+        for i in range(3)
+    )
+    return f'<svg width="115" height="130" xmlns="http://www.w3.org/2000/svg">{path}{bases}{dots}</svg>'
+
+
 def steal_color_bar(proposed_value: int, safe_range: int,
                     label: str = "Steal", x_label: str = "Steal Values") -> go.Figure:
     """Color bar for a steal attempt: Safe zone vs Out zone."""
