@@ -222,3 +222,20 @@ def get_players(team: str | None = None, pos: str | None = None) -> list[str]:
 def bulk_upsert_players(players: list[dict]) -> int:
     """Upsert a list of player dicts keyed on player_id. Returns rows processed."""
     return _bulk_upsert("players", players, "player_id")
+
+
+# ------------------------------------------------------------------ pitcher stats
+
+@st.cache_data(ttl=3600)
+def get_pitcher_stats() -> list[dict]:
+    """Load pre-computed pitcher behavioral stats."""
+    return _fetch_all(
+        _client().table("pitcher_stats")
+        .select("*")
+        .order("pitcher_name")
+    )
+
+
+def upsert_pitcher_stats(rows: list[dict]) -> int:
+    """Upsert pitcher stats keyed on pitcher_name. Returns rows processed."""
+    return _bulk_upsert("pitcher_stats", rows, "pitcher_name")

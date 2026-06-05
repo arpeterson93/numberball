@@ -1,0 +1,22 @@
+﻿Season,Game,Inn,Outs,Runners,Pitcher,Batter,Pitch,Swing,Diff,Result,Category
+13,1265,3,0,Empty,Alexander Duquense,Bud Weiser,223,454,231,FO,OUT
+13,1265,3,1,Empty,Alexander Duquense,C.S. Verdad,823,726,97,1B,BB/1B
+13,1265,3,1,1B,Alexander Duquense,Scott Huston,13,643,370,K,300+
+13,1265,3,2,1B,Alexander Duquense,Dalan Howard,277,236,41,2B,XBH
+13,1265,3,2,2&3B,Alexander Duquense,Xavier Lopez,103,567,464,K,300+
+13,1265,4,0,Empty,Alexander Duquense,Mac Dinger,211,650,439,K,300+
+13,1265,4,1,Empty,Alexander Duquense,Carter Kendall,67,327,260,PO,OUT
+13,1265,4,2,Empty,Alexander Duquense,York Dundee,13,767,246,FO,OUT
+13,1266,1,0,Empty,Alexander Duquense,Gumwad Birdie,757,250,493,K,300+
+13,1266,1,1,Empty,Alexander Duquense,Socks Maybe,113,138,25,2B,XBH
+13,1266,1,1,2B,Alexander Duquense,Orb,47,651,396,K,300+
+13,1266,1,2,2B,Alexander Duquense,Obi Sloth,857,561,296,GO,OUT
+13,1266,2,0,Empty,Alexander Duquense,Cola Spritz,967,277,310,GO,300+
+13,1266,2,1,Empty,Alexander Duquense,Lazarus King,67,127,60,1B,BB/1B
+13,1266,2,1,1B,Alexander Duquense,Addison Clark,409,67,342,K,300+
+13,1266,2,2,1B,Alexander Duquense,Ron Forman,911,325,414,GO,300+
+13,1266,3,0,Empty,Alexander Duquense,Benny Schwa,5,432,427,K,300+
+13,1266,3,1,Empty,Alexander Duquense,Gumwad Birdie,677,678,1,3B,XBH
+13,1266,3,1,3B,Alexander Duquense,Socks Maybe,797,23,226,GORA,OUT
+13,1266,3,2,Empty,Alexander Duquense,Orb,13,8,5,HR,XBH
+13,1266,3,2,Empty,Alexander Duquense,Obi Sloth,313,680,367,GO,300+

@@ -169,6 +169,29 @@ def _circ_delta_group(group: pd.Series) -> pd.Series:
     return pd.Series(deltas, index=group.index)
 
 
+def _approach_group(g: pd.DataFrame) -> pd.Series:
+    """1 if pitcher moved closer to prev batter's swing, 0 if further, NaN for first pitch."""
+    pitches = g["pitch"].astype(int).tolist()
+    swings = g["swing"].astype(int).tolist()
+    results = [float("nan")]
+    for i in range(1, len(g)):
+        prev_dist = abs(circular_signed_delta(pitches[i - 1], swings[i - 1]))
+        curr_dist = abs(circular_signed_delta(pitches[i], swings[i - 1]))
+        results.append(1.0 if curr_dist < prev_dist else 0.0)
+    return pd.Series(results, index=g.index)
+
+
+def _wraparound_group(group: pd.Series) -> pd.Series:
+    """1 if pitch crosses the 1000/1 border (850+ ↔ 150-), 0 otherwise, NaN for first."""
+    vals = group.astype(int).tolist()
+    results = [float("nan")]
+    for i in range(1, len(vals)):
+        prev, curr = vals[i - 1], vals[i]
+        wrapped = (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850)
+        results.append(1.0 if wrapped else 0.0)
+    return pd.Series(results, index=group.index)
+
+
 _XBH  = {"HR", "3B", "2BWH", "2B"}
 _BB1B = {"1BWH2", "1BWH", "1B", "IF1B", "BB"}
 _OBR  = _XBH | _BB1B
@@ -299,6 +322,9 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_delta"] = pd.NA
     df["pitch_circ_delta"] = pd.NA
     df["swing_circ_delta"] = pd.NA
+    df["pitch_circ_delta2"] = pd.NA
+    df["pitch_approach"] = pd.NA
+    df["pitch_wraparound"] = pd.NA
     if sw.any():
         sw_df = df[sw]
         df.loc[sw, "pitch_delta"] = sw_df.groupby(["game_id", "pitcher_name"])["pitch"].diff()
@@ -308,6 +334,17 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[sw, "swing_circ_delta"] = sw_df.groupby(
             ["game_id", "batter_name"], group_keys=False
         )["swing"].apply(_circ_delta_group)
+        df.loc[sw, "pitch_wraparound"] = sw_df.groupby(
+            ["game_id", "pitcher_name"], group_keys=False
+        )["pitch"].apply(_wraparound_group)
+        # Second derivative and approach - re-read df to pick up pitch_circ_delta
+        sw_df2 = df[sw]
+        df.loc[sw, "pitch_circ_delta2"] = sw_df2.groupby(
+            ["game_id", "pitcher_name"], group_keys=False
+        )["pitch_circ_delta"].apply(lambda g: g.abs().diff().abs())
+        df.loc[sw, "pitch_approach"] = sw_df2.groupby(
+            ["game_id", "pitcher_name"], group_keys=False
+        )[["pitch", "swing"]].apply(_approach_group)
 
     return df
 
@@ -2033,6 +2070,278 @@ def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figu
         xaxis_title="% of ABs",
         height=max(200, len(labels) * 30 + 80),
         margin=dict(l=80, r=80, t=45, b=30),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+# ── pitcher stats ─────────────────────────────────────────────────────────────
+
+def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
+    """Compute per-pitcher behavioral stats from an enriched plays DataFrame."""
+    import datetime
+    sw = df[df["swing"].notna()]
+    rows = []
+    for pitcher, grp in sw.groupby("pitcher_name"):
+        deltas   = grp["pitch_circ_delta"].dropna()
+        delta2s  = grp["pitch_circ_delta2"].dropna()
+        approach = grp["pitch_approach"].dropna()
+        # Wraparound %: of pitches where the previous pitch was in the boundary zone
+        # (>=850 or <=150), how often did they actually cross to the other side?
+        _wrap_eligible = 0
+        _wrap_crossed  = 0
+        for _, game_grp in grp.groupby("game_id"):
+            pitches = game_grp.sort_values("id")["pitch"].astype(int).tolist()
+            for i in range(1, len(pitches)):
+                prev, curr = pitches[i - 1], pitches[i]
+                if prev >= 850 or prev <= 150:
+                    _wrap_eligible += 1
+                    if (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850):
+                        _wrap_crossed += 1
+        wraparound_pct = round(_wrap_crossed / _wrap_eligible * 100, 2) if _wrap_eligible else None
+        rows.append({
+            "pitcher_name":   pitcher,
+            "ab_count":       len(grp),
+            "avg_abs_delta":  round(float(deltas.abs().mean()), 3) if not deltas.empty else None,
+            "avg_delta2":     round(float(delta2s.mean()), 3)      if not delta2s.empty else None,
+            "shadow_pct":     round(float(approach.mean() * 100), 2) if not approach.empty else None,
+            "meme_rate":      round(float(grp["is_meme_pitch"].mean() * 100), 2),
+            "wraparound_pct": wraparound_pct,
+            "updated_at":     datetime.datetime.utcnow().isoformat(),
+        })
+    return rows
+
+
+def compute_recent_pitcher_stats(df: pd.DataFrame) -> dict:
+    """Compute behavioral stats for a single pitcher from a pre-filtered DataFrame."""
+    sw = df[df["swing"].notna()]
+    if sw.empty:
+        return {}
+    deltas   = sw["pitch_circ_delta"].dropna()
+    delta2s  = sw["pitch_circ_delta2"].dropna()
+    approach = sw["pitch_approach"].dropna()
+    _we, _wc = 0, 0
+    for _, g in sw.groupby("game_id"):
+        pitches = g.sort_values("id")["pitch"].astype(int).tolist()
+        for i in range(1, len(pitches)):
+            prev, curr = pitches[i - 1], pitches[i]
+            if prev >= 850 or prev <= 150:
+                _we += 1
+                if (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850):
+                    _wc += 1
+    return {
+        "avg_abs_delta":  float(deltas.abs().mean())   if not deltas.empty  else None,
+        "avg_delta2":     float(delta2s.mean())        if not delta2s.empty else None,
+        "shadow_pct":     float(approach.mean() * 100) if not approach.empty else None,
+        "meme_rate":      float(sw["is_meme_pitch"].mean() * 100),
+        "wraparound_pct": (_wc / _we * 100)            if _we else None,
+    }
+
+
+_PERCENTILE_STATS = [
+    ("Avg |Δ|",      "avg_abs_delta",  lambda v: f"{v:.1f}"),
+    ("Avg |Δ²|",     "avg_delta2",     lambda v: f"{v:.1f}"),
+    ("Shadow %",     "shadow_pct",     lambda v: f"{v:.1f}%"),
+    ("Wraparound %", "wraparound_pct", lambda v: f"{v:.1f}%"),
+    ("Meme Rate",    "meme_rate",      lambda v: f"{v:.1f}%"),
+]
+
+
+def pitcher_percentile_card(
+    pitcher_name: str,
+    stats_df: pd.DataFrame,
+    recent_vals: dict | None = None,
+    recent_n: int | None = None,
+) -> go.Figure | None:
+    """
+    Compact pill-bar percentile chart.
+    Bar = career percentile in the qualified pool (≥100 AB).
+    Gold needle = where recent stats (recent_vals) fall in that same pool.
+    """
+    import math
+
+    if stats_df.empty or pitcher_name not in stats_df["pitcher_name"].values:
+        return None
+
+    row = stats_df[stats_df["pitcher_name"] == pitcher_name].iloc[0]
+
+    # Only qualified pitchers form the reference pool for percentile ranks
+    _MIN_AB = 100
+    qual = stats_df[stats_df["ab_count"] >= _MIN_AB] if "ab_count" in stats_df.columns else stats_df
+
+    def _percentile(val, qual_vals):
+        """Return (pct, label) for val within qual_vals."""
+        if len(qual_vals) < 2:
+            return 50.0, "50"
+        if val < qual_vals.min():
+            return 0.0, "0-"
+        if val > qual_vals.max():
+            return 100.0, "100+"
+        rank = float((qual_vals < val).sum()) + float((qual_vals == val).sum()) * 0.5
+        p = rank / len(qual_vals) * 100
+        return p, f"{p:.0f}"
+
+    stat_labels, pcts, raw_vals, bubble_labels = [], [], [], []
+    recent_pcts, recent_raw_vals = [], []
+    for label, col, fmt in _PERCENTILE_STATS:
+        stat_labels.append(label)
+        val = row.get(col) if col in stats_df.columns else None
+        qual_vals = qual[col].dropna() if col in qual.columns else pd.Series(dtype=float)
+
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            pcts.append(None)
+            raw_vals.append("-")
+            bubble_labels.append(None)
+        else:
+            pct, blbl = _percentile(val, qual_vals)
+            pcts.append(pct)
+            raw_vals.append(fmt(val))
+            bubble_labels.append(blbl)
+
+        # Recent value for same stat
+        rval = (recent_vals or {}).get(col)
+        if rval is not None and not (isinstance(rval, float) and pd.isna(rval)):
+            rpct, _ = _percentile(rval, qual_vals)
+            recent_pcts.append(rpct)
+            recent_raw_vals.append(fmt(rval))
+        else:
+            recent_pcts.append(None)
+            recent_raw_vals.append(None)
+
+    # Reverse: index 0 = bottom so first stat appears at the top
+    stat_labels    = list(reversed(stat_labels))
+    pcts           = list(reversed(pcts))
+    raw_vals       = list(reversed(raw_vals))
+    bubble_labels  = list(reversed(bubble_labels))
+    recent_pcts    = list(reversed(recent_pcts))
+    recent_raw_vals = list(reversed(recent_raw_vals))
+    n              = len(stat_labels)
+
+    def _color(p: float, alpha: float = 1.0) -> str:
+        """0–50%: medium blue → light blue; 50–100%: light red → medium red."""
+        t = max(0.0, min(1.0, p / 100))
+        if t <= 0.5:
+            t2 = t * 2
+            r = int(30  + t2 * (187 - 30))
+            g = int(136 + t2 * (222 - 136))
+            b = int(229 + t2 * (251 - 229))
+        else:
+            t2 = (t - 0.5) * 2
+            r = int(255 + t2 * (211 - 255))
+            g = int(205 + t2 * (47  - 205))
+            b = int(210 + t2 * (47  - 210))
+        return f"rgba({r},{g},{b},{alpha})"
+
+    _RX = 3.0  # pill corner radius in x data coords (shared by _pill and bubble placement)
+
+    def _pill(x1: float, x2: float, yc: float, ry: float = 0.30, rx: float = _RX, pts: int = 20):
+        """Closed polygon path for a pill (stadium) shape in data coordinates."""
+        _rx = min(rx, max((x2 - x1) / 2, 0.01))
+        right = [math.pi / 2 - k * math.pi / (pts - 1) for k in range(pts)]
+        left  = [-math.pi / 2 - k * math.pi / (pts - 1) for k in range(pts)]
+        xr = [(x2 - _rx) + _rx * math.cos(t) for t in right]
+        yr = [yc + ry * math.sin(t) for t in right]
+        xl = [(x1 + _rx) + _rx * math.cos(t) for t in left]
+        yl = [yc + ry * math.sin(t) for t in left]
+        return xr + xl + [xr[0]], yr + yl + [yr[0]]
+
+    # Two-bar layout: career on top half, recent on bottom half of each row.
+    # Stacking by y-offset eliminates all bubble collision regardless of percentile proximity.
+    has_recent = any(p is not None for p in recent_pcts)
+    _YO  = 0.28   # y offset from row centre for each bar's centre
+    _RY  = 0.16   # half-height of each bar (two bars fit in one row with a gap)
+    _BR  = 2.0    # bubble radius in x data coords
+    _STAT_SPACING = 1.5  # vertical spacing between stat rows (increase to spread stats further apart)
+
+    fig = go.Figure()
+
+    for i in range(n):
+        p,   rv,  lbl,  blbl  = pcts[i], raw_vals[i], stat_labels[i], bubble_labels[i]
+        rpct, rrv              = recent_pcts[i], recent_raw_vals[i]
+
+        yc = (i * _STAT_SPACING) + _YO  # career bar centre
+        yrc = (i * _STAT_SPACING) - _YO  # recent bar centre
+
+        # ── career row ────────────────────────────────────────────────────────
+        # Background track
+        xb, yb = _pill(0, 100, yc, ry=_RY)
+        fig.add_trace(go.Scatter(x=xb, y=yb, fill="toself",
+                                 fillcolor="rgba(128,128,128,0.18)",
+                                 line=dict(width=0), mode="lines",
+                                 showlegend=False, hoverinfo="skip"))
+        if p is not None:
+            c = _color(max(p, 1.0))
+            bx = max(p - _BR, _BR)
+            if p > 0.5:
+                xf, yf = _pill(0, p, yc, ry=_RY)
+                fig.add_trace(go.Scatter(x=xf, y=yf, fill="toself",
+                                         fillcolor=c, line=dict(width=0), mode="lines",
+                                         showlegend=False,
+                                         hovertemplate=f"{lbl} Career: {rv}<br>Pct: {blbl}<extra></extra>"))
+            fig.add_trace(go.Scatter(
+                x=[bx], y=[yc], mode="markers+text",
+                marker=dict(symbol="circle", size=20, color=c,
+                            line=dict(width=1.5, color="rgba(255,255,255,0.8)")),
+                text=[blbl], textposition="middle center",
+                textfont=dict(color="white", size=8),
+                cliponaxis=False, showlegend=False, hoverinfo="skip"))
+        # Value annotation pinned to right margin via paper coords - no data range needed
+        fig.add_annotation(xref="paper", x=1.02, yref="y", y=yc,
+                           text=f"<b>{rv}</b>",
+                           showarrow=False, xanchor="left", font=dict(size=14))
+
+        # ── recent row ────────────────────────────────────────────────────────
+        if has_recent:
+            xb2, yb2 = _pill(0, 100, yrc, ry=_RY)
+            fig.add_trace(go.Scatter(x=xb2, y=yb2, fill="toself",
+                                     fillcolor="rgba(128,128,128,0.12)",
+                                     line=dict(width=0), mode="lines",
+                                     showlegend=False, hoverinfo="skip"))
+            if rpct is not None:
+                rc = _color(max(rpct, 1.0), alpha=1.0)
+                rbx = max(rpct - _BR, _BR)
+                if rpct > 0.5:
+                    xrf, yrf = _pill(0, rpct, yrc, ry=_RY)
+                    fig.add_trace(go.Scatter(x=xrf, y=yrf, fill="toself",
+                                             fillcolor=rc, line=dict(width=0), mode="lines",
+                                             showlegend=False,
+                                             hovertemplate=f"{lbl} Recent: {rrv}<br>Pct: {rpct:.0f}<extra></extra>"))
+                rblbl = "0-" if rpct == 0.0 else ("100+" if rpct == 100.0 else f"{rpct:.0f}")
+                fig.add_trace(go.Scatter(
+                    x=[rbx], y=[yrc], mode="markers+text",
+                    marker=dict(symbol="circle", size=20, color=rc,
+                                line=dict(width=1.5, color="rgba(255,255,255,0.7)")),
+                    text=[rblbl], textposition="middle center",
+                    textfont=dict(color="white", size=8),
+                    cliponaxis=False, showlegend=False, hoverinfo="skip"))
+                fig.add_annotation(xref="paper", x=1.02, yref="y", y=yrc,
+                                   text=f"<i>{rrv}</i>",
+                                   showarrow=False, xanchor="left", font=dict(size=14))
+
+    subtitle = (
+        f"<br><sup>Top = Career  |  Bottom = Recent ({recent_n} PA)</sup>"
+        if has_recent else ""
+    )
+    fig.update_layout(
+        title=dict(
+            text=f"<b>{pitcher_name}</b> - Behavioral Tendencies{subtitle}",
+            x=0.5, xanchor="center", font=dict(size=13),
+        ),
+        yaxis=dict(
+            tickvals=[i * _STAT_SPACING for i in range(n)], ticktext=stat_labels,
+            showgrid=False, zeroline=False, showline=False,
+            tickfont=dict(size=14), range=[-0.6, n * _STAT_SPACING - 0.4],
+        ),
+        xaxis=dict(
+            range=[0, 107], showgrid=False, showticklabels=False,
+            showline=False, zeroline=False,
+        ),
+        height=int((44 if has_recent else 30) * n * _STAT_SPACING + 58),
+        margin=dict(l=85, r=65, t=44, b=8),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

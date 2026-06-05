@@ -1,0 +1,119 @@
+﻿Season,Game,Inn,Outs,Runners,Pitcher,Batter,Pitch,Swing,Diff,Result,Category
+9,935,1,0,Empty,Tucker Doubt,Nate Lewis,821,444,377,GO,300+
+9,935,1,1,Empty,Tucker Doubt,Cure Moon,321,333,12,HR,XBH
+9,935,1,1,Empty,Tucker Doubt,Juju's Snorlax,167,555,388,K,300+
+9,935,1,2,Empty,Tucker Doubt,Raffy Benitez,18,665,353,GO,300+
+9,935,2,0,Empty,Tucker Doubt,Rocco Rudnikov,504,211,293,GO,OUT
+9,935,2,1,Empty,Tucker Doubt,Junebug Wray,655,584,71,2B,XBH
+9,935,2,1,2B,Tucker Doubt,Robert Atech,871,223,352,GO,300+
+9,935,2,2,2B,Tucker Doubt,Harvey Burton,930,599,331,GO,300+
+9,935,3,0,Empty,Tucker Doubt,Derek Bongiovanni,0,0,0,bAuto,OUT
+9,935,3,0,Empty,Tucker Doubt,Nate Lewis,863,767,96,1B,BB/1B
+9,935,3,0,1B,Tucker Doubt,Cure Moon,156,203,47,2B,XBH
+9,935,3,0,2&3B,Tucker Doubt,Juju's Snorlax,944,666,278,GO,OUT
+9,935,3,1,2&3B,Tucker Doubt,Raffy Benitez,1000,279,279,GO,OUT
+9,935,4,0,Empty,Tucker Doubt,Rocco Rudnikov,449,118,331,GO,300+
+9,935,4,1,Empty,Tucker Doubt,Junebug Wray,811,562,249,GO,OUT
+9,935,4,2,Empty,Tucker Doubt,Robert Atech,702,223,479,K,300+
+9,935,5,0,Empty,Tucker Doubt,Harvey Burton,198,416,218,FO,OUT
+9,935,5,1,Empty,Tucker Doubt,Derek Bongiovanni,619,729,110,1B,BB/1B
+9,935,5,1,1B,Tucker Doubt,Nate Lewis,631,204,427,K,300+
+9,935,5,2,1B,Tucker Doubt,Cure Moon,4,444,440,K,300+
+9,935,6,0,Empty,Tucker Doubt,Juju's Snorlax,623,444,179,FO,OUT
+9,935,6,1,Empty,Tucker Doubt,Raffy Benitez,853,998,145,1B,BB/1B
+9,935,6,1,1B,Tucker Doubt,Rocco Rudnikov,161,789,372,K,300+
+9,935,6,2,1B,Tucker Doubt,Junebug Wray,411,191,220,GO,OUT
+9,951,6,0,Empty,Tucker Doubt,Calvin Ball,445,711,266,GO,OUT
+9,951,6,1,Empty,Tucker Doubt,Jack Alpha,634,834,200,FO,OUT
+9,951,6,2,Empty,Tucker Doubt,Superbone Threefinger,680,279,401,K,300+
+9,975,5,2,Empty,Tucker Doubt,Mylo Grams,607,591,16,HR,XBH
+9,975,5,2,Empty,Tucker Doubt,Garrett Evans,460,127,333,GO,300+
+9,975,6,0,Empty,Tucker Doubt,Skillz Simanek,89,437,348,GO,300+
+9,975,6,1,Empty,Tucker Doubt,Dixon Uraz,886,707,179,FO,OUT
+9,975,6,2,Empty,Tucker Doubt,Haraldo MacKenzie,890,136,246,GO,OUT
+9,975,7,0,Empty,Tucker Doubt,Zed Leona,274,158,116,1B,BB/1B
+9,975,7,0,Empty,Tucker Doubt,Rub A. Chikin,338,69,269,GO,OUT
+9,975,7,1,Empty,Tucker Doubt,Catfish Champ,903,415,488,K,300+
+9,975,8,0,Empty,Tucker Doubt,Steve Hofbardozzi Jr. Jr. Jr.,554,502,52,1B,BB/1B
+9,975,8,0,2B,Tucker Doubt,Mylo Grams,0,0,0,IBB,OUT
+9,975,8,0,1&2B,Tucker Doubt,Garrett Evans,389,158,231,FO,OUT
+9,975,8,1,1&2B,Tucker Doubt,Skillz Simanek,559,765,206,FO,OUT
+9,975,8,2,1&2B,Tucker Doubt,Dixon Uraz,169,842,327,GO,300+
+9,975,9,0,Empty,Tucker Doubt,Haraldo MacKenzie,28,723,305,GO,300+
+9,975,9,1,Empty,Tucker Doubt,Alexandra Shepard,440,887,447,K,300+
+9,975,9,2,Empty,Tucker Doubt,Rub A. Chikin,217,146,71,1B,BB/1B
+9,975,9,2,1B,Tucker Doubt,Catfish Champ,79,725,354,GO,300+
+9,983,6,0,Empty,Tucker Doubt,Bony Skellinger,380,288,92,1B,BB/1B
+9,983,6,0,2B,Tucker Doubt,Jeff Dingerhitter,246,391,145,IF1B,BB/1B
+9,983,6,0,1&2B,Tucker Doubt,Mo Mo,915,609,306,FC3rd,300+
+9,983,6,0,1&2B,Tucker Doubt,Dirtbag Darrell,39,380,341,FC3rd,300+
+9,983,6,0,1&2B,Tucker Doubt,Scherbie Fully-Loaded,839,444,395,K,300+
+9,1007,6,1,1B,Tucker Doubt,Dave Steib,448,771,323,FC,300+
+9,1007,6,2,1B,Tucker Doubt,Fatts Richard,374,69,305,GO,300+
+9,1015,5,0,Empty,Tucker Doubt,Rocco Rudnikov,777,511,266,GO,OUT
+9,1015,5,1,Empty,Tucker Doubt,Junebug Wray,805,43,238,GO,OUT
+9,1015,5,2,Empty,Tucker Doubt,Nate Lewis,991,858,133,IF1B,BB/1B
+9,1015,5,2,1B,Tucker Doubt,Juju's Snorlax,850,555,295,GO,OUT
+9,1015,6,0,Empty,Tucker Doubt,Wally Wellbutrin,257,298,41,2B,XBH
+9,1015,6,0,2B,Tucker Doubt,Hot Dog Jeopardy,462,17,445,K,300+
+9,1015,6,1,2B,Tucker Doubt,Derek Bongiovanni,522,808,286,GO,OUT
+9,1015,6,2,2B,Tucker Doubt,Harvey Burton,210,805,405,K,300+
+9,1024,5,0,Empty,Tucker Doubt,Haraldo MacKenzie,193,849,344,GO,300+
+9,1024,5,1,Empty,Tucker Doubt,Jefferson Steelflex,782,477,305,GO,300+
+9,1024,5,2,Empty,Tucker Doubt,Rub A. Chikin,673,656,17,3B,XBH
+9,1024,5,2,3B,Tucker Doubt,Steve Hofbardozzi Jr. Jr. Jr.,227,362,135,1B,BB/1B
+9,1024,5,2,1B,Tucker Doubt,Jerome Garcia,644,117,473,K,300+
+9,1024,6,0,Empty,Tucker Doubt,Garrett Evans,564,808,244,GO,OUT
+9,1024,6,1,Empty,Tucker Doubt,Mylo Grams,501,478,23,3B,XBH
+9,1024,6,1,3B,Tucker Doubt,Skillz Simanek,337,231,106,1B,BB/1B
+10,1030,5,1,BL,Tucker Doubt,Johnny Hopkins,233,608,375,K,300+
+10,1030,5,2,BL,Tucker Doubt,JP Panik,844,508,336,GO,300+
+10,1030,6,0,Empty,Tucker Doubt,Alex Yaxley,948,656,292,GO,OUT
+10,1030,6,1,Empty,Tucker Doubt,Kries Von Kriestalhauser,69,199,130,1B,BB/1B
+10,1030,6,1,1B,Tucker Doubt,Toastman,333,969,364,K,300+
+10,1030,6,2,1B,Tucker Doubt,Ioe Torrent,300,211,89,1BWH,BB/1B
+10,1030,6,2,1&3B,Tucker Doubt,Lee Luda,420,825,405,K,300+
+10,1034,6,0,1B,Tucker Doubt,Dark Brother,420,629,209,FO,OUT
+10,1034,6,1,1B,Tucker Doubt,Holden Tudix,36,250,214,FO,OUT
+10,1034,6,2,1B,Tucker Doubt,John McDonald Jr.,504,405,99,1B,BB/1B
+10,1034,6,2,1&2B,Tucker Doubt,Dan Gerzone,899,360,461,K,300+
+10,1046,4,0,1&2B,Tucker Doubt,AAAAAAAAAAThor Heyerdahl,262,212,50,2B,XBH
+10,1046,4,0,2&3B,Tucker Doubt,Hank Murphy,682,112,430,K,300+
+10,1046,4,1,2&3B,Tucker Doubt,Homer Knocker,172,666,494,K,300+
+10,1046,4,2,2&3B,Tucker Doubt,Larold,268,269,1,HR,XBH
+10,1046,4,2,Empty,Tucker Doubt,Isaac Snowbender,707,512,195,FO,OUT
+10,1046,5,0,Empty,Tucker Doubt,Johnmaine Chupri,949,269,320,GO,300+
+10,1046,5,1,Empty,Tucker Doubt,kilo,800,966,166,BB,BB/1B
+10,1046,5,1,1B,Tucker Doubt,AAA Harry Peritestes,1000,780,220,FO,OUT
+10,1046,5,2,1B,Tucker Doubt,Trogdor Fhqwhgads,842,498,344,GO,300+
+10,1053,6,0,1B,Tucker Doubt,Dutch Boggs,22,177,155,BB,BB/1B
+10,1053,6,0,1&2B,Tucker Doubt,Dave Steib,357,521,164,BB,BB/1B
+10,1053,6,0,BL,Tucker Doubt,Borg Torbjorgsson,277,244,33,2B,XBH
+10,1053,6,0,2&3B,Tucker Doubt,Antwan Zella,388,69,319,GO,300+
+10,1053,6,1,2&3B,Tucker Doubt,Saul Pewald,723,950,227,SacF,OUT
+10,1053,6,1,2B,Tucker Doubt,Noodle Arm Big Power ODoyle,77,117,40,2B,XBH
+10,1053,6,1,2B,Tucker Doubt,Kenny Powers,501,7,494,K,300+
+10,1053,7,0,Empty,Tucker Doubt,Penguino,883,834,49,2B,XBH
+10,1058,4,1,Empty,Tucker Doubt,Jarey Butts,177,888,289,GO,OUT
+10,1058,4,2,Empty,Tucker Doubt,Milo Kerrigan,584,633,49,2B,XBH
+10,1058,4,2,2B,Tucker Doubt,Javier Tootblan,94,850,244,GO,OUT
+10,1058,5,0,Empty,Tucker Doubt,Mack Quackerson,49,164,115,1B,BB/1B
+10,1058,5,0,1B,Tucker Doubt,Stan Mann,132,150,18,3B,XBH
+10,1058,5,0,3B,Tucker Doubt,Raffy Benitez,766,420,346,GO,300+
+10,1058,5,1,3B,Tucker Doubt,Donald McRonald,538,939,401,K,300+
+10,1058,5,2,3B,Tucker Doubt,Copernicus Hel,558,666,108,1B,BB/1B
+10,1058,5,2,1B,Tucker Doubt,Nathanial Swenson,234,255,21,3B,XBH
+10,1073,6,2,1&3B,Tucker Doubt,Arco Thunder,124,553,429,K,300+
+10,1073,7,0,Empty,Tucker Doubt,Dom Emnic,685,667,18,HR,XBH
+10,1073,7,0,Empty,Tucker Doubt,Donny Doubleday,827,758,69,1B,BB/1B
+10,1073,7,0,1B,Tucker Doubt,King Kruul,400,69,331,K,300+
+10,1073,7,1,1B,Tucker Doubt,Joe Pidgeon,99,467,368,K,300+
+10,1073,7,2,1B,Tucker Doubt,Cash Considerations,896,401,495,K,300+
+10,1094,1,0,Empty,Tucker Doubt,Dixon Uraz,897,123,226,GO,OUT
+10,1094,1,1,Empty,Tucker Doubt,Rub A. Chikin,806,1000,194,FO,OUT
+10,1094,1,2,Empty,Tucker Doubt,Papa Longstroke,409,805,396,K,300+
+10,1094,2,0,Empty,Tucker Doubt,Mylo Grams,734,592,142,BB,BB/1B
+10,1094,2,0,1B,Tucker Doubt,Jefferson Steelflex,231,181,50,2B,XBH
+10,1094,2,0,2&3B,Tucker Doubt,Catfish Champ,960,1,41,2B,XBH
+10,1094,2,0,2B,Tucker Doubt,Preston Broadus,544,815,271,GO,OUT
+10,1094,2,1,2B,Tucker Doubt,Garrett Evans,727,727,0,HR,XBH

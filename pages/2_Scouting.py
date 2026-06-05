@@ -1,4 +1,4 @@
-"""Pitcher and Batter scouting — combined page with shared matchup setup."""
+"""Pitcher and Batter scouting - combined page with shared matchup setup."""
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
@@ -29,6 +29,11 @@ def _load_all_players() -> list:
     return db.get_all_players()
 
 @st.cache_data(ttl=3600)
+def _load_pitcher_stats() -> pd.DataFrame:
+    rows = db.get_pitcher_stats()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
 def _sheet_name(url: str) -> str:
     return utils.get_sheet_name(url)
 
@@ -46,6 +51,8 @@ with _clr_col:
         _load_rln_plays.clear()
         _load_mln_plays.clear()
         _load_scrimmage_plays.clear()
+        _load_pitcher_stats.clear()
+        db.get_pitcher_stats.clear()
         st.rerun()
 _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
 
@@ -541,7 +548,7 @@ elif pred_mode == "Fetch Live Matchup":
 
         matchup_label = " vs ".join(filter(None, [_sp, _sb]))
 
-# ── ITD slices (shared placeholder — actual slicing is per-tab) ───────────────
+# ── ITD slices (shared placeholder - actual slicing is per-tab) ───────────────
 
 st.divider()
 
@@ -595,6 +602,26 @@ with tab_p:
 
     df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
 
+    # ── recent PA window - shared by the percentile card and the Last N chart ──
+    n_pitches = st.slider("Recent PA Window", 5, 100, 20, step=5, key="last_n_pitch")
+
+    # ── percentile card ───────────────────────────────────────────────────────
+    if tab_p_pitcher != "All":
+        _pitcher_stats_df = _load_pitcher_stats()
+        _recent_df    = df_p.sort_values("id").tail(n_pitches)
+        _recent_stats = utils.compute_recent_pitcher_stats(_recent_df)
+        _recent_n     = int(_recent_df["swing"].notna().sum())
+        _pct_fig = utils.pitcher_percentile_card(
+            tab_p_pitcher, _pitcher_stats_df,
+            recent_vals=_recent_stats if _recent_stats else None,
+            recent_n=_recent_n if _recent_stats else None,
+        )
+        if _pct_fig is not None:
+            st.plotly_chart(_pct_fig, width="stretch",
+                            config={"displayModeBar": False}, key="p_pct_card")
+        else:
+            st.caption("No career stats on file - run Refresh Pitcher Stats on the Games page.")
+
     if df_p.empty:
         st.warning("No at-bats match the current pitcher filter.")
     else:
@@ -608,26 +635,22 @@ with tab_p:
             for _pk in st.session_state.pop("_pills_rst_p", []):
                 st.session_state[_pk] = None
 
-            col_sw, col_n = st.columns([3, 1])
-            with col_sw:
-                if "pred_swing" not in st.session_state:
-                    st.session_state["pred_swing"] = 500
-                proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
-                                                 step=1, key="pred_swing")
-            with col_n:
-                n_pred_p = st.slider("# pitches", 5, 100, 20, key="pred_n_p")
+            if "pred_swing" not in st.session_state:
+                st.session_state["pred_swing"] = 500
+            proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
+                                             step=1, key="pred_swing")
 
             _df_tick_p = df_p_pred if not df_p_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
-            _tick_lbl_p = f"Last {n_pred_p} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
-                          else f"Last {n_pred_p} pitches"
+            _tick_lbl_p = f"Last {n_pitches} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
+                          else f"Last {n_pitches} pitches"
             st.plotly_chart(
-                utils.swing_predictor_chart(_df_tick_p, swing=int(proposed_swing), n=n_pred_p,
+                utils.swing_predictor_chart(_df_tick_p, swing=int(proposed_swing), n=n_pitches,
                                             result_ranges=result_ranges, tick_label=_tick_lbl_p),
                 width="stretch", key="p_swing_pred",
             )
 
             st.markdown("**Optimal Swing**")
-            _recent_p = df_p_pred.sort_values("id").tail(n_pred_p)["pitch"].dropna().astype(int).tolist() \
+            _recent_p = df_p_pred.sort_values("id").tail(n_pitches)["pitch"].dropna().astype(int).tolist() \
                         if not df_p_pred.empty else []
             _delta_p  = utils.project_from_deltas(_recent_p)
             _opt_rows_p = [("Based on Recent Pitch Values", _recent_p), ("Based on Recent Pitch Δ", _delta_p)]
@@ -670,13 +693,9 @@ with tab_p:
 
         # ── last N pitches ────────────────────────────────────────────────────
         st.divider()
-        st.subheader("Last N Pitches")
-        col_ln_p, col_lo_p = st.columns([3, 1])
-        with col_ln_p:
-            n_pitches = st.slider("# of at-bats", 5, 100, 20, key="last_n_pitch")
-        with col_lo_p:
-            swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
-                                   help="+1: shifts swing markers right by one AB.")
+        st.subheader(f"Last {n_pitches} Pitches")
+        swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
+                               help="+1: shifts swing markers right by one AB.")
         st.plotly_chart(
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {n_pitches} Pitches",
@@ -694,8 +713,40 @@ with tab_p:
         _p_meme = df_p["is_meme_pitch"].mean() * 100 if not df_p.empty else 0.0
         _pc1, _pc2, _pc3 = st.columns(3)
         _pc1.metric("At-Bats", _p_total)
-        _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "—")
+        _pc2.metric("Avg Diff", f"{_p_avg:.1f}" if not pd.isna(_p_avg) else "-")
         _pc3.metric("Meme Rate", f"{_p_meme:.1f}%")
+
+        _xgame_p = st.checkbox(
+            "Include cross-game span", value=False, key="p_xgame_delta",
+            help="When off, delta stats reset at the start of each game",
+        )
+        _sw_mask_p = df_p["swing"].notna()
+        if _xgame_p and _sw_mask_p.any():
+            _sw_xg = df_p[_sw_mask_p]
+            _deltas_p_raw = _sw_xg.groupby("pitcher_name", group_keys=False)["pitch"].apply(utils._circ_delta_group)
+            _delta2_p_raw = _deltas_p_raw.abs().groupby(df_p.loc[_sw_mask_p, "pitcher_name"]).diff().abs()
+            _approach_p_raw = _sw_xg.groupby("pitcher_name", group_keys=False)[["pitch", "swing"]].apply(utils._approach_group)
+            _deltas_p = _deltas_p_raw.dropna()
+            _delta2_p = _delta2_p_raw.dropna()
+            _approach_p = _approach_p_raw.dropna()
+        else:
+            _deltas_p = df_p["pitch_circ_delta"].dropna()
+            _delta2_p = df_p["pitch_circ_delta2"].dropna()
+            _approach_p = df_p["pitch_approach"].dropna()
+        if not _deltas_p.empty:
+            _dc1, _dc2, _dc3, _dc4, _dc5 = st.columns(5)
+            _dc1.metric("Avg Delta", f"{_deltas_p.mean():+.1f}")
+            _dc2.metric("Avg |Delta|", f"{_deltas_p.abs().mean():.1f}")
+            _dc3.metric("# with Delta", len(_deltas_p))
+            if not _delta2_p.empty:
+                _dc4.metric("Avg |Δ²|", f"{_delta2_p.abs().mean():.1f}",
+                            help="Average absolute change in delta (pitch acceleration)")
+            if not _approach_p.empty:
+                _dc5.metric("Shadow %", f"{_approach_p.mean() * 100:.1f}%",
+                            help=f"How often this pitcher's next pitch moves closer to the previous batter's swing "
+                                 f"({int(_approach_p.sum())}/{len(_approach_p)} pitches)")
+        else:
+            st.caption("Need at least 2 at-bats from the same pitcher in a session.")
 
         st.divider()
         st.subheader("Next Pitch Delta vs Prior Diff")
@@ -758,13 +809,8 @@ with tab_p:
         # ── delta ─────────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Pitch Delta (Change from Previous AB)")
-        _deltas_p = df_p["pitch_circ_delta"].dropna()
         if not _deltas_p.empty:
             st.plotly_chart(utils.delta_histogram(_deltas_p), width="stretch", key="p_delta")
-            _dc1, _dc2, _dc3 = st.columns(3)
-            _dc1.metric("Avg Delta", f"{_deltas_p.mean():+.1f}")
-            _dc2.metric("Avg |Delta|", f"{_deltas_p.abs().mean():.1f}")
-            _dc3.metric("# with Delta", len(_deltas_p))
         else:
             st.caption("Need at least 2 at-bats from the same pitcher in a session.")
 
@@ -854,6 +900,9 @@ with tab_b:
 
     df_b_pred = df_b[df_b["id"] < hist_id] if hist_id else df_b
 
+    # ── recent PA window - shared by predictor and Last N chart ───────────────
+    n_swings = st.slider("Recent PA Window", 5, 100, 20, step=5, key="last_n_swing")
+
     if df_b.empty:
         st.warning("No at-bats match the current batter filter.")
     else:
@@ -867,27 +916,23 @@ with tab_b:
             for _pk in st.session_state.pop("_pills_rst_b", []):
                 st.session_state[_pk] = None
 
-            col_pt, col_nb = st.columns([3, 1])
-            with col_pt:
-                if "pred_pitch" not in st.session_state:
-                    st.session_state["pred_pitch"] = 500
-                proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
-                                                 step=1, key="pred_pitch")
-            with col_nb:
-                n_pred_b = st.slider("# swings", 5, 100, 20, key="pred_n_b")
+            if "pred_pitch" not in st.session_state:
+                st.session_state["pred_pitch"] = 500
+            proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
+                                             step=1, key="pred_pitch")
 
             _df_tick_b = df_b_pred if not df_b_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
-            _tick_lbl_b = f"Last {n_pred_b} swings (pre-AB)" if hist_id and not df_b_pred.empty \
-                          else f"Last {n_pred_b} swings"
+            _tick_lbl_b = f"Last {n_swings} swings (pre-AB)" if hist_id and not df_b_pred.empty \
+                          else f"Last {n_swings} swings"
             st.plotly_chart(
-                utils.swing_predictor_chart(_df_tick_b, swing=int(proposed_pitch), n=n_pred_b,
+                utils.swing_predictor_chart(_df_tick_b, swing=int(proposed_pitch), n=n_swings,
                                             result_ranges=result_ranges, tick_label=_tick_lbl_b,
                                             value_col="swing", x_label="Swing Values", ref_label="Pitch"),
                 width="stretch", key="b_swing_pred",
             )
 
             st.markdown("**Optimal Pitch**")
-            _recent_b = df_b_pred.sort_values("id").tail(n_pred_b)["swing"].dropna().astype(int).tolist() \
+            _recent_b = df_b_pred.sort_values("id").tail(n_swings)["swing"].dropna().astype(int).tolist() \
                         if not df_b_pred.empty else []
             _delta_b  = utils.project_from_deltas(_recent_b)
             _opt_rows_b = [("Based on Recent Swing Values", _recent_b), ("Based on Recent Swing Δ", _delta_b)]
@@ -931,12 +976,8 @@ with tab_b:
         # ── last N swings ─────────────────────────────────────────────────────
         st.divider()
         st.subheader("Last N Swings")
-        col_ln_b, col_lo_b = st.columns([3, 1])
-        with col_ln_b:
-            n_swings = st.slider("# of at-bats", 5, 100, 20, key="last_n_swing")
-        with col_lo_b:
-            swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
-                                   help="+1: shifts swing markers right by one AB.")
+        swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
+                               help="+1: shifts swing markers right by one AB.")
 
         _hl_name = tab_b_batter if (tab_b_batter != "All" and tab_b_scope == "Full Team") else None
         st.plotly_chart(
@@ -957,7 +998,7 @@ with tab_b:
         _b_xbh  = (df_b["res_category"] == "XBH").mean() * 100 if not df_b.empty else 0.0
         _bc1, _bc2, _bc3, _bc4 = st.columns(4)
         _bc1.metric("At-Bats", _b_total)
-        _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "—")
+        _bc2.metric("Avg Diff", f"{_b_avg:.1f}" if not pd.isna(_b_avg) else "-")
         _bc3.metric("OB%", f"{_b_obp:.1f}%")
         _bc4.metric("XBH%", f"{_b_xbh:.1f}%")
 

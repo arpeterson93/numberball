@@ -223,7 +223,7 @@ def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
     players = utils.read_mln_players_from_sheet(sheet_id)
     if not players:
         return 0, ["No players found in the MLN Rosters tab."]
-    # Deduplicate on s_id — source sheet may list the same player twice in one season.
+    # Deduplicate on s_id - source sheet may list the same player twice in one season.
     # Keep the last occurrence so the most recent data wins within a batch.
     deduped = list({p["s_id"]: p for p in players}.values())
     try:
@@ -269,7 +269,7 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
     play_game_codes = sorted({p["game_code"] for p in plays})
     if not mln_game_codes_in_db:
         return 0, [
-            f"No MLN games found in database — sync MLN Games first. "
+            f"No MLN games found in database - sync MLN Games first. "
             f"Plays expect game codes like: {play_game_codes[:5]}"
         ]
     missing = sorted(set(play_game_codes) - set(mln_game_codes_in_db))
@@ -523,7 +523,7 @@ with _mma:
             mg_n,  mg_e  = _sync_mln_games(_mln_sid)
             mpl_n, mpl_e = _sync_mln_plays(_mln_sid)
         st.session_state["_sync_msg"] = (
-            f"MLN — Teams: {mt_n} · Players: {mp_n} · Games: {mg_n} · Plays: {mpl_n}"
+            f"MLN - Teams: {mt_n} · Players: {mp_n} · Games: {mg_n} · Plays: {mpl_n}"
         )
         all_errs = mt_e + mp_e + mg_e + mpl_e
         if all_errs:
@@ -531,6 +531,34 @@ with _mma:
         st.rerun()
 
 st.caption("Sync order: Teams → Players → Games → Plays (each step depends on the previous).")
+
+# ── pitcher stats ─────────────────────────────────────────────────────────────
+st.subheader("Pitcher Stats")
+st.caption("Pre-compute behavioral stats (Avg |Δ|, Avg Δ², Shadow %, Meme Rate, Wraparound %) across all pitchers.")
+if st.button("Refresh Pitcher Stats", key="refresh_pitcher_stats"):
+    import utils, pandas as pd
+    _bar  = st.progress(0, text="Fetching RLN plays…")
+    _all_rln = db.get_all_plays(league="RLN")
+    _bar.progress(20, text="Fetching MLN plays…")
+    _all_mln = db.get_all_plays(league="MLN")
+    _bar.progress(40, text="Enriching play data…")
+    _dfs = []
+    if _all_rln:
+        _dfs.append(utils.enrich_df(utils.flatten_games(_all_rln)))
+    if _all_mln:
+        _dfs.append(utils.enrich_df(utils.flatten_games(_all_mln)))
+    if _dfs:
+        _bar.progress(70, text="Computing pitcher stats…")
+        _combined  = pd.concat(_dfs, ignore_index=True)
+        _stat_rows = utils.compute_pitcher_stats(_combined)
+        _bar.progress(90, text="Saving to database…")
+        _n = db.upsert_pitcher_stats(_stat_rows)
+        db.get_pitcher_stats.clear()
+        _bar.progress(100, text="Done.")
+        st.success(f"Updated stats for {_n} pitcher(s).")
+    else:
+        _bar.empty()
+        st.warning("No play data found.")
 
 st.divider()
 
@@ -566,7 +594,7 @@ for _league in sorted(_by_league.keys()):
                 for g in _season_games:
                     gc = g.get("game_code", "")
                     gc_label = gc or f"S{g['season']} G{g['session_number']}"
-                    label = f"**{gc_label}** — {g['away_team']} @ {g['home_team']}"
+                    label = f"**{gc_label}** - {g['away_team']} @ {g['home_team']}"
                     if g.get("away_score") is not None and g.get("home_score") is not None:
                         label += f" ({g['away_score']}–{g['home_score']})"
                     if g.get("start_time"):
