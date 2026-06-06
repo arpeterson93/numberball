@@ -1178,18 +1178,9 @@ with tab_m:
                 new_obc_code, _ = utils.steal_advance(obc, outs)
                 nout = outs
             elif r == "Out":
-                # Caught stealing: runner is removed, outs + 1
+                # Caught stealing: lead runner out, other runners still advance one base
                 runs = 0
-                on_3b = obc[0] == "1"
-                on_2b = obc[1] == "1"
-                on_1b = obc[2] == "1"
-                # Remove the lead runner (highest base)
-                if on_3b:
-                    new_obc_code = f"0{obc[1]}{obc[2]}"
-                elif on_2b:
-                    new_obc_code = f"{obc[0]}0{obc[2]}"
-                else:
-                    new_obc_code = f"{obc[0]}{obc[1]}0"
+                new_obc_code, _ = utils.steal_cs(obc)
                 nout = min(outs + 1, 3)
             else:
                 runs, new_obc_code, nout = _lookup(r, obc, outs)
@@ -1286,19 +1277,59 @@ with tab_m:
     def _calc_ev_steal(safe_range):
         safe_prob = min(safe_range * 2 / 1000, 1.0)
         out_prob  = 1.0 - safe_prob
+        # Safe: all runners advance one base
         safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
         safe_ner  = utils.get_expected_runs(_current_outs, safe_obc) or 0
-        # Caught stealing: remove lead runner, add 1 out
-        _ob3, _ob2, _ob1 = _current_obc[0], _current_obc[1], _current_obc[2]
-        if _ob3 == "1":
-            out_obc = f"0{_ob2}{_ob1}"
-        elif _ob2 == "1":
-            out_obc = f"{_ob3}0{_ob1}"
-        else:
-            out_obc = f"{_ob3}{_ob2}0"
+        # Caught: lead runner out, other runners still advance one base
+        out_obc, _ = utils.steal_cs(_current_obc)
         out_nout = min(_current_outs + 1, 3)
         out_ner  = utils.get_expected_runs(out_nout, out_obc) or 0 if out_nout < 3 else 0
         return safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
+
+    def _hnr_steal_advance_obc(obc: str) -> tuple[str, int]:
+        """Advance the H&R runner: 1B->2B if present, else 2B->3B, else 3B->home."""
+        on_3b, on_2b, on_1b = obc[0] == "1", obc[1] == "1", obc[2] == "1"
+        if on_1b:
+            return f"{obc[0]}10", 0
+        elif on_2b:
+            return "100", 0
+        elif on_3b:
+            return "000", 1
+        return obc, 0
+
+    def _hnr_steal_cs_obc(obc: str) -> str:
+        """OBC after the H&R runner is caught stealing."""
+        if obc[2] == "1":       # 1B runner caught - remove them, keep 3B
+            return f"{obc[0]}00"
+        elif obc[1] == "1":     # 2B runner caught
+            return f"{obc[0]}00"
+        else:                   # 3B runner caught
+            return "000"
+
+    def _calc_ev_hnr(hnr_ranges, hnr_steal_safe_rng):
+        """EV for hit and run: non-K outcomes use BRC; K outcomes fold in steal attempt."""
+        sp = min(hnr_steal_safe_rng * 2 / 1000, 1.0)
+        op = 1.0 - sp
+        ev = 0.0
+        for entry in (hnr_ranges or []):
+            r, lo, hi = _norm(entry)
+            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+            if r == "K":
+                # Batter K's (1 out) and runner was already going -> steal attempt
+                _, _, k_nout = _lookup("K", _current_obc, _current_outs)
+                k_nout = min(k_nout, 3)
+                s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
+                s_ner  = utils.get_expected_runs(k_nout, s_obc) or 0 if k_nout < 3 else 0
+                cs_obc  = _hnr_steal_cs_obc(_current_obc)
+                cs_nout = min(k_nout + 1, 3)
+                cs_ner  = utils.get_expected_runs(cs_nout, cs_obc) or 0 if cs_nout < 3 else 0
+                ev += prob * (sp * (s_runs + s_ner) + op * cs_ner)
+            else:
+                runs, new_obc, nout = _lookup(r, _current_obc, _current_outs)
+                nout = min(nout, 3)
+                ner = utils.get_expected_runs(nout, new_obc) or 0 if nout < 3 else 0
+                ev += prob * (runs + ner)
+        return ev
 
     _bunt_ranges = st.session_state.get("pred_bunt_ranges") or result_ranges
     _hnr_ranges  = utils.compute_at_bat_ranges(
@@ -1320,6 +1351,26 @@ with tab_m:
     _steal_runners = st.session_state.get("steal_runner_data") or []
     # Default safe range: lead runner from sheet, or fallback to 50
     _default_safe_rng = _steal_runners[0]["safe_range"] if _steal_runners else 50
+
+    # H&R valid only with < 2 outs and a single-runner OBC (1,2,4,5 = 001,010,100,101)
+    _HNR_VALID_OBCS = {"001", "010", "100", "101"}
+    _has_hnr = _current_obc in _HNR_VALID_OBCS and _current_outs < 2 and bool(_steal_runners)
+    if _has_hnr:
+        # For OBC 101 (1B+3B), H&R steals with the 1B runner specifically
+        _hnr_steal_runner = (
+            next((r for r in _steal_runners if r["base"] == "1B"), None)
+            if _current_obc == "101"
+            else (_steal_runners[0] if _steal_runners else None)
+        )
+        _hnr_safe_rng = (
+            utils.steal_safe_range_plus1_spd(
+                _hnr_steal_runner["safe_range"], _hnr_steal_runner["base"]
+            )
+            if _hnr_steal_runner else 50
+        )
+    else:
+        _hnr_steal_runner = None
+        _hnr_safe_rng    = 50
 
     @st.fragment
     def _manager_fragment():
@@ -1346,8 +1397,8 @@ with tab_m:
 
         ev_swing = _calc_ev(result_ranges)
         ev_bunt  = _calc_ev(_bunt_ranges)
-        ev_steal = _calc_ev_steal(_steal_ev_rng) if _has_runners else None
-        ev_hr    = _calc_ev(_hnr_ranges)        if _has_runners else None
+        ev_steal = _calc_ev_steal(_steal_ev_rng)                    if _has_runners else None
+        ev_hr    = _calc_ev_hnr(_hnr_ranges, _hnr_safe_rng)         if _has_hnr     else None
 
         # Game state + EV summary table side by side
         _gs_col, _tbl_col = st.columns([1, 2])
@@ -1360,9 +1411,13 @@ with tab_m:
             _exp_runs  = [f"{ev_swing:.2f}", f"{ev_bunt:.2f}"]
             _vs_base   = [f"{ev_swing - _current_er:+.2f}", f"{ev_bunt - _current_er:+.2f}"]
             if _has_runners:
-                _decisions += ["Steal", "Hit and Run"]
-                _exp_runs  += [f"{ev_steal:.2f}", f"{ev_hr:.2f}"]
-                _vs_base   += [f"{ev_steal - _current_er:+.2f}", f"{ev_hr - _current_er:+.2f}"]
+                _decisions += ["Steal"]
+                _exp_runs  += [f"{ev_steal:.2f}"]
+                _vs_base   += [f"{ev_steal - _current_er:+.2f}"]
+            if _has_hnr:
+                _decisions += ["Hit and Run"]
+                _exp_runs  += [f"{ev_hr:.2f}"]
+                _vs_base   += [f"{ev_hr - _current_er:+.2f}"]
             st.dataframe(
                 pd.DataFrame({"Decision": _decisions, "Exp Runs": _exp_runs, "vs Baseline": _vs_base}),
                 use_container_width=True, hide_index=True,
@@ -1403,9 +1458,15 @@ with tab_m:
             ]
             _show_outcome_grid(_steal_ranges_for_grid, _current_obc, _current_outs, "grid_steal")
 
+        if _has_hnr:
             st.divider()
             st.subheader("Hit and Run")
-            st.caption("Computed from matchup stats with H&R adjustments")
+            _hnr_base_lbl = _hnr_steal_runner["base"] if _hnr_steal_runner else "?"
+            _orig_rng     = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else "?"
+            st.caption(
+                f"{_hnr_base_lbl} runner steals at spd+1: range {_orig_rng} -> {_hnr_safe_rng}  |  "
+                f"K outcome = batter out + steal attempt"
+            )
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _hnr_ranges,
                             label="Swing", x_label="Swing Values"),
                             use_container_width=True, key="mgr_bar_hr")

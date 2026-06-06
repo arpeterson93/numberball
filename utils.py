@@ -284,30 +284,32 @@ def get_expected_runs(outs: int, obc: str) -> float | None:
 
 
 def steal_advance(obc: str, outs: int) -> tuple[str, int]:
-    """Return (new_obc, runs_scored) for a successful steal (lead runner advances one base)."""
+    """Return (new_obc, runs_scored) when a steal is safe - ALL runners advance one base."""
     on_3b = obc[0] == "1"
     on_2b = obc[1] == "1"
     on_1b = obc[2] == "1"
-
-    runs = 0
-    if on_3b and not on_2b and not on_1b:
-        runs, n3, n2, n1 = 1, False, False, False
-    elif on_3b and on_2b and not on_1b:
-        runs, n3, n2, n1 = 1, False, True,  False
-    elif on_3b and not on_2b and on_1b:
-        runs, n3, n2, n1 = 1, False, False, True
-    elif on_3b and on_2b and on_1b:
-        runs, n3, n2, n1 = 1, False, True,  True
-    elif on_2b and not on_1b:
-        n3, n2, n1 = True, False, False
-    elif on_2b and on_1b:
-        n3, n2, n1 = True, False, True
-    elif on_1b:
-        n3, n2, n1 = False, True, False
-    else:
-        n3, n2, n1 = on_3b, on_2b, on_1b
-
+    runs = 1 if on_3b else 0   # 3B runner scores
+    n3   = on_2b               # 2B runner advances to 3B
+    n2   = on_1b               # 1B runner advances to 2B
+    n1   = False               # no new runner enters from outside
     return f"{'1' if n3 else '0'}{'1' if n2 else '0'}{'1' if n1 else '0'}", runs
+
+
+def steal_cs(obc: str) -> tuple[str, int]:
+    """Return (new_obc, runs_scored) when a steal is caught - lead runner removed, others advance."""
+    on_3b = obc[0] == "1"
+    on_2b = obc[1] == "1"
+    on_1b = obc[2] == "1"
+    if on_3b:
+        # 3B runner caught; 2B->3B, 1B->2B
+        n3, n2, n1 = on_2b, on_1b, False
+    elif on_2b:
+        # 2B runner caught; 1B->2B
+        n3, n2, n1 = False, on_1b, False
+    else:
+        # 1B runner caught
+        n3, n2, n1 = False, False, False
+    return f"{'1' if n3 else '0'}{'1' if n2 else '0'}{'1' if n1 else '0'}", 0
 
 
 def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
@@ -1151,15 +1153,22 @@ def project_from_deltas(recent_vals: list[int]) -> list[int]:
 
 
 def project_from_delta2s(recent_vals: list[int]) -> list[int]:
-    """Apply delta2 (pitch movement acceleration) patterns to project positions."""
+    """Project pitch values using delta² patterns, branching both +/- for each delta².
+
+    For each recent delta², produces two projections: one where the last delta grows
+    by that amount and one where it shrinks, covering both acceleration and deceleration.
+    """
     if len(recent_vals) < 3:
         return []
-    deltas = [circular_signed_delta(recent_vals[i - 1], recent_vals[i]) for i in range(1, len(recent_vals))]
+    deltas  = [circular_signed_delta(recent_vals[i - 1], recent_vals[i]) for i in range(1, len(recent_vals))]
     delta2s = [abs(abs(deltas[i]) - abs(deltas[i - 1])) for i in range(1, len(deltas))]
-    last_val = recent_vals[-1]
+    last_val   = recent_vals[-1]
     last_delta = deltas[-1]
-    return [((last_val + int(last_delta + (delta2s[i] if i < len(delta2s) else delta2s[-1])) - 1) % 1000) + 1
-            for i in range(len(delta2s))]
+    result = []
+    for d2 in delta2s:
+        for sign in (+1, -1):
+            result.append(((last_val + int(last_delta + sign * d2) - 1) % 1000) + 1)
+    return result
 
 
 def _build_weight_array(vals: list[int]) -> "import numpy; numpy.ndarray":
@@ -1726,7 +1735,7 @@ def bases_diamond_svg(obc: str, outs: int) -> str:
         f'fill="{"#FFD700" if i < outs else "#2d2d2d"}" stroke="#888" stroke-width="1.5"/>'
         for i in range(3)
     )
-    return f'<svg width="115" height="130" xmlns="http://www.w3.org/2000/svg">{path}{bases}{dots}</svg>'
+    return f'<svg width="115" height="115" xmlns="http://www.w3.org/2000/svg">{path}{bases}{dots}</svg>'
 
 
 def steal_color_bar(proposed_value: int, safe_range: int,
@@ -1842,6 +1851,18 @@ STEAL_TABLE: dict[str, list[int]] = {
     "3rd":  [7,19,32,48,61,76,87,100,110,120,130,140,150,163,174,189,202,218,233,251,259],
     "home": [2,4,7,11,14,18,20,22,23,25,25,27,28,30,32,36,39,43,47,53,55],
 }
+
+def steal_safe_range_plus1_spd(safe_range: int, base: str = "1B") -> int:
+    """Return the steal safe range after adding +1 to the runner's speed.
+
+    Finds the nearest matching index in STEAL_TABLE for the given base, then
+    moves +2 positions (each position = 0.5 speed differential, so +1 speed = +2 steps).
+    """
+    base_key = {"1B": "2nd", "2B": "3rd", "3B": "home"}.get(base, "2nd")
+    table = STEAL_TABLE[base_key]
+    idx = min(range(len(table)), key=lambda i: abs(table[i] - safe_range))
+    return table[min(idx + 2, len(table) - 1)]
+
 
 RESULT_COLORS = {
     "HR":    "#e74c3c",
