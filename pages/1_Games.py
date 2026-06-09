@@ -6,6 +6,7 @@ import database as db
 import utils
 
 _RLN_SHEET_ID = "1lcgT6np-4O5x83b2JZXjv8REfNDYXE7GMYMZeu5znRY"
+_MLN_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 
 st.title("Sync Data")
 
@@ -219,10 +220,10 @@ def _sync_mln_teams(sheet_id: str) -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
-def _sync_mln_players(sheet_id: str) -> tuple[int, list[str]]:
-    players = utils.read_mln_players_from_sheet(sheet_id)
+def _sync_mln_players(sheet_id: str, tab: str = "Rosters", season: int | None = None) -> tuple[int, list[str]]:
+    players = utils.read_mln_players_from_sheet(sheet_id, tab=tab, season=season)
     if not players:
-        return 0, ["No players found in the MLN Rosters tab."]
+        return 0, [f"No players found in the MLN {tab} tab."]
     # Deduplicate on s_id - source sheet may list the same player twice in one season.
     # Keep the last occurrence so the most recent data wins within a batch.
     deduped = list({p["s_id"]: p for p in players}.values())
@@ -256,10 +257,10 @@ def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
-def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
-    plays = utils.read_mln_plays_from_sheet(sheet_id)
+def _sync_mln_plays(sheet_id: str, tab: str = "Plays", season_override: int | None = None) -> tuple[int, list[str]]:
+    plays = utils.read_mln_plays_from_sheet(sheet_id, tab=tab)
     if not plays:
-        return 0, ["No plays found in the MLN Plays (Raw) tab."]
+        return 0, [f"No plays found in the MLN {tab} tab."]
 
     all_games = db.get_games()
     game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
@@ -298,7 +299,7 @@ def _sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     for play in plays_sorted:
         gc = play["game_code"]
-        season = play.get("season")
+        season = season_override or play.get("season") or (int(gc[:2]) if gc and len(gc) >= 2 and gc[:2].isdigit() else None)
         game_db_id = game_code_to_id.get(gc)
         if not game_db_id:
             errors.append(f"Play {play['play_num']}: game {gc} not found - sync MLN Games first.")
@@ -437,6 +438,65 @@ with col_sa:
 
 st.divider()
 
+# ------------------------------------------------------------------ MLN current sync
+
+st.subheader("MLN")
+
+_mn1, _mn2, _mn3, _mn4, _mn5 = st.columns(5)
+
+with _mn1:
+    if st.button("MLN Teams", key="mln_teams", use_container_width=True):
+        with st.spinner("Reading MLN Teams tab…"):
+            n, errs = _sync_mln_teams(_MLN_SHEET_ID)
+        st.session_state["_sync_msg"] = f"{n} MLN team(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mn2:
+    if st.button("MLN Players", key="mln_players", use_container_width=True):
+        with st.spinner("Reading MLN Players tab…"):
+            n, errs = _sync_mln_players(_MLN_SHEET_ID, tab="Players", season=12)
+        st.session_state["_sync_msg"] = f"{n} MLN player(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mn3:
+    if st.button("MLN Games", key="mln_games", use_container_width=True):
+        with st.spinner("Reading MLN Games tab…"):
+            n, errs = _sync_mln_games(_MLN_SHEET_ID)
+        st.session_state["_sync_msg"] = f"{n} MLN game(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mn4:
+    if st.button("MLN Plays", key="mln_plays", use_container_width=True):
+        with st.spinner("Reading MLN Plays (Raw) tab…"):
+            n, errs = _sync_mln_plays(_MLN_SHEET_ID, tab="Plays (Raw)", season_override=12)
+        st.session_state["_sync_msg"] = f"{n} MLN play(s) synced."
+        if errs:
+            st.session_state["_sync_errors"] = errs
+        st.rerun()
+
+with _mn5:
+    if st.button("Sync MLN All", key="mln_sync_all", type="primary", use_container_width=True):
+        with st.spinner("Syncing all MLN tables (Teams → Players → Games → Plays)…"):
+            mt_n,  mt_e  = _sync_mln_teams(_MLN_SHEET_ID)
+            mp_n,  mp_e  = _sync_mln_players(_MLN_SHEET_ID, tab="Players", season=12)
+            mg_n,  mg_e  = _sync_mln_games(_MLN_SHEET_ID)
+            mpl_n, mpl_e = _sync_mln_plays(_MLN_SHEET_ID, tab="Plays (Raw)", season_override=12)
+        st.session_state["_sync_msg"] = (
+            f"MLN - Teams: {mt_n} · Players: {mp_n} · Games: {mg_n} · Plays: {mpl_n}"
+        )
+        all_errs = mt_e + mp_e + mg_e + mpl_e
+        if all_errs:
+            st.session_state["_sync_errors"] = all_errs
+        st.rerun()
+
+st.divider()
+
 # ------------------------------------------------------------------ scrimmage sync
 
 st.subheader("Scrimmage Plays")
@@ -531,6 +591,8 @@ with _mma:
         st.rerun()
 
 st.caption("Sync order: Teams → Players → Games → Plays (each step depends on the previous).")
+
+st.divider()
 
 # ── pitcher stats ─────────────────────────────────────────────────────────────
 st.subheader("Pitcher Stats")

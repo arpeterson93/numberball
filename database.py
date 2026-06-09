@@ -130,6 +130,45 @@ def get_plays_for_game(game_id: int) -> list[dict]:
     )
 
 
+@st.cache_data(ttl=300)
+def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -> list[dict]:
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("pitcher_name", pitcher_name)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    return _fetch_all(q)
+
+
+@st.cache_data(ttl=300)
+def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> list[dict]:
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("batter_name", batter_name)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    return _fetch_all(q)
+
+
+@st.cache_data(ttl=300)
+def get_plays_for_team_offense(team_name: str, leagues: list[str] | None = None) -> list[dict]:
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("off_team", team_name)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    return _fetch_all(q)
+
+
 def bulk_upsert_plays(plays: list[dict]) -> int:
     """Upsert a list of play dicts keyed on (play_num, league). Returns rows processed."""
     return _bulk_upsert("plays", plays, "play_num,league")

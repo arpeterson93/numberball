@@ -10,14 +10,23 @@ st.title("Scouting")
 # ── data ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
-def _load_rln_plays() -> pd.DataFrame:
-    raw = db.get_all_plays(league="RLN")
+def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
+    raw = db.get_plays_for_pitcher(pitcher_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
-@st.cache_data(ttl=3600)
-def _load_mln_plays() -> pd.DataFrame:
-    raw = db.get_all_plays(league="MLN")
+@st.cache_data(ttl=300)
+def _load_batter_plays(batter_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
+    raw = db.get_plays_for_batter(batter_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
+    raw = db.get_plays_for_team_offense(team_name, list(leagues) if leagues else None)
+    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def _load_all_games() -> list:
+    return db.get_games()
 
 @st.cache_data(ttl=300)
 def _load_scrimmage_plays() -> pd.DataFrame:
@@ -53,10 +62,15 @@ with _src_col:
 with _clr_col:
     st.write("")
     if st.button("Refresh data", key="clear_play_cache"):
-        _load_rln_plays.clear()
-        _load_mln_plays.clear()
+        _load_pitcher_plays.clear()
+        _load_batter_plays.clear()
+        _load_team_offense_plays.clear()
         _load_scrimmage_plays.clear()
+        _load_all_games.clear()
         _load_pitcher_stats.clear()
+        db.get_plays_for_pitcher.clear()
+        db.get_plays_for_batter.clear()
+        db.get_plays_for_team_offense.clear()
         db.get_pitcher_stats.clear()
         st.rerun()
 _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
@@ -67,28 +81,18 @@ if _source_key in ("real", "all"):
         "League", ["RLN", "MLN"], default=["RLN"], key="scouting_league",
     )
 
-# ── load only what was selected ──────────────────────────────────────────────
+_leagues_tuple: tuple[str, ...] = tuple(sorted(_sel_leagues))
 
-_dfs = []
-if _source_key in ("real", "all"):
-    if "RLN" in _sel_leagues:
-        _df = _load_rln_plays()
-        if not _df.empty:
-            _dfs.append(_df)
-    if "MLN" in _sel_leagues:
-        _df = _load_mln_plays()
-        if not _df.empty:
-            _dfs.append(_df)
+# ── lightweight metadata (always loaded) ─────────────────────────────────────
+
+all_games_meta = _load_all_games()
+_meta_seasons   = sorted({g["season"] for g in all_games_meta if g.get("season")}, reverse=True)
+_meta_def_teams = sorted({t for g in all_games_meta for t in (g.get("home_team") or "", g.get("away_team") or "") if t})
+
+# Scrimmage plays are a small table - still load in full when selected
+_scrimmage_df: pd.DataFrame = pd.DataFrame()
 if _source_key in ("scrimmage", "all"):
-    _df = _load_scrimmage_plays()
-    if not _df.empty:
-        _dfs.append(_df)
-
-df_all = pd.concat(_dfs, ignore_index=True) if _dfs else pd.DataFrame()
-
-if df_all.empty:
-    st.info("No at-bats in the database yet.")
-    st.stop()
+    _scrimmage_df = _load_scrimmage_plays()
 
 _all_players      = _load_all_players()
 _pbyn             = {p["name"]: p for p in _all_players if p.get("name")}
@@ -215,14 +219,12 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
     st.session_state["pred_calc_b_spd"]  = _stat(bp,"spd") if bp else 3
 
     # Auto-populate tab data filters
-    _p_def_teams = sorted(df_all["def_team"].unique())
-    _b_off_teams = sorted(df_all["off_team"].unique())
-    if p_tf in _p_def_teams:
+    if p_tf in _all_teams:
         st.session_state["tab_p_team"] = p_tf
-    st.session_state["tab_p_pitcher"] = p_name if p_name in df_all["pitcher_name"].unique() else "All"
-    if b_tf in _b_off_teams:
+    st.session_state["tab_p_pitcher"] = p_name if p_name in _all_player_names else "All"
+    if b_tf in _all_teams:
         st.session_state["tab_b_team"] = b_tf
-    st.session_state["tab_b_batter"] = b_name if b_name in df_all["batter_name"].unique() else "All"
+    st.session_state["tab_b_batter"] = b_name if b_name in _all_player_names else "All"
 
 # ── compact calc inputs (Option D) ────────────────────────────────────────────
 
@@ -297,6 +299,9 @@ def _render_calc_inputs():
         st.checkbox("Bunting?", key="pred_calc_bunt")
     with col_s3:
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
+    col_c1, _col_c2, _col_c3 = st.columns(3)
+    with col_c1:
+        st.number_input("Catcher EYE", min_value=1, max_value=5, key="pred_calc_c_eye")
 
     # ── Baserunners ──────────────────────────────────────────────────────
     st.markdown("**Baserunners**")
@@ -320,7 +325,7 @@ def _render_calc_inputs():
         if _r3 != "Empty" and _r3 in _pbyn:
             st.caption(f"SPD: {_stat(_pbyn[_r3],'spd')}")
 
-def _calc_ranges() -> list:
+def _calc_ranges(bunt: bool | None = None, hit_and_run: bool | None = None) -> list:
     _runners = any(st.session_state.get(f"pred_calc_{b}b", "Empty") != "Empty" for b in [1, 2, 3])
     return utils.compute_at_bat_ranges(
         pitcher_hand=st.session_state.get("pred_calc_p_hand","R"),
@@ -333,8 +338,8 @@ def _calc_ranges() -> list:
         batter_eye=int(st.session_state.get("pred_calc_b_eye",3)),
         batter_pow=int(st.session_state.get("pred_calc_b_pow",3)),
         batter_spd=int(st.session_state.get("pred_calc_b_spd",3)),
-        bunt=bool(st.session_state.get("pred_calc_bunt",False)),
-        hit_and_run=bool(st.session_state.get("pred_calc_hnr",False)),
+        bunt=bunt if bunt is not None else bool(st.session_state.get("pred_calc_bunt", False)),
+        hit_and_run=hit_and_run if hit_and_run is not None else bool(st.session_state.get("pred_calc_hnr", False)),
         outs=int(st.session_state.get("pred_calc_outs",0)),
         runners_on=_runners,
     )
@@ -397,8 +402,10 @@ hist_id       = st.session_state.get("pred_hist_loaded_id") if pred_mode == "His
 matchup_label = ""
 
 if pred_mode == "Historical / Manual":
-    _calc_r       = _calc_ranges()
+    _calc_r       = _calc_ranges(bunt=False)
     result_ranges = [(r["result"], r["low"], r["high"]) for r in _calc_r]
+    _calc_b       = _calc_ranges(bunt=True)
+    st.session_state["pred_bunt_ranges"] = [(r["result"], r["low"], r["high"]) for r in _calc_b]
     _pn = st.session_state.get("pred_calc_p_name", "")
     _bn = st.session_state.get("pred_calc_b_name", "")
     matchup_label = " vs ".join(p for p in [_pn, _bn] if p and p != "-- Manual --")
@@ -406,50 +413,43 @@ if pred_mode == "Historical / Manual":
     with st.expander("Import from History", expanded=True):
         # ── Search Filters ────────────────────────────────────────────────────
         st.markdown("**Search Filters**")
-        _srch_seasons_all = sorted(df_all["season"].dropna().unique(), reverse=True)
-        _srch_games_all   = sorted(df_all["game_id"].dropna().unique())
-        _srch_def_teams   = sorted(df_all["def_team"].unique())
-        _srch_off_teams   = sorted(df_all["off_team"].unique())
-
         _sc1, _sc2 = st.columns(2)
         with _sc1:
-            srch_seasons = st.multiselect("Season", _srch_seasons_all, default=_srch_seasons_all, key="srch_seasons")
-        with _sc2:
-            srch_games = st.multiselect("Games", _srch_games_all, default=_srch_games_all, key="srch_games",
-                                        format_func=lambda x: f"Game {int(x)}")
+            srch_seasons = st.multiselect("Season", _meta_seasons, default=_meta_seasons, key="srch_seasons")
 
         _sc3, _sc4, _sc5, _sc6 = st.columns(4)
         with _sc3:
-            srch_pt = st.selectbox("Pitcher Team", ["All"] + _srch_def_teams, key="srch_pt", on_change=_on_srch_pt)
+            srch_pt = st.selectbox("Pitcher Team", ["All"] + _all_teams, key="srch_pt", on_change=_on_srch_pt)
         with _sc4:
-            _srch_pitchers = sorted(
-                df_all[df_all["def_team"] == srch_pt]["pitcher_name"].unique()
-                if srch_pt != "All" else df_all["pitcher_name"].unique()
-            )
-            srch_pitcher = st.selectbox("Pitcher", ["All"] + _srch_pitchers, key="srch_pitcher")
+            srch_pitcher = st.selectbox("Pitcher", ["All"] + _players_for_team(srch_pt), key="srch_pitcher")
         with _sc5:
-            srch_bt = st.selectbox("Batter Team", ["All"] + _srch_off_teams, key="srch_bt", on_change=_on_srch_bt)
+            srch_bt = st.selectbox("Batter Team", ["All"] + _all_teams, key="srch_bt", on_change=_on_srch_bt)
         with _sc6:
-            _srch_batters = sorted(
-                df_all[df_all["off_team"] == srch_bt]["batter_name"].unique()
-                if srch_bt != "All" else df_all["batter_name"].unique()
-            )
-            srch_batter = st.selectbox("Batter", ["All"] + _srch_batters, key="srch_batter")
+            srch_batter = st.selectbox("Batter", ["All"] + _players_for_team(srch_bt), key="srch_batter")
 
-        # Build search-filtered df for the play picker
-        df_srch = df_all.copy()
-        if srch_seasons:
-            df_srch = df_srch[df_srch["season"].isin(srch_seasons)]
-        if srch_games:
-            df_srch = df_srch[df_srch["game_id"].isin(srch_games)]
-        if srch_pt != "All":
-            df_srch = df_srch[df_srch["def_team"] == srch_pt]
+        # Load plays on demand - require pitcher or batter selection
         if srch_pitcher != "All":
-            df_srch = df_srch[df_srch["pitcher_name"] == srch_pitcher]
-        if srch_bt != "All":
-            df_srch = df_srch[df_srch["off_team"] == srch_bt]
-        if srch_batter != "All":
-            df_srch = df_srch[df_srch["batter_name"] == srch_batter]
+            _srch_raw = _load_pitcher_plays(srch_pitcher, _leagues_tuple)
+        elif srch_batter != "All":
+            _srch_raw = _load_batter_plays(srch_batter, _leagues_tuple)
+        else:
+            _srch_raw = pd.DataFrame()
+
+        df_srch = _srch_raw.copy()
+        if not df_srch.empty:
+            if srch_seasons:
+                df_srch = df_srch[df_srch["season"].isin(srch_seasons)]
+            if srch_pt != "All":
+                df_srch = df_srch[df_srch["def_team"] == srch_pt]
+            if srch_pitcher != "All":
+                df_srch = df_srch[df_srch["pitcher_name"] == srch_pitcher]
+            if srch_bt != "All":
+                df_srch = df_srch[df_srch["off_team"] == srch_bt]
+            if srch_batter != "All":
+                df_srch = df_srch[df_srch["batter_name"] == srch_batter]
+
+        if _srch_raw.empty and srch_pitcher == "All" and srch_batter == "All":
+            st.caption("Select a pitcher or batter above to browse plays.")
 
         st.divider()
 
@@ -461,6 +461,9 @@ if pred_mode == "Historical / Manual":
                                                   use_container_width=True, key="pred_hist_import"):
                 _import_play(int(_h_play), df_srch)
                 st.session_state["pred_hist_loaded_id"] = int(_h_play)
+                _imp_row = df_srch[df_srch["id"] == int(_h_play)]
+                if not _imp_row.empty:
+                    st.session_state["pred_hist_play_data"] = _imp_row.iloc[0].to_dict()
                 st.rerun()
         with col_hinfo:
             if _h_play is not None:
@@ -474,9 +477,8 @@ if pred_mode == "Historical / Manual":
                             f"Diff:{_hd}  → **{_hr.get('result','')}**"
                         )
         if hist_id and result_ranges:
-            _hpr_row = df_all[df_all["id"] == hist_id]
-            if not _hpr_row.empty:
-                _hpr2 = _hpr_row.iloc[0]
+            _hpr2 = st.session_state.get("pred_hist_play_data", {})
+            if _hpr2.get("id") == hist_id:
                 if pd.notna(_hpr2.get("pitch")) and pd.notna(_hpr2.get("swing")):
                     _had2    = utils.circular_diff(int(_hpr2["pitch"]), int(_hpr2["swing"]))
                     _calc_r2 = _calc_ranges()
@@ -493,9 +495,8 @@ if pred_mode == "Historical / Manual":
 
 elif pred_mode == "Fetch Live Matchup":
     with st.expander("Live Matchup", expanded=True):
-        all_games_sw = db.get_games()
         sheet_urls   = list(dict.fromkeys(
-            g["sheet_url"] for g in all_games_sw if g.get("sheet_url")
+            g["sheet_url"] for g in all_games_meta if g.get("sheet_url")
         ))
 
         col_sh, col_btn = st.columns([3, 1])
@@ -519,16 +520,18 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state["pred_sheet_pitcher"] = fetched_pitcher
 
                     # Auto-populate tab data filters from fetched names
-                    if fetched_pitcher and fetched_pitcher in df_all["pitcher_name"].unique():
+                    if fetched_pitcher and fetched_pitcher in _all_player_names:
                         st.session_state["tab_p_pitcher"] = fetched_pitcher
-                        _p_teams = df_all[df_all["pitcher_name"] == fetched_pitcher]["def_team"].mode()
-                        if not _p_teams.empty:
-                            st.session_state["tab_p_team"] = _p_teams.iloc[0]
-                    if fetched_batter and fetched_batter in df_all["batter_name"].unique():
+                        _pp = _pbyn.get(fetched_pitcher, {})
+                        _p_tf = utils.TEAM_ABBREV.get(_pp.get("team", ""), "All")
+                        if _p_tf in _all_teams:
+                            st.session_state["tab_p_team"] = _p_tf
+                    if fetched_batter and fetched_batter in _all_player_names:
                         st.session_state["tab_b_batter"] = fetched_batter
-                        _b_teams = df_all[df_all["batter_name"] == fetched_batter]["off_team"].mode()
-                        if not _b_teams.empty:
-                            st.session_state["tab_b_team"] = _b_teams.iloc[0]
+                        _bp = _pbyn.get(fetched_batter, {})
+                        _b_tf = utils.TEAM_ABBREV.get(_bp.get("team", ""), "All")
+                        if _b_tf in _all_teams:
+                            st.session_state["tab_b_team"] = _b_tf
 
                     fetched_gameplay = utils.parse_gameplay_from_sheet(pred_sheet_url)
                     st.session_state["steal_runner_data"]  = fetched_gameplay["steal_runners"]
@@ -579,43 +582,40 @@ tab_p, tab_b, tab_m = st.tabs(["⚾ Pitcher", "🦇 Batter", "📊 Manager"])
 
 with tab_p:
     # ── per-tab data filters ──────────────────────────────────────────────────
-    _all_seasons_p = sorted(df_all["season"].dropna().unique(), reverse=True)
-    _all_games_p   = sorted(df_all["game_id"].dropna().unique())
-    _def_teams_p   = sorted(df_all["def_team"].unique())
-
     with st.expander("Data Filters", expanded=True):
         _pf1, _pf2 = st.columns(2)
         with _pf1:
-            tab_p_seasons = st.multiselect("Season", _all_seasons_p, default=_all_seasons_p, key="tab_p_seasons")
-        with _pf2:
-            tab_p_games = st.multiselect("Games", _all_games_p, default=_all_games_p, key="tab_p_games",
-                                         format_func=lambda x: f"Game {int(x)}")
+            tab_p_seasons = st.multiselect("Season", _meta_seasons, default=_meta_seasons, key="tab_p_seasons")
         _pf3, _pf4 = st.columns(2)
         with _pf3:
-            if st.session_state.get("tab_p_team", "All") not in (["All"] + _def_teams_p):
+            if st.session_state.get("tab_p_team", "All") not in (["All"] + _all_teams):
                 st.session_state["tab_p_team"] = "All"
-            tab_p_team = st.selectbox("Pitcher Team", ["All"] + _def_teams_p,
+            tab_p_team = st.selectbox("Pitcher Team", ["All"] + _all_teams,
                                       key="tab_p_team", on_change=_on_tab_p_team)
         with _pf4:
-            _tab_p_pitchers = sorted(
-                df_all[df_all["def_team"] == tab_p_team]["pitcher_name"].unique()
-                if tab_p_team != "All" else df_all["pitcher_name"].unique()
-            )
+            _tab_p_pitchers = _players_for_team(tab_p_team)
             if st.session_state.get("tab_p_pitcher", "All") not in (["All"] + _tab_p_pitchers):
                 st.session_state["tab_p_pitcher"] = "All"
             tab_p_pitcher = st.selectbox("Pitcher", ["All"] + _tab_p_pitchers,
                                          key="tab_p_pitcher")
 
-    # Build pitcher tab df
-    df_p = df_all.copy()
-    if tab_p_seasons:
-        df_p = df_p[df_p["season"].isin(tab_p_seasons)]
-    if tab_p_games:
-        df_p = df_p[df_p["game_id"].isin(tab_p_games)]
-    if tab_p_team != "All":
-        df_p = df_p[df_p["def_team"] == tab_p_team]
+    # Build pitcher tab df on demand
     if tab_p_pitcher != "All":
-        df_p = df_p[df_p["pitcher_name"] == tab_p_pitcher]
+        _p_dfs = []
+        if _source_key in ("real", "all") and _leagues_tuple:
+            _p_dfs.append(_load_pitcher_plays(tab_p_pitcher, _leagues_tuple))
+        if _source_key in ("scrimmage", "all") and not _scrimmage_df.empty:
+            _p_scrim = _scrimmage_df[_scrimmage_df.get("pitcher_name", pd.Series(dtype=str)) == tab_p_pitcher] \
+                if "pitcher_name" in _scrimmage_df.columns else pd.DataFrame()
+            if not _p_scrim.empty:
+                _p_dfs.append(_p_scrim)
+        df_p = pd.concat(_p_dfs, ignore_index=True) if _p_dfs else pd.DataFrame()
+        if not df_p.empty and tab_p_seasons:
+            df_p = df_p[df_p["season"].isin(tab_p_seasons)]
+        if not df_p.empty and tab_p_team != "All":
+            df_p = df_p[df_p["def_team"] == tab_p_team]
+    else:
+        df_p = pd.DataFrame()
 
     df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
 
@@ -640,11 +640,15 @@ with tab_p:
             st.caption("No career stats on file - run Refresh Pitcher Stats on the Games page.")
 
     if df_p.empty:
-        st.warning("No at-bats match the current pitcher filter.")
+        if tab_p_pitcher == "All":
+            st.info("Select a pitcher in the filters above to load data.")
+        else:
+            st.warning("No at-bats found for this pitcher with the current filters.")
     else:
         # ── swing predictor ───────────────────────────────────────────────────
-        st.subheader("Swing Predictor")
+        st.subheader("Swing Analyzer")
         st.caption("Enter a proposed swing to see what each of this pitcher's recent pitches would give.")
+        _lnc_weights_p: list[float] = []
 
         if result_ranges:
             if "_pend_swing" in st.session_state:
@@ -657,30 +661,89 @@ with tab_p:
             proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
                                              step=1, key="pred_swing")
 
-            _df_tick_p = df_p_pred if not df_p_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
+            with st.expander("Relevance Weighting", expanded=True):
+                st.caption("Weight how recent pitches influence the Optimal Swing. At 50 on Recency and Result and 0 on State, weighting is equal for each recent pitch.")
+                _prw1, _prw2, _prw3 = st.columns(3)
+                with _prw1:
+                    st.markdown("**1 - Recency**")
+                    st.slider("Older vs Newer", 0, 100, value=50, key="p_rel_recency",
+                              help="50=equal. 0=weight older pitches more. 100=weight recent pitches more.")
+                    st.number_input("Weight", 0, 100, value=34, step=1, key="p_rel_g1")
+                with _prw2:
+                    st.markdown("**2 - Result**")
+                    st.slider("Pitcher vs Batter", 0, 100, value=50, key="p_rel_result",
+                              help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
+                    st.number_input("Weight ", 0, 100, value=33, step=1, key="p_rel_g2")
+                with _prw3:
+                    st.markdown("**3 - State**")
+                    st.slider("Any vs Similar", 0, 100, value=0, key="p_rel_state",
+                              help="50=equal. 100=upweight pitches from similar OBC + outs situations.")
+                    st.number_input("Weight  ", 0, 100, value=33, step=1, key="p_rel_g3")
+                _prg1 = st.session_state.get("p_rel_g1", 34)
+                _prg2 = st.session_state.get("p_rel_g2", 33)
+                _prg3 = st.session_state.get("p_rel_g3", 33)
+                _prg_tot = max(_prg1 + _prg2 + _prg3, 1)
+                st.caption(
+                    f"Normalized: Recency {_prg1/_prg_tot*100:.0f}% | "
+                    f"Result {_prg2/_prg_tot*100:.0f}% | "
+                    f"State {_prg3/_prg_tot*100:.0f}%"
+                )
+
+            # PA weights for relevance-weighted optimal swing and swing predictor coloring
+            _pa_df_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
+                        if not df_p_pred.empty else pd.DataFrame())
+            _p_cur_obc  = (st.session_state.get("mgr_sheet_obc") or "000")
+            _p_cur_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _p_rel_kwargs = dict(
+                recency_slider=st.session_state.get("p_rel_recency", 50),
+                result_slider=st.session_state.get("p_rel_result",  50),
+                state_slider=st.session_state.get("p_rel_state",   50),
+                g1=st.session_state.get("p_rel_g1", 34),
+                g2=st.session_state.get("p_rel_g2", 33),
+                g3=st.session_state.get("p_rel_g3", 33),
+            )
+            _pa_weights_p = utils.compute_pa_weights(
+                _pa_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
+            ) if not _pa_df_p.empty else []
+            _lnc_df_p = (df_p_pred[df_p_pred["pitch"].notna() & df_p_pred["swing"].notna()]
+                         .sort_values("id").tail(n_pitches)
+                         if not df_p_pred.empty else pd.DataFrame())
+            _lnc_weights_p = utils.compute_pa_weights(
+                _lnc_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
+            ) if not _lnc_df_p.empty else []
+
+            _df_tick_p = _pa_df_p if not _pa_df_p.empty else pd.DataFrame(columns=["id","pitch","swing"])
             _tick_lbl_p = f"Last {n_pitches} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
                           else f"Last {n_pitches} pitches"
             st.plotly_chart(
                 utils.swing_predictor_chart(_df_tick_p, swing=int(proposed_swing), n=n_pitches,
-                                            result_ranges=result_ranges, tick_label=_tick_lbl_p),
+                                            result_ranges=result_ranges, tick_label=_tick_lbl_p,
+                                            tick_weights=_pa_weights_p),
                 width="stretch", key="p_swing_pred",
             )
 
             st.markdown("**Optimal Swing**")
-            _recent_p = df_p_pred.sort_values("id").tail(n_pitches)["pitch"].dropna().astype(int).tolist() \
-                        if not df_p_pred.empty else []
+            _recent_p = _pa_df_p["pitch"].astype(int).tolist() if not _pa_df_p.empty else []
             _delta_p  = utils.project_from_deltas(_recent_p)
             _delta2_p = utils.project_from_delta2s(_recent_p)
-            _opt_rows_p = [("Based on Recent Pitch Values", _recent_p), ("Based on Recent Pitch Δ", _delta_p),
-                           ("Based on Recent Pitch Δ²", _delta2_p)]
+            _delta_weights_p  = (_pa_weights_p[1:] if len(_pa_weights_p) > 1 else None)
+            _delta2_weights_p = (
+                [w for w in _pa_weights_p[2:] for _ in range(2)]
+                if len(_pa_weights_p) > 2 else None
+            )
+            _opt_rows_p = [
+                ("Based on Recent Pitch Values", _recent_p,  _pa_weights_p or None),
+                ("Based on Recent Pitch Δ",      _delta_p,   _delta_weights_p),
+                ("Based on Recent Pitch Δ²",     _delta2_p,  _delta2_weights_p),
+            ]
             col_obp_p, col_slg_p = st.columns(2)
             with col_obp_p:
                 st.markdown("**OBP**")
-                for _i, (_lbl, _vals) in enumerate(_opt_rows_p):
+                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", True)
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", True, weights=_wts)
                         _pk = f"pill_obp_{_i}_p"
                         _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                         _sel = st.pills("", list(_opts.keys()), key=_pk)
@@ -688,15 +751,17 @@ with tab_p:
                             st.session_state["_pend_swing"] = _opts[_sel]
                             st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                             st.rerun()
-                        st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "obp", True, compact=True),
-                                        use_container_width=True, key=f"p_opt_obp_{_i}")
+                        st.plotly_chart(
+                            utils.optimal_swing_chart(_vals, result_ranges, "obp", True,
+                                                      compact=True, weights=_wts),
+                            use_container_width=True, key=f"p_opt_obp_{_i}")
             with col_slg_p:
                 st.markdown("**SLG**")
-                for _i, (_lbl, _vals) in enumerate(_opt_rows_p):
+                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", True)
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", True, weights=_wts)
                         _pk = f"pill_slg_{_i}_p"
                         _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                         _sel = st.pills("", list(_opts.keys()), key=_pk)
@@ -704,8 +769,10 @@ with tab_p:
                             st.session_state["_pend_swing"] = _opts[_sel]
                             st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                             st.rerun()
-                        st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "slg", True, compact=True),
-                                        use_container_width=True, key=f"p_opt_slg_{_i}")
+                        st.plotly_chart(
+                            utils.optimal_swing_chart(_vals, result_ranges, "slg", True,
+                                                      compact=True, weights=_wts),
+                            use_container_width=True, key=f"p_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
                 st.info("Select a matchup above to enable the predictor.")
@@ -720,7 +787,8 @@ with tab_p:
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {_actual_pitches_p} Pitches",
                                         swing_offset=(swing_off_p == "+1"),
-                                        segment_games=True),
+                                        segment_games=True,
+                                        tick_weights=_lnc_weights_p or None),
             width="stretch", key="p_last_n",
         )
 
@@ -736,8 +804,9 @@ with tab_p:
         st.divider()
         st.subheader("Next Pitch Delta vs Prior Pitch Delta")
         st.caption("How does a pitcher adjust their next pitch movement based on their previous pitch movement?")
+        dd_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=50, key="dd_bucket_p")
         st.plotly_chart(
-            utils.next_delta_vs_prior_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Pitch Δ", value_col="pitch"),
+            utils.next_delta_vs_prior_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Pitch Δ", value_col="pitch", bucket_size=dd_bucket_p),
             width="stretch", config={"displayModeBar": False}, key="p_delta_delta_hm",
         )
 
@@ -849,28 +918,18 @@ with tab_p:
 
 with tab_b:
     # ── per-tab data filters ──────────────────────────────────────────────────
-    _all_seasons_b = sorted(df_all["season"].dropna().unique(), reverse=True)
-    _all_games_b   = sorted(df_all["game_id"].dropna().unique())
-    _off_teams_b   = sorted(df_all["off_team"].unique())
-
     with st.expander("Data Filters", expanded=True):
         _bf1, _bf2 = st.columns(2)
         with _bf1:
-            tab_b_seasons = st.multiselect("Season", _all_seasons_b, default=_all_seasons_b, key="tab_b_seasons")
-        with _bf2:
-            tab_b_games = st.multiselect("Games", _all_games_b, default=_all_games_b, key="tab_b_games",
-                                         format_func=lambda x: f"Game {int(x)}")
+            tab_b_seasons = st.multiselect("Season", _meta_seasons, default=_meta_seasons, key="tab_b_seasons")
         _bf3, _bf4, _bf5 = st.columns(3)
         with _bf3:
-            if st.session_state.get("tab_b_team", "All") not in (["All"] + _off_teams_b):
+            if st.session_state.get("tab_b_team", "All") not in (["All"] + _all_teams):
                 st.session_state["tab_b_team"] = "All"
-            tab_b_team = st.selectbox("Batter Team", ["All"] + _off_teams_b,
+            tab_b_team = st.selectbox("Batter Team", ["All"] + _all_teams,
                                       key="tab_b_team", on_change=_on_tab_b_team)
         with _bf4:
-            _tab_b_batters = sorted(
-                df_all[df_all["off_team"] == tab_b_team]["batter_name"].unique()
-                if tab_b_team != "All" else df_all["batter_name"].unique()
-            )
+            _tab_b_batters = _players_for_team(tab_b_team)
             if st.session_state.get("tab_b_batter", "All") not in (["All"] + _tab_b_batters):
                 st.session_state["tab_b_batter"] = "All"
             tab_b_batter = st.selectbox("Batter", ["All"] + _tab_b_batters,
@@ -882,16 +941,34 @@ with tab_b:
             else:
                 tab_b_scope = "Solo"
 
-    # Build batter tab df
-    df_b = df_all.copy()
-    if tab_b_seasons:
+    # Build batter tab df on demand
+    if tab_b_batter != "All" and tab_b_scope == "Full Team" and tab_b_team != "All":
+        _b_dfs = []
+        if _source_key in ("real", "all") and _leagues_tuple:
+            _b_dfs.append(_load_team_offense_plays(tab_b_team, _leagues_tuple))
+        if _source_key in ("scrimmage", "all") and not _scrimmage_df.empty:
+            _b_scrim = _scrimmage_df[_scrimmage_df["off_team"] == tab_b_team] \
+                if "off_team" in _scrimmage_df.columns else pd.DataFrame()
+            if not _b_scrim.empty:
+                _b_dfs.append(_b_scrim)
+        df_b = pd.concat(_b_dfs, ignore_index=True) if _b_dfs else pd.DataFrame()
+    elif tab_b_batter != "All":
+        _b_dfs = []
+        if _source_key in ("real", "all") and _leagues_tuple:
+            _b_dfs.append(_load_batter_plays(tab_b_batter, _leagues_tuple))
+        if _source_key in ("scrimmage", "all") and not _scrimmage_df.empty:
+            _b_scrim = _scrimmage_df[_scrimmage_df["batter_name"] == tab_b_batter] \
+                if "batter_name" in _scrimmage_df.columns else pd.DataFrame()
+            if not _b_scrim.empty:
+                _b_dfs.append(_b_scrim)
+        df_b = pd.concat(_b_dfs, ignore_index=True) if _b_dfs else pd.DataFrame()
+    else:
+        df_b = pd.DataFrame()
+
+    if not df_b.empty and tab_b_seasons:
         df_b = df_b[df_b["season"].isin(tab_b_seasons)]
-    if tab_b_games:
-        df_b = df_b[df_b["game_id"].isin(tab_b_games)]
-    if tab_b_team != "All":
+    if not df_b.empty and tab_b_team != "All":
         df_b = df_b[df_b["off_team"] == tab_b_team]
-    if tab_b_batter != "All" and tab_b_scope == "Solo":
-        df_b = df_b[df_b["batter_name"] == tab_b_batter]
 
     df_b_pred = df_b[df_b["id"] < hist_id] if hist_id else df_b
 
@@ -899,11 +976,15 @@ with tab_b:
     n_swings = st.slider("Recent PA Window", 5, 100, 20, step=5, key="last_n_swing")
 
     if df_b.empty:
-        st.warning("No at-bats match the current batter filter.")
+        if tab_b_batter == "All":
+            st.info("Select a batter in the filters above to load data.")
+        else:
+            st.warning("No at-bats found for this batter with the current filters.")
     else:
         # ── pitch predictor ───────────────────────────────────────────────────
-        st.subheader("Pitch Predictor")
+        st.subheader("Pitch Analyzer")
         st.caption("Enter a proposed pitch to see what each of this batter's recent swings would give.")
+        _lnc_weights_b: list[float] = []
 
         if result_ranges:
             if "_pend_pitch" in st.session_state:
@@ -916,31 +997,90 @@ with tab_b:
             proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
                                              step=1, key="pred_pitch")
 
-            _df_tick_b = df_b_pred if not df_b_pred.empty else pd.DataFrame(columns=["id","pitch","swing"])
+            with st.expander("Relevance Weighting", expanded=True):
+                st.caption("Weight how recent swings influence the Optimal Pitch. At 50 on all behavior sliders, weighting is uniform.")
+                _brw1, _brw2, _brw3 = st.columns(3)
+                with _brw1:
+                    st.markdown("**1 - Recency**")
+                    st.slider("Older vs Newer", 0, 100, value=50, key="b_rel_recency",
+                              help="50=equal. 0=weight older swings more. 100=weight recent swings more.")
+                    st.number_input("Weight", 0, 100, value=34, step=1, key="b_rel_g1")
+                with _brw2:
+                    st.markdown("**2 - Result**")
+                    st.slider("Pitcher vs Batter", 0, 100, value=50, key="b_rel_result",
+                              help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
+                    st.number_input("Weight ", 0, 100, value=33, step=1, key="b_rel_g2")
+                with _brw3:
+                    st.markdown("**3 - State**")
+                    st.slider("Any vs Similar", 0, 100, value=50, key="b_rel_state",
+                              help="50=equal. 100=upweight swings from similar OBC + outs situations.")
+                    st.number_input("Weight  ", 0, 100, value=33, step=1, key="b_rel_g3")
+                _brg1 = st.session_state.get("b_rel_g1", 34)
+                _brg2 = st.session_state.get("b_rel_g2", 33)
+                _brg3 = st.session_state.get("b_rel_g3", 33)
+                _brg_tot = max(_brg1 + _brg2 + _brg3, 1)
+                st.caption(
+                    f"Normalized: Recency {_brg1/_brg_tot*100:.0f}% | "
+                    f"Result {_brg2/_brg_tot*100:.0f}% | "
+                    f"State {_brg3/_brg_tot*100:.0f}%"
+                )
+
+            # PA weights for relevance-weighted optimal pitch and swing predictor coloring
+            _pa_df_b = (df_b_pred[df_b_pred["swing"].notna()].sort_values("id").tail(n_swings)
+                        if not df_b_pred.empty else pd.DataFrame())
+            _b_cur_obc  = (st.session_state.get("mgr_sheet_obc") or "000")
+            _b_cur_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _b_rel_kwargs = dict(
+                recency_slider=st.session_state.get("b_rel_recency", 50),
+                result_slider=st.session_state.get("b_rel_result",  50),
+                state_slider=st.session_state.get("b_rel_state",   50),
+                g1=st.session_state.get("b_rel_g1", 34),
+                g2=st.session_state.get("b_rel_g2", 33),
+                g3=st.session_state.get("b_rel_g3", 33),
+            )
+            _pa_weights_b = utils.compute_pa_weights(
+                _pa_df_b, _b_cur_obc, _b_cur_outs, **_b_rel_kwargs,
+            ) if not _pa_df_b.empty else []
+            _lnc_df_b = (df_b_pred[df_b_pred["pitch"].notna() & df_b_pred["swing"].notna()]
+                         .sort_values("id").tail(n_swings)
+                         if not df_b_pred.empty else pd.DataFrame())
+            _lnc_weights_b = utils.compute_pa_weights(
+                _lnc_df_b, _b_cur_obc, _b_cur_outs, **_b_rel_kwargs,
+            ) if not _lnc_df_b.empty else []
+
+            _df_tick_b = _pa_df_b if not _pa_df_b.empty else pd.DataFrame(columns=["id","pitch","swing"])
             _tick_lbl_b = f"Last {n_swings} swings (pre-AB)" if hist_id and not df_b_pred.empty \
                           else f"Last {n_swings} swings"
             st.plotly_chart(
                 utils.swing_predictor_chart(_df_tick_b, swing=int(proposed_pitch), n=n_swings,
                                             result_ranges=result_ranges, tick_label=_tick_lbl_b,
-                                            value_col="swing", x_label="Swing Values", ref_label="Pitch"),
+                                            value_col="swing", x_label="Swing Values", ref_label="Pitch",
+                                            tick_weights=_pa_weights_b),
                 width="stretch", key="b_swing_pred",
             )
 
             st.markdown("**Optimal Pitch**")
-            _recent_b = df_b_pred.sort_values("id").tail(n_swings)["swing"].dropna().astype(int).tolist() \
-                        if not df_b_pred.empty else []
+            _recent_b = _pa_df_b["swing"].astype(int).tolist() if not _pa_df_b.empty else []
             _delta_b  = utils.project_from_deltas(_recent_b)
             _delta2_b = utils.project_from_delta2s(_recent_b)
-            _opt_rows_b = [("Based on Recent Swing Values", _recent_b), ("Based on Recent Swing Δ", _delta_b),
-                           ("Based on Recent Swing Δ²", _delta2_b)]
+            _delta_weights_b  = (_pa_weights_b[1:] if len(_pa_weights_b) > 1 else None)
+            _delta2_weights_b = (
+                [w for w in _pa_weights_b[2:] for _ in range(2)]
+                if len(_pa_weights_b) > 2 else None
+            )
+            _opt_rows_b = [
+                ("Based on Recent Swing Values", _recent_b,  _pa_weights_b or None),
+                ("Based on Recent Swing Δ",      _delta_b,   _delta_weights_b),
+                ("Based on Recent Swing Δ²",     _delta2_b,  _delta2_weights_b),
+            ]
             col_obp_b, col_slg_b = st.columns(2)
             with col_obp_b:
                 st.markdown("**OBP**")
-                for _i, (_lbl, _vals) in enumerate(_opt_rows_b):
+                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_b):
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", False)
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", False, weights=_wts)
                         _pk = f"pill_obp_{_i}_b"
                         _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                         _sel = st.pills("", list(_opts.keys()), key=_pk)
@@ -948,15 +1088,17 @@ with tab_b:
                             st.session_state["_pend_pitch"] = _opts[_sel]
                             st.session_state.setdefault("_pills_rst_b", []).append(_pk)
                             st.rerun()
-                        st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "obp", False, compact=True),
-                                        use_container_width=True, key=f"b_opt_obp_{_i}")
+                        st.plotly_chart(
+                            utils.optimal_swing_chart(_vals, result_ranges, "obp", False,
+                                                      compact=True, weights=_wts),
+                            use_container_width=True, key=f"b_opt_obp_{_i}")
             with col_slg_b:
                 st.markdown("**SLG**")
-                for _i, (_lbl, _vals) in enumerate(_opt_rows_b):
+                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_b):
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", False)
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", False, weights=_wts)
                         _pk = f"pill_slg_{_i}_b"
                         _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
                         _sel = st.pills("", list(_opts.keys()), key=_pk)
@@ -964,8 +1106,10 @@ with tab_b:
                             st.session_state["_pend_pitch"] = _opts[_sel]
                             st.session_state.setdefault("_pills_rst_b", []).append(_pk)
                             st.rerun()
-                        st.plotly_chart(utils.optimal_swing_chart(_vals, result_ranges, "slg", False, compact=True),
-                                        use_container_width=True, key=f"b_opt_slg_{_i}")
+                        st.plotly_chart(
+                            utils.optimal_swing_chart(_vals, result_ranges, "slg", False,
+                                                      compact=True, weights=_wts),
+                            use_container_width=True, key=f"b_opt_slg_{_i}")
         else:
             if pred_mode == "Fetch Live Matchup":
                 st.info("Select a matchup above to enable the predictor.")
@@ -982,7 +1126,8 @@ with tab_b:
             utils.last_n_combined_chart(df_b_pred, n=n_swings, delta_col="swing",
                                         title=f"Last {_actual_swings_b} Swings",
                                         swing_offset=(swing_off_b == "+1"),
-                                        highlight_name=_hl_name),
+                                        highlight_name=_hl_name,
+                                        tick_weights=_lnc_weights_b or None),
             width="stretch", key="b_last_n",
         )
 
@@ -996,8 +1141,9 @@ with tab_b:
         st.divider()
         st.subheader("Next Swing Delta vs Prior Swing Delta")
         st.caption("How does a batter adjust their next swing based on their previous swing movement?")
+        dd_bucket_b = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=50, key="dd_bucket_b")
         st.plotly_chart(
-            utils.next_delta_vs_prior_delta_heatmap(df_b, title="Next Swing Δ vs Prior Swing Δ", value_col="swing"),
+            utils.next_delta_vs_prior_delta_heatmap(df_b, title="Next Swing Δ vs Prior Swing Δ", value_col="swing", bucket_size=dd_bucket_b),
             width="stretch", config={"displayModeBar": False}, key="b_delta_delta_hm",
         )
 
@@ -1121,20 +1267,26 @@ with tab_b:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_m:
-    if df_all.empty:
-        st.warning("No at-bats available for analysis.")
-        st.stop()
-
-    # Prefer live game state from sheet fetch; fall back to last play in data
+    # Game state: Historical/Manual overrides sheet fetch, which overrides default
     _sheet_outs = st.session_state.get("mgr_sheet_outs")
     _sheet_obc  = st.session_state.get("mgr_sheet_obc")
-    if _sheet_outs is not None and _sheet_obc is not None:
+    if pred_mode == "Historical / Manual":
+        _man_outs = st.session_state.get("pred_calc_outs", 0)
+        _mr1 = st.session_state.get("pred_calc_1b", "Empty")
+        _mr2 = st.session_state.get("pred_calc_2b", "Empty")
+        _mr3 = st.session_state.get("pred_calc_3b", "Empty")
+        _current_outs = int(_man_outs) if _man_outs is not None else 0
+        _current_obc = (
+            f"{'1' if _mr3 != 'Empty' else '0'}"
+            f"{'1' if _mr2 != 'Empty' else '0'}"
+            f"{'1' if _mr1 != 'Empty' else '0'}"
+        )
+    elif _sheet_outs is not None and _sheet_obc is not None:
         _current_outs = int(_sheet_outs)
         _current_obc  = _sheet_obc
     else:
-        _current_pa   = df_all.iloc[-1]
-        _current_outs = int(_current_pa["outs"])
-        _current_obc  = _current_pa["obc"]
+        _current_outs = 0
+        _current_obc  = "000"
     _current_er   = utils.get_expected_runs(_current_outs, _current_obc) or 0
     _run_lookup   = _load_run_lookup()
 
@@ -1155,8 +1307,9 @@ with tab_m:
         new_obc, _ = utils.advance_runners(result, obc, o)
         return 0.0, new_obc, min(o + utils.outs_added(result), 3)
 
-    def _calc_ev(ranges):
+    def _calc_ev_and_probs(ranges):
         ev = 0.0
+        _tprobs: dict[int, float] = {}
         for entry in (ranges or []):
             _r, _dl, _dh = _norm(entry)
             _prob  = min((_dh - _dl + 1) * 2 / 1000, 1.0)
@@ -1164,7 +1317,15 @@ with tab_m:
             _nout  = min(_nout, 3)
             _ner   = utils.get_expected_runs(_nout, _nobc) or 0 if _nout < 3 else 0
             ev    += _prob * (_runs + _ner)
-        return ev
+            _imm   = int(_runs)
+            _adist = utils._re_dist.get((_nout, _nobc), {0: 1.0}) if _nout < 3 else {0: 1.0}
+            for _add, _p2 in _adist.items():
+                _n = _imm + _add
+                _tprobs[_n] = _tprobs.get(_n, 0.0) + _prob * _p2
+        p1r  = _tprobs.get(1, 0.0)
+        p2r  = _tprobs.get(2, 0.0)
+        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
+        return ev, p1r, p2r, p3pr
 
     def _outcome_grid(ranges, obc, outs):
         """Build flat outcome breakdown DataFrame sorted by (ER After + Runs) desc."""
@@ -1274,17 +1435,28 @@ with tab_m:
         with st.expander("Outcome Breakdown", expanded=False):
             st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
 
-    def _calc_ev_steal(safe_range):
+    def _calc_steal_ev_and_probs(safe_range):
         safe_prob = min(safe_range * 2 / 1000, 1.0)
         out_prob  = 1.0 - safe_prob
-        # Safe: all runners advance one base
         safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
         safe_ner  = utils.get_expected_runs(_current_outs, safe_obc) or 0
-        # Caught: lead runner out, other runners still advance one base
         out_obc, _ = utils.steal_cs(_current_obc)
         out_nout = min(_current_outs + 1, 3)
         out_ner  = utils.get_expected_runs(out_nout, out_obc) or 0 if out_nout < 3 else 0
-        return safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
+        ev = safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
+        _tprobs: dict[int, float] = {}
+        _simm   = int(safe_runs)
+        _sadist = utils._re_dist.get((_current_outs, safe_obc), {0: 1.0})
+        for _add, _p2 in _sadist.items():
+            _n = _simm + _add
+            _tprobs[_n] = _tprobs.get(_n, 0.0) + safe_prob * _p2
+        _oadist = utils._re_dist.get((out_nout, out_obc), {0: 1.0}) if out_nout < 3 else {0: 1.0}
+        for _add, _p2 in _oadist.items():
+            _tprobs[_add] = _tprobs.get(_add, 0.0) + out_prob * _p2
+        p1r  = _tprobs.get(1, 0.0)
+        p2r  = _tprobs.get(2, 0.0)
+        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
+        return ev, p1r, p2r, p3pr
 
     def _hnr_steal_advance_obc(obc: str) -> tuple[str, int]:
         """Advance the H&R runner: 1B->2B if present, else 2B->3B, else 3B->home."""
@@ -1306,16 +1478,16 @@ with tab_m:
         else:                   # 3B runner caught
             return "000"
 
-    def _calc_ev_hnr(hnr_ranges, hnr_steal_safe_rng):
+    def _calc_ev_hnr_and_probs(hnr_ranges, hnr_steal_safe_rng):
         """EV for hit and run: non-K outcomes use BRC; K outcomes fold in steal attempt."""
         sp = min(hnr_steal_safe_rng * 2 / 1000, 1.0)
         op = 1.0 - sp
         ev = 0.0
+        _tprobs: dict[int, float] = {}
         for entry in (hnr_ranges or []):
             r, lo, hi = _norm(entry)
             prob = min((hi - lo + 1) * 2 / 1000, 1.0)
             if r == "K":
-                # Batter K's (1 out) and runner was already going -> steal attempt
                 _, _, k_nout = _lookup("K", _current_obc, _current_outs)
                 k_nout = min(k_nout, 3)
                 s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
@@ -1324,12 +1496,28 @@ with tab_m:
                 cs_nout = min(k_nout + 1, 3)
                 cs_ner  = utils.get_expected_runs(cs_nout, cs_obc) or 0 if cs_nout < 3 else 0
                 ev += prob * (sp * (s_runs + s_ner) + op * cs_ner)
+                _simm  = int(s_runs)
+                _sadist = utils._re_dist.get((k_nout, s_obc), {0: 1.0}) if k_nout < 3 else {0: 1.0}
+                for _add, _p2 in _sadist.items():
+                    _n = _simm + _add
+                    _tprobs[_n] = _tprobs.get(_n, 0.0) + prob * sp * _p2
+                _csdist = utils._re_dist.get((cs_nout, cs_obc), {0: 1.0}) if cs_nout < 3 else {0: 1.0}
+                for _add, _p2 in _csdist.items():
+                    _tprobs[_add] = _tprobs.get(_add, 0.0) + prob * op * _p2
             else:
                 runs, new_obc, nout = _lookup(r, _current_obc, _current_outs)
                 nout = min(nout, 3)
                 ner = utils.get_expected_runs(nout, new_obc) or 0 if nout < 3 else 0
                 ev += prob * (runs + ner)
-        return ev
+                _imm   = int(runs)
+                _adist = utils._re_dist.get((nout, new_obc), {0: 1.0}) if nout < 3 else {0: 1.0}
+                for _add, _p2 in _adist.items():
+                    _n = _imm + _add
+                    _tprobs[_n] = _tprobs.get(_n, 0.0) + prob * _p2
+        p1r  = _tprobs.get(1, 0.0)
+        p2r  = _tprobs.get(2, 0.0)
+        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
+        return ev, p1r, p2r, p3pr
 
     _bunt_ranges = st.session_state.get("pred_bunt_ranges") or result_ranges
     _hnr_ranges  = utils.compute_at_bat_ranges(
@@ -1349,7 +1537,23 @@ with tab_m:
     )
 
     _steal_runners = st.session_state.get("steal_runner_data") or []
-    # Default safe range: lead runner from sheet, or fallback to 50
+    if pred_mode == "Historical / Manual" and _current_obc != "000":
+        _p_awr     = int(st.session_state.get("pred_calc_p_awr", 3))
+        _c_eye     = int(st.session_state.get("pred_calc_c_eye", 3))
+        _def_stat  = (_p_awr + _c_eye) / 2.0
+        _steal_to  = {"1B": "2nd", "2B": "3rd", "3B": "home"}
+        _base_bit  = {"3B": 0, "2B": 1, "1B": 2}
+        _run_key   = {"3B": "pred_calc_3b", "2B": "pred_calc_2b", "1B": "pred_calc_1b"}
+        _man_runners = []
+        for _base in ("3B", "2B", "1B"):
+            if _current_obc[_base_bit[_base]] == "1":
+                _rname = st.session_state.get(_run_key[_base], "Empty")
+                _rspd  = _stat(_pbyn.get(_rname, {}), "spd")
+                _diff  = _rspd - _def_stat
+                _tidx  = min(range(len(utils.STEAL_DIFFS)), key=lambda i: abs(utils.STEAL_DIFFS[i] - _diff))
+                _man_runners.append({"base": _base, "safe_range": utils.STEAL_TABLE[_steal_to[_base]][_tidx]})
+        _steal_runners = _man_runners
+    # Default safe range: lead runner from sheet/manual, or fallback to 50
     _default_safe_rng = _steal_runners[0]["safe_range"] if _steal_runners else 50
 
     # H&R valid only with < 2 outs and a single-runner OBC (1,2,4,5 = 001,010,100,101)
@@ -1395,10 +1599,16 @@ with tab_m:
         else:
             _steal_ev_rng = _sheet_safe_rng
 
-        ev_swing = _calc_ev(result_ranges)
-        ev_bunt  = _calc_ev(_bunt_ranges)
-        ev_steal = _calc_ev_steal(_steal_ev_rng)                    if _has_runners else None
-        ev_hr    = _calc_ev_hnr(_hnr_ranges, _hnr_safe_rng)         if _has_hnr     else None
+        ev_swing, s_p1r, s_p2r, s_p3pr = _calc_ev_and_probs(result_ranges)
+        ev_bunt,  b_p1r, b_p2r, b_p3pr = _calc_ev_and_probs(_bunt_ranges)
+        if _has_runners:
+            ev_steal, st_p1r, st_p2r, st_p3pr = _calc_steal_ev_and_probs(_steal_ev_rng)
+        else:
+            ev_steal = st_p1r = st_p2r = st_p3pr = None
+        if _has_hnr:
+            ev_hr, hr_p1r, hr_p2r, hr_p3pr = _calc_ev_hnr_and_probs(_hnr_ranges, _hnr_safe_rng)
+        else:
+            ev_hr = hr_p1r = hr_p2r = hr_p3pr = None
 
         # Game state + EV summary table side by side
         _gs_col, _tbl_col = st.columns([1, 2])
@@ -1409,17 +1619,29 @@ with tab_m:
         with _tbl_col:
             _decisions = ["Normal Swing", "Bunt"]
             _exp_runs  = [f"{ev_swing:.2f}", f"{ev_bunt:.2f}"]
-            _vs_base   = [f"{ev_swing - _current_er:+.2f}", f"{ev_bunt - _current_er:+.2f}"]
+            _p1r_col   = [f"{s_p1r*100:.1f}%", f"{b_p1r*100:.1f}%"]
+            _p2r_col   = [f"{s_p2r*100:.1f}%", f"{b_p2r*100:.1f}%"]
+            _p3pr_col  = [f"{s_p3pr*100:.1f}%", f"{b_p3pr*100:.1f}%"]
             if _has_runners:
                 _decisions += ["Steal"]
                 _exp_runs  += [f"{ev_steal:.2f}"]
-                _vs_base   += [f"{ev_steal - _current_er:+.2f}"]
+                _p1r_col   += [f"{st_p1r*100:.1f}%"]
+                _p2r_col   += [f"{st_p2r*100:.1f}%"]
+                _p3pr_col  += [f"{st_p3pr*100:.1f}%"]
             if _has_hnr:
                 _decisions += ["Hit and Run"]
                 _exp_runs  += [f"{ev_hr:.2f}"]
-                _vs_base   += [f"{ev_hr - _current_er:+.2f}"]
+                _p1r_col   += [f"{hr_p1r*100:.1f}%"]
+                _p2r_col   += [f"{hr_p2r*100:.1f}%"]
+                _p3pr_col  += [f"{hr_p3pr*100:.1f}%"]
             st.dataframe(
-                pd.DataFrame({"Decision": _decisions, "Exp Runs": _exp_runs, "vs Baseline": _vs_base}),
+                pd.DataFrame({
+                    "Decision": _decisions,
+                    "Exp Runs": _exp_runs,
+                    "P(1R)": _p1r_col,
+                    "P(2R)": _p2r_col,
+                    "P(3+R)": _p3pr_col,
+                }),
                 use_container_width=True, hide_index=True,
             )
 

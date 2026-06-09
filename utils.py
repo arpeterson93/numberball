@@ -44,7 +44,7 @@ RESULT_CATEGORIES = {
 
 MEME_NUMBERS = [42, 69, 420]
 
-# Run Expectancy Matrix: (outs, obc) -> expected runs
+# Run Expectancy Matrix: (outs, obc) -> expected runs (overwritten by CSV on load)
 RUN_EXPECTANCY = {
     (0, "000"): 0.67, (0, "001"): 1.00, (0, "010"): 1.31, (0, "100"): 1.52,
     (0, "011"): 1.61, (0, "101"): 1.89, (0, "110"): 2.02, (0, "111"): 2.51,
@@ -53,6 +53,31 @@ RUN_EXPECTANCY = {
     (2, "000"): 0.17, (2, "001"): 0.35, (2, "010"): 0.41, (2, "100"): 0.48,
     (2, "011"): 0.63, (2, "101"): 0.72, (2, "110"): 0.82, (2, "111"): 0.98,
 }
+
+# BRC int -> OBC string (sequential encoding: 0=empty,1=1B,2=2B,3=3B,4=1&2B,5=1&3B,6=2&3B,7=BL)
+_BRC_TO_OBC = {0: "000", 1: "001", 2: "010", 3: "100", 4: "011", 5: "101", 6: "110", 7: "111"}
+
+# _re_dist[(outs, obc)] = {runs_scored: probability}
+_re_dist: dict[tuple[int, str], dict[int, float]] = {}
+
+
+def _load_re_distribution() -> None:
+    """Load run_expectancy_distribution.csv, updating RUN_EXPECTANCY means in place."""
+    global _re_dist
+    try:
+        _csv = pd.read_csv("run_expectancy_distribution.csv")
+        for (outs, brc), grp in _csv.groupby(["Outs", "BRC"]):
+            obc_str = _BRC_TO_OBC.get(int(brc))
+            if obc_str is None:
+                continue
+            key = (int(outs), obc_str)
+            _re_dist[key] = dict(zip(grp["runs_scored"].astype(int), grp["pct"]))
+            RUN_EXPECTANCY[key] = round(float((grp["runs_scored"] * grp["pct"]).sum()), 4)
+    except FileNotFoundError:
+        pass
+
+
+_load_re_distribution()
 
 # Result ranges: (result, diff_low, diff_high) - from the league result table
 RESULT_RANGES = [
@@ -281,6 +306,16 @@ def outs_added(result: str) -> int:
 def get_expected_runs(outs: int, obc: str) -> float | None:
     """Look up expected runs for a given game state."""
     return RUN_EXPECTANCY.get((outs, obc))
+
+
+def get_run_prob(outs: int, obc: str, exact: int | None = None, at_least: int | None = None) -> float:
+    """Return P(runs=exact) or P(runs>=at_least) from the loaded run expectancy distribution."""
+    dist = _re_dist.get((outs, obc), {})
+    if exact is not None:
+        return dist.get(exact, 0.0)
+    if at_least is not None:
+        return sum(p for r, p in dist.items() if r >= at_least)
+    return 0.0
 
 
 def steal_advance(obc: str, outs: int) -> tuple[str, int]:
@@ -696,6 +731,7 @@ def last_n_combined_chart(
     swing_offset: bool = False,
     highlight_name: str | None = None,
     segment_games: bool = False,
+    tick_weights: list[float] | None = None,
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
@@ -890,6 +926,34 @@ def last_n_combined_chart(
         xaxis="x2", yaxis="y2",
     ), row=2, col=1)
 
+    # Color-coded weight circles below result labels
+    if tick_weights is not None and len(tick_weights) == n_actual:
+        import numpy as _np
+        _wt_display = swing_offset and len(tick_weights) > 1
+        _wt_vals = tick_weights[1:] if _wt_display else tick_weights
+        if len(_wt_vals) == len(result_x):
+            _w = _np.array(_wt_vals, dtype=float)
+            _wmin, _wmax = _w.min(), _w.max()
+            _color_vals = (
+                ((_w - _wmin) / (_wmax - _wmin)).tolist()
+                if _wmax > _wmin else [0.5] * len(_wt_vals)
+            )
+            fig.add_trace(go.Scatter(
+                x=result_x, y=[-90] * len(result_x),
+                mode="markers",
+                marker=dict(
+                    symbol="circle", size=10,
+                    color=_color_vals,
+                    colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
+                    cmin=0, cmax=1,
+                    showscale=False,
+                    line=dict(width=0.5, color="rgba(128,128,128,0.5)"),
+                ),
+                showlegend=False,
+                hoverinfo="skip",
+                xaxis="x2", yaxis="y2",
+            ), row=2, col=1)
+
     x_range = [0.5, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
     fig.update_xaxes(
@@ -898,7 +962,7 @@ def last_n_combined_chart(
     )
     fig.update_yaxes(range=[0, 1080], row=1, col=1)
     fig.update_yaxes(
-        range=[-60, 540], title_text="Delta", row=2, col=1,
+        range=[-110, 540], title_text="Delta", row=2, col=1,
         tickmode="array", tickvals=[100, 200, 300, 400, 500],
     )
 
@@ -1171,17 +1235,97 @@ def project_from_delta2s(recent_vals: list[int]) -> list[int]:
     return result
 
 
-def _build_weight_array(vals: list[int]) -> "import numpy; numpy.ndarray":
-    """Return a length-1000 probability weight array proportional to recent frequency."""
+_BATTING_QUALITY: dict[str, float] = {
+    "HR": 1.00, "3B": 0.90, "2BWH": 0.80, "2B": 0.75,
+    "1BWH2": 0.65, "1BWH": 0.60, "1B": 0.55, "IF1B": 0.50, "BB": 0.45,
+    "GORA": 0.25, "DSacF": 0.30, "DFO": 0.05, "SacF": 0.25, "FO": 0.00,
+    "PO": 0.00, "FCH": 0.00, "FC": 0.00, "FC3rd": 0.00,
+    "GO": 0.00, "LO": 0.00, "LODP": 0.00,
+    "K": 0.00, "DPRun": 0.10, "DP": 0.00, "DP21": 0.00,
+    "DP31": 0.00, "DPH1": 0.00, "TP": 0.00, "LOTP": 0.00,
+    "B1BWH": 0.60, "B1B": 0.55, "BFC": 0.00,
+    "SacB": 0.20, "DSacB": 0.25, "BDP": 0.00,
+}
+
+
+def compute_pa_weights(
+    df_tail: "pd.DataFrame",
+    current_obc: str = "000",
+    current_outs: int = 0,
+    recency_slider: int = 50,
+    result_slider: int = 50,
+    state_slider: int = 50,
+    g1: float = 34,
+    g2: float = 33,
+    g3: float = 33,
+) -> list[float]:
+    """Return per-PA relevance weights aligned with df_tail sorted by id ascending.
+
+    At slider=50 for all factors, weights are uniform regardless of global weights.
+    recency_slider: 0=weight older more, 50=equal, 100=weight recent more.
+    result_slider:  0=weight good pitching results more, 50=equal, 100=weight good batting results more.
+    state_slider:   0=equal, 100=weight PAs with similar OBC+Outs more.
+    """
+    import numpy as np
+    n = len(df_tail)
+    if n == 0:
+        return []
+    df_s = df_tail.sort_values("id").reset_index(drop=True)
+
+    tr = (recency_slider - 50) / 50.0
+    ts = (result_slider  - 50) / 50.0
+    te = state_slider / 100.0
+
+    g_total = max(g1 + g2 + g3, 1e-9)
+    gn1, gn2, gn3 = g1 / g_total, g2 / g_total, g3 / g_total
+
+    pos = np.linspace(0, 1, n) if n > 1 else np.array([0.5])
+    recency_w = np.exp(tr * (2 * pos - 1) * 3)
+
+    result_w = np.ones(n)
+    for i in range(n):
+        r = df_s.iloc[i].get("result") if "result" in df_s.columns else None
+        q = _BATTING_QUALITY.get(str(r) if pd.notna(r) else "", 0.5)
+        result_w[i] = np.exp(ts * (2 * q - 1) * 3)
+
+    state_w = np.ones(n)
+    if "obc" in df_s.columns and "outs" in df_s.columns:
+        cur_obc = current_obc.zfill(3)
+        for i in range(n):
+            row = df_s.iloc[i]
+            pa_obc  = str(row["obc"]).zfill(3) if pd.notna(row.get("obc", None)) else "000"
+            pa_outs = int(row["outs"]) if pd.notna(row.get("outs", None)) else 0
+            obc_sim  = sum(a == b for a, b in zip(cur_obc, pa_obc)) / 3.0
+            outs_sim = 1.0 - abs(current_outs - pa_outs) / 2.0
+            similarity = 0.5 * obc_sim + 0.5 * outs_sim
+            state_w[i] = np.exp(te * (2 * similarity - 1) * 3)
+
+    combined = gn1 * recency_w + gn2 * result_w + gn3 * state_w
+    mean_c = combined.mean()
+    if mean_c > 0:
+        combined = combined / mean_c
+    return combined.tolist()
+
+
+def _build_weight_array(vals: list[int], weights: list[float] | None = None) -> "numpy.ndarray":
+    """Return a length-1000 probability weight array proportional to recent frequency.
+
+    If weights is provided (same length as vals), each occurrence is weighted by its value.
+    """
     import numpy as np
     from collections import Counter
     w = np.zeros(1000)
     if not vals:
         w[:] = 1.0 / 1000
         return w
-    total = len(vals)
-    for v, c in Counter(vals).items():
-        w[v - 1] += c / total
+    if weights is not None and len(weights) == len(vals):
+        w_total = sum(weights) or 1.0
+        for v, wt in zip(vals, weights):
+            w[v - 1] += wt / w_total
+    else:
+        total = len(vals)
+        for v, c in Counter(vals).items():
+            w[v - 1] += c / total
     return w
 
 
@@ -1207,16 +1351,18 @@ def suggest_swing(
     result_ranges: list,
     metric: str = "obp",
     maximize: bool = True,
+    weights: list[float] | None = None,
 ) -> tuple[int, float, int, float]:
     """Return (best_val, best_score, counter_val, counter_score) via FFT convolution.
 
     best: argmax if maximize else argmin. counter: the opposite extreme.
+    weights: optional per-value relevance weights (same length as recent_opp_vals).
     """
     import numpy as np
     if not recent_opp_vals:
         return 500, 0.0, 500, 0.0
     scores = _scores_via_fft(
-        _build_weight_array(recent_opp_vals),
+        _build_weight_array(recent_opp_vals, weights),
         _diff_score_array(result_ranges, metric),
     )
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
@@ -1231,14 +1377,16 @@ def optimal_swing_chart(
     maximize: bool = True,
     title: str = "Expected Score by Swing Value",
     compact: bool = False,
+    weights: list[float] | None = None,
 ) -> go.Figure:
     """1-row gradient heatmap showing expected OBP or SLG for every possible swing value.
 
     Marks both the best value (green vline) and the counter/worst value (orange dotted vline).
+    weights: optional per-value relevance weights (same length as recent_opp_vals).
     """
     import numpy as np
     scores = _scores_via_fft(
-        _build_weight_array(recent_opp_vals),
+        _build_weight_array(recent_opp_vals, weights),
         _diff_score_array(result_ranges, metric),
     )
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
@@ -1322,13 +1470,14 @@ def swing_predictor_chart(
     df: pd.DataFrame,
     swing: int,
     n: int = 20,
-    title: str = "Swing Predictor",
+    title: str = "Swing Analyzer",
     result_ranges: list | None = None,
     tick_label: str = "Recent Pitches",
     value_col: str = "pitch",
     x_label: str = "Pitch Values",
     ref_label: str = "Swing",
     ref_color: str = "navy",
+    tick_weights: list[float] | None = None,
 ) -> go.Figure:
     """Color-coded number line for a proposed reference value, with recent pitch/swing values overlaid.
     value_col: column to pull tick marks from ('pitch' for pitcher page, 'swing' for batter page).
@@ -1382,17 +1531,29 @@ def swing_predictor_chart(
                 xanchor="center", yanchor="middle",
             )
 
-    # Tick marks - triangles beneath the colored zone, blue=oldest → white → red=newest
+    # Tick marks - triangles beneath the colored zone
+    # Color: blue=low relevance/old -> white -> red=high relevance/new
+    import numpy as _np
     df_last = df.sort_values("id").tail(n)
     vals = df_last[value_col].astype(int).tolist()
     n_vals = len(vals)
+    if tick_weights is not None and len(tick_weights) == n_vals:
+        _w = _np.array(tick_weights, dtype=float)
+        _wmin, _wmax = _w.min(), _w.max()
+        color_vals = (
+            ((_w - _wmin) / (_wmax - _wmin) * (n_vals - 1)).tolist()
+            if _wmax > _wmin else [float(n_vals - 1) / 2] * n_vals
+        )
+    else:
+        color_vals = list(range(n_vals))
     fig.add_trace(go.Scatter(
         x=vals, y=[-0.08] * n_vals,
         mode="markers",
         marker=dict(
             symbol="triangle-up", size=9,
-            color=list(range(n_vals)),
+            color=color_vals,
             colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
+            cmin=0, cmax=max(n_vals - 1, 1),
             showscale=False,
             line=dict(width=0.5, color="white"),
         ),
@@ -1436,15 +1597,16 @@ def swing_predictor_chart(
                     top_idx.append(i)
                     top_d.append(d_int)
             if top_x:
+                top_colors = [color_vals[i] for i in top_idx]
                 fig.add_trace(go.Scatter(
                     x=top_x,
                     y=[1.08] * len(top_x),
                     mode="markers",
                     marker=dict(
                         symbol="triangle-down", size=9,
-                        color=top_idx,
+                        color=top_colors,
                         colorscale=[[0, "#4575b4"], [0.5, "white"], [1, "#d73027"]],
-                        cmin=0, cmax=n_vals - 1,
+                        cmin=0, cmax=max(n_vals - 1, 1),
                         showscale=False,
                         line=dict(width=0.5, color="white"),
                     ),
@@ -1712,17 +1874,17 @@ def bases_diamond_svg(obc: str, outs: int) -> str:
     gold, g_bdr  = "#FFD700", "#FFA500"
     empty, e_bdr = "#2d2d2d", "#666666"
 
-    # Base positions (115×130 canvas):  2B=top, 1B=right, 3B=left, home=bottom
-    home   = (57, 96)
-    first  = (96, 57)
-    second = (57, 19)
-    third  = (19, 57)
+    # Base positions (90x100 canvas): 2B=top, 1B=right, 3B=left, home=bottom
+    home   = (45, 74)
+    first  = (74, 44)
+    second = (45, 14)
+    third  = (16, 44)
 
     def base(cx, cy, filled):
-        r = 9
+        r = 7
         pts = f"{cx},{cy-r} {cx+r},{cy} {cx},{cy+r} {cx-r},{cy}"
         c, b = (gold, g_bdr) if filled else (empty, e_bdr)
-        return f'<polygon points="{pts}" fill="{c}" stroke="{b}" stroke-width="2.5"/>'
+        return f'<polygon points="{pts}" fill="{c}" stroke="{b}" stroke-width="2"/>'
 
     def ln(p1, p2):
         return (f'<line x1="{p1[0]}" y1="{p1[1]}" '
@@ -1731,11 +1893,11 @@ def bases_diamond_svg(obc: str, outs: int) -> str:
     path  = ln(home, first) + ln(first, second) + ln(second, third) + ln(third, home)
     bases = base(*home, False) + base(*first, on_1b) + base(*second, on_2b) + base(*third, on_3b)
     dots  = "".join(
-        f'<circle cx="{46 + i*11}" cy="117" r="5" '
+        f'<circle cx="{33 + i*12}" cy="91" r="4" '
         f'fill="{"#FFD700" if i < outs else "#2d2d2d"}" stroke="#888" stroke-width="1.5"/>'
         for i in range(3)
     )
-    return f'<svg width="115" height="115" xmlns="http://www.w3.org/2000/svg">{path}{bases}{dots}</svg>'
+    return f'<svg width="90" height="100" xmlns="http://www.w3.org/2000/svg">{path}{bases}{dots}</svg>'
 
 
 def steal_color_bar(proposed_value: int, safe_range: int,
@@ -2126,14 +2288,19 @@ def next_delta_vs_prior_delta_heatmap(
     df: pd.DataFrame,
     title: str = "Next Pitch Δ vs Prior Pitch Δ",
     value_col: str = "pitch",
+    bucket_size: int = 50,
 ) -> go.Figure:
     """Heatmap: next delta vs prior delta for consecutive plays.
 
     Shows how pitcher/batter adjusts their next movement based on their previous movement.
     X = prior pitch/swing delta bin; Y = next pitch/swing delta bin.
+    bucket_size must divide 500 evenly.
     """
     delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+
+    bins = list(range(0, 501, bucket_size))
+    labels = [f"{i}-{i + bucket_size}" for i in range(0, 500, bucket_size)]
 
     df_sw = df[df[value_col].notna()].copy()
     if len(df_sw) < 2:
@@ -2155,15 +2322,15 @@ def next_delta_vs_prior_delta_heatmap(
 
     df_sw["_prior_delta_cat"] = pd.cut(
         df_sw[delta_col].abs().astype(int),
-        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+        bins=bins, labels=labels, right=True, include_lowest=True,
     )
     df_sw["_next_delta_cat"] = pd.cut(
         df_sw["_next_delta"].abs().astype(int),
-        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+        bins=bins, labels=labels, right=True, include_lowest=True,
     )
 
     ct = pd.crosstab(df_sw["_next_delta_cat"], df_sw["_prior_delta_cat"]).reindex(
-        index=_DELTA_HM_LABELS, columns=_DELTA_HM_LABELS, fill_value=0
+        index=labels, columns=labels, fill_value=0
     )
     col_totals = ct.sum(axis=0).replace(0, 1)
     ct_norm = ct.div(col_totals, axis=1) * 100
@@ -2171,15 +2338,15 @@ def next_delta_vs_prior_delta_heatmap(
     z_raw = ct.values.tolist()
     text = [
         [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
-         for j in range(len(_DELTA_HM_LABELS))]
-        for i in range(len(_DELTA_HM_LABELS))
+         for j in range(len(labels))]
+        for i in range(len(labels))
     ]
     customdata = z_raw
 
     fig = go.Figure(go.Heatmap(
         z=z_norm,
-        x=_DELTA_HM_LABELS,
-        y=_DELTA_HM_LABELS,
+        x=labels,
+        y=labels,
         text=text,
         texttemplate="%{text}",
         customdata=customdata,
@@ -2193,7 +2360,7 @@ def next_delta_vs_prior_delta_heatmap(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Prior |Δ|"),
         yaxis=dict(title="Next |Δ|"),
-        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        height=max(360, len(labels) * 40 + 110),
         margin=dict(l=80, r=10, t=50, b=70),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
@@ -2565,7 +2732,7 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
     df.columns = [c.strip() for c in df.columns]
     teams = []
     for _, row in df.iterrows():
-        s_team = _str(row.get("S_Team"))
+        s_team = _str(row.get("S_Team")) or _str(row.get("Abv"))
         if not s_team:
             continue
         teams.append({
@@ -2588,47 +2755,92 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
     return teams
 
 
-def read_mln_players_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Rosters' tab from an MLN archive sheet."""
+def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int | None = None) -> list[dict]:
+    """Read a players/rosters tab from an MLN sheet.
+
+    Archive ('Rosters') has named columns (S_ID, Full Player Name, Season, ...).
+    Current season ('Players') follows the RLN positional format; pass season= to build s_id.
+    """
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Rosters')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
     )
-    df = pd.read_csv(url, dtype=str)
+    df = pd.read_csv(url, dtype=str, header=0)
     df.columns = [c.strip() for c in df.columns]
+
+    # Archive format: named columns with S_ID present
+    if "S_ID" in df.columns:
+        players = []
+        for _, row in df.iterrows():
+            s_id = _str(row.get("S_ID"))
+            name = _str(row.get("Full Player Name"))
+            if not s_id or not name:
+                continue
+            players.append({
+                "league":           "MLN",
+                "s_id":             s_id,
+                "season":           _safe_int(row.get("Season")),
+                "name":             name,
+                "first_name":       _str(row.get("First Name")),
+                "last_name":        _str(row.get("Last Name")),
+                "suffix":           _str(row.get("Suffix")),
+                "discord_id":       _str(row.get("Discord ID*")),
+                "discord_nickname": _str(row.get("Discord Nickname*")),
+                "team":             _str(row.get("Team")),
+                "gm":               _parse_bool(row.get("GM")),
+                "status":           _str(row.get("Status*")),
+                "session_added":    _str(row.get("Session*")),
+                "primary_pos":      _str(row.get("Primary")),
+                "secondary_pos":    _str(row.get("Secondary")),
+                "hand":             _str(row.get("HAND")),
+                "con":              _safe_int(row.get("CON")),
+                "eye":              _safe_int(row.get("EYE")),
+                "pwr":              _safe_int(row.get("PWR")),
+                "spd":              _safe_int(row.get("SPD")),
+                "mov":              _safe_int(row.get("MOV")),
+                "cmd":              _safe_int(row.get("CMD")),
+                "vel":              _safe_int(row.get("VEL")),
+                "awr":              _safe_int(row.get("AWR")),
+                "rookie":           _parse_bool(row.get("Rookie?")),
+            })
+        return players
+
+    # RLN positional format: col 0=ID, 1=Team, 2=GM, 3=Name, 4=Last, 5=Discord ID,
+    # 6=Status, 7=Primary, 8=Secondary, 9=Hand, 10=CON, 11=EYE, 12=PWR, 13=SPD,
+    # 14=MOV, 15=CMD, 16=VEL, 17=AWR, 18=Discord Nickname, 19=Rookie?
+    _col = lambda i: df.iloc[:, i] if i < len(df.columns) else pd.Series([None] * len(df))
     players = []
     for _, row in df.iterrows():
-        s_id = _str(row.get("S_ID"))
-        name = _str(row.get("Full Player Name"))
-        if not s_id or not name:
+        player_id = _safe_int(_col(0)[row.name])
+        name = _str(_col(3)[row.name])
+        team = _str(_col(1)[row.name])
+        if not player_id or not name or not team:
             continue
+        s_id = f"{season}_{player_id}" if season is not None else str(player_id)
         players.append({
             "league":           "MLN",
             "s_id":             s_id,
-            "season":           _safe_int(row.get("Season")),
+            "season":           season,
             "name":             name,
-            "first_name":       _str(row.get("First Name")),
-            "last_name":        _str(row.get("Last Name")),
-            "suffix":           _str(row.get("Suffix")),
-            "discord_id":       _str(row.get("Discord ID*")),
-            "discord_nickname": _str(row.get("Discord Nickname*")),
-            "team":             _str(row.get("Team")),
-            "gm":               _parse_bool(row.get("GM")),
-            "status":           _str(row.get("Status*")),
-            "session_added":    _str(row.get("Session*")),
-            "primary_pos":      _str(row.get("Primary")),
-            "secondary_pos":    _str(row.get("Secondary")),
-            "hand":             _str(row.get("HAND")),
-            "con":              _safe_int(row.get("CON")),
-            "eye":              _safe_int(row.get("EYE")),
-            "pwr":              _safe_int(row.get("PWR")),
-            "spd":              _safe_int(row.get("SPD")),
-            "mov":              _safe_int(row.get("MOV")),
-            "cmd":              _safe_int(row.get("CMD")),
-            "vel":              _safe_int(row.get("VEL")),
-            "awr":              _safe_int(row.get("AWR")),
-            "rookie":           _parse_bool(row.get("Rookie?")),
+            "last_name":        _str(_col(4)[row.name]),
+            "discord_id":       _str(_col(5)[row.name]),
+            "discord_nickname": _str(_col(18)[row.name]),
+            "team":             team,
+            "gm":               _parse_bool(_col(2)[row.name]),
+            "status":           _str(_col(6)[row.name]),
+            "primary_pos":      _str(_col(7)[row.name]),
+            "secondary_pos":    _str(_col(8)[row.name]),
+            "hand":             _str(_col(9)[row.name]),
+            "con":              _safe_int(_col(10)[row.name]),
+            "eye":              _safe_int(_col(11)[row.name]),
+            "pwr":              _safe_int(_col(12)[row.name]),
+            "spd":              _safe_int(_col(13)[row.name]),
+            "mov":              _safe_int(_col(14)[row.name]),
+            "cmd":              _safe_int(_col(15)[row.name]),
+            "vel":              _safe_int(_col(16)[row.name]),
+            "awr":              _safe_int(_col(17)[row.name]),
+            "rookie":           _parse_bool(_col(19)[row.name]),
         })
     return players
 
@@ -2695,8 +2907,8 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
     return games
 
 
-def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays' tab from an MLN archive sheet.
+def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
+    """Read a plays tab from an MLN sheet. Archive uses 'Plays'; current season uses 'Plays (Raw)'.
 
     Away/Home contain Team IDs (e.g. T1009); Pitcher/Batter/Catcher/Runner contain
     MLN player IDs. Caller resolves these to names via get_mln_teams/players_for_lookup().
@@ -2704,7 +2916,7 @@ def read_mln_plays_from_sheet(sheet_id: str) -> list[dict]:
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
