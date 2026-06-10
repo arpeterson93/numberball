@@ -1300,7 +1300,13 @@ def compute_pa_weights(
             similarity = 0.5 * obc_sim + 0.5 * outs_sim
             state_w[i] = np.exp(te * (2 * similarity - 1) * 3)
 
-    combined = gn1 * recency_w + gn2 * result_w + gn3 * state_w
+    def _norm01(w: "numpy.ndarray") -> "numpy.ndarray":
+        wmin, wmax = w.min(), w.max()
+        if wmax > wmin:
+            return (w - wmin) / (wmax - wmin)
+        return np.full_like(w, 0.5)
+
+    combined = gn1 * _norm01(recency_w) + gn2 * _norm01(result_w) + gn3 * _norm01(state_w)
     mean_c = combined.mean()
     if mean_c > 0:
         combined = combined / mean_c
