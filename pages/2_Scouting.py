@@ -136,6 +136,7 @@ _DEFS = {
     "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,
     "pred_calc_1b":"Empty","pred_calc_2b":"Empty","pred_calc_3b":"Empty",
     "mgr_inning":1,"mgr_half":"Top","mgr_away_score":0,"mgr_home_score":0,
+    "mgr_league":"MLN",
 }
 for _k, _v in _DEFS.items():
     if _k not in st.session_state:
@@ -407,6 +408,8 @@ result_ranges = None
 hist_id       = st.session_state.get("pred_hist_loaded_id") if pred_mode == "Historical / Manual" else None
 matchup_label = ""
 
+_mgr_max_inning = utils.game_innings(st.session_state.get("mgr_league", "MLN"))
+
 if pred_mode == "Historical / Manual":
     _calc_r       = _calc_ranges(bunt=False)
     result_ranges = [(r["result"], r["low"], r["high"]) for r in _calc_r]
@@ -501,7 +504,7 @@ if pred_mode == "Historical / Manual":
         st.divider()
         _gsi1, _gsi2, _gsi3, _gsi4 = st.columns(4)
         with _gsi1:
-            st.number_input("Inning", 1, utils._WP_INNINGS, step=1, key="mgr_inning")
+            st.number_input("Inning", 1, _mgr_max_inning, step=1, key="mgr_inning")
         with _gsi2:
             st.selectbox("Half", ["Top", "Bottom"], key="mgr_half")
         with _gsi3:
@@ -559,6 +562,9 @@ elif pred_mode == "Fetch Live Matchup":
                     if _matched_g:
                         st.session_state["game_tab_game_id"] = _matched_g["id"]
                         st.session_state["game_tab_sel"] = _matched_g["id"]
+                        _fetched_league = _matched_g.get("league", "MLN")
+                        st.session_state["mgr_league"] = _fetched_league
+                        _fetched_innings = utils.game_innings(_fetched_league)
                         # Pre-populate scores from game record (0 if not yet recorded)
                         st.session_state["mgr_away_score"] = int(_matched_g["away_score"]) if _matched_g.get("away_score") is not None else 0
                         st.session_state["mgr_home_score"] = int(_matched_g["home_score"]) if _matched_g.get("home_score") is not None else 0
@@ -575,7 +581,7 @@ elif pred_mode == "Fetch Live Matchup":
                                     st.session_state["mgr_inning"] = _lp_inn
                                     st.session_state["mgr_half"]   = "Bottom"
                                 else:
-                                    st.session_state["mgr_inning"] = min(_lp_inn + 1, utils._WP_INNINGS)
+                                    st.session_state["mgr_inning"] = min(_lp_inn + 1, _fetched_innings)
                                     st.session_state["mgr_half"]   = "Top"
                             else:
                                 st.session_state["mgr_inning"] = _lp_inn
@@ -615,7 +621,7 @@ elif pred_mode == "Fetch Live Matchup":
             st.divider()
             _gsi1, _gsi2, _gsi3, _gsi4 = st.columns(4)
             with _gsi1:
-                st.number_input("Inning", 1, utils._WP_INNINGS, step=1, key="mgr_inning")
+                st.number_input("Inning", 1, _mgr_max_inning, step=1, key="mgr_inning")
             with _gsi2:
                 st.selectbox("Half", ["Top", "Bottom"], key="mgr_half")
             with _gsi3:
@@ -1377,7 +1383,8 @@ with tab_g:
             if not _wp_ready:
                 st.warning("Win probability table not loaded. Run the WP simulation to generate win_probability_table.csv first.")
             else:
-                _wp_df = utils.compute_game_wp_series(_game_plays, _game_meta)
+                _game_league = _game_meta.get("league", "MLN")
+                _wp_df = utils.compute_game_wp_series(_game_plays, _game_meta, innings=utils.game_innings(_game_league))
                 _wp_fig = utils.win_probability_chart(
                     _wp_df,
                     home_team=_home,
@@ -1802,7 +1809,7 @@ with tab_m:
         _mgr_half       = str(st.session_state.get("mgr_half", "Top"))
         _mgr_away_score = int(st.session_state.get("mgr_away_score", 0))
         _mgr_home_score = int(st.session_state.get("mgr_home_score", 0))
-        _mgr_remaining  = utils.remaining_half_innings(_mgr_inning, _mgr_half.lower(), utils._WP_INNINGS)
+        _mgr_remaining  = utils.remaining_half_innings(_mgr_inning, _mgr_half.lower(), utils.game_innings(st.session_state.get("mgr_league", "MLN")))
         _mgr_batting_lead = (
             _mgr_home_score - _mgr_away_score if _mgr_half == "Bottom"
             else _mgr_away_score - _mgr_home_score

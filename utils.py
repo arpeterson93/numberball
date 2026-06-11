@@ -87,6 +87,15 @@ _load_re_distribution()
 
 _WP_LOOKUP: dict[tuple[int, int, str, int], float] = {}
 _WP_INNINGS = 6   # standard game length used when computing remaining
+
+LEAGUE_INNINGS: dict[str, int] = {"RLN": 4, "MLN": 6}
+
+
+def game_innings(league: str) -> int:
+    """Return regulation game length in innings for the given league."""
+    return LEAGUE_INNINGS.get(str(league).upper(), _WP_INNINGS)
+
+
 # Sorted index for batting_lead interpolation: (remaining, outs, obc) -> [(lead, prob), ...]
 _WP_BY_STATE: dict[tuple[int, int, str], list[tuple[int, float]]] = {}
 
@@ -396,12 +405,15 @@ def compute_game_wp_series(
         "hover":      "Start of game",
     })
 
+    _game_ended    = False
+    _final_home_wp = 0.5
+
     for i, play in enumerate(sorted_plays):
-        inning = int(play.get("inning") or 1)
-        half   = str(play.get("half") or "top")
-        outs   = int(play.get("outs") or 0)
+        inning  = int(play.get("inning") or 1)
+        half    = str(play.get("half") or "top")
+        outs    = int(play.get("outs") or 0)
         obc_raw = play.get("obc") or "000"
-        obc    = str(obc_raw).zfill(3) if not isinstance(obc_raw, int) else _BRC_TO_OBC.get(obc_raw, "000")
+        obc     = str(obc_raw).zfill(3) if not isinstance(obc_raw, int) else _BRC_TO_OBC.get(obc_raw, "000")
         result  = str(play.get("result") or "")
         pitcher = str(play.get("pitcher_name") or "")
         batter  = str(play.get("batter_name") or "")
@@ -415,11 +427,29 @@ def compute_game_wp_series(
             else:
                 away_score += int(runs)
 
-        # Derive post-play WP from the next play's recorded state (which IS the post-play state).
-        # Never force 0/1 on the last recorded play - the Final bookend handles the definitive outcome.
-        # Forcing it here breaks live/incomplete games where the last recorded play is mid-game.
+        _new_outs_total = outs + outs_added(result)
+        _is_late = (inning >= innings)
+
+        # Detect game-ending conditions (final inning and any extra innings):
+        # 1. Top half ends (3 outs) with home team leading - bottom never played
+        # 2. Home team leads at any point during the bottom half - walk-off
+        # 3. Bottom half ends (3 outs) with score not tied - away wins (or home won via #2)
+        if not _game_ended and _is_late:
+            if (not is_home) and _new_outs_total >= 3 and home_score > away_score:
+                _game_ended    = True
+                _final_home_wp = 1.0
+            elif is_home and home_score > away_score:
+                _game_ended    = True
+                _final_home_wp = 1.0
+            elif is_home and _new_outs_total >= 3 and home_score != away_score:
+                _game_ended    = True
+                _final_home_wp = 0.0 if away_score > home_score else 1.0
+
         is_last = (i + 1 >= len(sorted_plays))
-        if not is_last:
+
+        if _game_ended:
+            home_wp = _final_home_wp
+        elif not is_last:
             nxt         = sorted_plays[i + 1]
             nxt_inning  = int(nxt.get("inning") or inning)
             nxt_half    = str(nxt.get("half") or half)
@@ -433,8 +463,8 @@ def compute_game_wp_series(
             wp_bat      = get_win_probability_interpolated(rem, nxt_outs, nxt_obc, bat_score - fld_score) or 0.5
             home_wp     = wp_bat if is_home_nxt else 1.0 - wp_bat
         else:
-            # Last play, no final score - approximate from outs/obc after this play
-            new_outs  = min(outs + outs_added(result), 3)
+            # Last play with no detected game-end - approximate from post-play state
+            new_outs  = min(_new_outs_total, 3)
             new_obc_s, _ = advance_runners(result, obc, outs)
             bat_score = home_score if is_home else away_score
             fld_score = away_score if is_home else home_score
@@ -466,11 +496,12 @@ def compute_game_wp_series(
             "hover":      hover,
         })
 
-    # Final bookend - only add when the last play's WP isn't already the definitive result
-    if final_away is not None and final_home is not None:
-        final_wp = 1.0 if int(final_home) > int(final_away) else (0.0 if int(final_away) > int(final_home) else 0.5)
-        last_wp = rows[-1]["home_wp"] if rows else None
-        if last_wp != final_wp:
+    # Final bookend - only when a game-ending condition was detected from the play data.
+    # Uses DB scores if recorded, otherwise the running score tracker.
+    if _game_ended:
+        _fb_away = int(final_away) if final_away is not None else away_score
+        _fb_home = int(final_home) if final_home is not None else home_score
+        if not rows or rows[-1]["inn_label"] != "Final":
             rows.append({
                 "play_idx":   len(sorted_plays) + 1,
                 "inn_label":  "Final",
@@ -479,10 +510,10 @@ def compute_game_wp_series(
                 "batter":     "",
                 "pitcher":    "",
                 "result":     "Final",
-                "home_score": int(final_home),
-                "away_score": int(final_away),
-                "home_wp":    final_wp,
-                "hover":      f"Final: {away_team} {final_away} - {final_home} {home_team}",
+                "home_score": _fb_home,
+                "away_score": _fb_away,
+                "home_wp":    _final_home_wp,
+                "hover":      f"Final: {away_team} {_fb_away} - {_fb_home} {home_team}",
             })
 
     return pd.DataFrame(rows)
@@ -2926,6 +2957,8 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
             "winning_pitcher": _str(row.get("Winning Pitcher")),
             "losing_pitcher": _str(row.get("Losing Pitcher")),
             "save_pitcher": _str(row.get("Save")),
+            "hold_1": _str(row.get("Hold")),
+            "hold_2": _str(row.get("Hold.1")),
             "player_of_game": _str(row.get("Player of the Game")),
             "honorable_mention_1": hms[0],
             "honorable_mention_2": hms[1],
@@ -3282,10 +3315,11 @@ def read_mln_team_abbrev_lookup(sheet_id: str) -> dict[str, str]:
 
 
 def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Games' tab from an MLN archive sheet.
+    """Read the 'Games' tab from an MLN sheet (current season or archive).
 
-    Away/Home columns contain team abbreviations; caller resolves them to full names
-    via get_mln_teams_for_lookup() before upserting.
+    Detects format by column names: MLN current uses 'Winning Pitcher';
+    MLN Archive uses 'WP'. Away/Home contain team abbreviations; caller
+    resolves them to full names via read_mln_team_abbrev_lookup().
     """
     import urllib.parse
     url = (
@@ -3294,6 +3328,11 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
+    cols = set(df.columns)
+
+    # MLN current uses long column names; Archive uses short abbreviations
+    is_current = "Winning Pitcher" in cols
+
     games = []
     for _, row in df.iterrows():
         game_num = _safe_int(row.get("Game#"))
@@ -3305,32 +3344,77 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
             session_num = int(game_code[2:4])
         except ValueError:
             continue
-        a_scr = _safe_int(row.get("a_scr"))
-        h_scr = _safe_int(row.get("h_scr"))
+
+        if is_current:
+            a_scr       = _safe_int(row.get("a_Scr"))
+            h_scr       = _safe_int(row.get("h_Scr"))
+            winning_p   = _str(row.get("Winning Pitcher"))
+            losing_p    = _str(row.get("Losing Pitcher"))
+            save_p      = _str(row.get("Save"))
+            hold_1      = _str(row.get("Hold"))
+            hold_2      = _str(row.get("Hold.1"))
+            potg        = _str(row.get("Player of the Game"))
+            hm1         = _str(row.get("Honorable Mention"))
+            hm2         = _str(row.get("Honorable Mention.1"))
+            hm3         = _str(row.get("Honorable Mention.2"))
+            umpire      = _str(row.get("Umpire Assignment"))
+            last_play   = _str(row.get("Last Play"))
+            last_inn    = _str(row.get("Inning"))
+            last_res    = _str(row.get("Last Result"))
+            start_time  = _str(row.get("Start"))
+            end_time    = _str(row.get("End"))
+            division    = _str(row.get("Division"))
+            link        = None
+        else:
+            a_scr       = _safe_int(row.get("a_scr"))
+            h_scr       = _safe_int(row.get("h_scr"))
+            winning_p   = _str(row.get("WP"))
+            losing_p    = _str(row.get("LP"))
+            save_p      = _str(row.get("SV"))
+            hold_1      = _str(row.get("HD"))
+            hold_2      = _str(row.get("HD2"))
+            potg        = _str(row.get("PotG"))
+            hm1         = _str(row.get("HM1"))
+            hm2         = _str(row.get("HM2"))
+            hm3         = _str(row.get("HM3"))
+            umpire      = _str(row.get("Umpire"))
+            last_play   = None
+            last_inn    = None
+            last_res    = None
+            start_time  = None
+            end_time    = None
+            division    = _str(row.get("Division"))
+            link        = _str(row.get("Link"))
+
         games.append({
             "league":              "MLN",
             "game_code":           game_code,
             "game_id_short":       _str(row.get("GameID")),
             "season":              season,
             "session_number":      session_num,
-            "away_team":           _str(row.get("Away")),   # raw abbrev; caller resolves
-            "home_team":           _str(row.get("Home")),   # raw abbrev; caller resolves
+            "away_team":           _str(row.get("Away")),
+            "home_team":           _str(row.get("Home")),
             "away_score":          a_scr,
             "home_score":          h_scr,
-            "winning_pitcher":     _str(row.get("WP")),
-            "losing_pitcher":      _str(row.get("LP")),
-            "save_pithcer":        _str(row.get("SV")),
-            "hold_1":              _str(row.get("HLD1") or row.get("H1")),
-            "hold_2":              _str(row.get("HLD2") or row.get("H2")),
-            "player_of_game":      _str(row.get("PotG")),
-            "honorable_mention_1": _str(row.get("HM1")),
-            "honorable_mention_2": _str(row.get("HM2")),
-            "honorable_mention_3": _str(row.get("HM3")),
-            "umpire":              _str(row.get("Ump") or row.get("Umpire")),
-            "start_time":          _str(row.get("Start") or row.get("StartTime") or row.get("Date")),
-            "end_time":            _str(row.get("End") or row.get("EndTime")),
-            "division":            _str(row.get("Div") or row.get("Division")),
-            "link":                _str(row.get("Link")),
+            "winning_pitcher":     winning_p,
+            "losing_pitcher":      losing_p,
+            "save_pitcher":        save_p,
+            "hold_1":              hold_1,
+            "hold_2":              hold_2,
+            "player_of_game":      potg,
+            "honorable_mention_1": hm1,
+            "honorable_mention_2": hm2,
+            "honorable_mention_3": hm3,
+            "umpire":              umpire,
+            "win_team":            _str(row.get("Win")),
+            "loss_team":           _str(row.get("Loss")),
+            "last_play":           last_play,
+            "last_inning":         last_inn,
+            "last_result":         last_res,
+            "start_time":          start_time,
+            "end_time":            end_time,
+            "division":            division,
+            "link":                link,
         })
     return games
 
@@ -3758,13 +3842,20 @@ def win_probability_chart(
         hovertemplate="%{hovertext}<extra></extra>",
     ))
 
-    # Notable play markers
-    _NOTABLE = {"HR", "3B", "2BWH", "DP", "DP21", "DP31", "DPH1", "TP"}
-    n_x, n_y, n_txt = [], [], []
-    for xi, yi, r in zip(x, y, results):
-        if r in _NOTABLE:
-            n_x.append(xi); n_y.append(yi); n_txt.append(r)
-    if n_x:
+    # Key play markers: top plays by absolute WP swing
+    _labels = wp_df["inn_label"].tolist() if "inn_label" in wp_df.columns else [""] * len(x)
+    _swings = [0.0] + [abs(y[i] - y[i - 1]) for i in range(1, len(y))]
+    _swing_candidates = [
+        (xi, yi, ri, si)
+        for xi, yi, ri, si, lbl in zip(x, y, results, _swings, _labels)
+        if lbl not in ("Start", "Final") and si >= 10.0
+    ]
+    _swing_candidates.sort(key=lambda t: t[3], reverse=True)
+    _top_plays = _swing_candidates[:5]
+    if _top_plays:
+        n_x   = [t[0] for t in _top_plays]
+        n_y   = [t[1] for t in _top_plays]
+        n_txt = [t[2] for t in _top_plays]
         fig.add_trace(go.Scatter(
             x=n_x, y=n_y,
             mode="markers+text",

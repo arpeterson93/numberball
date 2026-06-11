@@ -388,6 +388,78 @@ def _show_errors(errs: list[str]) -> None:
                 st.caption(m)
 
 
+def _preview_mln_sheet(sheet_id: str, plays_tab: str = "Plays") -> None:
+    """Read Games and Plays tabs and show column names, row counts, and sample data."""
+    import urllib.parse
+
+    _GAMES_EXPECTED = {
+        "Game#", "GameID", "Away", "Home", "a_Scr", "h_Scr",
+        "Winning Pitcher", "Losing Pitcher", "Save", "Hold", "Player of the Game",
+        "Honorable Mention", "Umpire Assignment",
+        "Start", "End", "Last Play", "Inning", "Last Result",
+        "Win", "Loss", "Division",
+    }
+    _PLAYS_EXPECTED = {
+        "Play", "Game", "Season", "Result", "Inning",
+        "Pitcher", "Batter", "Catcher", "Runner",
+        "Away", "Home", "Pitch", "Swing",
+        "OnFirst", "OnSecond", "OnThird",
+        "a_Scr", "h_Scr", "PlayType", "Steal",
+    }
+
+    def _safe_int_local(v):
+        try:
+            return int(float(str(v).strip()))
+        except (ValueError, TypeError):
+            return None
+
+    base = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
+
+    for tab_name, expected in [("Games", _GAMES_EXPECTED), (plays_tab, _PLAYS_EXPECTED)]:
+        st.markdown(f"#### {tab_name} tab")
+        try:
+            url = base + urllib.parse.quote(tab_name)
+            df = pd.read_csv(url, dtype=str)
+            df.columns = [c.strip() for c in df.columns]
+            found = set(df.columns)
+            missing = expected - found
+
+            st.caption(f"{len(df)} rows · {len(df.columns)} columns")
+            st.caption(f"Columns found: `{'`, `'.join(sorted(found))}`")
+
+            if missing:
+                st.warning(f"Expected columns not found: `{'`, `'.join(sorted(missing))}`")
+            else:
+                st.success("All expected columns present.")
+
+            # Row validity check
+            if tab_name == "Games":
+                is_cur = "Winning Pitcher" in found
+                st.info(f"Format detected: **{'MLN current' if is_cur else 'MLN Archive'}** "
+                        f"({'Winning Pitcher' if is_cur else 'WP'} branch)")
+                req = [c for c in ["Game#"] if c in found]
+                if req:
+                    valid = df["Game#"].apply(lambda x: _safe_int_local(x) is not None).sum()
+                    st.caption(f"Rows with valid Game#: **{valid}** / {len(df)}")
+            else:
+                req = [c for c in ["Play", "Game", "Result"] if c in found]
+                if req:
+                    mask = df[req].apply(lambda col: col.notna() & (col.str.strip() != "") & (col.str.strip().str.lower() != "nan"))
+                    valid = mask.all(axis=1).sum()
+                    skipped = len(df) - valid
+                    st.caption(f"Rows with Play + Game + Result: **{valid}** parseable, **{skipped}** would be skipped")
+                    if skipped and skipped < 20:
+                        bad = df[~mask.all(axis=1)][req + [c for c in ["Inning", "Pitcher", "Batter"] if c in found]]
+                        st.caption("Skipped rows:")
+                        st.dataframe(bad.head(10), use_container_width=True, hide_index=True)
+
+            with st.expander(f"First 5 rows of {tab_name}"):
+                st.dataframe(df.head(5), use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            st.error(f"Could not read '{tab_name}' tab: {e}")
+
+
 # ------------------------------------------------------------------ sync results (survive rerun)
 
 if "_sync_msg" in st.session_state:
@@ -510,6 +582,10 @@ with _mn5:
             st.session_state["_sync_errors"] = all_errs
         st.rerun()
 
+if st.button("Preview MLN Sheet", key="mln_preview"):
+    with st.spinner("Reading MLN sheet…"):
+        _preview_mln_sheet(_MLN_SHEET_ID, plays_tab="Plays (Raw)")
+
 st.divider()
 
 # ------------------------------------------------------------------ scrimmage sync
@@ -604,6 +680,10 @@ with _mma:
         if all_errs:
             st.session_state["_sync_errors"] = all_errs
         st.rerun()
+
+if st.button("Preview Archive Sheet", key="mln_archive_preview", disabled=_mln_disabled):
+    with st.spinner("Reading archive sheet…"):
+        _preview_mln_sheet(_mln_sid, plays_tab="Plays")
 
 st.caption("Sync order: Teams → Players → Games → Plays (each step depends on the previous).")
 

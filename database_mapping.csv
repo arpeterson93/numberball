@@ -1,0 +1,51 @@
+games,games,games,games,players,players,players,players,plays,plays,plays,plays,teams,teams,teams,teams
+Supabase,RLN,MLN,MLN Archive,Supabase,RLN,MLN,MLN Archive,Supabase,RLN,MLN,MLN Archive,Supabase,RLN,MLN,MLN Archive
+id,,,,id,,,,id,,,,id,,,
+game_code,Game#,Game#,Game#,player_id,ID,ID,ID,game_id,Game,Game,Game,team_id,Team ID,Team ID,Team ID
+game_id_short,GameID,GameID,GameID,team,Team,Team,Team,play_num,Play,Play,Play,abbrev,Abv,Abv,Abv
+session_number,Session,Session,Session,gm,GM,GM,GM,game_code,,,,location,Location,Location,Location
+away_team,Away,Away,Away,name,Government Name,Government Name,Full Player Name,timestamp,Timestamp,Timestamp,Timestamp*,team_name,Team Name,Team Name,Team Name
+home_team,Home,Home,Home,last_name,Last Name,Last Name,Last Name,umpire,Umpire,Umpire,Umpire,role_id,Role ID,Role ID,Role ID
+umpire,Umpire Assignment,Umpire Assignment,Umpire,discord_id,Discord ID,Discord ID,Discord ID*,away,Away,Away,Away,hype_id,Hype ID,Hype ID,Hype ID
+winning_pitcher,Winning Pitcher,Winning Pitcher,WP,status,Status,Status,Status*,home,Home,Home,Home,league,League,League,League
+losing_pitcher,Losing Pitcher,Losing Pitcher,LP,primary_pos,Primary,Primary,Primary,inning_raw,Inning,Inning,Inning,division,Division,Division,Division
+save_pitcher,Save,Save,SV,secondary_pos,Secondary,Secondary,Secondary,away_score,a_Scr,a_Scr,a_Scr,logo_url,Logo URL,Logo URL,Postimg Logo
+hold_1,Hold,Hold,HD,hand,HAND,HAND,HAND,home_score,h_Scr,h_Scr,h_Scr,name,Full Team,Full Team,Full Team
+hold_2,Hold,Hold,HD2,con,CON,CON,CON,play_type,PlayType,PlayType,PlayType,stadium,Stadium,Stadium,Stadium
+player_of_game,Player of the Game,Player of the Game,PotG,eye,EYE,EYE,EYE,result,Result,Result,Result,primary_hex,Primary Hex,Primary Hex,Primary Hex
+honorable_mention_1,Honorable Mention,Honorable Mention,HM1,pwr,PWR,PWR,PWR,play_code,Playcode,Playcode,Playcode,ballpark_url,Ballpark URL,Ballpark URL,Ballpark URL
+honorable_mention_2,Honorable Mention,Honorable Mention,HM2,spd,SPD,SPD,SPD,pitcher_id,Pitcher,Pitcher,Pitcher,wins,W,W,W
+honorable_mention_3,Honorable Mention,Honorable Mention,HM3,mov,MOV,MOV,MOV,catcher_id,Catcher,Catcher,Catcher,losses,L,L,L
+start_time,Start,Start,,cmd,CMD,CMD,CMD,pos,Pos,Pos,Pos*,runs_scored,RS,RS,RS
+end_time,End,End,,vel,VEL,VEL,VEL,batter_id,Batter,Batter,Batter,runs_allowed,RA,RA,RA
+last_play,Last Play,Last Play,,awr,AWR,AWR,AWR,on_first,OnFirst,OnFirst,OnFirst,season,,,Season
+last_inning,Inning,Inning,,discord_nickname,Discord Nickname,Discord Nickname,Discord Nickname*,on_second,OnSecond,OnSecond,OnSecond,sub_league,,,
+last_result,Last Result,Last Result,,is_rookie,Rookie?,Rookie?,Rookie?,on_third,OnThird,OnThird,OnThird,full_team,,,Full Team
+away_score,a_Scr,a_Scr,a_scr,league,,,,scored2,scored2,scored2,scored2,s_team,,,S_Team
+home_score,h_Scr,h_Scr,h_scr,season,,,Season,scored3,scored3,scored3,scored3,UNMAPPED,,,Ballpark Channel ID
+win_team,Win,Win,Win,suffix,,,Suffix,scored4,scored4,scored4,scored4,UNMAPPED,,,Real Logo
+loss_team,Loss,Loss,Loss,first_name,,,First Name,er1,er1,er1,er1,UNMAPPED,,,ToOS
+league,League,League,,session_added,,,Session*,er2,er2,er2,er2,UNMAPPED,,,Ballpark SheetID
+division,Division,Division,,rookie,,,Rookie?,er3,er3,er3,er3,,,,
+archive_sheet_id,Archive Sheet ID,Archive Sheet ID,,s_id,,,S_ID,er4,er4,er4,er4,,,,
+season,,,Season,,,,,pitch,Pitch,Pitch,Pitch,,,,
+sheet_url,,,,,,,,swing,Swing,Swing,Swing,,,,
+link,,,Link,,,,,throw_num,Throw,Throw,Throw,,,,
+,,,,,,,,runner_id,Runner,Runner,Runner,,,,
+,,,,,,,,steal_num,Steal,Steal,Steal,,,,
+,,,,,,,,pitcher_name,,,,,,,
+,,,,,,,,batter_name,,,,,,,
+,,,,,,,,catcher_name,,,,,,,
+,,,,,,,,runner_name,,,,,,,
+,,,,,,,,off_team,,,,,,,
+,,,,,,,,def_team,,,,,,,
+,,,,,,,,inning,,,,,,,
+,,,,,,,,half,,,,,,,
+,,,,,,,,obc,,,,,,,
+,,,,,,,,outs,,,,,,,
+,,,,,,,,diff,,,,,,,
+,,,,,,,,is_fp_inn,,,,,,,
+,,,,,,,,is_fp_app,,,,,,,
+,,,,,,,,league,,,,,,,
+,,,,,,,,season,,,Season,,,,
+,,,,,,,,season_type,,,Season,,,,

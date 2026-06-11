@@ -12,8 +12,13 @@ Three-tier smoothing:
   Tier 2 (sparse, RE-bin n >= MIN_N_RE):  RE-collapsed empirical + prior blend
   Tier 3 (very sparse):       logistic prior only
 
-Isotonic regression enforces WP monotonicity across batting_lead within each
-(remaining, outs, obc) bucket so all-else-equal more runs = higher WP.
+Two isotonic smoothing passes:
+  Pass 1 - batting_lead: within each (remaining, outs, obc) bucket, WP must be
+           non-decreasing with batting_lead (more runs ahead = higher WP).
+  Pass 2 - OBC by RE:    within each (remaining, outs, batting_lead) bucket, WP
+           must be non-decreasing as OBC expected runs increases (better base
+           state = higher WP). OBC ordering uses outs-specific RE values.
+  Pass 3 - batting_lead again: re-enforces lead monotonicity after OBC pass.
 
 Requires: scikit-learn  (pip install scikit-learn)
 Output:   win_probability_table.csv
@@ -226,7 +231,7 @@ grid["method"]   = np.where(n    >= MIN_N_FULL, "empirical",
 grid["n_samples"] = n
 grid["n_used"]    = np.where(n >= MIN_N_FULL, n, np.where(re_n >= MIN_N_RE, re_n, 0))
 
-# ── Isotonic smoothing: enforce monotonicity on batting_lead ──────────────────
+# ── Pass 1: Isotonic on batting_lead ─────────────────────────────────────────
 # Within each (remaining, outs, obc) bucket WP must be non-decreasing with lead.
 
 ir = IsotonicRegression(increasing=True, out_of_bounds="clip")
@@ -240,6 +245,42 @@ for _, grp in grid.groupby(["remaining", "outs", "obc"]):
     parts.append(g)
 
 result = pd.concat(parts, ignore_index=True)
+
+# ── Pass 2: Isotonic on OBC ordered by expected runs ─────────────────────────
+# Within each (remaining, outs, batting_lead) bucket WP must be non-decreasing
+# as OBC expected runs increase. RE values are outs-specific from re_lookup.
+
+obc_re = {
+    (o, b): re_lookup.get((o, b), 0.0)
+    for o in [0, 1, 2]
+    for b in BRC_TO_OBC.values()
+}
+
+parts2 = []
+for (rem, o, lead), grp in result.groupby(["remaining", "outs", "batting_lead"]):
+    g = grp.copy()
+    g["_re"] = g["obc"].apply(lambda b: obc_re.get((int(o), b), 0.0))
+    g = g.sort_values("_re")
+    g["win_prob"] = np.clip(
+        ir.fit_transform(g["_re"].values.astype(float), g["win_prob"].values),
+        0.001, 0.999,
+    )
+    parts2.append(g.drop(columns=["_re"]))
+
+result = pd.concat(parts2, ignore_index=True)
+
+# ── Pass 3: Re-enforce batting_lead monotonicity after OBC smoothing ──────────
+
+parts3 = []
+for _, grp in result.groupby(["remaining", "outs", "obc"]):
+    g = grp.sort_values("batting_lead").copy()
+    g["win_prob"] = np.clip(
+        ir.fit_transform(g["batting_lead"].values.astype(float), g["win_prob"].values),
+        0.001, 0.999,
+    )
+    parts3.append(g)
+
+result = pd.concat(parts3, ignore_index=True)
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
@@ -260,3 +301,8 @@ print(chk[["batting_lead", "win_prob", "n_samples", "method"]].to_string(index=F
 print("\nSanity check - tied game (lead=0), 0 outs, bases empty, by inning:")
 chk2 = result[(result["batting_lead"] == 0) & (result["outs"] == 0) & (result["obc"] == "000")]
 print(chk2[["remaining", "win_prob", "n_samples", "method"]].sort_values("remaining", ascending=False).to_string(index=False))
+
+print("\nSanity check - OBC monotonicity (remaining=6, outs=1, lead=0, all 8 OBC states):")
+chk3 = result[(result["remaining"] == 6) & (result["outs"] == 1) & (result["batting_lead"] == 0)].copy()
+chk3["re"] = chk3["obc"].apply(lambda b: obc_re.get((1, b), 0.0))
+print(chk3[["obc", "re", "win_prob", "n_samples", "method"]].sort_values("re").to_string(index=False))
