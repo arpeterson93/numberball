@@ -717,11 +717,6 @@ with tab_p:
             for _pk in st.session_state.pop("_pills_rst_p", []):
                 st.session_state[_pk] = None
 
-            if "pred_swing" not in st.session_state:
-                st.session_state["pred_swing"] = 500
-            proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
-                                             step=1, key="pred_swing")
-
             with st.expander("Relevance Weighting", expanded=True):
                 st.caption("Weight how recent pitches influence the Optimal Swing. At 50 on Recency and Result and 0 on State, weighting is equal for each recent pitch.")
                 _prw1, _prw2, _prw3 = st.columns(3)
@@ -735,6 +730,8 @@ with tab_p:
                     st.slider("Pitcher vs Batter", 0, 100, value=50, key="p_rel_result",
                               help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
                     st.number_input("Weight ", 0, 100, value=33, step=1, key="p_rel_g2")
+                    st.toggle("Previous result", key="p_rel_result_offset",
+                              help="Weight each pitch by the result of the previous pitch instead of its own result.")
                 with _prw3:
                     st.markdown("**3 - State**")
                     st.slider("Any vs Similar", 0, 100, value=0, key="p_rel_state",
@@ -750,6 +747,11 @@ with tab_p:
                     f"State {_prg3/_prg_tot*100:.0f}%"
                 )
 
+            if "pred_swing" not in st.session_state:
+                st.session_state["pred_swing"] = 500
+            proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
+                                             step=1, key="pred_swing")
+
             # PA weights for relevance-weighted optimal swing and swing predictor coloring
             _pa_df_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
                         if not df_p_pred.empty else pd.DataFrame())
@@ -762,6 +764,7 @@ with tab_p:
                 g1=st.session_state.get("p_rel_g1", 34),
                 g2=st.session_state.get("p_rel_g2", 33),
                 g3=st.session_state.get("p_rel_g3", 33),
+                result_offset=bool(st.session_state.get("p_rel_result_offset", False)),
             )
             _pa_weights_p = utils.compute_pa_weights(
                 _pa_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
@@ -1053,11 +1056,6 @@ with tab_b:
             for _pk in st.session_state.pop("_pills_rst_b", []):
                 st.session_state[_pk] = None
 
-            if "pred_pitch" not in st.session_state:
-                st.session_state["pred_pitch"] = 500
-            proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
-                                             step=1, key="pred_pitch")
-
             with st.expander("Relevance Weighting", expanded=True):
                 st.caption("Weight how recent swings influence the Optimal Pitch. At 50 on all behavior sliders, weighting is uniform.")
                 _brw1, _brw2, _brw3 = st.columns(3)
@@ -1071,6 +1069,8 @@ with tab_b:
                     st.slider("Pitcher vs Batter", 0, 100, value=50, key="b_rel_result",
                               help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
                     st.number_input("Weight ", 0, 100, value=33, step=1, key="b_rel_g2")
+                    st.toggle("Previous result", key="b_rel_result_offset",
+                              help="Weight each swing by the result of the previous swing instead of its own result.")
                 with _brw3:
                     st.markdown("**3 - State**")
                     st.slider("Any vs Similar", 0, 100, value=50, key="b_rel_state",
@@ -1086,6 +1086,11 @@ with tab_b:
                     f"State {_brg3/_brg_tot*100:.0f}%"
                 )
 
+            if "pred_pitch" not in st.session_state:
+                st.session_state["pred_pitch"] = 500
+            proposed_pitch = st.number_input("Proposed Pitch", min_value=1, max_value=1000,
+                                             step=1, key="pred_pitch")
+
             # PA weights for relevance-weighted optimal pitch and swing predictor coloring
             _pa_df_b = (df_b_pred[df_b_pred["swing"].notna()].sort_values("id").tail(n_swings)
                         if not df_b_pred.empty else pd.DataFrame())
@@ -1098,6 +1103,7 @@ with tab_b:
                 g1=st.session_state.get("b_rel_g1", 34),
                 g2=st.session_state.get("b_rel_g2", 33),
                 g3=st.session_state.get("b_rel_g3", 33),
+                result_offset=bool(st.session_state.get("b_rel_result_offset", False)),
             )
             _pa_weights_b = utils.compute_pa_weights(
                 _pa_df_b, _b_cur_obc, _b_cur_outs, **_b_rel_kwargs,

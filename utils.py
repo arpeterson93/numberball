@@ -1703,6 +1703,7 @@ def compute_pa_weights(
     g1: float = 34,
     g2: float = 33,
     g3: float = 33,
+    result_offset: bool = False,
 ) -> list[float]:
     """Return per-PA relevance weights aligned with df_tail sorted by id ascending.
 
@@ -1710,6 +1711,7 @@ def compute_pa_weights(
     recency_slider: 0=weight older more, 50=equal, 100=weight recent more.
     result_slider:  0=weight good pitching results more, 50=equal, 100=weight good batting results more.
     state_slider:   0=equal, 100=weight PAs with similar OBC+Outs more.
+    result_offset:  if True, weight row i by the result of row i-1 (previous pitch/swing).
     """
     import numpy as np
     n = len(df_tail)
@@ -1729,8 +1731,12 @@ def compute_pa_weights(
 
     result_w = np.ones(n)
     for i in range(n):
-        r = df_s.iloc[i].get("result") if "result" in df_s.columns else None
-        q = _BATTING_QUALITY.get(str(r) if pd.notna(r) else "", 0.5)
+        src_i = i - 1 if result_offset else i
+        if result_offset and src_i < 0:
+            q = 0.5  # no previous pitch - neutral weight
+        else:
+            r = df_s.iloc[src_i].get("result") if "result" in df_s.columns else None
+            q = _BATTING_QUALITY.get(str(r) if pd.notna(r) else "", 0.5)
         result_w[i] = np.exp(ts * (2 * q - 1) * 3)
 
     state_w = np.ones(n)
