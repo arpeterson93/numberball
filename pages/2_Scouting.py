@@ -47,6 +47,10 @@ def _load_pitcher_stats() -> pd.DataFrame:
     rows = db.get_pitcher_stats()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def _load_game_plays(game_id: int) -> list[dict]:
+    return db.get_plays_for_game(game_id)
+
 @st.cache_data(ttl=3600)
 def _sheet_name(url: str) -> str:
     return utils.get_sheet_name(url)
@@ -68,6 +72,7 @@ with _clr_col:
         _load_scrimmage_plays.clear()
         _load_all_games.clear()
         _load_pitcher_stats.clear()
+        _load_game_plays.clear()
         db.get_plays_for_pitcher.clear()
         db.get_plays_for_batter.clear()
         db.get_plays_for_team_offense.clear()
@@ -130,6 +135,7 @@ _DEFS = {
     "pred_calc_b_hand":"R","pred_calc_b_con":3,"pred_calc_b_eye":3,"pred_calc_b_pow":3,"pred_calc_b_spd":3,
     "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,
     "pred_calc_1b":"Empty","pred_calc_2b":"Empty","pred_calc_3b":"Empty",
+    "mgr_inning":1,"mgr_half":"Top","mgr_away_score":0,"mgr_home_score":0,
 }
 for _k, _v in _DEFS.items():
     if _k not in st.session_state:
@@ -492,6 +498,16 @@ if pred_mode == "Historical / Manual":
 
     with st.expander("Matchup Setup", expanded=True):
         _render_calc_inputs()
+        st.divider()
+        _gsi1, _gsi2, _gsi3, _gsi4 = st.columns(4)
+        with _gsi1:
+            st.number_input("Inning", 1, utils._WP_INNINGS, step=1, key="mgr_inning")
+        with _gsi2:
+            st.selectbox("Half", ["Top", "Bottom"], key="mgr_half")
+        with _gsi3:
+            st.number_input("Away Score", 0, 99, step=1, key="mgr_away_score")
+        with _gsi4:
+            st.number_input("Home Score", 0, 99, step=1, key="mgr_home_score")
 
 elif pred_mode == "Fetch Live Matchup":
     with st.expander("Live Matchup", expanded=True):
@@ -538,6 +554,33 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state["mgr_sheet_outs"]     = fetched_gameplay["outs"]
                     st.session_state["mgr_sheet_obc"]      = fetched_gameplay["obc"]
 
+                    # Auto-select the matching game in the Game tab
+                    _matched_g = next((g for g in all_games_meta if g.get("sheet_url") == pred_sheet_url), None)
+                    if _matched_g:
+                        st.session_state["game_tab_game_id"] = _matched_g["id"]
+                        st.session_state["game_tab_sel"] = _matched_g["id"]
+                        # Pre-populate scores from game record (0 if not yet recorded)
+                        st.session_state["mgr_away_score"] = int(_matched_g["away_score"]) if _matched_g.get("away_score") is not None else 0
+                        st.session_state["mgr_home_score"] = int(_matched_g["home_score"]) if _matched_g.get("home_score") is not None else 0
+                        # Derive inning/half from the last recorded play
+                        _g_plays = _load_game_plays(_matched_g["id"])
+                        if _g_plays:
+                            _lp = sorted(_g_plays, key=lambda p: p.get("play_num") or p.get("id") or 0)[-1]
+                            _lp_inn  = int(_lp.get("inning") or 1)
+                            _lp_half = str(_lp.get("half") or "top").lower()
+                            _lp_outs = int(_lp.get("outs") or 0)
+                            _eouts   = utils.outs_added(str(_lp.get("result") or ""))
+                            if _lp_outs + _eouts >= 3:
+                                if _lp_half == "top":
+                                    st.session_state["mgr_inning"] = _lp_inn
+                                    st.session_state["mgr_half"]   = "Bottom"
+                                else:
+                                    st.session_state["mgr_inning"] = min(_lp_inn + 1, utils._WP_INNINGS)
+                                    st.session_state["mgr_half"]   = "Top"
+                            else:
+                                st.session_state["mgr_inning"] = _lp_inn
+                                st.session_state["mgr_half"]   = "Top" if _lp_half == "top" else "Bottom"
+
                     _bunt_msg  = " + bunt ranges" if fetched_bunt_ranges else ""
                     _runners   = fetched_gameplay["steal_runners"]
                     _steal_msg = f" + {len(_runners)} runner(s)" if _runners else ""
@@ -568,13 +611,25 @@ elif pred_mode == "Fetch Live Matchup":
 
         matchup_label = " vs ".join(filter(None, [_sp, _sb]))
 
+        if result_ranges:
+            st.divider()
+            _gsi1, _gsi2, _gsi3, _gsi4 = st.columns(4)
+            with _gsi1:
+                st.number_input("Inning", 1, utils._WP_INNINGS, step=1, key="mgr_inning")
+            with _gsi2:
+                st.selectbox("Half", ["Top", "Bottom"], key="mgr_half")
+            with _gsi3:
+                st.number_input("Away Score", 0, 99, step=1, key="mgr_away_score")
+            with _gsi4:
+                st.number_input("Home Score", 0, 99, step=1, key="mgr_home_score")
+
 # ── ITD slices (shared placeholder - actual slicing is per-tab) ───────────────
 
 st.divider()
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-tab_p, tab_b, tab_m = st.tabs(["⚾ Pitcher", "🦇 Batter", "📊 Manager"])
+tab_p, tab_b, tab_m, tab_g = st.tabs(["⚾ Pitcher", "🦇 Batter", "📊 Manager", "📈 Game"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PITCHER TAB
@@ -1263,6 +1318,92 @@ with tab_b:
             st.dataframe(_disp_b, use_container_width=True, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# GAME TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_g:
+    # Build game options list sorted newest first
+    _g_opts = [
+        g for g in all_games_meta
+        if g.get("away_team") and g.get("home_team")
+    ]
+    _g_opts.sort(key=lambda g: (g.get("season") or 0, g.get("session_number") or 0), reverse=True)
+    _g_ids = [g["id"] for g in _g_opts]
+
+    def _game_label(g: dict) -> str:
+        gc = g.get("game_code") or f"S{g.get('season','?')} G{g.get('session_number','?')}"
+        lbl = f"{gc} - {g.get('away_team','?')} @ {g.get('home_team','?')}"
+        if g.get("away_score") is not None and g.get("home_score") is not None:
+            lbl += f"  ({g['away_score']}-{g['home_score']})"
+        return lbl
+
+    if not _g_ids:
+        st.info("No games found in the database.")
+    else:
+        # On first render, default to the most recent game (index 0).
+        # When Fetch Matchup runs, it sets game_tab_sel directly so the widget syncs.
+        if "game_tab_sel" not in st.session_state:
+            st.session_state["game_tab_sel"] = _g_ids[0]
+
+        _sel_gid = st.selectbox(
+            "Game",
+            _g_ids,
+            format_func=lambda gid: _game_label(next(g for g in _g_opts if g["id"] == gid)),
+            key="game_tab_sel",
+        )
+
+        _game_meta = next(g for g in _g_opts if g["id"] == _sel_gid)
+        _away = _game_meta.get("away_team", "Away")
+        _home = _game_meta.get("home_team", "Home")
+        _away_s = _game_meta.get("away_score")
+        _home_s = _game_meta.get("home_score")
+
+        # Game header
+        _score_md = (
+            f"**{_away}** {_away_s} - {_home_s} **{_home}**"
+            if _away_s is not None else f"**{_away}** @ **{_home}**"
+        )
+        st.subheader(_score_md)
+
+        _game_plays = _load_game_plays(_sel_gid)
+
+        if not _game_plays:
+            st.info("No plays found for this game - sync plays first.")
+        else:
+            st.caption(f"{len(_game_plays)} plays")
+
+            # Win probability chart
+            _wp_ready = utils.get_win_probability(12, 0, "000", 0) is not None
+            if not _wp_ready:
+                st.warning("Win probability table not loaded. Run the WP simulation to generate win_probability_table.csv first.")
+            else:
+                _wp_df = utils.compute_game_wp_series(_game_plays, _game_meta)
+                _wp_fig = utils.win_probability_chart(
+                    _wp_df,
+                    home_team=_home,
+                    away_team=_away,
+                    title=f"{_away} @ {_home} - Win Probability",
+                )
+                st.plotly_chart(_wp_fig, use_container_width=True,
+                                config={"displayModeBar": False}, key="game_wp_chart")
+
+                # Play-by-play table with WP column
+                with st.expander("Play-by-Play with Win Probability"):
+                    _ppwp = _wp_df[~_wp_df["inn_label"].isin(["Start", "Final"])].copy()
+                    _ppwp["WP"] = (_ppwp["home_wp"] * 100).round(1).astype(str) + "%"
+                    _ppwp["obc_disp"] = _ppwp["obc"].map(utils.obc_display)
+                    _disp_cols = ["play_idx", "inn_label", "outs", "obc_disp",
+                                  "batter", "pitcher", "result",
+                                  "away_score", "home_score", "WP"]
+                    _col_names = ["#", "Inn", "Outs", "Runners",
+                                  "Batter", "Pitcher", "Result",
+                                  _away, _home, f"{_home} WP"]
+                    st.dataframe(
+                        _ppwp[_disp_cols].rename(columns=dict(zip(_disp_cols, _col_names))),
+                        use_container_width=True, hide_index=True,
+                    )
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MANAGER TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1327,7 +1468,7 @@ with tab_m:
         p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
         return ev, p1r, p2r, p3pr
 
-    def _outcome_grid(ranges, obc, outs):
+    def _outcome_grid(ranges, obc, outs, remaining=None, batting_lead=0):
         """Build flat outcome breakdown DataFrame sorted by (ER After + Runs) desc."""
         rows = []
         for entry in (ranges or []):
@@ -1351,7 +1492,7 @@ with tab_m:
             total    = runs + er_after
 
             _display_r = "SB" if r == "Safe" else ("CS" if r == "Out" else r)
-            rows.append({
+            row = {
                 "_sort":      total,
                 "Result":     _display_r,
                 "Range":      f"{lo}-{hi}",
@@ -1360,7 +1501,12 @@ with tab_m:
                 "Outs After": "End" if nout >= 3 else nout,
                 "Runs":       int(runs),
                 "ER After":   er_after,
-            })
+            }
+            if remaining is not None and _wp_table_ready:
+                new_bl   = batting_lead + int(round(runs))
+                wp_after = _wp_for_state(remaining, nout, new_obc_code, new_bl)
+                row["Exp WP"] = f"{wp_after * 100:.1f}%"
+            rows.append(row)
 
         df = pd.DataFrame(rows)
         if df.empty:
@@ -1427,8 +1573,8 @@ with tab_m:
         )
         return fig
 
-    def _show_outcome_grid(ranges, obc, outs, key):
-        grid = _outcome_grid(ranges, obc, outs)
+    def _show_outcome_grid(ranges, obc, outs, key, remaining=None, batting_lead=0):
+        grid = _outcome_grid(ranges, obc, outs, remaining, batting_lead)
         if grid.empty:
             return
         st.plotly_chart(_outcome_scatter(grid), use_container_width=True, key=f"{key}_scatter")
@@ -1576,6 +1722,58 @@ with tab_m:
         _hnr_steal_runner = None
         _hnr_safe_rng    = 50
 
+    _wp_table_ready = utils.get_win_probability(1, 0, "000", 0) is not None
+
+    def _wp_for_state(remaining, outs, obc, batting_lead):
+        """WP for the batting team given post-play state. Handles inning-end team switch."""
+        outs = min(outs, 3)
+        if outs < 3:
+            return utils.get_win_probability_interpolated(remaining, outs, obc, batting_lead) or 0.5
+        if remaining > 1:
+            return 1.0 - (utils.get_win_probability_interpolated(remaining - 1, 0, "000", -batting_lead) or 0.5)
+        return 1.0 if batting_lead > 0 else (0.5 if batting_lead == 0 else 0.0)
+
+    def _calc_wp_after(ranges, remaining, batting_lead):
+        total = 0.0
+        for entry in (ranges or []):
+            r, lo, hi = _norm(entry)
+            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+            runs_f, new_obc, new_outs = _lookup(r, _current_obc)
+            new_bl = batting_lead + int(round(runs_f))
+            total += prob * _wp_for_state(remaining, min(new_outs, 3), new_obc, new_bl)
+        return total
+
+    def _calc_steal_wp_after(steal_ev_rng, remaining, batting_lead):
+        safe_prob = min(steal_ev_rng * 2 / 1000, 1.0)
+        out_prob  = 1.0 - safe_prob
+        safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
+        cs_obc, _ = utils.steal_cs(_current_obc)
+        cs_nout   = min(_current_outs + 1, 3)
+        safe_wp = _wp_for_state(remaining, _current_outs, safe_obc, batting_lead + int(safe_runs))
+        cs_wp   = _wp_for_state(remaining, cs_nout, cs_obc, batting_lead)
+        return safe_prob * safe_wp + out_prob * cs_wp
+
+    def _calc_hnr_wp_after(hnr_ranges, hnr_safe_rng, remaining, batting_lead):
+        sp = min(hnr_safe_rng * 2 / 1000, 1.0)
+        op = 1.0 - sp
+        total = 0.0
+        for entry in (hnr_ranges or []):
+            r, lo, hi = _norm(entry)
+            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+            if r == "K":
+                _, _, k_nout = _lookup("K", _current_obc, _current_outs)
+                k_nout = min(k_nout, 3)
+                s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
+                s_wp = _wp_for_state(remaining, k_nout, s_obc, batting_lead + int(s_runs))
+                cs_obc = _hnr_steal_cs_obc(_current_obc)
+                cs_wp  = _wp_for_state(remaining, min(k_nout + 1, 3), cs_obc, batting_lead)
+                total += prob * (sp * s_wp + op * cs_wp)
+            else:
+                runs_f, new_obc, new_outs = _lookup(r, _current_obc, _current_outs)
+                new_bl = batting_lead + int(round(runs_f))
+                total += prob * _wp_for_state(remaining, min(new_outs, 3), new_obc, new_bl)
+        return total
+
     @st.fragment
     def _manager_fragment():
         # Steal: sheet value drives the color bar; editable input drives the EV table
@@ -1599,6 +1797,21 @@ with tab_m:
         else:
             _steal_ev_rng = _sheet_safe_rng
 
+        # Read game state inputs set in Matchup Setup
+        _mgr_inning     = int(st.session_state.get("mgr_inning", 1))
+        _mgr_half       = str(st.session_state.get("mgr_half", "Top"))
+        _mgr_away_score = int(st.session_state.get("mgr_away_score", 0))
+        _mgr_home_score = int(st.session_state.get("mgr_home_score", 0))
+        _mgr_remaining  = utils.remaining_half_innings(_mgr_inning, _mgr_half.lower(), utils._WP_INNINGS)
+        _mgr_batting_lead = (
+            _mgr_home_score - _mgr_away_score if _mgr_half == "Bottom"
+            else _mgr_away_score - _mgr_home_score
+        )
+        if _wp_table_ready:
+            _current_wp = utils.get_win_probability_interpolated(
+                _mgr_remaining, _current_outs, _current_obc, _mgr_batting_lead
+            ) or 0.5
+
         ev_swing, s_p1r, s_p2r, s_p3pr = _calc_ev_and_probs(result_ranges)
         ev_bunt,  b_p1r, b_p2r, b_p3pr = _calc_ev_and_probs(_bunt_ranges)
         if _has_runners:
@@ -1610,38 +1823,71 @@ with tab_m:
         else:
             ev_hr = hr_p1r = hr_p2r = hr_p3pr = None
 
+        # WP after each decision
+        if _wp_table_ready:
+            wp_swing = _calc_wp_after(result_ranges, _mgr_remaining, _mgr_batting_lead)
+            wp_bunt  = _calc_wp_after(_bunt_ranges,  _mgr_remaining, _mgr_batting_lead)
+            wp_steal = _calc_steal_wp_after(_steal_ev_rng, _mgr_remaining, _mgr_batting_lead) if _has_runners else None
+            wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_safe_rng, _mgr_remaining, _mgr_batting_lead) if _has_hnr else None
+        else:
+            wp_swing = wp_bunt = wp_steal = wp_hnr = None
+
+        # Resolve team names from game meta if available
+        _gm_sel   = next((g for g in all_games_meta if g.get("id") == st.session_state.get("game_tab_sel")), None)
+        _away_lbl = _gm_sel.get("away_team", "Away") if _gm_sel else "Away"
+        _home_lbl = _gm_sel.get("home_team", "Home") if _gm_sel else "Home"
+        _tri      = "▲" if _mgr_half == "Top" else "▼"
+
         # Game state + EV summary table side by side
         _gs_col, _tbl_col = st.columns([1, 2])
         with _gs_col:
+            if _wp_table_ready:
+                st.caption(f"Current WP: {_current_wp * 100:.1f}%")
+                _li = utils.compute_leverage(result_ranges, _mgr_remaining, _current_outs, _current_obc, _mgr_batting_lead)
+                if _li is not None:
+                    st.caption(f"Leverage: {_li:.2f}")
             st.caption(f"Baseline ER: {_current_er:.2f}")
-            st.markdown(utils.bases_diamond_svg(_current_obc, _current_outs),
-                        unsafe_allow_html=True)
+            _diag_col, _score_col = st.columns([3, 2])
+            with _diag_col:
+                st.markdown(utils.bases_diamond_svg(_current_obc, _current_outs),
+                            unsafe_allow_html=True)
+            with _score_col:
+                st.markdown(f"**{_tri} {_mgr_inning}**")
+                st.caption(f"{_away_lbl}: {_mgr_away_score}")
+                st.caption(f"{_home_lbl}: {_mgr_home_score}")
         with _tbl_col:
             _decisions = ["Normal Swing", "Bunt"]
             _exp_runs  = [f"{ev_swing:.2f}", f"{ev_bunt:.2f}"]
             _p1r_col   = [f"{s_p1r*100:.1f}%", f"{b_p1r*100:.1f}%"]
             _p2r_col   = [f"{s_p2r*100:.1f}%", f"{b_p2r*100:.1f}%"]
             _p3pr_col  = [f"{s_p3pr*100:.1f}%", f"{b_p3pr*100:.1f}%"]
+            _wp_col    = [f"{wp_swing*100:.1f}%" if wp_swing is not None else "-",
+                          f"{wp_bunt*100:.1f}%"  if wp_bunt  is not None else "-"]
             if _has_runners:
                 _decisions += ["Steal"]
                 _exp_runs  += [f"{ev_steal:.2f}"]
                 _p1r_col   += [f"{st_p1r*100:.1f}%"]
                 _p2r_col   += [f"{st_p2r*100:.1f}%"]
                 _p3pr_col  += [f"{st_p3pr*100:.1f}%"]
+                _wp_col    += [f"{wp_steal*100:.1f}%" if wp_steal is not None else "-"]
             if _has_hnr:
                 _decisions += ["Hit and Run"]
                 _exp_runs  += [f"{ev_hr:.2f}"]
                 _p1r_col   += [f"{hr_p1r*100:.1f}%"]
                 _p2r_col   += [f"{hr_p2r*100:.1f}%"]
                 _p3pr_col  += [f"{hr_p3pr*100:.1f}%"]
+                _wp_col    += [f"{wp_hnr*100:.1f}%" if wp_hnr is not None else "-"]
+            _tbl_data = {"Decision": _decisions}
+            if _wp_table_ready:
+                _tbl_data["Exp WP"] = _wp_col
+            _tbl_data.update({
+                "Exp Runs": _exp_runs,
+                "P(1R)": _p1r_col,
+                "P(2R)": _p2r_col,
+                "P(3+R)": _p3pr_col,
+            })
             st.dataframe(
-                pd.DataFrame({
-                    "Decision": _decisions,
-                    "Exp Runs": _exp_runs,
-                    "P(1R)": _p1r_col,
-                    "P(2R)": _p2r_col,
-                    "P(3+R)": _p3pr_col,
-                }),
+                pd.DataFrame(_tbl_data),
                 use_container_width=True, hide_index=True,
             )
 
@@ -1654,7 +1900,8 @@ with tab_m:
         st.plotly_chart(utils.manager_color_bar(int(_proposed), result_ranges,
                         label="Swing", x_label="Swing Values"),
                         use_container_width=True, key="mgr_bar_swing")
-        _show_outcome_grid(result_ranges, _current_obc, _current_outs, "grid_swing")
+        _show_outcome_grid(result_ranges, _current_obc, _current_outs, "grid_swing",
+                           _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
         st.divider()
 
@@ -1664,7 +1911,8 @@ with tab_m:
         st.plotly_chart(utils.manager_color_bar(int(_proposed), _bunt_ranges,
                         label="Bunt", x_label="Bunt Values"),
                         use_container_width=True, key="mgr_bar_bunt")
-        _show_outcome_grid(_bunt_ranges, _current_obc, _current_outs, "grid_bunt")
+        _show_outcome_grid(_bunt_ranges, _current_obc, _current_outs, "grid_bunt",
+                           _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
         if _has_runners:
             st.divider()
@@ -1673,12 +1921,12 @@ with tab_m:
             st.plotly_chart(utils.steal_color_bar(int(_proposed), int(_sheet_safe_rng),
                             label="Steal", x_label="Steal Values"),
                             use_container_width=True, key="mgr_bar_steal")
-            # Steal grid: Safe and Out as the two results
             _steal_ranges_for_grid = [
                 ("Safe", 1, _sheet_safe_rng),
                 ("Out",  _sheet_safe_rng + 1, 500),
             ]
-            _show_outcome_grid(_steal_ranges_for_grid, _current_obc, _current_outs, "grid_steal")
+            _show_outcome_grid(_steal_ranges_for_grid, _current_obc, _current_outs, "grid_steal",
+                               _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
         if _has_hnr:
             st.divider()
@@ -1692,6 +1940,7 @@ with tab_m:
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _hnr_ranges,
                             label="Swing", x_label="Swing Values"),
                             use_container_width=True, key="mgr_bar_hr")
-            _show_outcome_grid(_hnr_ranges, _current_obc, _current_outs, "grid_hr")
+            _show_outcome_grid(_hnr_ranges, _current_obc, _current_outs, "grid_hr",
+                               _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
     _manager_fragment()

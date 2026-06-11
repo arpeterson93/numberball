@@ -79,6 +79,415 @@ def _load_re_distribution() -> None:
 
 _load_re_distribution()
 
+
+# ── Win Probability lookup ─────────────────────────────────────────────────────
+# Keyed on (remaining_half_innings, outs, obc, batting_lead).
+# batting_lead is from the batting team's perspective (positive = leading).
+# Load from win_probability_table.csv if present; silent no-op if not yet generated.
+
+_WP_LOOKUP: dict[tuple[int, int, str, int], float] = {}
+_WP_INNINGS = 6   # standard game length used when computing remaining
+# Sorted index for batting_lead interpolation: (remaining, outs, obc) -> [(lead, prob), ...]
+_WP_BY_STATE: dict[tuple[int, int, str], list[tuple[int, float]]] = {}
+
+
+def _load_wp_table() -> None:
+    global _WP_LOOKUP, _WP_BY_STATE
+    try:
+        _wdf = pd.read_csv("win_probability_table.csv", dtype={"obc": str})
+        _wdf["obc"] = _wdf["obc"].str.zfill(3)
+        _WP_LOOKUP = {
+            (int(r["remaining"]), int(r["outs"]), str(r["obc"]), int(r["batting_lead"])): float(r["win_prob"])
+            for _, r in _wdf.iterrows()
+        }
+        _idx: dict[tuple[int, int, str], list[tuple[int, float]]] = {}
+        for (rem, o, obc_s, bl), wp in _WP_LOOKUP.items():
+            k = (rem, o, obc_s)
+            if k not in _idx:
+                _idx[k] = []
+            _idx[k].append((bl, wp))
+        _WP_BY_STATE = {k: sorted(v) for k, v in _idx.items()}
+    except FileNotFoundError:
+        pass
+
+
+_load_wp_table()
+
+# (result, before_obc, outs) -> (runs_scored, new_obc, eouts)
+_BRC_RUN_LOOKUP: dict[tuple[str, str, int], tuple[float, str, int]] = {}
+
+
+def _load_brc_table() -> None:
+    global _BRC_RUN_LOOKUP
+    try:
+        _bdf = pd.read_csv("import_BRC.csv")
+        if "Situation" not in _bdf.columns or "Runs" not in _bdf.columns:
+            return
+        cols = list(_bdf.columns)
+        lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
+        for _, row in _bdf.iterrows():
+            situation = str(row["Situation"]).strip()
+            parts = situation.split("_")
+            if len(parts) < 3:
+                continue
+            try:
+                outs     = int(parts[0])
+                obc_code = int(parts[1])
+                result   = "_".join(parts[2:])
+                before_obc = _BRC_TO_OBC.get(obc_code, "000")
+                runs       = float(row["Runs"])
+                eouts      = int(float(row["eOuts"])) if "eOuts" in cols else 0
+                new_obc    = _BRC_TO_OBC.get(int(float(row["OBC"])), "000")
+            except (ValueError, TypeError, KeyError):
+                continue
+            lookup[(result, before_obc, outs)] = (runs, new_obc, eouts)
+        _BRC_RUN_LOOKUP = lookup
+    except FileNotFoundError:
+        pass
+
+
+_load_brc_table()
+
+
+def get_win_probability(
+    remaining_half_innings: int,
+    outs: int,
+    obc: str,
+    batting_lead: int,
+) -> float | None:
+    """Return win probability from the batting team's perspective.
+
+    remaining_half_innings: 1-12 for regulation; extras are treated as 2 (top) or 1 (bottom).
+    batting_lead: positive = batting team is ahead.
+    Returns None if win_probability_table.csv has not been generated yet.
+    """
+    if not _WP_LOOKUP:
+        return None
+    key = (
+        max(1, min(_WP_INNINGS * 2, int(remaining_half_innings))),
+        int(outs),
+        str(obc),
+        max(-10, min(10, int(batting_lead))),
+    )
+    return _WP_LOOKUP.get(key)
+
+
+def remaining_half_innings(inning: int, half: str, innings: int = _WP_INNINGS) -> int:
+    """Compute remaining_half_innings for a given game state.
+
+    Counts down from innings*2 at top of 1st to 1 at bottom of last inning.
+    Extra innings (beyond regulation) are capped at 2 (top half) or 1 (bottom half).
+    """
+    hip = (inning - 1) * 2 + (1 if half == "bottom" else 0)
+    reg = innings * 2 - hip
+    return int(reg) if reg > 0 else (2 if half == "top" else 1)
+
+
+def get_win_probability_interpolated(
+    remaining_half_innings_: int,
+    outs: int,
+    obc: str,
+    batting_lead: int,
+) -> float | None:
+    """Return batting-team win probability, interpolating on batting_lead when no exact match.
+
+    Clamps batting_lead to [-10, 10] then linearly interpolates between the two nearest
+    stored values for the same (remaining, outs, obc) state.
+    """
+    if not _WP_LOOKUP:
+        return None
+    import bisect
+    rem = max(1, min(_WP_INNINGS * 2, int(remaining_half_innings_)))
+    o = int(outs)
+    obc_s = str(obc)
+    bl = max(-10, min(10, int(batting_lead)))
+
+    exact = get_win_probability(rem, o, obc_s, bl)
+    if exact is not None:
+        return exact
+
+    candidates = _WP_BY_STATE.get((rem, o, obc_s))
+    if not candidates:
+        return None
+
+    leads = [c[0] for c in candidates]
+    wps   = [c[1] for c in candidates]
+
+    if bl <= leads[0]:
+        return wps[0]
+    if bl >= leads[-1]:
+        return wps[-1]
+
+    idx = bisect.bisect_right(leads, bl)
+    bl_lo, wp_lo = leads[idx - 1], wps[idx - 1]
+    bl_hi, wp_hi = leads[idx],     wps[idx]
+    t = (bl - bl_lo) / (bl_hi - bl_lo)
+    return wp_lo + t * (wp_hi - wp_lo)
+
+
+# Result probability distribution for the LI denominator.
+# Loaded from result_frequencies.csv (generated by compute_result_frequencies.py).
+# Falls back to equal weights over BRC-known results if the CSV is absent.
+_LI_AVG_PROBS: dict[str, float] = {}
+
+# Game-state frequency weights for the LI denominator.
+# Loaded from state_frequencies.csv (generated by compute_state_frequencies.py).
+# Falls back to equal weights across all states if the CSV is absent.
+_STATE_WEIGHTS: dict[tuple[int, int, str], float] = {}
+
+_AVG_WP_SWING: float | None = None  # computed lazily on first leverage call
+
+
+def _load_result_frequencies() -> None:
+    global _LI_AVG_PROBS
+    try:
+        _rdf = pd.read_csv("result_frequencies.csv")
+        if "result" in _rdf.columns and "probability" in _rdf.columns:
+            _LI_AVG_PROBS = dict(zip(_rdf["result"].astype(str), _rdf["probability"].astype(float)))
+            return
+    except FileNotFoundError:
+        pass
+    # Fallback: equal weight over all results present in the BRC lookup
+    known = {r for (r, _, _) in _BRC_RUN_LOOKUP} if _BRC_RUN_LOOKUP else set()
+    if known:
+        w = 1.0 / len(known)
+        _LI_AVG_PROBS = {r: w for r in known}
+
+
+def _load_state_frequencies() -> None:
+    global _STATE_WEIGHTS
+    try:
+        _sdf = pd.read_csv("state_frequencies.csv", dtype={"obc": str})
+        if {"remaining", "outs", "obc", "frequency"}.issubset(_sdf.columns):
+            _sdf["obc"] = _sdf["obc"].str.zfill(3)
+            _STATE_WEIGHTS = {
+                (int(r["remaining"]), int(r["outs"]), str(r["obc"])): float(r["frequency"])
+                for _, r in _sdf.iterrows()
+            }
+    except FileNotFoundError:
+        pass
+
+
+_load_result_frequencies()
+_load_state_frequencies()
+
+
+def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead: int) -> float:
+    """WP for the batting team after a single result from (remaining, outs, obc, batting_lead)."""
+    entry = _BRC_RUN_LOOKUP.get((result, obc, outs))
+    if entry is not None:
+        runs_f, new_obc, eouts = entry
+        new_outs = outs + eouts
+    else:
+        new_obc, runs_int = advance_runners(result, obc, outs)
+        runs_f   = float(runs_int)
+        new_outs = outs + outs_added(result)
+    new_outs = min(new_outs, 3)
+    new_bl   = batting_lead + int(round(runs_f))
+    if new_outs < 3:
+        return get_win_probability_interpolated(remaining, new_outs, new_obc, new_bl) or 0.5
+    if remaining > 1:
+        return 1.0 - (get_win_probability_interpolated(remaining - 1, 0, "000", -new_bl) or 0.5)
+    return 1.0 if new_bl > 0 else (0.5 if new_bl == 0 else 0.0)
+
+
+def _compute_avg_wp_swing() -> None:
+    """Populate _AVG_WP_SWING: frequency-weighted mean expected |WP change| per PA.
+
+    Each game state is weighted by how often it appears in real play data
+    (from state_frequencies.csv). Falls back to equal weighting if that file
+    is absent.
+    """
+    global _AVG_WP_SWING
+    if not _WP_BY_STATE:
+        _AVG_WP_SWING = 0.04
+        return
+    total      = 0.0
+    weight_sum = 0.0
+    for (rem, outs, obc_s) in _WP_BY_STATE:
+        wp_cur = get_win_probability_interpolated(rem, outs, obc_s, 0) or 0.5
+        swing  = sum(
+            prob * abs(_wp_post_play(res, rem, outs, obc_s, 0) - wp_cur)
+            for res, prob in _LI_AVG_PROBS.items()
+        )
+        w = _STATE_WEIGHTS.get((rem, outs, obc_s), 1.0)
+        total      += w * swing
+        weight_sum += w
+    _AVG_WP_SWING = total / weight_sum if weight_sum else 0.04
+
+
+def compute_leverage(
+    result_ranges: list,
+    remaining: int,
+    outs: int,
+    obc: str,
+    batting_lead: int,
+) -> float | None:
+    """Leverage Index for the current plate appearance.
+
+    LI = (expected |WP change| for this PA using matchup probabilities)
+         / (average expected |WP change| per PA across all game states).
+
+    LI > 1 = higher-than-average stakes; LI < 1 = lower-than-average stakes.
+    """
+    global _AVG_WP_SWING
+    if not _WP_BY_STATE:
+        return None
+    if _AVG_WP_SWING is None:
+        _compute_avg_wp_swing()
+    if not _AVG_WP_SWING:
+        return None
+    wp_cur = get_win_probability_interpolated(remaining, outs, obc, batting_lead)
+    if wp_cur is None:
+        return None
+    numerator = 0.0
+    for entry in (result_ranges or []):
+        if isinstance(entry, dict):
+            res, lo, hi = entry["result"], entry["low"], entry["high"]
+        else:
+            res, lo, hi = entry
+        prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+        wp_after = _wp_post_play(res, remaining, outs, obc, batting_lead)
+        numerator += prob * abs(wp_after - wp_cur)
+    return numerator / _AVG_WP_SWING
+
+
+def compute_game_wp_series(
+    plays: list[dict],
+    game: dict,
+    innings: int = _WP_INNINGS,
+) -> pd.DataFrame:
+    """Compute the home-team win probability AFTER each play.
+
+    Each row's home_wp reflects the game state that resulted from that play,
+    so hovering on a HR shows the WP shift caused by the HR.
+
+    Returns a DataFrame with columns:
+    play_idx, inn_label, outs, obc, batter, pitcher, result,
+    home_score, away_score, home_wp, hover
+    """
+    away_team = game.get("away_team", "Away")
+    home_team = game.get("home_team", "Home")
+    # Only treat scores as final when win_team is set - NULL means game is still in progress
+    _game_final = game.get("win_team") not in (None, "", "nan")
+    final_away = game.get("away_score") if _game_final else None
+    final_home = game.get("home_score") if _game_final else None
+
+    home_score = 0
+    away_score = 0
+    rows: list[dict] = []
+
+    sorted_plays = sorted(plays, key=lambda p: p.get("play_num") or p.get("id") or 0)
+
+    # "Start" point: WP before any play (top of 1st, 0-0)
+    rem0 = remaining_half_innings(1, "top", innings)
+    wp0  = get_win_probability_interpolated(rem0, 0, "000", 0) or 0.5
+    rows.append({
+        "play_idx":   0,
+        "inn_label":  "Start",
+        "outs":       0,
+        "obc":        "000",
+        "batter":     "",
+        "pitcher":    "",
+        "result":     "",
+        "home_score": 0,
+        "away_score": 0,
+        "home_wp":    1.0 - wp0,
+        "hover":      "Start of game",
+    })
+
+    for i, play in enumerate(sorted_plays):
+        inning = int(play.get("inning") or 1)
+        half   = str(play.get("half") or "top")
+        outs   = int(play.get("outs") or 0)
+        obc_raw = play.get("obc") or "000"
+        obc    = str(obc_raw).zfill(3) if not isinstance(obc_raw, int) else _BRC_TO_OBC.get(obc_raw, "000")
+        result  = str(play.get("result") or "")
+        pitcher = str(play.get("pitcher_name") or "")
+        batter  = str(play.get("batter_name") or "")
+        is_home = (half == "bottom")
+
+        # Update score first so WP reflects the post-play state
+        if result:
+            _, runs = advance_runners(result, obc, outs)
+            if is_home:
+                home_score += int(runs)
+            else:
+                away_score += int(runs)
+
+        # Derive post-play WP from the next play's recorded state (which IS the post-play state).
+        # Never force 0/1 on the last recorded play - the Final bookend handles the definitive outcome.
+        # Forcing it here breaks live/incomplete games where the last recorded play is mid-game.
+        is_last = (i + 1 >= len(sorted_plays))
+        if not is_last:
+            nxt         = sorted_plays[i + 1]
+            nxt_inning  = int(nxt.get("inning") or inning)
+            nxt_half    = str(nxt.get("half") or half)
+            nxt_outs    = int(nxt.get("outs") or 0)
+            nxt_obc_raw = nxt.get("obc") or "000"
+            nxt_obc     = str(nxt_obc_raw).zfill(3) if not isinstance(nxt_obc_raw, int) else _BRC_TO_OBC.get(nxt_obc_raw, "000")
+            is_home_nxt = (nxt_half == "bottom")
+            bat_score   = home_score if is_home_nxt else away_score
+            fld_score   = away_score if is_home_nxt else home_score
+            rem         = remaining_half_innings(nxt_inning, nxt_half, innings)
+            wp_bat      = get_win_probability_interpolated(rem, nxt_outs, nxt_obc, bat_score - fld_score) or 0.5
+            home_wp     = wp_bat if is_home_nxt else 1.0 - wp_bat
+        else:
+            # Last play, no final score - approximate from outs/obc after this play
+            new_outs  = min(outs + outs_added(result), 3)
+            new_obc_s, _ = advance_runners(result, obc, outs)
+            bat_score = home_score if is_home else away_score
+            fld_score = away_score if is_home else home_score
+            rem       = remaining_half_innings(inning, half, innings)
+            wp_bat    = get_win_probability_interpolated(rem, new_outs, new_obc_s, bat_score - fld_score) or 0.5
+            home_wp   = wp_bat if is_home else 1.0 - wp_bat
+
+        inn_lbl   = inning_label(inning, half)
+        score_str = f"{away_team} {away_score} - {home_score} {home_team}"
+        hover = (
+            f"<b>{inn_lbl}</b>  {outs} out  {obc_circles(obc)}<br>"
+            f"{batter} vs {pitcher}<br>"
+            f"<b>Result: {result}</b><br>"
+            f"Score: {score_str}<br>"
+            f"{home_team} WP: {home_wp * 100:.1f}%"
+        )
+
+        rows.append({
+            "play_idx":   i + 1,
+            "inn_label":  inn_lbl,
+            "outs":       outs,
+            "obc":        obc,
+            "batter":     batter,
+            "pitcher":    pitcher,
+            "result":     result,
+            "home_score": home_score,
+            "away_score": away_score,
+            "home_wp":    home_wp,
+            "hover":      hover,
+        })
+
+    # Final bookend - only add when the last play's WP isn't already the definitive result
+    if final_away is not None and final_home is not None:
+        final_wp = 1.0 if int(final_home) > int(final_away) else (0.0 if int(final_away) > int(final_home) else 0.5)
+        last_wp = rows[-1]["home_wp"] if rows else None
+        if last_wp != final_wp:
+            rows.append({
+                "play_idx":   len(sorted_plays) + 1,
+                "inn_label":  "Final",
+                "outs":       3,
+                "obc":        "000",
+                "batter":     "",
+                "pitcher":    "",
+                "result":     "Final",
+                "home_score": int(final_home),
+                "away_score": int(final_away),
+                "home_wp":    final_wp,
+                "hover":      f"Final: {away_team} {final_away} - {final_home} {home_team}",
+            })
+
+    return pd.DataFrame(rows)
+
+
 # Result ranges: (result, diff_low, diff_high) - from the league result table
 RESULT_RANGES = [
     ("HR",    0,   20),
@@ -350,9 +759,17 @@ def steal_cs(obc: str) -> tuple[str, int]:
 def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
     """Map a result to new OBC and runs scored.
 
+    Consults import_BRC.csv lookup first for accurate multi-run scenarios;
+    falls back to hand-coded logic for unknown results.
+
     Returns (new_obc, runs_scored)
     """
-    # Parse current runners from binary OBC code (3B|2B|1B)
+    entry = _BRC_RUN_LOOKUP.get((result, obc, outs_before))
+    if entry is not None:
+        runs_f, new_obc, _ = entry
+        return new_obc, int(round(runs_f))
+
+    # Fallback: hand-coded approximation for results not in the lookup
     on_3b = obc[0] == "1"
     on_2b = obc[1] == "1"
     on_1b = obc[2] == "1"
@@ -377,14 +794,11 @@ def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
         new_2b = on_1b
         new_1b = True
     elif result == "BB":
-        # Force chain: runner on 1B forced to 2B; if 2B also occupied, 2B runner forced to 3B;
-        # if 3B also occupied AND 1B&2B both occupied, 3B runner scores.
         new_1b = True
         if on_1b:
             new_2b = True
             if on_2b:
                 new_3b = True
-                # 3B runner scores (runs tracked via run_lookup)
             else:
                 new_3b = on_3b
         else:
@@ -396,7 +810,7 @@ def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
         new_2b = on_2b
         new_1b = on_1b
     elif result in _TP_RESULTS:
-        pass  # triple play: all bases cleared, no new runners (new_1b/2b/3b stay False)
+        pass
     elif result in _OUT_RESULTS:
         new_3b = on_3b
         new_2b = on_2b
@@ -2891,6 +3305,8 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
             session_num = int(game_code[2:4])
         except ValueError:
             continue
+        a_scr = _safe_int(row.get("a_scr"))
+        h_scr = _safe_int(row.get("h_scr"))
         games.append({
             "league":              "MLN",
             "game_code":           game_code,
@@ -2899,15 +3315,21 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
             "session_number":      session_num,
             "away_team":           _str(row.get("Away")),   # raw abbrev; caller resolves
             "home_team":           _str(row.get("Home")),   # raw abbrev; caller resolves
-            "away_score":          _safe_int(row.get("a_scr")),
-            "home_score":          _safe_int(row.get("h_scr")),
+            "away_score":          a_scr,
+            "home_score":          h_scr,
             "winning_pitcher":     _str(row.get("WP")),
             "losing_pitcher":      _str(row.get("LP")),
-            "save_pitcher":        _str(row.get("SV")),
+            "save_pithcer":        _str(row.get("SV")),
+            "hold_1":              _str(row.get("HLD1") or row.get("H1")),
+            "hold_2":              _str(row.get("HLD2") or row.get("H2")),
             "player_of_game":      _str(row.get("PotG")),
             "honorable_mention_1": _str(row.get("HM1")),
             "honorable_mention_2": _str(row.get("HM2")),
             "honorable_mention_3": _str(row.get("HM3")),
+            "umpire":              _str(row.get("Ump") or row.get("Umpire")),
+            "start_time":          _str(row.get("Start") or row.get("StartTime") or row.get("Date")),
+            "end_time":            _str(row.get("End") or row.get("EndTime")),
+            "division":            _str(row.get("Div") or row.get("Division")),
             "link":                _str(row.get("Link")),
         })
     return games
@@ -3283,5 +3705,140 @@ def pitcher_percentile_card(
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def win_probability_chart(
+    wp_df: pd.DataFrame,
+    home_team: str = "Home",
+    away_team: str = "Away",
+    title: str | None = None,
+) -> go.Figure:
+    """Home-team win probability line chart over the course of a game.
+
+    wp_df must contain: play_idx, inn_label, home_wp, hover, result columns
+    (produced by compute_game_wp_series).
+    """
+    if wp_df.empty:
+        return go.Figure().update_layout(height=420, title=title or "Win Probability")
+
+    x       = wp_df["play_idx"].tolist()
+    y       = (wp_df["home_wp"] * 100).tolist()
+    hover   = wp_df["hover"].tolist()
+    results = wp_df["result"].tolist() if "result" in wp_df.columns else [""] * len(x)
+
+    # Dual-color fill polygons: close with the 50% baseline going in reverse
+    fill_x  = x + list(reversed(x))
+    upper_y = [max(yi, 50.0) for yi in y] + [50.0] * len(x)
+    lower_y = [50.0] * len(x) + [min(yi, 50.0) for yi in reversed(y)]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=fill_x, y=upper_y,
+        fill="toself", fillcolor="rgba(33,102,172,0.18)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=fill_x, y=lower_y,
+        fill="toself", fillcolor="rgba(214,96,77,0.18)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip",
+    ))
+
+    fig.add_hline(y=50, line_dash="dash", line_color="rgba(128,128,128,0.5)", line_width=1)
+
+    fig.add_trace(go.Scatter(
+        x=x, y=y,
+        mode="lines+markers",
+        name=f"{home_team} WP%",
+        line=dict(color="#2166ac", width=2.5),
+        marker=dict(size=4, color="#2166ac"),
+        hovertext=hover,
+        hovertemplate="%{hovertext}<extra></extra>",
+    ))
+
+    # Notable play markers
+    _NOTABLE = {"HR", "3B", "2BWH", "DP", "DP21", "DP31", "DPH1", "TP"}
+    n_x, n_y, n_txt = [], [], []
+    for xi, yi, r in zip(x, y, results):
+        if r in _NOTABLE:
+            n_x.append(xi); n_y.append(yi); n_txt.append(r)
+    if n_x:
+        fig.add_trace(go.Scatter(
+            x=n_x, y=n_y,
+            mode="markers+text",
+            marker=dict(size=9, symbol="star", color="#d6604d"),
+            text=n_txt, textposition="top center",
+            textfont=dict(size=8, color="#d6604d"),
+            name="Key plays", hoverinfo="skip",
+        ))
+
+    # Inning-change vertical lines and x-axis ticks.
+    # WP is post-play, so the divider between half-innings belongs one position to the
+    # left of the first play of the new half (after the last play of the prior half).
+    # "Start" is skipped so "T1" can claim position 0.
+    tick_vals: list[int] = []
+    tick_text: list[str] = []
+    prev_inn = None
+    if "inn_label" in wp_df.columns:
+        for _, row in wp_df.iterrows():
+            inn = str(row.get("inn_label") or "")
+            if inn and inn != prev_inn:
+                if inn == "Start":
+                    prev_inn = inn
+                    continue
+                xi = int(row["play_idx"])
+                divider_x = max(0, xi - 1)
+                tick_vals.append(divider_x)
+                tick_text.append(inn if inn != "Final" else "")
+                if inn != "Final" and divider_x > 0:
+                    fig.add_shape(
+                        type="line", xref="x", yref="paper",
+                        x0=divider_x, x1=divider_x, y0=0, y1=1,
+                        line=dict(color="rgba(128,128,128,0.25)", width=1, dash="dot"),
+                    )
+                prev_inn = inn
+
+    display_title = title or f"{away_team} @ {home_team} - Win Probability"
+    fig.update_layout(
+        title=dict(text=display_title, x=0.5, xanchor="center"),
+        xaxis=dict(
+            tickmode="array",
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            tickfont=dict(size=9),
+            showgrid=False,
+        ),
+        yaxis=dict(
+            title=None,
+            range=[0, 100],
+            tickvals=[0, 50, 100],
+            ticktext=["100%", "50%", "100%"],
+            showgrid=True,
+            gridcolor="rgba(128,128,128,0.15)",
+        ),
+        height=400,
+        showlegend=False,
+        margin=dict(l=55, r=10, t=55, b=40),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+        annotations=[
+            dict(
+                text=f"<b>{home_team}</b>",
+                x=0, xref="paper", xanchor="left",
+                y=100, yref="y", yanchor="top",
+                showarrow=False, font=dict(size=10, color="#2166ac"),
+                xshift=-54,
+            ),
+            dict(
+                text=f"<b>{away_team}</b>",
+                x=0, xref="paper", xanchor="left",
+                y=0, yref="y", yanchor="bottom",
+                showarrow=False, font=dict(size=10, color="#d6604d"),
+                xshift=-54,
+            ),
+        ],
     )
     return fig

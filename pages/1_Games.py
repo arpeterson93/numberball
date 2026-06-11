@@ -235,9 +235,18 @@ def _sync_mln_players(sheet_id: str, tab: str = "Rosters", season: int | None = 
 
 
 _GAMES_TABLE_COLS = {
-    "game_code", "league", "season", "session_number",
+    "game_code", "game_id_short", "league", "season", "session_number",
     "away_team", "home_team",
-    "start_date", "sheet_url", "link",
+    "away_score", "home_score", "win_team", "loss_team",
+    "umpire",
+    "winning_pitcher", "losing_pitcher", "save_pitcher",
+    "hold_1", "hold_2",
+    "player_of_game",
+    "honorable_mention_1", "honorable_mention_2", "honorable_mention_3",
+    "start_time", "end_time",
+    "last_play", "last_inning", "last_result",
+    "division", "archive_sheet_id",
+    "sheet_url", "link",
 }
 
 def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
@@ -248,7 +257,13 @@ def _sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
     for g in games:
         g["away_team"] = abbrev_to_full.get(g["away_team"], g["away_team"])
         g["home_team"] = abbrev_to_full.get(g["home_team"], g["home_team"])
-    # Strip MLN-only fields that don't exist in the games table schema.
+        a_scr, h_scr = g.get("away_score"), g.get("home_score")
+        if a_scr is not None and h_scr is not None:
+            if a_scr > h_scr:
+                g["win_team"], g["loss_team"] = g["away_team"], g["home_team"]
+            elif h_scr > a_scr:
+                g["win_team"], g["loss_team"] = g["home_team"], g["away_team"]
+        g["archive_sheet_id"] = sheet_id
     games = [{k: v for k, v in g.items() if k in _GAMES_TABLE_COLS} for g in games]
     try:
         n = db.bulk_upsert_games(games)
