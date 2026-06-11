@@ -1827,6 +1827,47 @@ def suggest_swing(
     return best_idx + 1, float(scores[best_idx]), counter_idx + 1, float(scores[counter_idx])
 
 
+def swing_signal_strength(
+    recent_opp_vals: list[int],
+    result_ranges: list,
+    metric: str = "obp",
+    maximize: bool = True,
+    weights: list[float] | None = None,
+) -> float:
+    """Return signal strength 0-100%: how concentrated the optimal swing region is.
+
+    Finds the largest contiguous run of swing values above the score midpoint
+    (with circular wrap-around handled). Smaller hot zone = higher signal.
+    0% = flat landscape. ~100% = single sharp spike.
+    """
+    import numpy as np
+    if not recent_opp_vals:
+        return 0.0
+    scores = _scores_via_fft(
+        _build_weight_array(recent_opp_vals, weights),
+        _diff_score_array(result_ranges, metric),
+    )
+    best  = float(np.max(scores) if maximize else np.min(scores))
+    worst = float(np.min(scores) if maximize else np.max(scores))
+    if (best - worst) < 1e-6:
+        return 0.0
+    mid = (best + worst) / 2.0
+    above = scores > mid
+    n = len(above)
+    # Double the array to catch hot zones that wrap across the 1000/1 boundary
+    doubled = np.concatenate([above, above])
+    max_run = cur = 0
+    for val in doubled:
+        if val:
+            cur += 1
+            if cur > max_run:
+                max_run = cur
+        else:
+            cur = 0
+    longest_run = min(max_run, n)
+    return (1.0 - longest_run / n) * 100.0
+
+
 def optimal_swing_chart(
     recent_opp_vals: list[int],
     result_ranges: list,
