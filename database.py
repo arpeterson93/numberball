@@ -1,9 +1,11 @@
 """
 Supabase wrapper for Numberball.
-Credentials are read from .streamlit/secrets.toml (local) or Streamlit Cloud secrets (deployed).
+Credentials are read from .streamlit/secrets.toml (local/Streamlit Cloud) or
+SUPABASE_URL / SUPABASE_KEY environment variables (GitHub Actions / CLI).
 """
 from __future__ import annotations
 
+import os
 import streamlit as st
 from supabase import create_client, Client
 
@@ -12,12 +14,19 @@ _CHUNK = 500  # max rows per bulk upsert call
 
 @st.cache_resource
 def _client() -> Client:
-    url = st.secrets.get("supabase_url", "")
-    key = st.secrets.get("supabase_key", "")
+    url = key = ""
+    try:
+        url = st.secrets.get("supabase_url", "")
+        key = st.secrets.get("supabase_key", "")
+    except Exception:
+        pass
+    url = url or os.environ.get("SUPABASE_URL", "")
+    key = key or os.environ.get("SUPABASE_KEY", "")
     if not url or not key:
         raise RuntimeError(
             "Supabase credentials missing. "
-            "Add supabase_url and supabase_key to .streamlit/secrets.toml"
+            "Add supabase_url/supabase_key to .streamlit/secrets.toml or set "
+            "SUPABASE_URL/SUPABASE_KEY environment variables."
         )
     return create_client(url, key)
 
