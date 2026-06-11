@@ -142,9 +142,9 @@ def sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
 
 
 def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
-    plays = utils.read_mln_plays_from_sheet(sheet_id)
+    plays = utils.read_mln_plays_from_sheet(sheet_id, tab="Plays (Raw)")
     if not plays:
-        return 0, ["No plays found in the MLN Plays tab."]
+        return 0, ["No plays found in the MLN Plays (Raw) tab."]
 
     all_games = db.get_games()
     game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
@@ -251,7 +251,26 @@ def _run(label: str, fn, *args) -> bool:
         return True
 
 
+def _check_credentials() -> bool:
+    """Print a credential diagnostic. Returns False if credentials look bad."""
+    import os
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_KEY", "")
+    url_ok  = url.startswith("https://") and "supabase" in url and '"' not in url
+    key_ok  = len(key) > 20 and '"' not in key
+    print(f"[creds] SUPABASE_URL present={bool(url)} starts_https={url.startswith('https://')} "
+          f"has_supabase={'supabase' in url} has_quotes={chr(34) in url}")
+    print(f"[creds] SUPABASE_KEY present={bool(key)} length={len(key)} has_quotes={chr(34) in key}")
+    if not url_ok or not key_ok:
+        print("  FATAL: Credential check failed - check GitHub secret values (no quotes, correct format).",
+              file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> None:
+    if not _check_credentials():
+        sys.exit(1)
     hard_error = False
     hard_error |= _run("RLN Games",  sync_rln_games,  _RLN_SHEET_ID)
     hard_error |= _run("RLN Plays",  sync_rln_plays,  _RLN_SHEET_ID)
