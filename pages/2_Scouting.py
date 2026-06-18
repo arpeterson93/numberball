@@ -824,27 +824,34 @@ with tab_p:
                 ("Based on Recent Pitch Δ",      _delta_p,   _delta_weights_p),
                 ("Based on Recent Pitch Δ²",     _delta2_p,  _delta2_weights_p),
             ]
+            st.markdown("""<style>
+button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #2ca02c !important;
+}
+button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #d62728 !important;
+}
+</style>""", unsafe_allow_html=True)
             col_obp_p, col_slg_p = st.columns(2)
             with col_obp_p:
                 st.markdown("**OBP**")
                 for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
-                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
+                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
                         _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", True, weights=_wts)
-                        _sig_p_obp = utils.swing_signal_strength(_vals, result_ranges, "obp", True, weights=_wts)
+                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, result_ranges, "obp", True, weights=_wts, zone="best")
+                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, result_ranges, "obp", True, weights=_wts, zone="worst")
                         _pk = f"pill_obp_{_i}_p"
-                        _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
-                        _pcol, _scol = st.columns([3, 1])
-                        with _pcol:
-                            _sel = st.pills("", list(_opts.keys()), key=_pk)
-                            if _sel:
-                                st.session_state["_pend_swing"] = _opts[_sel]
-                                st.session_state.setdefault("_pills_rst_p", []).append(_pk)
-                                st.rerun()
-                        with _scol:
-                            st.markdown(f"<div style='font-size:0.75rem;opacity:0.6;padding-top:0.4rem'>Signal<br><b>{_sig_p_obp:.0f}%</b></div>",
-                                        unsafe_allow_html=True)
+                        _opts = {
+                            f"↑ {_bv} ({_bs:.3f}) · {_sig_p_obp_tgt:.0f}%": _bv,
+                            f"↓ {_cv} ({_cs:.3f}) · {_sig_p_obp_avd:.0f}%": _cv,
+                        }
+                        _sel = st.pills("", list(_opts.keys()), key=_pk)
+                        if _sel:
+                            st.session_state["_pend_swing"] = _opts[_sel]
+                            st.session_state.setdefault("_pills_rst_p", []).append(_pk)
+                            st.rerun()
                         st.plotly_chart(
                             utils.optimal_swing_chart(_vals, result_ranges, "obp", True,
                                                       compact=True, weights=_wts),
@@ -852,23 +859,22 @@ with tab_p:
             with col_slg_p:
                 st.markdown("**SLG**")
                 for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
-                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
+                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
                         _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", True, weights=_wts)
-                        _sig_p_slg = utils.swing_signal_strength(_vals, result_ranges, "slg", True, weights=_wts)
+                        _sig_p_slg_tgt = utils.swing_signal_strength(_vals, result_ranges, "slg", True, weights=_wts, zone="best")
+                        _sig_p_slg_avd = utils.swing_signal_strength(_vals, result_ranges, "slg", True, weights=_wts, zone="worst")
                         _pk = f"pill_slg_{_i}_p"
-                        _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
-                        _pcol, _scol = st.columns([3, 1])
-                        with _pcol:
-                            _sel = st.pills("", list(_opts.keys()), key=_pk)
-                            if _sel:
-                                st.session_state["_pend_swing"] = _opts[_sel]
-                                st.session_state.setdefault("_pills_rst_p", []).append(_pk)
-                                st.rerun()
-                        with _scol:
-                            st.markdown(f"<div style='font-size:0.75rem;opacity:0.6;padding-top:0.4rem'>Signal<br><b>{_sig_p_slg:.0f}%</b></div>",
-                                        unsafe_allow_html=True)
+                        _opts = {
+                            f"↑ {_bv} ({_bs:.3f}) · {_sig_p_slg_tgt:.0f}%": _bv,
+                            f"↓ {_cv} ({_cs:.3f}) · {_sig_p_slg_avd:.0f}%": _cv,
+                        }
+                        _sel = st.pills("", list(_opts.keys()), key=_pk)
+                        if _sel:
+                            st.session_state["_pend_swing"] = _opts[_sel]
+                            st.session_state.setdefault("_pills_rst_p", []).append(_pk)
+                            st.rerun()
                         st.plotly_chart(
                             utils.optimal_swing_chart(_vals, result_ranges, "slg", True,
                                                       compact=True, weights=_wts),
@@ -1209,27 +1215,34 @@ with tab_b:
                 ("Based on Recent Swing Δ",      _delta_b,   _delta_weights_b),
                 ("Based on Recent Swing Δ²",     _delta2_b,  _delta2_weights_b),
             ]
+            st.markdown("""<style>
+button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #2ca02c !important;
+}
+button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #d62728 !important;
+}
+</style>""", unsafe_allow_html=True)
             col_obp_b, col_slg_b = st.columns(2)
             with col_obp_b:
                 st.markdown("**OBP**")
                 for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_b):
-                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
+                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
                         _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", False, weights=_wts)
-                        _sig_b_obp = utils.swing_signal_strength(_vals, result_ranges, "obp", False, weights=_wts)
+                        _sig_b_obp_tgt = utils.swing_signal_strength(_vals, result_ranges, "obp", False, weights=_wts, zone="best")
+                        _sig_b_obp_avd = utils.swing_signal_strength(_vals, result_ranges, "obp", False, weights=_wts, zone="worst")
                         _pk = f"pill_obp_{_i}_b"
-                        _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
-                        _pcol, _scol = st.columns([3, 1])
-                        with _pcol:
-                            _sel = st.pills("", list(_opts.keys()), key=_pk)
-                            if _sel:
-                                st.session_state["_pend_pitch"] = _opts[_sel]
-                                st.session_state.setdefault("_pills_rst_b", []).append(_pk)
-                                st.rerun()
-                        with _scol:
-                            st.markdown(f"<div style='font-size:0.75rem;opacity:0.6;padding-top:0.4rem'>Signal<br><b>{_sig_b_obp:.0f}%</b></div>",
-                                        unsafe_allow_html=True)
+                        _opts = {
+                            f"↑ {_bv} ({_bs:.3f}) · {_sig_b_obp_tgt:.0f}%": _bv,
+                            f"↓ {_cv} ({_cs:.3f}) · {_sig_b_obp_avd:.0f}%": _cv,
+                        }
+                        _sel = st.pills("", list(_opts.keys()), key=_pk)
+                        if _sel:
+                            st.session_state["_pend_pitch"] = _opts[_sel]
+                            st.session_state.setdefault("_pills_rst_b", []).append(_pk)
+                            st.rerun()
                         st.plotly_chart(
                             utils.optimal_swing_chart(_vals, result_ranges, "obp", False,
                                                       compact=True, weights=_wts),
@@ -1237,23 +1250,22 @@ with tab_b:
             with col_slg_b:
                 st.markdown("**SLG**")
                 for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_b):
-                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-0.75rem'>{_lbl}</div>",
+                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
                         _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", False, weights=_wts)
-                        _sig_b_slg = utils.swing_signal_strength(_vals, result_ranges, "slg", False, weights=_wts)
+                        _sig_b_slg_tgt = utils.swing_signal_strength(_vals, result_ranges, "slg", False, weights=_wts, zone="best")
+                        _sig_b_slg_avd = utils.swing_signal_strength(_vals, result_ranges, "slg", False, weights=_wts, zone="worst")
                         _pk = f"pill_slg_{_i}_b"
-                        _opts = {f"↑ {_bv} ({_bs:.3f})": _bv, f"↓ {_cv} ({_cs:.3f})": _cv}
-                        _pcol, _scol = st.columns([3, 1])
-                        with _pcol:
-                            _sel = st.pills("", list(_opts.keys()), key=_pk)
-                            if _sel:
-                                st.session_state["_pend_pitch"] = _opts[_sel]
-                                st.session_state.setdefault("_pills_rst_b", []).append(_pk)
-                                st.rerun()
-                        with _scol:
-                            st.markdown(f"<div style='font-size:0.75rem;opacity:0.6;padding-top:0.4rem'>Signal<br><b>{_sig_b_slg:.0f}%</b></div>",
-                                        unsafe_allow_html=True)
+                        _opts = {
+                            f"↑ {_bv} ({_bs:.3f}) · {_sig_b_slg_tgt:.0f}%": _bv,
+                            f"↓ {_cv} ({_cs:.3f}) · {_sig_b_slg_avd:.0f}%": _cv,
+                        }
+                        _sel = st.pills("", list(_opts.keys()), key=_pk)
+                        if _sel:
+                            st.session_state["_pend_pitch"] = _opts[_sel]
+                            st.session_state.setdefault("_pills_rst_b", []).append(_pk)
+                            st.rerun()
                         st.plotly_chart(
                             utils.optimal_swing_chart(_vals, result_ranges, "slg", False,
                                                       compact=True, weights=_wts),

@@ -1846,12 +1846,13 @@ def swing_signal_strength(
     metric: str = "obp",
     maximize: bool = True,
     weights: list[float] | None = None,
+    zone: str = "best",
 ) -> float:
-    """Return signal strength 0-100%: how concentrated the optimal swing region is.
+    """Return signal strength 0-100%: how concentrated a score zone is.
 
-    Finds the largest contiguous run of swing values above the score midpoint
-    (with circular wrap-around handled). Smaller hot zone = higher signal.
-    0% = flat landscape. ~100% = single sharp spike.
+    zone="best"  measures the target (green) half - scores above midpoint.
+    zone="worst" measures the avoid (red) half  - scores below midpoint.
+    Smaller hot zone = higher signal. 0% = flat. ~100% = single sharp spike.
     """
     import numpy as np
     if not recent_opp_vals:
@@ -1865,7 +1866,7 @@ def swing_signal_strength(
     if (best - worst) < 1e-6:
         return 0.0
     mid = (best + worst) / 2.0
-    above = scores > mid
+    above = (scores > mid) if zone == "best" else (scores < mid)
     n = len(above)
     # Double the array to catch hot zones that wrap across the 1000/1 boundary
     doubled = np.concatenate([above, above])
