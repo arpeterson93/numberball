@@ -463,14 +463,25 @@ def compute_game_wp_series(
             wp_bat      = get_win_probability_interpolated(rem, nxt_outs, nxt_obc, bat_score - fld_score) or 0.5
             home_wp     = wp_bat if is_home_nxt else 1.0 - wp_bat
         else:
-            # Last play with no detected game-end - approximate from post-play state
+            # Last play with no detected game-end - approximate from post-play state.
+            # If the play ended the inning (new_outs >= 3) the WP table has no outs=3
+            # entries, so flip to the opposing team at the start of the next half-inning
+            # instead (mirrors what the non-last-play path does via the next play record).
             new_outs  = min(_new_outs_total, 3)
             new_obc_s, _ = advance_runners(result, obc, outs)
             bat_score = home_score if is_home else away_score
             fld_score = away_score if is_home else home_score
-            rem       = remaining_half_innings(inning, half, innings)
-            wp_bat    = get_win_probability_interpolated(rem, new_outs, new_obc_s, bat_score - fld_score) or 0.5
-            home_wp   = wp_bat if is_home else 1.0 - wp_bat
+            if new_outs >= 3:
+                nxt_rem = remaining_half_innings(inning, half, innings) - 1
+                if nxt_rem >= 1:
+                    opp_wp  = get_win_probability_interpolated(nxt_rem, 0, "000", -(bat_score - fld_score)) or 0.5
+                    home_wp = (1.0 - opp_wp) if is_home else opp_wp
+                else:
+                    home_wp = 1.0 if (home_score > away_score) else (0.5 if home_score == away_score else 0.0)
+            else:
+                rem     = remaining_half_innings(inning, half, innings)
+                wp_bat  = get_win_probability_interpolated(rem, new_outs, new_obc_s, bat_score - fld_score) or 0.5
+                home_wp = wp_bat if is_home else 1.0 - wp_bat
 
         inn_lbl   = inning_label(inning, half)
         score_str = f"{away_team} {away_score} - {home_score} {home_team}"
@@ -479,7 +490,7 @@ def compute_game_wp_series(
             f"{batter} vs {pitcher}<br>"
             f"<b>Result: {result}</b><br>"
             f"Score: {score_str}<br>"
-            f"{home_team} WP: {home_wp * 100:.1f}%"
+            f"{(away_team if (1 - home_wp) >= 0.5 else home_team)} WP: {max(1 - home_wp, home_wp) * 100:.1f}%"
         )
 
         rows.append({
@@ -728,7 +739,7 @@ def get_res_category(result: str, diff: int) -> str:
 
 
 _OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "FC", "LO",
-                "LCO", "DFO", "FC3rd"}
+                "LCO", "DFO", "FC3rd", "CS"}
 _DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP"}
 _TP_RESULTS  = {"TP", "LOTP"}
 
@@ -840,6 +851,8 @@ def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:
         new_3b = False
         new_2b = on_2b
         new_1b = on_1b
+    elif result == "CS":
+        return steal_cs(obc)
     elif result in _TP_RESULTS:
         pass
     elif result in _OUT_RESULTS:
@@ -2703,8 +2716,8 @@ def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
 _DIFF_HM_BINS   = [-1, 25, 50, 100, 150, 200, 300, 501]
 _DIFF_HM_LABELS = ["0–25", "26–50", "51–100", "101–150", "151–200", "201–300", "301–500"]
 
-_DELTA_HM_BINS   = list(range(0, 501, 50))          # [0, 50, 100, …, 500]
-_DELTA_HM_LABELS = [f"{i}–{i + 50}" for i in range(0, 500, 50)]  # 10 bins
+_DELTA_HM_BINS   = list(range(0, 501, 100))         # [0, 100, 200, 300, 400, 500]
+_DELTA_HM_LABELS = [f"{i}–{i + 100}" for i in range(0, 500, 100)]  # 5 bins
 
 
 def diff_vs_next_pitch_delta_heatmap(
@@ -2870,43 +2883,51 @@ def next_delta_vs_prior_delta_heatmap(
 def hot_zone_matrix(
     df: pd.DataFrame,
     value_col: str = "pitch",
-    group_cols: list[str] = None,
+    group_cols: list[str] | None = None,
     title: str = "Hot Zone Pitch Matrix",
-    bucket_size: int = 100,
+    init_bucket_size: int = 100,
+    follow_bucket_size: int = 100,
 ) -> go.Figure:
-    """Heatmap of consecutive pitch/swing zone transitions. bucket_size must divide 1000 evenly."""
+    """Heatmap of consecutive pitch/swing zone transitions.
+    Initial pitch on x-axis (bottom); following pitch on y-axis (left).
+    Both bucket sizes must divide 1000 evenly.
+    """
     if group_cols is None:
         group_cols = ["game_id", "pitcher_name"]
 
-    n_buckets = 1000 // bucket_size
-    labels = [f"{i * bucket_size + 1}-{min((i + 1) * bucket_size, 1000)}" for i in range(n_buckets)]
+    n_init   = 1000 // init_bucket_size
+    n_follow = 1000 // follow_bucket_size
+    init_labels   = [f"{i * init_bucket_size + 1}-{min((i + 1) * init_bucket_size, 1000)}"     for i in range(n_init)]
+    follow_labels = [f"{i * follow_bucket_size + 1}-{min((i + 1) * follow_bucket_size, 1000)}" for i in range(n_follow)]
 
     df = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
     df["_next"] = df.groupby(group_cols)[value_col].shift(-1)
     df = df.dropna(subset=["_next"])
 
-    df["_curr_b"] = ((df[value_col].astype(int) - 1) // bucket_size).clip(0, n_buckets - 1)
-    df["_next_b"] = ((df["_next"].astype(int) - 1) // bucket_size).clip(0, n_buckets - 1)
+    df["_curr_b"] = ((df[value_col].astype(int) - 1) // init_bucket_size).clip(0, n_init - 1)
+    df["_next_b"] = ((df["_next"].astype(int)   - 1) // follow_bucket_size).clip(0, n_follow - 1)
 
+    # rows = following bucket, cols = initial bucket
     matrix = (
-        pd.crosstab(df["_curr_b"], df["_next_b"])
-        .reindex(index=range(n_buckets), columns=range(n_buckets), fill_value=0)
+        pd.crosstab(df["_next_b"], df["_curr_b"])
+        .reindex(index=range(n_follow), columns=range(n_init), fill_value=0)
     )
 
-    row_totals = matrix.sum(axis=1).replace(0, 1)
-    matrix_norm = matrix.div(row_totals, axis=0) * 100
+    # Normalize by column so each initial-pitch column sums to 100%
+    col_totals  = matrix.sum(axis=0).replace(0, 1)
+    matrix_norm = matrix.div(col_totals, axis=1) * 100
     z_norm = matrix_norm.values.tolist()
     z_raw  = matrix.values.tolist()
     text = [
         [f"{matrix_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
-         for j in range(n_buckets)]
-        for i in range(n_buckets)
+         for j in range(n_init)]
+        for i in range(n_follow)
     ]
 
     fig = go.Figure(go.Heatmap(
         z=z_norm,
-        x=labels,
-        y=labels,
+        x=init_labels,
+        y=follow_labels,
         text=text,
         texttemplate="%{text}",
         customdata=z_raw,
@@ -2914,13 +2935,93 @@ def hot_zone_matrix(
         showscale=False,
         xgap=2,
         ygap=2,
-        hovertemplate="From %{y} → %{x}<br>%{z:.1f}% of row (%{customdata} pitches)<extra></extra>",
+        hovertemplate="Initial %{x} → Following %{y}<br>%{z:.1f}% of col (%{customdata} pitches)<extra></extra>",
     ))
     fig.update_layout(
-        xaxis=dict(title="Following Pitch", tickangle=45, side="top"),
-        yaxis=dict(title="Initial Pitch", autorange="reversed"),
-        height=max(400, n_buckets * 42 + 100),
-        margin=dict(l=80, r=10, t=80, b=10),
+        xaxis=dict(title="Initial Pitch", tickangle=0, side="bottom"),
+        yaxis=dict(title="Following Pitch"),
+        height=max(400, n_follow * 42 + 120),
+        margin=dict(l=90, r=10, t=30, b=80),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def hot_zone_third_dist(
+    df: pd.DataFrame,
+    value_col: str = "pitch",
+    group_cols: list[str] | None = None,
+    init_bucket_size: int = 100,
+    follow_bucket_size: int = 100,
+    third_bucket_size: int | None = None,
+    init_label: str = "",
+    follow_label: str = "",
+) -> go.Figure | None:
+    """Single-row heatmap showing the 3rd pitch distribution given an initial->following pair.
+
+    Returns None if the label pair isn't found or there's no data for the sequence.
+    """
+    if group_cols is None:
+        group_cols = ["game_id", "pitcher_name"]
+    if third_bucket_size is None:
+        third_bucket_size = follow_bucket_size
+
+    n_init   = 1000 // init_bucket_size
+    n_follow = 1000 // follow_bucket_size
+    n_third  = 1000 // third_bucket_size
+    init_labels   = [f"{i * init_bucket_size + 1}-{min((i + 1) * init_bucket_size, 1000)}"   for i in range(n_init)]
+    follow_labels = [f"{i * follow_bucket_size + 1}-{min((i + 1) * follow_bucket_size, 1000)}" for i in range(n_follow)]
+    third_labels  = [f"{i * third_bucket_size + 1}-{min((i + 1) * third_bucket_size, 1000)}"  for i in range(n_third)]
+
+    if init_label not in init_labels or follow_label not in follow_labels:
+        return None
+
+    init_idx   = init_labels.index(init_label)
+    follow_idx = follow_labels.index(follow_label)
+
+    df = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    df["_next"]  = df.groupby(group_cols)[value_col].shift(-1)
+    df["_next2"] = df.groupby(group_cols)[value_col].shift(-2)
+    df = df.dropna(subset=["_next", "_next2"])
+
+    df["_curr_b"]  = ((df[value_col].astype(int) - 1) // init_bucket_size).clip(0, n_init - 1)
+    df["_next_b"]  = ((df["_next"].astype(int)   - 1) // follow_bucket_size).clip(0, n_follow - 1)
+    df["_next2_b"] = ((df["_next2"].astype(int)  - 1) // third_bucket_size).clip(0, n_third - 1)
+
+    subset = df[(df["_curr_b"] == init_idx) & (df["_next_b"] == follow_idx)]
+    if subset.empty:
+        return None
+
+    counts = subset["_next2_b"].value_counts().reindex(range(n_third), fill_value=0)
+    total  = int(counts.sum())
+    pcts   = (counts / total * 100)
+
+    text = [[f"{pcts[i]:.0f}%" if counts[i] > 0 else "" for i in range(n_third)]]
+
+    fig = go.Figure(go.Heatmap(
+        z=[pcts.values.tolist()],
+        x=third_labels,
+        y=["3rd Pitch"],
+        text=text,
+        texttemplate="%{text}",
+        customdata=[counts.values.tolist()],
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="%{x}<br>%{z:.1f}% (%{customdata} pitches)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(
+            text=f"3rd Pitch  |  {init_label} -> {follow_label}  (n={total})",
+            x=0.5, xanchor="center", font=dict(size=13),
+        ),
+        xaxis=dict(title=None, tickangle=0, side="bottom"),
+        yaxis=dict(showticklabels=True),
+        height=130,
+        margin=dict(l=80, r=10, t=60, b=40),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -3845,48 +3946,98 @@ def win_probability_chart(
     home_team: str = "Home",
     away_team: str = "Away",
     title: str | None = None,
+    home_hex: str = "#d6604d",
+    away_hex: str = "#2166ac",
 ) -> go.Figure:
-    """Home-team win probability line chart over the course of a game.
+    """Win probability chart - away team at top (y=100%), home team at bottom (y=0%).
 
+    Displays away_wp = 1 - home_wp so the away team's winning region is shaded at the
+    top and the home team's region at the bottom.
     wp_df must contain: play_idx, inn_label, home_wp, hover, result columns
     (produced by compute_game_wp_series).
     """
     if wp_df.empty:
         return go.Figure().update_layout(height=420, title=title or "Win Probability")
 
+    def _hex_rgba(hex_c: str, a: float = 0.18) -> str:
+        h = hex_c.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{a})"
+
     x       = wp_df["play_idx"].tolist()
-    y       = (wp_df["home_wp"] * 100).tolist()
+    y       = ((1.0 - wp_df["home_wp"]) * 100).tolist()  # away_wp: high = away winning
     hover   = wp_df["hover"].tolist()
     results = wp_df["result"].tolist() if "result" in wp_df.columns else [""] * len(x)
 
-    # Dual-color fill polygons: close with the 50% baseline going in reverse
-    fill_x  = x + list(reversed(x))
-    upper_y = [max(yi, 50.0) for yi in y] + [50.0] * len(x)
-    lower_y = [50.0] * len(x) + [min(yi, 50.0) for yi in reversed(y)]
+    # Dual-color fill: above 50 = away winning, below 50 = home winning.
+    # Insert exact crossing points so the fill polygon edge tracks the actual
+    # line at crossings - without this the polygon bleeds outside the line.
+    ix, iy = [x[0]], [y[0]]
+    for _i in range(1, len(x)):
+        if (y[_i - 1] >= 50.0) != (y[_i] >= 50.0):
+            _t  = (50.0 - y[_i - 1]) / (y[_i] - y[_i - 1])
+            _cx = x[_i - 1] + _t * (x[_i] - x[_i - 1])
+            ix.append(_cx); iy.append(50.0)
+        ix.append(x[_i]); iy.append(y[_i])
+
+    fill_x  = ix + list(reversed(ix))
+    upper_y = [max(yi, 50.0) for yi in iy] + [50.0] * len(ix)
+    lower_y = [50.0] * len(ix) + [min(yi, 50.0) for yi in reversed(iy)]
 
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
         x=fill_x, y=upper_y,
-        fill="toself", fillcolor="rgba(33,102,172,0.18)",
+        fill="toself", fillcolor=_hex_rgba(away_hex),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
     fig.add_trace(go.Scatter(
         x=fill_x, y=lower_y,
-        fill="toself", fillcolor="rgba(214,96,77,0.18)",
+        fill="toself", fillcolor=_hex_rgba(home_hex),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
 
     fig.add_hline(y=50, line_dash="dash", line_color="rgba(128,128,128,0.5)", line_width=1)
 
+    # Split line into colored segments: away_hex when away leading (y>=50), home_hex otherwise.
+    # Interpolate the exact x where the line crosses 50 so segments meet cleanly.
+    def _colored_segments(xv, yv):
+        segs: list[tuple[bool, list, list]] = []
+        if not xv:
+            return segs
+        is_away = yv[0] >= 50.0
+        sx, sy = [xv[0]], [yv[0]]
+        for i in range(1, len(xv)):
+            new_away = yv[i] >= 50.0
+            if new_away != is_away:
+                t  = (50.0 - yv[i - 1]) / (yv[i] - yv[i - 1])
+                cx = xv[i - 1] + t * (xv[i] - xv[i - 1])
+                sx.append(cx); sy.append(50.0)
+                segs.append((is_away, sx, sy))
+                sx, sy = [cx, xv[i]], [50.0, yv[i]]
+                is_away = new_away
+            else:
+                sx.append(xv[i]); sy.append(yv[i])
+        segs.append((is_away, sx, sy))
+        return segs
+
+    for _is_away, _sx, _sy in _colored_segments(x, y):
+        fig.add_trace(go.Scatter(
+            x=_sx, y=_sy,
+            mode="lines",
+            line=dict(color=away_hex if _is_away else home_hex, width=2.5),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    # Markers with per-point color and hover (separate trace, no line)
+    _mc = [away_hex if yi >= 50 else home_hex for yi in y]
     fig.add_trace(go.Scatter(
         x=x, y=y,
-        mode="lines+markers",
-        name=f"{home_team} WP%",
-        line=dict(color="#2166ac", width=2.5),
-        marker=dict(size=4, color="#2166ac"),
+        mode="markers",
+        marker=dict(size=4, color=_mc),
         hovertext=hover,
         hovertemplate="%{hovertext}<extra></extra>",
+        showlegend=False,
     ))
 
     # Key play markers: top plays by absolute WP swing
@@ -3906,18 +4057,14 @@ def win_probability_chart(
         fig.add_trace(go.Scatter(
             x=n_x, y=n_y,
             mode="markers+text",
-            marker=dict(size=9, symbol="star", color="#d6604d"),
+            marker=dict(size=9, symbol="star", color="#f5a623"),
             text=n_txt, textposition="top center",
-            textfont=dict(size=8, color="#d6604d"),
+            textfont=dict(size=8, color="#f5a623"),
             name="Key plays", hoverinfo="skip",
         ))
 
-    # Inning-change vertical lines and x-axis ticks.
-    # WP is post-play, so the divider between half-innings belongs one position to the
-    # left of the first play of the new half (after the last play of the prior half).
-    # "Start" is skipped so "T1" can claim position 0.
-    tick_vals: list[int] = []
-    tick_text: list[str] = []
+    # Collect half-inning boundaries for divider lines and centered tick labels
+    _dividers: list[tuple[int, str]] = []
     prev_inn = None
     if "inn_label" in wp_df.columns:
         for _, row in wp_df.iterrows():
@@ -3927,18 +4074,30 @@ def win_probability_chart(
                     prev_inn = inn
                     continue
                 xi = int(row["play_idx"])
-                divider_x = max(0, xi - 1)
-                tick_vals.append(divider_x)
-                tick_text.append(inn if inn != "Final" else "")
-                if inn != "Final" and divider_x > 0:
-                    fig.add_shape(
-                        type="line", xref="x", yref="paper",
-                        x0=divider_x, x1=divider_x, y0=0, y1=1,
-                        line=dict(color="rgba(128,128,128,0.25)", width=1, dash="dot"),
-                    )
+                _dividers.append((max(0, xi - 1), inn))
                 prev_inn = inn
 
-    display_title = title or f"{away_team} @ {home_team} - Win Probability"
+    # Draw vertical lines at half-inning boundaries
+    for dx, dl in _dividers:
+        if dl != "Final" and dx > 0:
+            fig.add_shape(
+                type="line", xref="x", yref="paper",
+                x0=dx, x1=dx, y0=0, y1=1,
+                line=dict(color="rgba(128,128,128,0.25)", width=1, dash="dot"),
+            )
+
+    # Tick labels centered in each half-inning interval
+    max_x_val = max(x) if x else 1
+    _non_final = [(dx, dl) for dx, dl in _dividers if dl != "Final"]
+    _final_dx  = next((dx for dx, dl in _dividers if dl == "Final"), max_x_val)
+    tick_vals: list[float] = []
+    tick_text: list[str]   = []
+    for i, (dx, dl) in enumerate(_non_final):
+        next_dx = _non_final[i + 1][0] if i + 1 < len(_non_final) else _final_dx
+        tick_vals.append((dx + next_dx) / 2.0)
+        tick_text.append(dl)
+
+    display_title = title or "Win Probability"
     fig.update_layout(
         title=dict(text=display_title, x=0.5, xanchor="center"),
         xaxis=dict(
@@ -3964,18 +4123,18 @@ def win_probability_chart(
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
         annotations=[
             dict(
-                text=f"<b>{home_team}</b>",
-                x=0, xref="paper", xanchor="left",
-                y=100, yref="y", yanchor="top",
-                showarrow=False, font=dict(size=10, color="#2166ac"),
-                xshift=-54,
-            ),
-            dict(
                 text=f"<b>{away_team}</b>",
                 x=0, xref="paper", xanchor="left",
+                y=100, yref="y", yanchor="top",
+                showarrow=False, font=dict(size=10, color=away_hex),
+                xshift=-54, yshift=-5,
+            ),
+            dict(
+                text=f"<b>{home_team}</b>",
+                x=0, xref="paper", xanchor="left",
                 y=0, yref="y", yanchor="bottom",
-                showarrow=False, font=dict(size=10, color="#d6604d"),
-                xshift=-54,
+                showarrow=False, font=dict(size=10, color=home_hex),
+                xshift=-54, yshift=5,
             ),
         ],
     )

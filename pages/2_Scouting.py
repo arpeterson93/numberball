@@ -106,6 +106,26 @@ _all_teams        = sorted({utils.TEAM_ABBREV.get(p.get("team",""), p.get("team"
 _full_to_abbrev   = {v: k for k, v in utils.TEAM_ABBREV.items()}
 _all_player_names = sorted(p["name"] for p in _all_players if p.get("name"))
 
+@st.cache_data(ttl=3600)
+def _load_team_hex() -> dict[str, str]:
+    result: dict[str, str] = {}
+    for t in db.get_all_teams():
+        hex_c = t.get("primary_hex") or ""
+        if not hex_c:
+            continue
+        if not hex_c.startswith("#"):
+            hex_c = "#" + hex_c
+        for key in ("full_team", "team_name"):
+            n = t.get(key) or ""
+            if n:
+                result[n] = hex_c
+        abbrev = t.get("abbrev") or ""
+        if abbrev in utils.TEAM_ABBREV:
+            result[utils.TEAM_ABBREV[abbrev]] = hex_c
+    return result
+
+_team_hex_map = _load_team_hex()
+
 # ── shared helpers ────────────────────────────────────────────────────────────
 
 def _players_for_team(team_full: str) -> list[str]:
@@ -408,7 +428,10 @@ result_ranges = None
 hist_id       = st.session_state.get("pred_hist_loaded_id") if pred_mode == "Historical / Manual" else None
 matchup_label = ""
 
-_mgr_max_inning = utils.game_innings(st.session_state.get("mgr_league", "MLN"))
+# Allow up to 6 extra innings beyond regulation so extra-inning games don't crash
+_mgr_max_inning = utils.game_innings(st.session_state.get("mgr_league", "MLN")) + 6
+if st.session_state.get("mgr_inning", 1) > _mgr_max_inning:
+    st.session_state["mgr_inning"] = int(_mgr_max_inning)
 
 if pred_mode == "Historical / Manual":
     _calc_r       = _calc_ranges(bunt=False)
@@ -593,6 +616,7 @@ elif pred_mode == "Fetch Live Matchup":
                     _state_msg = (f" + game state ({fetched_gameplay['outs']} outs, "
                                   f"{utils.obc_display(fetched_gameplay['obc'])})"
                                   if fetched_gameplay["outs"] is not None else "")
+                    st.session_state.pop("mgr_steal_runner", None)
                     st.toast(f"Loaded {len(fetched_ranges)} ranges{_bunt_msg}{_steal_msg}{_state_msg}.")
                     st.rerun()
                 except Exception as e:
@@ -897,11 +921,44 @@ with tab_p:
         # ── hot zone ─────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Hot Zone Pitch Matrix")
-        st.caption("How often each pitch range is followed by each other pitch range.")
-        bucket_p = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_p")
+        st.caption("How often each pitch range is followed by each other pitch range. Click a cell to see the 3rd pitch distribution.")
+        _hzp_sl1, _hzp_sl2 = st.columns(2)
+        with _hzp_sl1:
+            init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=100, key="hz_init_bucket_p")
+        with _hzp_sl2:
+            follow_bucket_p = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=100, key="hz_follow_bucket_p")
         group_cols_p = ["game_id","pitcher_name"] if tab_p_pitcher != "All" else ["pitcher_name"]
-        st.plotly_chart(utils.hot_zone_matrix(df_p, value_col="pitch",
-                                              group_cols=group_cols_p, bucket_size=bucket_p), width="stretch", key="p_hot_zone")
+
+        st.plotly_chart(
+            utils.hot_zone_matrix(df_p, value_col="pitch", group_cols=group_cols_p,
+                                  init_bucket_size=init_bucket_p, follow_bucket_size=follow_bucket_p),
+            width="stretch", key="p_hot_zone",
+        )
+
+        _hz_p_recent     = df_p[df_p["pitch"].notna()].sort_values("id")["pitch"].astype(int).tolist()
+        _hz_p_def_init   = _hz_p_recent[-2] if len(_hz_p_recent) >= 2 else (_hz_p_recent[-1] if _hz_p_recent else None)
+        _hz_p_def_follow = _hz_p_recent[-1] if _hz_p_recent else None
+        _hzp_c1, _hzp_c2 = st.columns(2)
+        with _hzp_c1:
+            _hz_p_init_val   = st.number_input("Initial pitch",   min_value=1, max_value=1000, value=_hz_p_def_init,   step=1, key=f"hz_p_init_{tab_p_pitcher}",   placeholder="1-1000")
+        with _hzp_c2:
+            _hz_p_follow_val = st.number_input("Following pitch", min_value=1, max_value=1000, value=_hz_p_def_follow, step=1, key=f"hz_p_follow_{tab_p_pitcher}", placeholder="1-1000")
+
+        if _hz_p_init_val is not None and _hz_p_follow_val is not None:
+            _p_ii = (int(_hz_p_init_val)   - 1) // init_bucket_p
+            _p_fi = (int(_hz_p_follow_val) - 1) // follow_bucket_p
+            _hz_p_init_label   = f"{_p_ii * init_bucket_p + 1}-{min((_p_ii + 1) * init_bucket_p, 1000)}"
+            _hz_p_follow_label = f"{_p_fi * follow_bucket_p + 1}-{min((_p_fi + 1) * follow_bucket_p, 1000)}"
+            _third_fig_p = utils.hot_zone_third_dist(
+                df_p, value_col="pitch", group_cols=group_cols_p,
+                init_bucket_size=init_bucket_p, follow_bucket_size=follow_bucket_p,
+                init_label=_hz_p_init_label, follow_label=_hz_p_follow_label,
+            )
+            if _third_fig_p:
+                st.plotly_chart(_third_fig_p, width="stretch",
+                                config={"displayModeBar": False}, key="p_third_dist")
+            else:
+                st.caption("Not enough data for this sequence.")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
@@ -1249,11 +1306,44 @@ with tab_b:
         # ── hot zone ─────────────────────────────────────────────────────────
         st.divider()
         st.subheader("Hot Zone Swing Matrix")
-        st.caption("How often each swing range is followed by each other swing range.")
-        bucket_b = st.select_slider("Bucket size", options=[50,100,125,200,250,500], value=100, key="hz_bucket_b")
+        st.caption("How often each swing range is followed by each other swing range. Click a cell to see the 3rd swing distribution.")
+        _hzb_sl1, _hzb_sl2 = st.columns(2)
+        with _hzb_sl1:
+            init_bucket_b   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=100, key="hz_init_bucket_b")
+        with _hzb_sl2:
+            follow_bucket_b = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=100, key="hz_follow_bucket_b")
         group_cols_b = ["game_id","batter_name"] if tab_b_batter != "All" else ["batter_name"]
-        st.plotly_chart(utils.hot_zone_matrix(df_b, value_col="swing",
-                                              group_cols=group_cols_b, bucket_size=bucket_b), width="stretch", key="b_hot_zone")
+
+        st.plotly_chart(
+            utils.hot_zone_matrix(df_b, value_col="swing", group_cols=group_cols_b,
+                                  init_bucket_size=init_bucket_b, follow_bucket_size=follow_bucket_b),
+            width="stretch", key="b_hot_zone",
+        )
+
+        _hz_b_recent     = df_b[df_b["swing"].notna()].sort_values("id")["swing"].astype(int).tolist()
+        _hz_b_def_init   = _hz_b_recent[-2] if len(_hz_b_recent) >= 2 else (_hz_b_recent[-1] if _hz_b_recent else None)
+        _hz_b_def_follow = _hz_b_recent[-1] if _hz_b_recent else None
+        _hzb_c1, _hzb_c2 = st.columns(2)
+        with _hzb_c1:
+            _hz_b_init_val   = st.number_input("Initial swing",   min_value=1, max_value=1000, value=_hz_b_def_init,   step=1, key=f"hz_b_init_{tab_b_batter}",   placeholder="1-1000")
+        with _hzb_c2:
+            _hz_b_follow_val = st.number_input("Following swing", min_value=1, max_value=1000, value=_hz_b_def_follow, step=1, key=f"hz_b_follow_{tab_b_batter}", placeholder="1-1000")
+
+        if _hz_b_init_val is not None and _hz_b_follow_val is not None:
+            _b_ii = (int(_hz_b_init_val)   - 1) // init_bucket_b
+            _b_fi = (int(_hz_b_follow_val) - 1) // follow_bucket_b
+            _hz_b_init_label   = f"{_b_ii * init_bucket_b + 1}-{min((_b_ii + 1) * init_bucket_b, 1000)}"
+            _hz_b_follow_label = f"{_b_fi * follow_bucket_b + 1}-{min((_b_fi + 1) * follow_bucket_b, 1000)}"
+            _third_fig_b = utils.hot_zone_third_dist(
+                df_b, value_col="swing", group_cols=group_cols_b,
+                init_bucket_size=init_bucket_b, follow_bucket_size=follow_bucket_b,
+                init_label=_hz_b_init_label, follow_label=_hz_b_follow_label,
+            )
+            if _third_fig_b:
+                st.plotly_chart(_third_fig_b, width="stretch",
+                                config={"displayModeBar": False}, key="b_third_dist")
+            else:
+                st.caption("Not enough data for this sequence.")
 
         # ── zone distribution ─────────────────────────────────────────────────
         st.divider()
@@ -1419,7 +1509,9 @@ with tab_g:
                     _wp_df,
                     home_team=_home,
                     away_team=_away,
-                    title=f"{_away} @ {_home} - Win Probability",
+                    title="Win Probability",
+                    home_hex=_team_hex_map.get(_home, "#d6604d"),
+                    away_hex=_team_hex_map.get(_away, "#2166ac"),
                 )
                 st.plotly_chart(_wp_fig, use_container_width=True,
                                 config={"displayModeBar": False}, key="game_wp_chart")

@@ -4,7 +4,10 @@
       "Bash(python *)",
       "WebFetch(domain:docs.google.com)",
       "WebFetch(domain:doc-0s-9k-sheets.googleusercontent.com)",
-      "mcp__claude_ai_Google_Drive__read_file_content"
+      "mcp__claude_ai_Google_Drive__read_file_content",
+      "WebFetch(domain:tangotiger.net)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
