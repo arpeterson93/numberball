@@ -83,7 +83,7 @@ _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_s
 _sel_leagues: list[str] = []
 if _source_key in ("real", "all"):
     _sel_leagues = st.multiselect(
-        "League", ["RLN", "MLN"], default=["RLN"], key="scouting_league",
+        "League", ["RLN", "MLN"], default=["RLN", "MLN"], key="scouting_league",
     )
 
 _leagues_tuple: tuple[str, ...] = tuple(sorted(_sel_leagues))
