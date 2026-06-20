@@ -2,3 +2,4 @@ streamlit>=1.40
 pandas>=2.0
 supabase>=2.0
 plotly>=5.0
+extra-streamlit-components>=0.1.60

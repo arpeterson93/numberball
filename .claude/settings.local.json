@@ -7,7 +7,8 @@
       "mcp__claude_ai_Google_Drive__read_file_content",
       "WebFetch(domain:tangotiger.net)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(.venv/Scripts/python.exe batter_optimizer.py)"
     ]
   }
 }

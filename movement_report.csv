@@ -1,0 +1,685 @@
+player,player_handle,season_from,season_to,team_from,team_from_name,team_to,team_to_name,has_transaction,player_match_score,txn_player_matched,txn_date,txn_type,txn_team_raw,txn_team_abbrev,team_abbrev_match,txn_raw,near_miss_player,near_miss_score,near_miss_date,near_miss_raw
+Ace Brickman,,11,12,MIA,Miami Fuego,RC,Raccoon City Outbreak,Y,1.0,RF Ace Brickman,2025-08-02,sign,Raccoon City Outbreak,RC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Adam Croft,"adam croft, washed p",2,3,SUN,Sunnydale Slayers,GRZ,Ursa Major Grizzlies,N,0.435,Kal,2018-12-02,draft,Vancouver Vampires,,N,"With the nineteenth pick in the Season 2 Draft, the Vancouver Vampires select @Kal",Kal,0.435,2018-12-02,"With the nineteenth pick in the Season 2 Draft, the Vancouver Vampires select @Kal"
+AJ Preller,,1,2,KYM,Kentucky Mashers,BFB,Blubs Bay Flappy Bois,N,0.435,librarylass,2018-12-02,draft,Henrik Omegas,,N,"With the twenty seventh pick in the Season 2 Draft, the Henrik Omegas select @librarylass",librarylass,0.435,2018-12-02,"With the twenty seventh pick in the Season 2 Draft, the Henrik Omegas select @librarylass"
+AJ Wolfe,,11,12,CAR,Carolina Reapers,SUN,Sunnydale Slayers,Y,1.0,AJ Wolfe,2024-10-06,draft,Carolina Reapers,CAR,N,":CAR: With the first overall pick in the S11 MLN Draft, the *Carolina Reapers* select P **AJ Wolfe**",,,,
+Alex Yaxley,alex “big champion” yaxley 💍,11,12,CAR,Carolina Reapers,SMD,Sopher McDophers,Y,0.815,C/COF Alex Yaxley,2025-08-02,sign,Sopher McDophers,SMD,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Alexandra Shepard,,6,7,JAM,JAM,ACP,Acadia Peregrines,Y,1.0,Alexandra Shepard,2022-01-22,draft,Peregrines Acadia Peregrines,ACP,Y,"With the 12th overall pick in the S7 Draft, the :Peregrines: Acadia Peregrines select **3B Alexandra Shepard**",,,,
+Alexandra Shepard,,7,8,ACP,Acadia Peregrines,HMH,Humongous Melonheads,Y,1.0,3B Alexandra Shepard,2022-08-29,sign,Humongous Melonheads,HMH,Y,:Melonheads: Humongous Melonheads sign 3B **Alexandra Shepard**,,,,
+Andrew Nova,andrewsc,5,6,KYM,Kentucky Mashers,POR,Portland Pioneers,N,0.6,Stride,2021-04-28,draft,Vatican City,,N,":vaticancity: With the 134th pick in the WNC draft, Vatican City selects @Stride",Stride,0.6,2021-04-28,":vaticancity: With the 134th pick in the WNC draft, Vatican City selects @Stride"
+Angel Leon,,1,2,SUN,Sunnydale Slayers,POR,Portland Pioneers,N,0.571,Maud Nelson,2018-12-02,draft,Henrik Omegas,,N,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson",Maud Nelson,0.571,2018-12-02,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson"
+Angel Leon,,6,8,POR,Portland Pioneers,ACP,Acadia Peregrines,Y,1.0,P Angel Leon,2022-10-24,sign,Acadia Peregrines,ACP,Y,:peregrines: Acadia Peregrines sign  P **Angel Leon**,,,,
+Arm N. Hammer,poet,7,8,ASS,Aruba Sea Serpents,GHG,Gas House Gorillas,Y,1.0,C Arm N. Hammer,2022-09-04,sign,Gas House Gorillas,GHG,Y,:Gorillas: Gas House Gorillas sign C **Arm N. Hammer**,,,,
+Artie Ziff,,2,5,KYM,Kentucky Mashers,MAL,Malibu Waverunners,Y,1.0,Artie Ziff,2021-01-20,sign,Tactical Panda on Hiatus &,OAK,N,"**Session 9 Transactions (Effective Session 10)**
+
+:Gorillas: **Cap Keeler** on Hiatus
+
+:Waverunners:  **Tactical Panda*",,,,
+Assassin Xekutioner,assassin xekutioner,2,3,MAL,Malibu Waverunners,SUN,Sunnydale Slayers,Y,1.0,Assassin Xekutioner,2018-12-02,draft,Gas House Gorillas,GHG,N,"With the fifth pick in the Season 2 Draft, the Gas House Gorillas select @Assassin Xekutioner.",,,,
+Austin Schwartz,,3,4,KYM,Kentucky Mashers,ACP,Acadia Peregrines,N,0.621,Pizzatoes,2019-07-23,draft,Halifax Helmsmen,,N,With the 23rd pick the Halifax Helmsmen select @Pizzatoes,Pizzatoes,0.621,2019-07-23,With the 23rd pick the Halifax Helmsmen select @Pizzatoes
+B.A. Dickey,,6,7,SUN,Sunnydale Slayers,HFX,Halifax Helmsmen,Y,1.0,P B.A. Dickey,2022-05-16,sign,Halifax Highlanders,HFX,Y,"**Transactions effective Session 10**
+
+we'll organize this by team...
+
+:Waverunners: Malibu Waverunners sign 1B/UTIL **R",,,,
+B.A. Dickey,,7,8,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,Y,1.0,P B.A. Dickey,2022-08-29,sign,Blubs Bay Flappy Bois,BFB,Y,:FlappyBois: Blubs Bay Flappy Bois sign P **B.A. Dickey**,,,,
+Babatunde Oladotun,baba,1,2,KYM,Kentucky Mashers,SHH,Sleepy Hollow Horsemen,Y,1.0,Baba,2018-12-02,draft,Sleepy Hollow Horsemen,SHH,Y,"With the third pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Baba.",,,,
+Babatunde Oladotun,baba,2,3,SHH,Sleepy Hollow Horsemen,POR,Portland Pioneers,Y,1.0,Baba,2018-12-02,draft,Sleepy Hollow Horsemen,SHH,N,"With the third pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Baba.",,,,
+Babatunde Oladotun,baba,3,4,POR,Portland Pioneers,REK,Reykjavik Valkyries,N,0.516,Brandon Blade,2020-09-23,sign,Rhinos,,N,:Rhinos: sign **Brandon Blade**,Brandon Blade,0.516,2020-09-23,:Rhinos: sign **Brandon Blade**
+Babatunde Oladotun,baba,6,7,OO,Oslo Otters,ACP,Acadia Peregrines,Y,1.0,Pitcher Babatunde Oladotun,2022-01-18,sign,Acadia Peregrines,ACP,Y,:Peregrines: Acadia Peregrines sign Pitcher **Babatunde Oladotun**,,,,
+Barney Summers,,2,3,LPJ,Lonestar Pumpjacks,GRZ,Ursa Major Grizzlies,N,0.6,barnes,2019-07-23,draft,Malibu Waverunners,,N,With the 28th pick the Malibu Waverunners select @barnes,barnes,0.6,2019-07-23,With the 28th pick the Malibu Waverunners select @barnes
+Barney Summers,,3,4,GRZ,Ursa Major Grizzlies,ACP,Acadia Peregrines,N,0.615,Baron Samedi,2020-09-21,sign,FlappyBois,,N,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",Baron Samedi,0.615,2020-09-21,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign"
+Barney Turbo,barn | melon #95,2,3,SUN,Sunnydale Slayers,GRZ,Ursa Major Grizzlies,N,0.556,barnes,2019-07-23,draft,Malibu Waverunners,,N,With the 28th pick the Malibu Waverunners select @barnes,barnes,0.556,2019-07-23,With the 28th pick the Malibu Waverunners select @barnes
+Barney Turbo,barn | melon #95,3,4,GRZ,Ursa Major Grizzlies,BUF,Buffalo Bullfrogs,N,0.56,Rickey Tucker,2020-09-21,sign,Gorillas,,N,:Gorillas: sign **Rickey Tucker**,Rickey Tucker,0.56,2020-09-21,:Gorillas: sign **Rickey Tucker**
+Barney Turbo,barn | melon #95,6,7,BUF,Buffalo Bullfrogs,REK,Reykjavik Valkyries,Y,1.0,Right Fielder Barney Turbo,2022-01-18,sign,Reykjavik Valkyries,REK,Y,:valkyries: Reykjavik Valkyries sign Right Fielder **Barney Turbo**,,,,
+Barney Turbo,barn | melon #95,7,12,REK,Reykjavik Valkyries,HMH,Humongous Melonheads,N,0.64,Harvey Burton,2025-07-20,draft,Argentina Beef,,N,":ArgentinaBeef: With the 98th overall pick in the WNC Draft, the Argentina Beef select **Harvey Burton**",Harvey Burton,0.64,2025-07-20,":ArgentinaBeef: With the 98th overall pick in the WNC Draft, the Argentina Beef select **Harvey Burton**"
+Baron Samedi,,4,5,ACP,Acadia Peregrines,BFB,Blubs Bay Flappy Bois,Y,1.0,Baron Samedi,2020-09-21,sign,FlappyBois,BFB,Y,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Baron Samedi,,8,9,BFB,Blubs Bay Flappy Bois,ASS,Aruba Sea Serpents,Y,1.0,2B Baron Samedi,2023-05-08,sign,SeaSerpents,ASS,Y,:SeaSerpents: sign 2B **Baron Samedi**,,,,
+Bartholomew Crumblepuff,bartholomew crumblepuff,5,6,GHG,Gas House Gorillas,SMD,Sopher McDophers,N,0.719,The Real Cope and Bartholomew Crumblepuff,2021-04-28,draft,Finland,,N,":finland: With the 144th and 145th picks in the WNC draft, Finland selects @The Real Cope and @Bartholomew Crumblepuff",The Real Cope and Bartholomew Crumblepuff,0.719,2021-04-28,":finland: With the 144th and 145th picks in the WNC draft, Finland selects @The Real Cope and @Bartholomew Crumblepuff"
+Base Ventura,,2,3,KYM,Kentucky Mashers,BBG,Baldur's Gate Beholders,N,0.462,Master Cashier,2018-11-28,sign,The Sunnydale Slayers,,N,The Sunnydale Slayers sign Master Cashier,Master Cashier,0.462,2018-11-28,The Sunnydale Slayers sign Master Cashier
+Basebally McBaseballface Jr.,,1,2,BFB,Blubs Bay Flappy Bois,CIN,Cincinnati Longhorns,N,0.439,Master Cashier,2018-11-28,sign,The Sunnydale Slayers,,N,The Sunnydale Slayers sign Master Cashier,Master Cashier,0.439,2018-11-28,The Sunnydale Slayers sign Master Cashier
+Basebally McBaseballface Jr.,,2,3,CIN,Cincinnati Longhorns,ACP,Acadia Peregrines,N,0.439,Master Cashier,2018-11-28,sign,The Sunnydale Slayers,,N,The Sunnydale Slayers sign Master Cashier,Master Cashier,0.439,2018-11-28,The Sunnydale Slayers sign Master Cashier
+Basebally McBaseballface Jr.,,3,4,ACP,Acadia Peregrines,GRZ,Ursa Major Grizzlies,N,0.409,Chevalier Mal Fet,2019-07-23,draft,Portland Pioneers,,N,With the 31st pick the Portland Pioneers select @Chevalier Mal Fet,Chevalier Mal Fet,0.409,2019-07-23,With the 31st pick the Portland Pioneers select @Chevalier Mal Fet
+Basethony Balltano,,5,6,SMD,Sopher McDophers,POR,Portland Pioneers,Y,1.0,Basethony Balltano,2021-06-17,sign,Pioneers,POR,Y,:Pioneers: sign **Basethony Balltano** (C/COF),,,,
+Basethony Balltano,,6,7,POR,Portland Pioneers,ASS,Aruba Sea Serpents,Y,1.0,Catcher Basethony Balltano,2022-01-23,sign,Aruba Sea Serpents,ASS,Y,:Serpents: Aruba Sea Serpents sign Catcher **Basethony Balltano**,,,,
+Basethony Balltano,,7,12,ASS,Aruba Sea Serpents,REK,Reykjavik Valkyries,Y,1.0,Basethony Balltano,2025-09-20,draft,Reykjavik Valkyries,REK,Y,":REK: With the 6th overall pick of the S12 MLN Draft, the *Reykjavik Valkyries* select **Basethony Balltano**",,,,
+Basil,,11,12,SUN,Sunnydale Slayers,ACP,Acadia Peregrines,N,0.5,LF Six,2024-10-03,sign,Carolina Reapers,,N,:CAR: Carolina Reapers sign LF **Six**,LF Six,0.5,2024-10-03,:CAR: Carolina Reapers sign LF **Six**
+Ben Bramly,ben bramly,8,12,BFB,Blubs Bay Flappy Bois,ACP,Acadia Peregrines,N,0.522,Bleak Trailer,2024-10-06,draft,Sopher McDophers,,N,":SMD: With the fourteenth overall pick in the S11 MLN Draft, the *Sopher McDophers* select RF **Bleak Trailer**",Bleak Trailer,0.522,2024-10-06,":SMD: With the fourteenth overall pick in the S11 MLN Draft, the *Sopher McDophers* select RF **Bleak Trailer**"
+Berna Pozo,"berna ""no longer"" pozo 🇵🇦 🇬🇧",1,2,MAL,Malibu Waverunners,CIN,Cincinnati Longhorns,N,0.476,CGorzo,2018-12-02,draft,Vancouver Vampires,,N,"With the thirty eighth pick in the Season 2 Draft, the Vancouver Vampires select @CGorzo",CGorzo,0.476,2018-12-02,"With the thirty eighth pick in the Season 2 Draft, the Vancouver Vampires select @CGorzo"
+Berna Pozo,"berna ""no longer"" pozo 🇵🇦 🇬🇧",4,5,CIN,Cincinnati Longhorns,HFX,Halifax Helmsmen,Y,1.0,Berna Pozo,2020-09-23,sign,Helmsmen,HFX,Y,:Helmsmen: sign **Berna Pozo**,,,,
+Berna Pozo,"berna ""no longer"" pozo 🇵🇦 🇬🇧",5,6,HFX,Halifax Helmsmen,MAL,Malibu Waverunners,Y,1.0,Berna Pozo,2021-06-15,sign,Waverunners,MAL,Y,:Waverunners:  sign **Berna Pozo** (C),,,,
+Big Smoke Anderson,,6,7,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,1.0,Catcher Big Smoke Anderson,2022-01-22,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Catcher **Big Smoke Anderson**,,,,
+Bill “Pegleg” Bailey,,6,7,HFX,Halifax Helmsmen,ACP,Acadia Peregrines,N,0.581,3B/UTIL G Baby,2022-03-16,sign,Sunnydale Slayers,,N,:slayers: Sunnydale Slayers sign 3B/UTIL **G Baby**,3B/UTIL G Baby,0.581,2022-03-16,:slayers: Sunnydale Slayers sign 3B/UTIL **G Baby**
+Billy Winters,billy winters-retired,2,3,LPJ,Lonestar Pumpjacks,GHG,Gas House Gorillas,Y,1.0,Billy Winters-Retired,2019-07-23,draft,Gas House Gorillas,GHG,Y,With the 22nd pick the Gas House Gorillas select @Billy Winters-Retired,,,,
+Blue Moon Barthelemy,,1,2,BFB,Blubs Bay Flappy Bois,SHH,Sleepy Hollow Horsemen,N,0.438,Jordon Adell,2019-07-23,draft,Gas House Gorillas,,N,With the 36th pick the Gas House Gorillas select @Jordon Adell,Jordon Adell,0.438,2019-07-23,With the 36th pick the Gas House Gorillas select @Jordon Adell
+Bob Dunagee,redwagon,8,9,NO,New Orleans Crawdads,SUN,Sunnydale Slayers,Y,1.0,1B Bob Dunagee,2023-05-06,sign,Slayers,SUN,Y,:Slayers: sign 1B **Bob Dunagee**,,,,
+Bob Wehadababyitzaboy,,3,4,POR,Portland Pioneers,SUN,Sunnydale Slayers,N,0.414,Bob Winn,2019-07-23,draft,Portland Pioneers,,N,"With the sixth pick in the Season 3 Draft, the Portland Pioneers select @Bob Winn",Bob Winn,0.414,2019-07-23,"With the sixth pick in the Season 3 Draft, the Portland Pioneers select @Bob Winn"
+Bob Winn,bob winn,7,8,SUN,Sunnydale Slayers,NO,New Orleans Crawdads,Y,1.0,Bob Winn,2023-04-19,draft,Prisoners of Azerbaijan,POR,N,"🇦🇿 With the 44th overall pick in the WNC draft, the Prisoners of Azerbaijan select **C Bob Winn**",,,,
+Bob Winn,bob winn,8,9,NO,New Orleans Crawdads,MIA,Miami Fuego,Y,1.0,Bob Winn,2023-04-19,draft,Prisoners of Azerbaijan,POR,N,"🇦🇿 With the 44th overall pick in the WNC draft, the Prisoners of Azerbaijan select **C Bob Winn**",,,,
+Bobby Portis,jack,9,10,NO,New Orleans Crawdads,REK,Reykjavik Valkyries,Y,1.0,P Bobby Portis,2024-01-22,sign,Reykjavik Valkyries,REK,Y,:Rek: Reykjavik Valkyries sign P **Bobby Portis**,,,,
+Bobby Vance,,4,5,HFX,Halifax Helmsmen,ASS,Aruba Sea Serpents,Y,1.0,Bobby Vance,2020-09-21,sign,Rhinos,CIN,Y,:Rhinos: sign **Bobby Vance**,,,,
+Bobbymir Guerrero Jr.,brotherbear002,6,7,JAM,JAM,NO,New Orleans Crawdads,Y,1.0,Bobbymir Guerrero Jr,2022-01-22,draft,crawdads New Orleans Crawdads,NO,Y,"With the 25th overall pick in the S7 Draft, the :crawdads: New Orleans Crawdads select **P Bobbymir Guerrero Jr.**",,,,
+Bofadeez Newtz,,2,3,SHH,Sleepy Hollow Horsemen,BFB,Blubs Bay Flappy Bois,N,0.429,Random Defence,2018-12-02,draft,Acadia Peregrines,,N,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence",Random Defence,0.429,2018-12-02,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence"
+Bom Trady,,1,2,CIN,Cincinnati Longhorns,POR,Portland Pioneers,N,0.462,Andy,2019-07-23,draft,New Orleans Crawdads,,N,"With the 7th pick in the Season 3 Draft, the New Orleans Crawdads select @Andy",Andy,0.462,2019-07-23,"With the 7th pick in the Season 3 Draft, the New Orleans Crawdads select @Andy"
+Borg Torbjorgsson,börg tørbjörgssön,7,8,HFX,Halifax Helmsmen,BUF,Buffalo Bullfrogs,N,0.516,1B Ioe Torrent,2023-05-03,sign,Carolina Reapers,,N,:Reapers:  Carolina Reapers sign 1B **Ioe Torrent**,1B Ioe Torrent,0.516,2023-05-03,:Reapers:  Carolina Reapers sign 1B **Ioe Torrent**
+Borg Torbjorgsson,börg tørbjörgssön,9,10,KC,Kansas City Kitties,OGO,Ogaki Oni,N,0.516,1B Ioe Torrent,2023-05-03,sign,Carolina Reapers,,N,:Reapers:  Carolina Reapers sign 1B **Ioe Torrent**,1B Ioe Torrent,0.516,2023-05-03,:Reapers:  Carolina Reapers sign 1B **Ioe Torrent**
+Bradle Beamen,,7,8,POR,Portland Pioneers,SMD,Sopher McDophers,Y,1.0,Bradle Beamen,2021-09-14,sign,Pioneers,POR,N,"**Session 6 Transactions (Effective Session 7)**
+
+:Buff: Sign **Sarah Buntingsworth** (P) & **Sandy Collazo** (P) Retire",,,,
+Brent Chillwater,,9,10,POR,Portland Pioneers,KC,Kansas City Kitties,Y,1.0,P Brent Chillwater,2024-01-22,sign,Kansas City Kitties,KC,Y,:KCLettering: Kansas City Kitties sign P **Brent Chillwater**,,,,
+Brian MacDonald,ashen_1,3,4,REK,Reykjavik Valkyries,KYM,Kentucky Mashers,N,0.643,Brandon Blade,2020-09-23,sign,Rhinos,,N,:Rhinos: sign **Brandon Blade**,Brandon Blade,0.643,2020-09-23,:Rhinos: sign **Brandon Blade**
+Brian Taylor,"somehow, palbeetine returned",5,6,GRZ,Ursa Major Grizzlies,POR,Portland Pioneers,Y,1.0,"Somehow, PalBeeTine Returned",2020-09-26,draft,Ursa Major Grizzlies,GRZ,N,"With the 13th overall pick in the S5 Draft, the Ursa Major Grizzlies select @Somehow, PalBeeTine Returned",,,,
+Brian Taylor,"somehow, palbeetine returned",8,9,POR,Portland Pioneers,MIA,Miami Fuego,Y,1.0,C Brian Taylor,2023-05-04,sign,miami,MIA,Y,:miami: sign C **Brian Taylor**,,,,
+Brian Taylor,"somehow, palbeetine returned",9,10,MIA,Miami Fuego,RC,Raccoon City Outbreak,Y,0.8,C/CINF Brian Taylor,2024-01-23,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign C/CINF **Brian Taylor**,,,,
+Brian Taylor,"somehow, palbeetine returned",10,11,RC,Raccoon City Outbreak,RLY,R'Lyeh Ancients,Y,0.828,C/COF Brian Taylor,2024-10-01,sign,R'Lyeh Ancients,RLY,Y,:RLY: R'Lyeh Ancients sign C/COF **Brian Taylor**,,,,
+Brian Taylor,"somehow, palbeetine returned",11,12,RLY,R'Lyeh Ancients,GRZ,Ursa Major Grizzlies,Y,0.8,C/CINF Brian Taylor,2025-08-02,sign,Ursa Major Grizzlies,GRZ,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Britt O'War,britt o'war,2,3,REK,Reykjavik Valkyries,SHH,Sleepy Hollow Horsemen,Y,1.0,Britt O'War,2018-12-02,draft,Henrik Omegas,SMD,N,"With the twenty third pick in the Season 2 Draft, the Henrik Omegas select @Britt O'War",,,,
+Britt O'War,britt o'war,3,4,SHH,Sleepy Hollow Horsemen,HFX,Halifax Helmsmen,N,0.545,"Somehow, PalBeeTine Returned",2020-09-26,draft,Ursa Major Grizzlies,,N,"With the 13th overall pick in the S5 Draft, the Ursa Major Grizzlies select @Somehow, PalBeeTine Returned","Somehow, PalBeeTine Returned",0.545,2020-09-26,"With the 13th overall pick in the S5 Draft, the Ursa Major Grizzlies select @Somehow, PalBeeTine Returned"
+Bryce Parker,,10,11,POR,Portland Pioneers,CAR,Carolina Reapers,Y,1.0,CF Bryce Parker,2024-10-01,sign,Carolina Reapers,CAR,Y,":CAR: Carolina Reapers sign 2B/UTIL **Q Kimbrel**
+:CAR: Carolina Reapers sign CF **Bryce Parker**",,,,
+Bucky Gorgonzola,,11,12,POR,Portland Pioneers,ACP,Acadia Peregrines,Y,1.0,Bucky Gorgonzola,2025-07-20,draft,Sweden Caroleans,CAR,N,":SwedenCaroleans: With the 87th overall pick in the WNC Draft, the Sweden Caroleans select **Bucky Gorgonzola**",,,,
+Bucky Sabre III,,11,12,MIA,Miami Fuego,CAR,Carolina Reapers,Y,1.0,2B Bucky Sabre III,2025-04-05,sign,Miami Fuego,MIA,N,":CAR: Carolina Reapers sign LF **Josiah Queen**
+
+:MIA: Miami Fuego sign 2B **Bucky Sabre III**
+
+:KC: KC Kitties sign LHP",,,,
+Burgess Whitehead,burgess whitehead -  1b - stud,2,3,LPJ,Lonestar Pumpjacks,GRZ,Ursa Major Grizzlies,Y,0.773,Burgess Whitehead - 1B - Stud,2018-12-02,draft,Lonestar Pumpjacks,LPJ,N,"With the thirty second pick in the Season 2 Draft, the Lonestar Pumpjacks select @Burgess Whitehead -  1B - Stud",,,,
+Burgess Whitehead,burgess whitehead -  1b - stud,7,8,GRZ,Ursa Major Grizzlies,ACP,Acadia Peregrines,Y,1.0,3b Burgess Whitehead,2022-08-28,sign,Acadia Peregrines,ACP,Y,:Peregrines: Acadia Peregrines sign 3b **Burgess Whitehead**,,,,
+Buzz Schwinghammer,,1,2,VAN,Vancouver Vampires,GHG,Gas House Gorillas,N,0.452,Billy Winters-Retired,2019-07-23,draft,Gas House Gorillas,,N,With the 22nd pick the Gas House Gorillas select @Billy Winters-Retired,Billy Winters-Retired,0.452,2019-07-23,With the 22nd pick the Gas House Gorillas select @Billy Winters-Retired
+Cal Lidous,,2,3,HFX,Halifax Helmsmen,SUN,Sunnydale Slayers,N,0.522,Callie Braden,2020-02-23,draft,Kentucky Mashers,,N,With the 19th overall pick in the S4 Draft the Kentucky Mashers select **P Callie Braden**,Callie Braden,0.522,2020-02-23,With the 19th overall pick in the S4 Draft the Kentucky Mashers select **P Callie Braden**
+Cal Lidous,,5,6,SUN,Sunnydale Slayers,POR,Portland Pioneers,Y,1.0,Cal Lidous,2020-09-26,sign,slayerscrown,SUN,N,:slayerscrown: sign **Cal Lidous**,,,,
+Cal Lidous,,6,7,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,1.0,Pitcher ﻿Cal Lidous,2022-01-18,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Pitcher ﻿**Cal Lidous**,,,,
+Cali Guerensk,,4,5,BFB,Blubs Bay Flappy Bois,ASS,Aruba Sea Serpents,Y,1.0,Cali Guerensk,2020-06-09,sign,FlappyBois,BFB,N,:FlappyBois: sign Cali Guerensk (RHP),,,,
+Calvin Ball,,10,11,REK,Reykjavik Valkyries,KC,Kansas City Kitties,Y,1.0,2B/UTIL Calvin Ball,2024-10-01,sign,Kansas City Kitties,KC,Y,:KC: Kansas City Kitties sign 2B/UTIL **Calvin Ball**,,,,
+Calvin Guerensk,drag0ng0ld8,7,8,ASS,Aruba Sea Serpents,POR,Portland Pioneers,Y,1.0,P Calvin Guerensk,2022-08-27,sign,Portland Pioneers,POR,Y,:Pioneers: Portland Pioneers sign P **Calvin Guerensk**,,,,
+Calvin Huff,"calvin ""mak0shark"" huff -p #42",2,3,GHG,Gas House Gorillas,BBG,Baldur's Gate Beholders,N,0.455,Jonah Levin,2020-02-23,draft,Kentucky Mashers,,N,With the 26th overall pick in the S4 Draft the Kentucky Mashers select **2B Jonah Levin**,Jonah Levin,0.455,2020-02-23,With the 26th overall pick in the S4 Draft the Kentucky Mashers select **2B Jonah Levin**
+Cam’ron West,dpz1156,6,7,BFB,Blubs Bay Flappy Bois,POR,Portland Pioneers,Y,1.0,DPZ1156,2021-04-28,draft,United Kingdom,MIA,N,":brexhits: With the 123rd pick in the WNC draft, The United Kingdom selects @DPZ1156",,,,
+Cannibal Johnson,,2,3,SHH,Sleepy Hollow Horsemen,MAL,Malibu Waverunners,N,0.444,Maud Nelson,2018-12-02,draft,Henrik Omegas,,N,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson",Maud Nelson,0.444,2018-12-02,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson"
+Cap Keeler,,4,5,NO,New Orleans Crawdads,GHG,Gas House Gorillas,Y,1.0,Cap Keeler,2020-09-21,sign,Gorillas,GHG,Y,:Gorillas:  sign **Cap Keeler**,,,,
+Charlie Scott,semicharmedmike,11,12,SUN,Sunnydale Slayers,CAR,Carolina Reapers,Y,1.0,Charlie Scott,2025-07-20,draft,Hungary Hungry Hippos,GHG,N,":HUNGARY: With the 45th overall pick of the WNC Draft, the Hungary Hungry Hippos select **Charlie Scott**",,,,
+Charlie Yeager,bum,1,2,ACP,Acadia Peregrines,LPJ,Lonestar Pumpjacks,Y,1.0,Bum,2018-12-02,draft,Lonestar Jumping Jacks,LPJ,Y,"With the fortieth pick in the Season 2 Draft, the Lonestar Jumping Jacks select @Bum",,,,
+Chief Cory,llemonduck,2,3,REK,Reykjavik Valkyries,BFB,Blubs Bay Flappy Bois,Y,1.0,LlemonDuck,2019-07-23,draft,Blubs Bay Flappy Bois,BFB,Y,"With the 11th pick in the season 3 draft, the Blubs Bay Flappy Bois select @LlemonDuck",,,,
+CJ Ayer,,7,8,HFX,Halifax Helmsmen,ACP,Acadia Peregrines,Y,1.0,LF CJ Ayer,2022-03-27,sign,Halifax Highlanders,HFX,N,"**Transactions effective Sessions 6**
+
+:Valkyries: Reykjavik Valkyries place RF **Barney Turbo** on hiatus
+
+:Highlanders",,,,
+CJ Ayer,,8,9,ACP,Acadia Peregrines,HFX,Halifax Helmsmen,Y,1.0,LF CJ Ayer,2022-03-27,sign,Halifax Highlanders,HFX,Y,"**Transactions effective Sessions 6**
+
+:Valkyries: Reykjavik Valkyries place RF **Barney Turbo** on hiatus
+
+:Highlanders",,,,
+CJ Ayer,,9,10,HFX,Halifax Helmsmen,MIA,Miami Fuego,Y,1.0,LF CJ Ayer,2024-01-22,sign,Miami Fuego,MIA,Y,:miami:  Miami Fuego sign LF **CJ Ayer**,,,,
+CJ Ayer,,10,11,MIA,Miami Fuego,POR,Portland Pioneers,Y,1.0,LF CJ Ayer,2024-01-22,sign,Miami Fuego,MIA,N,:miami:  Miami Fuego sign LF **CJ Ayer**,,,,
+Clem N. Tine,clem,6,7,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,0.9,Pitcher Clem.N.Tine,2022-01-18,sign,Malibu Waverunners,MAL,Y,:Waverunners:  Malibu Waverunners sign Pitcher **Clem.N.Tine** (1 Minute Early..),,,,
+Clive Babineaux,,1,2,CIN,Cincinnati Longhorns,LPJ,Lonestar Pumpjacks,N,0.5,Alf,2019-07-23,draft,Cincinnati Rhinos,,N,With the 35th pick the Cincinnati Rhinos select @Alf,Alf,0.5,2019-07-23,With the 35th pick the Cincinnati Rhinos select @Alf
+Connor Morgan,bigvoldaddy,5,6,MAL,Malibu Waverunners,POR,Portland Pioneers,Y,1.0,Connor Morgan,2021-06-15,sign,Pioneers,POR,Y,:Pioneers: sign **Connor Morgan** (3B),,,,
+Connor Morgan,bigvoldaddy,6,7,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,1.0,Third Baseman Connor Morgan,2022-01-22,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Third Baseman **Connor Morgan**,,,,
+Cookie Mongster,mongster_03,5,6,BBG,Baldur's Gate Beholders,SUN,Sunnydale Slayers,Y,1.0,Cookie Mongster,2021-06-16,sign,slayercrown,SUN,Y,:slayercrown: sign **Cookie Mongster** (P),,,,
+Cookie Mongster,mongster_03,6,7,SUN,Sunnydale Slayers,KYM,Kentucky Mashers,Y,1.0,1B/UTIL Cookie Mongster,2022-05-17,sign,Kentucky Mashers,KYM,Y,:Mashers: Kentucky Mashers sign 1B/UTIL **Cookie Mongster**,,,,
+Cookie Mongster,mongster_03,8,9,CAR,Carolina Reapers,ACP,Acadia Peregrines,Y,1.0,1B Cookie Mongster,2023-08-20,sign,ACP,ACP,Y,"We have been lacking here so have 1 big post to catch us up!
+
+*Session 2 moves*
+:ACP: sign 1B **Cookie Mongster**
+:Valky",,,,
+Copenhagen Black,the real cope,6,7,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,Y,1.0,Third Baseman Copenhagen Black,2022-01-18,sign,Buffalo Bullfrogs,BUF,Y,:buf: Buffalo Bullfrogs sign Third Baseman **Copenhagen Black**,,,,
+Copenhagen Black,the real cope,7,8,BUF,Buffalo Bullfrogs,SMD,Sopher McDophers,Y,1.0,C Copenhagen Black,2022-08-27,sign,Sopher McDophers,SMD,Y,:SopherMcDopherOrangeB: Sopher McDophers sign C **Copenhagen Black**,,,,
+Copenhagen Black,the real cope,11,12,SMD,Sopher McDophers,POR,Portland Pioneers,Y,1.0,Copenhagen Black,2025-07-20,draft,Argentina Beef,CAR,N,":ArgentinaBeef: With the 95th overall pick in the WNC Draft, the Argentina Beef select **Copenhagen Black**",,,,
+Copernicus Hel,,11,12,ACP,Acadia Peregrines,CAR,Carolina Reapers,Y,1.0,CF Copernicus Hel,2024-04-01,sign,Acadia Peregrines,ACP,N,"## Session 3 Transactions
+
+:GHG: Gas House Gorillas **Dominus Nominus** retires as a player
+
+:KC: Kansas City Kitties re",,,,
+Crash Davis,crash davis | rc outbreak gm,2,3,SMD,Sopher McDophers,MAL,Malibu Waverunners,N,0.522,Xerxes Dalin,2020-02-23,draft,Blubs Bay Flappy Bois,,N,With the 14th overall pick in the S4 Draft the Blubs Bay Flappy Bois select **SS Xerxes Dalin**,Xerxes Dalin,0.522,2020-02-23,With the 14th overall pick in the S4 Draft the Blubs Bay Flappy Bois select **SS Xerxes Dalin**
+Crash Davis,crash davis | rc outbreak gm,3,5,MAL,Malibu Waverunners,SMD,Sopher McDophers,Y,1.0,Crash Davis,2020-11-19,sign,McDophers,SMD,Y,:McDophers: sign **Crash Davis**,,,,
+Crash Davis,crash davis | rc outbreak gm,6,9,SMD,Sopher McDophers,CAR,Carolina Reapers,Y,1.0,RF Crash Davis,2023-09-15,sign,CAR,CAR,Y,:CAR: sign RF** Crash Davis**,,,,
+Crash Davis,crash davis | rc outbreak gm,9,10,CAR,Carolina Reapers,RC,Raccoon City Outbreak,Y,1.0,RF Crash Davis,2023-09-15,sign,CAR,CAR,N,:CAR: sign RF** Crash Davis**,,,,
+Crimson Chin,,7,9,SMD,Sopher McDophers,MIA,Miami Fuego,Y,1.0,LF Crimson Chin,2023-05-03,sign,miami,MIA,Y,:miami: sign LF **Crimson Chin**,,,,
+Dakota Carolina Montana,dcm,4,5,SMD,Sopher McDophers,NO,New Orleans Crawdads,Y,1.0,DCM,2021-04-28,draft,Puerto Rico,ACP,N,":puertorico: With the 163rd pick in the WNC draft, Puerto Rico selects @DCM",,,,
+Dakota Carolina Montana,dcm,5,6,NO,New Orleans Crawdads,MAL,Malibu Waverunners,Y,1.0,DCM,2021-04-28,draft,Puerto Rico,ACP,N,":puertorico: With the 163rd pick in the WNC draft, Puerto Rico selects @DCM",,,,
+Dakota Carolina Montana,dcm,9,10,OGO,Ogaki Oni,RC,Raccoon City Outbreak,Y,1.0,CF Dakota Carolina Montana,2024-06-25,sign,Raccoon City Outbreak,RC,Y,"## Session 10 Transactions
+
+:OGO: Ogaki Oni receive: KC 1st round pick, KC 2nd round pick, Borg Torbjorgsson
+:KC: Kansas",,,,
+Dallas Houston,quickflyalley,2,3,LPJ,Lonestar Pumpjacks,MAL,Malibu Waverunners,N,0.424,Assassin Xekutioner,2018-12-02,draft,Gas House Gorillas,,N,"With the fifth pick in the Season 2 Draft, the Gas House Gorillas select @Assassin Xekutioner.",Assassin Xekutioner,0.424,2018-12-02,"With the fifth pick in the Season 2 Draft, the Gas House Gorillas select @Assassin Xekutioner."
+Dallas Houston,quickflyalley,4,5,MAL,Malibu Waverunners,NO,New Orleans Crawdads,Y,1.0,Dallas Houston,2020-09-22,sign,crawdads,NO,Y,:crawdads: sign **Dallas Houston**,,,,
+Dallas Houston,quickflyalley,6,7,NO,New Orleans Crawdads,KYM,Kentucky Mashers,Y,1.0,Right Fielder Dallas Houston,2022-01-23,sign,Kentucky Mashers,KYM,Y,:Mashers: Kentucky Mashers sign Right Fielder **Dallas Houston**,,,,
+Damon Razor,,9,11,SMD,Sopher McDophers,RC,Raccoon City Outbreak,Y,1.0,P Damon Razor,2024-10-01,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign P **Damon Razor**,,,,
+Daz Reference,daz reference - beholders dm,2,3,SUN,Sunnydale Slayers,BBG,Baldur's Gate Beholders,N,0.593,Random Defence,2018-12-02,draft,Acadia Peregrines,,N,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence",Random Defence,0.593,2018-12-02,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence"
+December Beckett,december beckitt,8,9,SUN,Sunnydale Slayers,SMD,Sopher McDophers,Y,1.0,Pitcher December Beckett,2022-01-18,sign,Sunnydale Slayers,SUN,N,:slayers: Sunnydale Slayers sign Pitcher **December Beckett**,,,,
+Declan Archer,declan archer,2,3,ACP,Acadia Peregrines,GRZ,Ursa Major Grizzlies,Y,1.0,Declan Archer,2019-07-23,draft,Ursa Major Grizzlies,GRZ,Y,With the 26th pick the Ursa Major Grizzlies select @Declan Archer,,,,
+Demetrios Ooga,ooga,2,3,REK,Reykjavik Valkyries,HMH,Humongous Melonheads,Y,1.0,ooga,2018-12-02,draft,Henrik Omegas,SMD,N,"With the first pick in the Season 2 Draft, the Henrik Omegas choose @ooga.",,,,
+Demetrios Ooga,ooga,4,5,HMH,Humongous Melonheads,ASS,Aruba Sea Serpents,Y,1.0,ooga,2021-04-28,draft,Vatican City,RLY,N,":vaticancity: With the 11th overall pick in the WNC draft, Vatican City selects @ooga",,,,
+Derek Rasmussen,,8,9,POR,Portland Pioneers,MIA,Miami Fuego,Y,1.0,Catcher Derek Rasmussen,2022-01-22,sign,Portland Pioneers,POR,N,:Pioneers: Portland Pioneers sign Catcher **Derek Rasmussen**,,,,
+Devin Arianna,,1,2,MAL,Malibu Waverunners,REK,Reykjavik Valkyries,N,0.48,Megatomic,2018-12-02,draft,Portland Pioneers,,N,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic",Megatomic,0.48,2018-12-02,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic"
+Didja Naylor,,4,5,BBG,Baldur's Gate Beholders,OO,Oslo Otters,Y,1.0,Didja Naylor,2020-02-23,draft,Baldur's Gate Beholders,BBG,N,With the 25th overall pick in the S4 Draft the Baldur's Gate Beholders select **1B Didja Naylor**,,,,
+Diego Medina,diego medina,7,8,NO,New Orleans Crawdads,SMD,Sopher McDophers,Y,1.0,P Diego Medina,2022-08-27,sign,Sopher McDophers,SMD,Y,:McDophers: Sopher McDophers sign P **Diego Medina**,,,,
+Diego Medina,diego medina,9,10,SMD,Sopher McDophers,GRZ,Ursa Major Grizzlies,N,0.636,Diego Yard,2024-10-06,draft,Acadia Peregrines,,N,":ACP: With the seventh overall pick in the S11 MLN Draft, the *Acadia Peregrines* select 3B **Diego Yard**",Diego Yard,0.636,2024-10-06,":ACP: With the seventh overall pick in the S11 MLN Draft, the *Acadia Peregrines* select 3B **Diego Yard**"
+Diego Medina,diego medina,11,12,GRZ,Ursa Major Grizzlies,CAR,Carolina Reapers,N,0.636,Diego Yard,2024-10-06,draft,Acadia Peregrines,,N,":ACP: With the seventh overall pick in the S11 MLN Draft, the *Acadia Peregrines* select 3B **Diego Yard**",Diego Yard,0.636,2024-10-06,":ACP: With the seventh overall pick in the S11 MLN Draft, the *Acadia Peregrines* select 3B **Diego Yard**"
+Dinah Myte,,7,8,POR,Portland Pioneers,BUF,Buffalo Bullfrogs,Y,1.0,Dinah Myte,2022-01-22,draft,Pioneers Portland Pioneers,POR,N,"With the 5th overall pick in the S7 Draft, the :Pioneers: Portland Pioneers select **SS Dinah Myte**",,,,
+Dixon Uraz,dixon uraz,2,3,GHG,Gas House Gorillas,HMH,Humongous Melonheads,N,0.462,Chris88,2019-07-23,draft,Portland Pioneers,,N,"With the 19th pick in the season 3 draft, the Portland Pioneers select @Chris88",Chris88,0.462,2019-07-23,"With the 19th pick in the season 3 draft, the Portland Pioneers select @Chris88"
+Dixon Uraz,dixon uraz,3,4,HMH,Humongous Melonheads,REK,Reykjavik Valkyries,Y,1.0,Dixon Uraz,2020-09-21,sign,Gorillas,GHG,N,:Gorillas: sign **Dixon Uraz**,,,,
+Dixon Uraz,dixon uraz,4,5,REK,Reykjavik Valkyries,GHG,Gas House Gorillas,Y,1.0,Dixon Uraz,2020-09-21,sign,Gorillas,GHG,Y,:Gorillas: sign **Dixon Uraz**,,,,
+Dixon Uraz,dixon uraz,5,6,GHG,Gas House Gorillas,ASS,Aruba Sea Serpents,Y,1.0,Dixon Uraz,2020-09-21,sign,Gorillas,GHG,N,:Gorillas: sign **Dixon Uraz**,,,,
+Dixon Uraz,dixon uraz,7,8,ASS,Aruba Sea Serpents,HMH,Humongous Melonheads,Y,1.0,2B Dixon Uraz,2022-09-02,sign,Humongous Melonheads,HMH,Y,:melonheads: Humongous Melonheads sign 2B **Dixon Uraz**,,,,
+Dmitri Petrovich,gschlim,2,3,GHG,Gas House Gorillas,GRZ,Ursa Major Grizzlies,Y,0.8,GSchlim Dmitri Petrovich,2019-07-23,draft,Ursa Major Grizzlies,GRZ,Y,With the 34th pick the Ursa Major Grizzlies select @GSchlim Dmitri Petrovich,,,,
+Dmitri Petrovich,gschlim,3,4,GRZ,Ursa Major Grizzlies,HMH,Humongous Melonheads,Y,1.0,Dmitri Petrovich,2020-09-26,re_sign,Melonhead,HMH,Y,:Melonhead: re-sign **Dmitri Petrovich**,,,,
+Doc Wingduck,doc dockgoose,6,7,SUN,Sunnydale Slayers,BBG,Baldur's Gate Beholders,Y,1.0,Pitcher Doc Wingduck,2022-01-18,sign,Baldur's Gate Beholders,BBG,Y,:BBG: Baldur's Gate Beholders sign Pitcher **Doc Wingduck**,,,,
+Doctor Ew,,7,8,POR,Portland Pioneers,OGO,Ogaki Oni,Y,1.0,C Doctor Ew,2022-08-27,sign,Malibu Waverunners,MAL,Y,:Waverunners:  Malibu Waverunners sign C **Doctor Ew**,,,,
+Dom Emnic,,2,5,HFX,Halifax Helmsmen,MAL,Malibu Waverunners,Y,1.0,Dom Emnic,2020-09-28,sign,Waverunners,MAL,Y,:Waverunners: sign **Dom Emnic**,,,,
+Dom Emnic,,6,10,MAL,Malibu Waverunners,HFX,Halifax Helmsmen,Y,1.0,3B/UTIL Dom Emnic,2024-01-22,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign 3B/UTIL **Dom Emnic**,,,,
+Donatello Chalupa,,4,5,REK,Reykjavik Valkyries,ASS,Aruba Sea Serpents,Y,1.0,Donatello Chalupa,2020-09-21,sign,Rhinos,CIN,Y,:Rhinos: sign **Donatello Chalupa**,,,,
+Donked McToad,donked mctoad,1,2,OAK,Alemeda Originals,HFX,Halifax Helmsmen,Y,1.0,Donked McToad,2018-12-02,draft,Vancouver Vampires,VAN,Y,"With the twenty ninth pick in the Season 2 Draft, the Vancouver Vampires select @Donked McToad",,,,
+Donked McToad,donked mctoad,2,3,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,Y,1.0,Donked McToad,2018-12-02,draft,Vancouver Vampires,VAN,N,"With the twenty ninth pick in the Season 2 Draft, the Vancouver Vampires select @Donked McToad",,,,
+Drew Ekstrum,,2,3,HMH,Humongous Melonheads,CIN,Cincinnati Longhorns,N,0.455,Duke Nukem,2018-11-28,sign,The Originals,,N,The Originals sign Duke Nukem,Duke Nukem,0.455,2018-11-28,The Originals sign Duke Nukem
+Drew Ekstrum,,4,7,CIN,Cincinnati Longhorns,ACP,Acadia Peregrines,Y,1.0,CF Drew Ekstrum,2022-05-16,sign,Acadia Peregrines,ACP,Y,"**Transactions effective Session 10**
+
+we'll organize this by team...
+
+:Waverunners: Malibu Waverunners sign 1B/UTIL **R",,,,
+Dropov Andpicov,,4,5,GHG,Gas House Gorillas,SMD,Sopher McDophers,N,0.5,Dom Emnic,2020-09-28,sign,Waverunners,,N,:Waverunners: sign **Dom Emnic**,Dom Emnic,0.5,2020-09-28,:Waverunners: sign **Dom Emnic**
+Dropov Andpicov,,5,6,SMD,Sopher McDophers,GRZ,Ursa Major Grizzlies,Y,1.0,Dropov Andpicov,2021-09-14,sign,grizzlies,GRZ,Y,"**Session 6 Transactions (Effective Session 7)**
+
+:Buff: Sign **Sarah Buntingsworth** (P) & **Sandy Collazo** (P) Retire",,,,
+Duwan Anonly,wazzup44,4,5,BUF,Buffalo Bullfrogs,KYM,Kentucky Mashers,Y,1.0,Duwan Anonly,2020-09-21,sign,Mashers,KYM,Y,:Mashers: sign **Duwan Anonly**,,,,
+Dylan Green,,2,3,LPJ,Lonestar Pumpjacks,BFB,Blubs Bay Flappy Bois,N,0.583,Declan Archer,2019-07-23,draft,Ursa Major Grizzlies,,N,With the 26th pick the Ursa Major Grizzlies select @Declan Archer,Declan Archer,0.583,2019-07-23,With the 26th pick the Ursa Major Grizzlies select @Declan Archer
+Dylan Green,,3,4,BFB,Blubs Bay Flappy Bois,HFX,Halifax Helmsmen,Y,1.0,Dylan Green,2020-09-21,sign,Helmsmen,HFX,Y,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Dylan Green,,5,6,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,Y,1.0,Dylan Green,2020-09-21,sign,Helmsmen,HFX,N,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Dylan Green,,7,8,BFB,Blubs Bay Flappy Bois,POR,Portland Pioneers,Y,1.0,2B Dylan Green,2022-08-28,sign,Portland Pioneers,POR,Y,:Pioneers: Portland Pioneers sign 2B **Dylan Green**,,,,
+Ecliptic Astrum,ecliptic astrum - c,1,2,GHG,Gas House Gorillas,SUN,Sunnydale Slayers,N,0.444,Deleted User,2018-12-02,draft,Sleepy Hollow Horsemen,,N,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User",Deleted User,0.444,2018-12-02,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User"
+Ecliptic Astrum,ecliptic astrum - c,2,3,SUN,Sunnydale Slayers,BBG,Baldur's Gate Beholders,N,0.5,Eli Sasak,2020-03-27,release,beholders,,N,:beholders: release Eli Sasak,Eli Sasak,0.5,2020-03-27,:beholders: release Eli Sasak
+Ed Turner,,2,3,BFB,Blubs Bay Flappy Bois,SHH,Sleepy Hollow Horsemen,N,0.571,Deleted User,2018-12-02,draft,Sleepy Hollow Horsemen,,N,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User",Deleted User,0.571,2018-12-02,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User"
+El Duké Nukem,,2,3,MAL,Malibu Waverunners,NO,New Orleans Crawdads,Y,0.818,Duke Nukem,2018-11-28,sign,The Originals,OAK,N,The Originals sign Duke Nukem,,,,
+Emerson Austin Jr.,,6,7,MAL,Malibu Waverunners,POR,Portland Pioneers,Y,1.0,P Emerson Austin Jr.,2022-07-10,sign,Portland Pioneers,POR,Y,:pioneers: Portland Pioneers sign P **Emerson Austin Jr.**,,,,
+Emerson Austin Jr.,,8,9,POR,Portland Pioneers,HFX,Halifax Helmsmen,Y,1.0,SS Emerson Austin Jr,2023-05-03,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign SS **Emerson Austin Jr**,,,,
+Emerson Austin Jr.,,9,10,HFX,Halifax Helmsmen,RC,Raccoon City Outbreak,Y,0.903,SS/UTIL Emerson Austin,2024-01-24,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign SS/UTIL **Emerson Austin**,,,,
+Fatts Richard,,11,12,KC,Kansas City Kitties,HFX,Halifax Helmsmen,Y,1.0,CF Fatts Richard,2025-08-02,sign,Halifax Highlanders,HFX,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Ferda Bois,,4,5,SUN,Sunnydale Slayers,BFB,Blubs Bay Flappy Bois,N,0.571,Brianna Rose,2021-04-28,draft,United Kingdom,,N,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose",Brianna Rose,0.571,2021-04-28,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose"
+Ferda Bois,,5,6,BFB,Blubs Bay Flappy Bois,ASS,Aruba Sea Serpents,N,0.571,Brianna Rose,2021-04-28,draft,United Kingdom,,N,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose",Brianna Rose,0.571,2021-04-28,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose"
+Ferda Bois,,6,7,ASS,Aruba Sea Serpents,BUF,Buffalo Bullfrogs,N,0.571,Brianna Rose,2021-04-28,draft,United Kingdom,,N,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose",Brianna Rose,0.571,2021-04-28,":brexhits: With the 27th overall pick in the WNC draft, the United Kingdom selects @Brianna Rose"
+Ferda Bois,,8,9,BUF,Buffalo Bullfrogs,MIA,Miami Fuego,Y,1.0,CF Ferda Bois,2023-05-03,sign,miami,MIA,Y,:miami: sign CF **Ferda Bois**,,,,
+Ferda Bois,,9,11,MIA,Miami Fuego,GHG,Gas House Gorillas,Y,1.0,P Ferda Bois,2024-10-07,sign,Miami Fuego,MIA,N,:MIA: Miami Fuego sign P **Ferda Bois**,,,,
+Finkle Sparkles,,1,2,CIN,Cincinnati Longhorns,GHG,Gas House Gorillas,N,0.5,librarylass,2018-12-02,draft,Henrik Omegas,,N,"With the twenty seventh pick in the Season 2 Draft, the Henrik Omegas select @librarylass",librarylass,0.5,2018-12-02,"With the twenty seventh pick in the Season 2 Draft, the Henrik Omegas select @librarylass"
+Finn Hudson,,5,6,OO,Oslo Otters,GHG,Gas House Gorillas,N,0.5,Thor Odinnson,2020-09-21,sign,Mashers,,N,:Mashers: sign **Thor Odinnson**,Thor Odinnson,0.5,2020-09-21,:Mashers: sign **Thor Odinnson**
+Foxx Dashington,foxx dashington,1,2,ACP,Acadia Peregrines,LPJ,Lonestar Pumpjacks,N,0.435,Bob Winn,2019-07-23,draft,Portland Pioneers,,N,"With the sixth pick in the Season 3 Draft, the Portland Pioneers select @Bob Winn",Bob Winn,0.435,2019-07-23,"With the sixth pick in the Season 3 Draft, the Portland Pioneers select @Bob Winn"
+Foxx Dashington,foxx dashington,2,3,LPJ,Lonestar Pumpjacks,SUN,Sunnydale Slayers,N,0.519,Xerxes Dalin,2020-02-23,draft,Blubs Bay Flappy Bois,,N,With the 14th overall pick in the S4 Draft the Blubs Bay Flappy Bois select **SS Xerxes Dalin**,Xerxes Dalin,0.519,2020-02-23,With the 14th overall pick in the S4 Draft the Blubs Bay Flappy Bois select **SS Xerxes Dalin**
+Foxx Dashington,foxx dashington,6,7,SUN,Sunnydale Slayers,BUF,Buffalo Bullfrogs,Y,1.0,Left Fielder Foxx Dashington,2022-01-18,sign,Buffalo Bullfrogs,BUF,Y,:buf: Buffalo Bullfrogs sign Left Fielder **Foxx Dashington**,,,,
+Francis Herman Swagger,,7,9,HFX,Halifax Helmsmen,GRZ,Ursa Major Grizzlies,Y,1.0,LF Francis Herman Swagger,2023-05-06,sign,Grizzlies,GRZ,Y,:Grizzlies: sign LF **Francis Herman Swagger**,,,,
+Fuzzy Dunlop,,3,5,BFB,Blubs Bay Flappy Bois,OO,Oslo Otters,Y,1.0,Fuzzy Dunlop,2020-09-26,sign,otters,OO,Y,:otters: sign **Fuzzy Dunlop**,,,,
+Gargle Nutz,,4,5,SUN,Sunnydale Slayers,BBG,Baldur's Gate Beholders,Y,0.909,Gargle Nuts,2020-02-23,draft,Sunnydale Slayers,SUN,N,With the 21st overall pick in the S4 Draft the Sunnydale Slayers select **2B Gargle Nuts**,,,,
+Garitek,garitek,2,3,SMD,Sopher McDophers,BBG,Baldur's Gate Beholders,N,0.462,barnes,2019-07-23,draft,Malibu Waverunners,,N,With the 28th pick the Malibu Waverunners select @barnes,barnes,0.462,2019-07-23,With the 28th pick the Malibu Waverunners select @barnes
+Garitek,garitek,3,4,BBG,Baldur's Gate Beholders,GRZ,Ursa Major Grizzlies,N,0.5,Loghan O'Brien,2020-09-21,sign,Buff,,N,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**",Loghan O'Brien,0.5,2020-09-21,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**"
+Garitek,garitek,7,8,GRZ,Ursa Major Grizzlies,GHG,Gas House Gorillas,Y,1.0,Garitek,2023-04-19,draft,Japan Weeb Kitties,KC,N,"🇯🇵 With the 14th overall pick in the WNC draft, the Japan Weeb Kitties select **P Garitek**",,,,
+Garitek,garitek,9,10,GHG,Gas House Gorillas,MIA,Miami Fuego,Y,1.0,Garitek,2023-04-19,draft,Japan Weeb Kitties,KC,N,"🇯🇵 With the 14th overall pick in the WNC draft, the Japan Weeb Kitties select **P Garitek**",,,,
+Garitek,garitek,11,12,MIA,Miami Fuego,GHG,Gas House Gorillas,Y,1.0,Garitek,2025-07-20,draft,Cyprus Hills,GHG,Y,":CyprusHills: With the 5th overall pick of the WNC Draft, the Cyprus Hills selects **Garitek!**",,,,
+Geno Scaramucci,,4,5,GHG,Gas House Gorillas,GRZ,Ursa Major Grizzlies,Y,0.75,"Geno ""The Mooch"" Scaramucci",2020-09-21,sign,grizzlies,GRZ,Y,":grizzlies: sign **Geno ""The Mooch"" Scaramucci**",,,,
+Geno Scaramucci,,6,7,GRZ,Ursa Major Grizzlies,GHG,Gas House Gorillas,Y,1.0,Pitcher Geno Scaramucci,2022-01-18,sign,Sunnydale Slayers,SUN,N,:slayers: Sunnydale Slayers sign Pitcher **Geno Scaramucci**,,,,
+Geno Scaramucci,,8,11,GHG,Gas House Gorillas,MIA,Miami Fuego,Y,1.0,LF Geno Scaramucci,2024-10-01,sign,Miami Fuego,MIA,Y,:MIA:Miami Fuego sign LF (?) **Geno Scaramucci**,,,,
+Geno Scaramucci,,11,12,MIA,Miami Fuego,GHG,Gas House Gorillas,Y,1.0,LF Geno Scaramucci,2024-10-01,sign,Miami Fuego,MIA,N,:MIA:Miami Fuego sign LF (?) **Geno Scaramucci**,,,,
+George Ewell,ewell,1,2,HMH,Humongous Melonheads,ACP,Acadia Peregrines,N,0.545,KigerWulf,2018-12-02,draft,Malibu Waverunners,,N,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf",KigerWulf,0.545,2018-12-02,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf"
+Goaty McGoatFace,,9,10,KC,Kansas City Kitties,OGO,Ogaki Oni,Y,1.0,2B/C Goaty McGoatFace,2024-01-22,sign,Ogaki Oni,OGO,Y,:Oni: Ogaki Oni sign 2B/C **Goaty McGoatFace**,,,,
+Goro Shinoda,,2,4,SUN,Sunnydale Slayers,MAL,Malibu Waverunners,N,0.64,Adonis Sinoda,2020-02-23,draft,Ursa Major Grizzlies,,N,With the 15th overall pick in the S4 Draft the Ursa Major Grizzlies select **1B Adonis Sinoda**,Adonis Sinoda,0.64,2020-02-23,With the 15th overall pick in the S4 Draft the Ursa Major Grizzlies select **1B Adonis Sinoda**
+Guidooooo,anything is possibleeeeee,10,11,MIA,Miami Fuego,SMD,Sopher McDophers,Y,1.0,SS/UTIL Guidooooo,2024-10-02,sign,Sopher McDophers,SMD,Y,:SMD: Sopher McDophers sign SS/UTIL **Guidooooo**,,,,
+H.D. Dog,,3,4,GHG,Gas House Gorillas,HFX,Halifax Helmsmen,N,0.471,P. McDonough,2020-09-26,draft,Blubs Bay Flappy Bois,,N,"With the 14th overall pick in the S5 Draft, the Blubs Bay Flappy Bois select @P. McDonough",P. McDonough,0.471,2020-09-26,"With the 14th overall pick in the S5 Draft, the Blubs Bay Flappy Bois select @P. McDonough"
+Haloick Oasis,,7,8,ASS,Aruba Sea Serpents,BUF,Buffalo Bullfrogs,Y,1.0,LF Haloick Oasis,2022-08-27,sign,Buffalo Bullfrogs,BUF,Y,:buffalo: Buffalo Bullfrogs sign LF **Haloick Oasis**,,,,
+Haloick Oasis,,8,9,BUF,Buffalo Bullfrogs,ASS,Aruba Sea Serpents,Y,1.0,LF Haloick Oasis,2022-08-27,sign,Buffalo Bullfrogs,BUF,N,:buffalo: Buffalo Bullfrogs sign LF **Haloick Oasis**,,,,
+Haloick Oasis,,9,12,ASS,Aruba Sea Serpents,RC,Raccoon City Outbreak,Y,0.867,LHP Haloick Oasis,2025-08-02,sign,Raccoon City Outbreak,RC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Hank Murphy,,1,2,GHG,Gas House Gorillas,REK,Reykjavik Valkyries,Y,1.0,Hank Murphy,2018-11-28,sign,The Henrik Omegas,REK,Y,The Henrik Omegas sign Hank Murphy,,,,
+Hannibal Bligh,“daddy ass” hannibal bligh,6,7,HFX,Halifax Helmsmen,ASS,Aruba Sea Serpents,Y,1.0,“Daddy Ass” Hannibal Bligh,2021-04-28,draft,Vatican City,RLY,N,":vaticancity: With the 38th overall pick in the WNC draft, Vatican City selects @“Daddy Ass” Hannibal Bligh",,,,
+Hans Ali,hans,1,2,LPJ,Lonestar Pumpjacks,SMD,Sopher McDophers,N,0.5,naisawol,2018-12-02,draft,Sleepy Hollow Horsemen,,N,"With the sixteenth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @naisawol",naisawol,0.5,2018-12-02,"With the sixteenth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @naisawol"
+Hans Ali,hans,2,3,SMD,Sopher McDophers,KYM,Kentucky Mashers,Y,0.889,Hans Ali P,2020-03-27,sign,beholders,BBEG,N,:beholders: sign Hans Ali P,,,,
+Haraldo McKenzie,,1,2,SUN,Sunnydale Slayers,POR,Portland Pioneers,N,0.533,Random Defence,2018-12-02,draft,Acadia Peregrines,,N,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence",Random Defence,0.533,2018-12-02,"With the twenty fifth pick in the Season 2 Draft, the Acadia Peregrines select @Random Defence"
+Haraldo McKenzie,,3,4,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,0.842,"Haraldo ""Mack"" MacKenzie",2020-09-21,sign,Melonhead,HMH,N,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Harry Peritestes,,2,3,CIN,Cincinnati Longhorns,REK,Reykjavik Valkyries,N,0.483,Zachadee,2018-12-02,draft,Lonestar Pumpjacks,,N,"With the twentieth pick in the Season 2 Draft, the Lonestar Pumpjacks select @Zachadee",Zachadee,0.483,2018-12-02,"With the twentieth pick in the Season 2 Draft, the Lonestar Pumpjacks select @Zachadee"
+Harry Peritestes,,4,5,REK,Reykjavik Valkyries,ASS,Aruba Sea Serpents,Y,1.0,Harry Peritestes,2020-09-21,sign,Rhinos,CIN,Y,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Harry Peritestes,,5,6,ASS,Aruba Sea Serpents,BFB,Blubs Bay Flappy Bois,Y,1.0,Harry Peritestes,2020-09-21,sign,Rhinos,CIN,N,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Henrik Omega,big bossuru,1,2,HMH,Humongous Melonheads,REK,Reykjavik Valkyries,N,0.538,ooga,2018-12-02,draft,Henrik Omegas,,N,"With the first pick in the Season 2 Draft, the Henrik Omegas choose @ooga.",ooga,0.538,2018-12-02,"With the first pick in the Season 2 Draft, the Henrik Omegas choose @ooga."
+Henrik Omega,big bossuru,2,4,REK,Reykjavik Valkyries,SMD,Sopher McDophers,Y,1.0,Henrik Omega,2020-09-22,sign,FlappyBois,BFB,N,:FlappyBois: sign **Henrik Omega**,,,,
+Henrik Omega,big bossuru,4,5,SMD,Sopher McDophers,BFB,Blubs Bay Flappy Bois,Y,1.0,Henrik Omega,2020-09-22,sign,FlappyBois,BFB,Y,:FlappyBois: sign **Henrik Omega**,,,,
+Henrik Omega,big bossuru,5,6,BFB,Blubs Bay Flappy Bois,SMD,Sopher McDophers,Y,1.0,Henrik Omega,2020-09-22,sign,FlappyBois,BFB,N,:FlappyBois: sign **Henrik Omega**,,,,
+Himmy Proton,,9,10,SUN,Sunnydale Slayers,GRZ,Ursa Major Grizzlies,Y,1.0,Himmy Proton,2024-01-27,draft,GRZ Ursa Major Grizzlies,GRZ,Y,"With the 15th overall pick in the S10 MLN Draft, the :GRZ:  *Ursa Major Grizzlies* select 3B/UTIL **Himmy Proton**",,,,
+Himmy Proton,,10,11,GRZ,Ursa Major Grizzlies,MIA,Miami Fuego,Y,0.8,C/CINF Himmy Proton,2024-10-02,sign,Miami Fuego,MIA,Y,:MIA: Miami Fuego sign C/CINF **Himmy Proton**,,,,
+Holden Tudix,,10,11,SMD,Sopher McDophers,HFX,Halifax Helmsmen,Y,1.0,CF Holden Tudix,2024-10-21,sign,Halifax Highlanders,HFX,Y,:HFX: Halifax Highlanders sign CF **Holden Tudix**,,,,
+Hot Dog Jeopardy,hdj - raccussy,5,7,SUN,Sunnydale Slayers,NO,New Orleans Crawdads,Y,1.0,Third Baseman Hot Dog Jeopardy,2022-01-18,sign,New Orleans Crawdads,NO,Y,:crawdads: New Orleans Crawdads sign Third Baseman **Hot Dog Jeopardy**,,,,
+Hubert Dubois,,11,12,GRZ,Ursa Major Grizzlies,SUN,Sunnydale Slayers,Y,0.812,C/CINF Hubert Dubois,2025-08-02,sign,Sunnydale Slayers,SUN,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Hugo Award,frank,6,7,JAM,JAM,GHG,Gas House Gorillas,Y,1.0,Hugo Award,2022-01-22,draft,Gorillas Gas House Gorillas,GHG,Y,"With the 6th overall pick in the S7 Draft, the :Gorillas: Gas House Gorillas select **3B Hugo Award**",,,,
+Ichiro Rose,,10,11,BBEG,Baldur's Gate Beholders,MIA,Miami Fuego,Y,1.0,SS/UTIL Ichiro Rose,2024-10-01,sign,Miami Fuego,MIA,Y,:MIA: Miami Fuego sign SS/UTIL **Ichiro Rose**,,,,
+Icna Comit,,1,2,LPJ,Lonestar Pumpjacks,SHH,Sleepy Hollow Horsemen,N,0.526,Rico Chet,2018-12-02,draft,Gassy Gorillas,,N,"With the thirtieth pick in the Season 2 Draft, the Gassy Gorillas select @Rico Chet",Rico Chet,0.526,2018-12-02,"With the thirtieth pick in the Season 2 Draft, the Gassy Gorillas select @Rico Chet"
+Icna Comit,,4,5,BUF,Buffalo Bullfrogs,KYM,Kentucky Mashers,N,0.526,Bico Nico,2020-03-27,release,Rhinos,,N,:Rhinos: release Bico Nico,Bico Nico,0.526,2020-03-27,:Rhinos: release Bico Nico
+Ioe Torrent,ioe,5,6,HFX,Halifax Helmsmen,BUF,Buffalo Bullfrogs,Y,1.0,Ioe,2021-04-28,draft,Cuba,CAR,N,":cuba: With the 140th pick of the WNC draft, Cuba selects @Ioe",,,,
+Ioe Torrent,ioe,8,9,BUF,Buffalo Bullfrogs,CAR,Carolina Reapers,Y,1.0,Ioe Torrent,2023-04-19,draft,Freedom Flyers,CAR,Y,"🇺🇸 With the 42nd overall pick of the WNC Draft, the Freedom Flyers select **1B Ioe Torrent**",,,,
+Ioe Torrent,ioe,11,12,CAR,Carolina Reapers,RC,Raccoon City Outbreak,Y,1.0,LF Ioe Torrent,2025-08-02,sign,Raccoon City Outbreak,RC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Isaac Saffron,isaac saffron,4,5,BFB,Blubs Bay Flappy Bois,MAL,Malibu Waverunners,Y,1.0,Isaac Saffron,2021-04-28,draft,San Marino,GRZ,N,":sanmarino: With the 129th pick in the WNC draft, San Marino selects @Isaac Saffron",,,,
+Isaac Saffron,isaac saffron,5,6,MAL,Malibu Waverunners,POR,Portland Pioneers,Y,1.0,Isaac Saffron,2021-04-28,draft,San Marino,GRZ,N,":sanmarino: With the 129th pick in the WNC draft, San Marino selects @Isaac Saffron",,,,
+Isaac Saffron,isaac saffron,6,7,POR,Portland Pioneers,SMD,Sopher McDophers,Y,1.0,Catcher Isaac Saffron,2022-01-18,sign,Sopher McDophers,SMD,Y,:McDophers: Sopher McDophers sign Catcher **Isaac Saffron**,,,,
+Isaac Saffron,isaac saffron,7,8,SMD,Sopher McDophers,BFB,Blubs Bay Flappy Bois,Y,1.0,C Isaac Saffron,2022-08-27,sign,Blubs Bay Flappy Bois,BFB,Y,:FlappyBois: Blubs Bay Flappy Bois sign C **Isaac Saffron**,,,,
+Jackie Daytona,xx.xela.xx,6,7,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,Y,1.0,Xx.xela.xX,2021-04-28,draft,UK,KC,Y,":brexhits: With the 99th pick in the WNC draft, The UK selects @Xx.xela.xX",,,,
+Jackie Daytona,xx.xela.xx,7,8,BUF,Buffalo Bullfrogs,OGO,Ogaki Oni,Y,1.0,2B Jackie Daytona,2022-08-27,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign 2B **Jackie Daytona**,,,,
+James St. Louis,,8,9,POR,Portland Pioneers,SMD,Sopher McDophers,Y,1.0,James St. Louis,2023-05-09,draft,SopherMcDophers Sopher McDophers,SMD,Y,"With the 22nd overall pick in the Season 9 MLN Draft, the :SopherMcDophers: Sopher McDophers select **P James St. Louis*",,,,
+Jameson Poe,poe,1,2,SUN,Sunnydale Slayers,LPJ,Lonestar Pumpjacks,N,0.538,DeadRedd,2019-07-23,draft,Ursa Major Grizzlies,,N,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd",DeadRedd,0.538,2019-07-23,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd"
+Jameson Poe,poe,2,3,LPJ,Lonestar Pumpjacks,GRZ,Ursa Major Grizzlies,N,0.538,DeadRedd,2019-07-23,draft,Ursa Major Grizzlies,,N,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd",DeadRedd,0.538,2019-07-23,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd"
+Jameson Poe,poe,8,10,GRZ,Ursa Major Grizzlies,BBEG,Baldur's Gate Beholders,Y,1.0,P Jameson Poe,2024-01-22,sign,Beholder's of Baldur's Gate,BBEG,Y,:Beholders: Beholder's of Baldur's Gate sign P **Jameson Poe**,,,,
+Jarey Butts,jarey butts,4,7,NO,New Orleans Crawdads,KYM,Kentucky Mashers,Y,0.909,LF Jarry Butts,2022-06-27,sign,Kentucky Mashers,KYM,Y,:Mashers: Kentucky Mashers sign LF **Jarry Butts**,,,,
+Jarey Butts,jarey butts,8,9,CAR,Carolina Reapers,ACP,Acadia Peregrines,Y,1.0,LF Jarey Butts,2023-05-03,sign,ACP,ACP,Y,:ACP:sign LF **Jarey Butts**,,,,
+Jarey Butts,jarey butts,11,12,ACP,Acadia Peregrines,RC,Raccoon City Outbreak,N,0.667,Harvey Burton,2025-07-20,draft,Argentina Beef,,N,":ArgentinaBeef: With the 98th overall pick in the WNC Draft, the Argentina Beef select **Harvey Burton**",Harvey Burton,0.667,2025-07-20,":ArgentinaBeef: With the 98th overall pick in the WNC Draft, the Argentina Beef select **Harvey Burton**"
+"Jason ""Dead"" Redd",deadredd,10,11,GRZ,Ursa Major Grizzlies,CAR,Carolina Reapers,N,0.538,P Jameson Poe,2024-01-22,sign,Beholder's of Baldur's Gate,,N,:Beholders: Beholder's of Baldur's Gate sign P **Jameson Poe**,P Jameson Poe,0.538,2024-01-22,:Beholders: Beholder's of Baldur's Gate sign P **Jameson Poe**
+Jay Emess,jms,6,7,KYM,Kentucky Mashers,POR,Portland Pioneers,Y,1.0,Pitcher Jay Emess,2022-01-18,sign,Portland Pioneers,POR,Y,:Pioneers: Portland Pioneers sign Pitcher **Jay Emess**,,,,
+Jeff Dingerhitter,jeff dingerhitter,4,5,BFB,Blubs Bay Flappy Bois,ASS,Aruba Sea Serpents,Y,1.0,jeff dingerhitter,2021-04-28,draft,Ivory Coast,SMD,N,":ivorycoast: With the 111th pick of the WNC draft, The Ivory Coast selects @jeff dingerhitter",,,,
+Jefferson Steelflex,jeff - hunk rep,1,4,ACP,Acadia Peregrines,BFB,Blubs Bay Flappy Bois,N,0.562,Jeff Shagwell,2020-02-23,draft,Sopher McDophers,,N,With the 12th overall pick in the S4 Draft the Sopher McDophers select **1B Jeff Shagwell**,Jeff Shagwell,0.562,2020-02-23,With the 12th overall pick in the S4 Draft the Sopher McDophers select **1B Jeff Shagwell**
+Jefferson Steelflex,jeff - hunk rep,8,9,BFB,Blubs Bay Flappy Bois,HMH,Humongous Melonheads,Y,0.947,CF Jefferson Stellflex,2023-05-08,sign,Melonheads,HMH,Y,:Melonheads: sign CF **Jefferson Stellflex**,,,,
+Jerry Jingles,zachadee,2,3,MAL,Malibu Waverunners,BBG,Baldur's Gate Beholders,Y,1.0,Zachadee,2018-12-02,draft,Lonestar Pumpjacks,LPJ,Y,"With the twentieth pick in the Season 2 Draft, the Lonestar Pumpjacks select @Zachadee",,,,
+Jerry Jingles,zachadee,3,4,BBG,Baldur's Gate Beholders,KYM,Kentucky Mashers,N,0.538,Ryan Gasting,2020-09-26,draft,Acadia Peregrines,,N,"With the 8th overall pick in the S5 Draft, the Acadia Peregrines select @Ryan Gasting",Ryan Gasting,0.538,2020-09-26,"With the 8th overall pick in the S5 Draft, the Acadia Peregrines select @Ryan Gasting"
+Jihmih Elsher,,10,11,POR,Portland Pioneers,MIA,Miami Fuego,Y,1.0,SS/UTIL Jihmih Elsher,2024-10-02,sign,Miami Fuego,MIA,Y,:MIA: Miami Fuego sign SS/UTIL **Jihmih Elsher**,,,,
+Jimjon Jonjim,tigerfan895,3,4,ACP,Acadia Peregrines,POR,Portland Pioneers,Y,0.897,"Jimjon ""QJ"" Jonjim",2020-09-21,sign,Peregrines,ACP,N,":Peregrines: sign **Jimjon ""QJ"" Jonjim**",,,,
+Jimjon Jonjim,tigerfan895,4,5,POR,Portland Pioneers,ACP,Acadia Peregrines,Y,0.897,"Jimjon ""QJ"" Jonjim",2020-09-21,sign,Peregrines,ACP,Y,":Peregrines: sign **Jimjon ""QJ"" Jonjim**",,,,
+Jimmy Johns,eazykill,1,2,VAN,Vancouver Vampires,LPJ,Lonestar Pumpjacks,N,0.583,Tigerfan895,2018-12-02,draft,Arkasas Perogies,,N,"With the thirteenth pick in the Season 2 Draft, the Arkasas Perogies select @Tigerfan895.",Tigerfan895,0.583,2018-12-02,"With the thirteenth pick in the Season 2 Draft, the Arkasas Perogies select @Tigerfan895."
+Jimmy Johns,eazykill,2,3,LPJ,Lonestar Pumpjacks,ACP,Acadia Peregrines,N,0.583,Tigerfan895,2018-12-02,draft,Arkasas Perogies,,N,"With the thirteenth pick in the Season 2 Draft, the Arkasas Perogies select @Tigerfan895.",Tigerfan895,0.583,2018-12-02,"With the thirteenth pick in the Season 2 Draft, the Arkasas Perogies select @Tigerfan895."
+Joe Runzer,,3,5,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,Y,1.0,Joe Runzer,2021-01-01,sign,FlappyBois,BFB,Y,:FlappyBois: Sign **Joe Runzer**,,,,
+Joey Wheeler,,4,5,KYM,Kentucky Mashers,OO,Oslo Otters,Y,1.0,Joey Wheeler,2020-09-21,sign,otters,OO,Y,:otters: sign **Joey Wheeler**,,,,
+Joey Wheeler,,10,11,REK,Reykjavik Valkyries,SUN,Sunnydale Slayers,Y,1.0,P Joey Wheeler,2024-10-01,sign,Sunnydale Slayers,SUN,Y,:SUN:Sunnydale Slayers sign P **Joey Wheeler**,,,,
+John Rhys Ealy,,5,6,BUF,Buffalo Bullfrogs,POR,Portland Pioneers,N,0.545,Hans,2021-04-29,draft,Puerto Rico,,N,":puertorico: With the 173rd pick in the WNC draft, Puerto Rico selects @Hans",Hans,0.545,2021-04-29,":puertorico: With the 173rd pick in the WNC draft, Puerto Rico selects @Hans"
+Johnny B. Goode,,11,12,SUN,Sunnydale Slayers,ACP,Acadia Peregrines,Y,1.0,Johnny B Goode,2025-12-08,release,SUN,SUN,N,"Happy December, folks!
+
+
+:ACP: **Copernicus Hel** steps down as Co-GM and leaves team
+:ACP: **Elijah Walker** to Co-GM a",,,,
+Johnny Dickshot,,1,5,VAN,Vancouver Vampires,BFB,Blubs Bay Flappy Bois,N,0.516,Johnny McFarland,2021-06-19,draft,Kentucky Mashers,,N,"With the 20th overall pick in the S6 Draft, the Kentucky Mashers select **C Johnny McFarland**",Johnny McFarland,0.516,2021-06-19,"With the 20th overall pick in the S6 Draft, the Kentucky Mashers select **C Johnny McFarland**"
+Johnny Dickshot,,5,6,BFB,Blubs Bay Flappy Bois,HFX,Halifax Helmsmen,N,0.615,Johnny Omar,2021-07-26,sign,Helmsmen,,N,"~~Bad Bob Moment occurred~~ Backlog Cleanup:
+
+
+
+**Pre-Season/Post Draft Transactions (Effective Sesssion 1)**
+
+:Helmsmen",Johnny Omar,0.615,2021-07-26,"~~Bad Bob Moment occurred~~ Backlog Cleanup:
+
+
+
+**Pre-Season/Post Draft Transactions (Effective Sesssion 1)**
+
+:Helmsmen"
+Johnny Dickshot,,8,9,HFX,Halifax Helmsmen,MIA,Miami Fuego,Y,1.0,P Johnny Dickshot,2023-05-03,sign,miami,MIA,Y,:miami: sign P **Johnny Dickshot**,,,,
+Johnny Dickshot,,9,10,MIA,Miami Fuego,HFX,Halifax Helmsmen,Y,1.0,Johnny Dickshot,2023-04-19,draft,Los Zurdos Argentinos,ASS,N,"🇦🇷 With the 70th overall pick in the WNC draft, Los Zurdos Argentinos select **RF Johnny Dickshot**",,,,
+Johnny Dickshot,,11,12,HFX,Halifax Helmsmen,RC,Raccoon City Outbreak,Y,0.882,RHP Johnny Dickshot,2025-08-02,sign,Raccoon City Outbreak,RC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Jordan Kurdi,,10,11,ASS,Aruba Sea Serpents,KC,Kansas City Kitties,Y,1.0,P Jordan Kurdi,2024-10-01,sign,Kansas City Kitties,KC,Y,:KC: Kansas City Kitties sign P **Jordan Kurdi**,,,,
+JP Panik,,1,2,MAL,Malibu Waverunners,ACP,Acadia Peregrines,N,0.533,jabroni,2018-12-02,draft,Henrik Omegas,,N,"With the forty ninth pick in the Season 2 Draft, the Henrik Omegas select @jabroni",jabroni,0.533,2018-12-02,"With the forty ninth pick in the Season 2 Draft, the Henrik Omegas select @jabroni"
+JP Panik,,8,9,ACP,Acadia Peregrines,CAR,Carolina Reapers,N,0.526,P B.A. Dickey,2022-05-16,sign,Halifax Highlanders,,N,"**Transactions effective Session 10**
+
+we'll organize this by team...
+
+:Waverunners: Malibu Waverunners sign 1B/UTIL **R",P B.A. Dickey,0.526,2022-05-16,"**Transactions effective Session 10**
+
+we'll organize this by team...
+
+:Waverunners: Malibu Waverunners sign 1B/UTIL **R"
+Juju's Snorlax,"juju’s snorlax, 1st baseman",9,10,NO,New Orleans Crawdads,CAR,Carolina Reapers,Y,0.774,1B/UTILJuju Snorlax,2024-01-22,sign,Carolina Reapers,CAR,Y,:Reapers: Carolina Reapers sign 1B/UTIL**Juju Snorlax**,,,,
+Juniped Panda,,5,6,SUN,Sunnydale Slayers,OO,Oslo Otters,N,0.643,Juniped Catfish,2020-09-21,sign,slayerscrown,,N,:slayerscrown: sign **Juniped Catfish**,Juniped Catfish,0.643,2020-09-21,:slayerscrown: sign **Juniped Catfish**
+JZ (but not the rapper),,5,6,POR,Portland Pioneers,MAL,Malibu Waverunners,Y,1.0,JZ,2020-09-21,sign,Pioneers,POR,N,:Pioneers: sign **JZ**,,,,
+JZ (but not the rapper),,6,7,MAL,Malibu Waverunners,GRZ,Ursa Major Grizzlies,Y,1.0,Shortstop JZ,2022-01-18,sign,Ursa Major Grizzlies,GRZ,Y,:grizzlies: Ursa Major Grizzlies sign Shortstop **JZ (but not the rapper)**,,,,
+JZ (but not the rapper),,8,9,GRZ,Ursa Major Grizzlies,OGO,Ogaki Oni,Y,1.0,P JZ,2023-05-03,sign,Ogaki Oni,OGO,Y,:Oni: Ogaki Oni sign P **JZ (but not the rapper)**,,,,
+JZ (but not the rapper),,10,11,OGO,Ogaki Oni,REK,Reykjavik Valkyries,Y,1.0,C JZ,2025-04-08,sign,Reykjavik Valkyries,REK,Y,":RLY: R'lyeh Ancients sign RF **Cormac Karona ii**
+
+:REK: Reykjavik Valkyries sign C **JZ (but not the rapper)**
+
+:HFX: ",,,,
+Kai Johnson,,8,9,HFX,Halifax Helmsmen,KC,Kansas City Kitties,Y,1.0,P Kai Johnson,2023-05-03,sign,Kansas City Smoke,KC,Y,:KC: Kansas City Smoke sign P **Kai Johnson**,,,,
+Kali McSuntas,kali | stabby stabby,2,5,MAL,Malibu Waverunners,BFB,Blubs Bay Flappy Bois,Y,1.0,Kali McSuntas,2020-09-23,sign,FlappyBois,BFB,Y,:FlappyBois: sign **Kali McSuntas**,,,,
+Kali McSuntas,kali | stabby stabby,8,9,BFB,Blubs Bay Flappy Bois,SUN,Sunnydale Slayers,Y,1.0,P Kali McSuntas,2023-05-03,sign,Sunnydale Slayers,SUN,Y,:Slayers: Sunnydale Slayers sign P **Kali McSuntas**,,,,
+Kalin Young,bearied the league,4,5,POR,Portland Pioneers,KYM,Kentucky Mashers,Y,1.0,Bearied the League,2021-04-28,draft,Peru,POR,N,":peru: With the 148th pick in the WNC draft, Peru selects @Bearied the League",,,,
+Kalin Young,bearied the league,8,9,CAR,Carolina Reapers,GRZ,Ursa Major Grizzlies,Y,1.0,SS Kalin Young,2023-05-03,sign,Grizzlies,GRZ,Y,:Grizzlies: sign SS **Kalin Young**,,,,
+Karolina Miaukatwicz,jlh2b,5,6,HFX,Halifax Helmsmen,BUF,Buffalo Bullfrogs,Y,1.0,jlh2b,2021-04-28,draft,Israel,MAL,N,":israel: With the 17th pick in the WNC draft, Israel selects @jlh2b",,,,
+KC Bats,,4,5,BFB,Blubs Bay Flappy Bois,MAL,Malibu Waverunners,N,0.556,KrazyPolishBoy,2021-04-28,draft,Israel,,N,":israel: With the 161st pick in the WNC draft, Israel selects @KrazyPolishBoy",KrazyPolishBoy,0.556,2021-04-28,":israel: With the 161st pick in the WNC draft, Israel selects @KrazyPolishBoy"
+KC Bats,,5,6,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,N,0.556,KrazyPolishBoy,2021-04-28,draft,Israel,,N,":israel: With the 161st pick in the WNC draft, Israel selects @KrazyPolishBoy",KrazyPolishBoy,0.556,2021-04-28,":israel: With the 161st pick in the WNC draft, Israel selects @KrazyPolishBoy"
+KC Bats,,9,10,KC,Kansas City Kitties,GHG,Gas House Gorillas,N,0.476,C Brian Taylor,2023-05-04,sign,miami,,N,:miami: sign C **Brian Taylor**,C Brian Taylor,0.476,2023-05-04,:miami: sign C **Brian Taylor**
+Kegs Mabry,,1,2,VAN,Vancouver Vampires,SMD,Sopher McDophers,N,0.476,Hank Murphy,2018-11-28,sign,The Henrik Omegas,,N,The Henrik Omegas sign Hank Murphy,Hank Murphy,0.476,2018-11-28,The Henrik Omegas sign Hank Murphy
+Kegs Mabry,,2,3,SMD,Sopher McDophers,BFB,Blubs Bay Flappy Bois,N,0.545,Ike Martillo,2020-02-23,draft,Sleepy Hollow Horsemen,,N,With the 23rd overall pick in the S4 Draft the Sleepy Hollow Horsemen select **3B Ike Martillo**,Ike Martillo,0.545,2020-02-23,With the 23rd overall pick in the S4 Draft the Sleepy Hollow Horsemen select **3B Ike Martillo**
+Kegs Mabry,,3,5,BFB,Blubs Bay Flappy Bois,SMD,Sopher McDophers,N,0.545,Ike Martillo,2020-02-23,draft,Sleepy Hollow Horsemen,,N,With the 23rd overall pick in the S4 Draft the Sleepy Hollow Horsemen select **3B Ike Martillo**,Ike Martillo,0.545,2020-02-23,With the 23rd overall pick in the S4 Draft the Sleepy Hollow Horsemen select **3B Ike Martillo**
+Kegs Mabry,,5,6,SMD,Sopher McDophers,ACP,Acadia Peregrines,N,0.6,Mickey May,2022-01-22,draft,grizzlies Ursa Major Grizzlies,,N,"With the 15th overall pick in the S7 Draft, the :grizzlies: Ursa Major Grizzlies select **1B Mickey May**",Mickey May,0.6,2022-01-22,"With the 15th overall pick in the S7 Draft, the :grizzlies: Ursa Major Grizzlies select **1B Mickey May**"
+Kegs Mabry,,6,7,ACP,Acadia Peregrines,HFX,Halifax Helmsmen,N,0.625,3B/UTIL G Baby,2022-03-16,sign,Sunnydale Slayers,,N,:slayers: Sunnydale Slayers sign 3B/UTIL **G Baby**,3B/UTIL G Baby,0.625,2022-03-16,:slayers: Sunnydale Slayers sign 3B/UTIL **G Baby**
+Kegs Mabry,,8,10,HFX,Halifax Helmsmen,KC,Kansas City Kitties,Y,1.0,1B/UTIL Kegs Mabry,2024-04-27,sign,Kansas City Kitties,KC,Y,"## Session 6 Transactions
+
+:RC: Raccoon City release P **Ryan Gastings**
+
+:POR: Portland Pioneers release 3B/UTIL **Talo",,,,
+Kegs Mabry,,10,11,KC,Kansas City Kitties,RC,Raccoon City Outbreak,Y,1.0,RF Kegs Mabry,2024-10-01,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign RF **Kegs Mabry**,,,,
+Kenny Kawaguchi,kennyk,6,7,ASS,Aruba Sea Serpents,HFX,Halifax Helmsmen,Y,1.0,SS Kenny Kawaguchi,2022-08-27,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign SS **Kenny Kawaguchi**,,,,
+Kenny Powers,,7,8,POR,Portland Pioneers,BUF,Buffalo Bullfrogs,Y,1.0,3B Kenny Powers,2022-08-27,sign,Buffalo Bullfrogs,BUF,Y,:Bullfrogs: Buffalo Bullfrogs sign 3B **Kenny Powers**,,,,
+Kenny Powers,,10,11,KC,Kansas City Kitties,GHG,Gas House Gorillas,N,0.522,P Jameson Poe,2024-01-22,sign,Beholder's of Baldur's Gate,,N,:Beholders: Beholder's of Baldur's Gate sign P **Jameson Poe**,P Jameson Poe,0.522,2024-01-22,:Beholders: Beholder's of Baldur's Gate sign P **Jameson Poe**
+Kevin James,,7,8,SUN,Sunnydale Slayers,CAR,Carolina Reapers,Y,1.0,Pitcher Kevin James,2022-02-19,sign,Portland Pioneers,POR,N,"**Transactions effective Session 3**
+
+:bullfrogs:Buffalo Bullfrogs place Pitcher **Petra Sabor** on hiatus 
+
+:Pioneers: ",,,,
+Kevin James,,8,9,CAR,Carolina Reapers,POR,Portland Pioneers,Y,1.0,Pitcher Kevin James,2022-02-19,sign,Portland Pioneers,POR,Y,"**Transactions effective Session 3**
+
+:bullfrogs:Buffalo Bullfrogs place Pitcher **Petra Sabor** on hiatus 
+
+:Pioneers: ",,,,
+Keyo,keyo,10,11,GHG,Gas House Gorillas,KC,Kansas City Kitties,N,0.5,Mike Ock,2024-10-06,draft,Miami Fuego,,N,":MIA: With the sixteenth overall pick in the S11 MLN Draft, the *Miami Fuego* select C **Mike Ock**",Mike Ock,0.5,2024-10-06,":MIA: With the sixteenth overall pick in the S11 MLN Draft, the *Miami Fuego* select C **Mike Ock**"
+Kiger Wulf,kigerwulf,2,3,MAL,Malibu Waverunners,NO,New Orleans Crawdads,Y,1.0,KigerWulf,2018-12-02,draft,Malibu Waverunners,MAL,N,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf",,,,
+Kiger Wulf,kigerwulf,6,7,NO,New Orleans Crawdads,SUN,Sunnydale Slayers,Y,1.0,Shortstop Kiger Wulf,2022-01-18,sign,Sunnydale Slayers,SUN,Y,:slayers: Sunnydale Slayers sign Shortstop **Kiger Wulf**,,,,
+Kilometers Straw,,8,9,HFX,Halifax Helmsmen,REK,Reykjavik Valkyries,Y,1.0,CF Kilometers Straw,2023-05-03,sign,Reykjavik Valkyries,REK,Y,:Valkyries: Reykjavik Valkyries sign CF **Kilometers Straw**,,,,
+King Kruul,king kruul,7,8,GHG,Gas House Gorillas,HFX,Halifax Helmsmen,Y,1.0,1B King Kruul,2022-12-06,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign 1B **King Kruul** (11/23/22),,,,
+Kries Von Kriestalhauser,,8,9,POR,Portland Pioneers,CAR,Carolina Reapers,Y,1.0,Kries Von Kriestalhauser,2023-05-09,draft,Reapers Carolina Reapers,CAR,Y,"With the 1st overall pick in the Season 9 MLN Draft, the :Reapers: Carolina Reapers select **CF Kries Von Kriestalhauser",,,,
+Kries Von Kriestalhauser,,9,10,CAR,Carolina Reapers,SUN,Sunnydale Slayers,Y,1.0,CF Kries Von Kriestalhauser,2022-12-12,sign,Portland Pioneers,POR,N,:Pioneers: Portland Pioneers sign CF **Kries Von Kriestalhauser**,,,,
+Kries Von Kriestalhauser,,11,12,SUN,Sunnydale Slayers,KC,Kansas City Kitties,Y,1.0,CF Kries Von Kriestalhauser,2025-08-02,sign,Kansas City Kitties,KC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Kurt Anger,whambamshangalang,1,3,CIN,Cincinnati Longhorns,KYM,Kentucky Mashers,N,0.583,Dirk Dangerous,2020-02-23,draft,Kentucky Mashers,,N,With the 24th overall pick in the S4 Draft the Kentucky Mashers select **CF Dirk Dangerous**,Dirk Dangerous,0.583,2020-02-23,With the 24th overall pick in the S4 Draft the Kentucky Mashers select **CF Dirk Dangerous**
+Kurt Anger,whambamshangalang,3,6,KYM,Kentucky Mashers,SUN,Sunnydale Slayers,Y,1.0,whambamshangalang,2021-04-28,draft,Cuba,CAR,N,":cuba: With the 53rd overall pick in the WNC draft, Cuba selects @whambamshangalang",,,,
+Kurt Anger,whambamshangalang,6,7,SUN,Sunnydale Slayers,KYM,Kentucky Mashers,Y,1.0,whambamshangalang,2021-04-28,draft,Cuba,CAR,Y,":cuba: With the 53rd overall pick in the WNC draft, Cuba selects @whambamshangalang",,,,
+Kurt Anger,whambamshangalang,7,9,KYM,Kentucky Mashers,MIA,Miami Fuego,Y,1.0,SS Kurt Anger,2023-05-03,sign,miami,MIA,Y,:miami: sign SS **Kurt Anger**,,,,
+Kyuss Kosades,,10,11,GHG,Gas House Gorillas,MIA,Miami Fuego,Y,1.0,Kyuss Kosades,2024-01-27,draft,GHG Gas House Gorillas,GHG,N,"With the 18th overall pick in the S10 MLN Draft, the :GHG:  *Gas House Gorillas* select P **Kyuss Kosades**",,,,
+Kyuss Kosades,,11,12,MIA,Miami Fuego,GHG,Gas House Gorillas,Y,1.0,P Kyuss Kosades,2025-11-22,sign,GHG,GHG,Y,"Huh. This channel still exists. Guess there should be an update.
+
+__**AUGUST**__
+
+:CAR: Carolina Reapers sign RF **Ricky",,,,
+LaCarpetron Dukemarriot,,7,8,SMD,Sopher McDophers,CAR,Carolina Reapers,Y,1.0,P LaCarpetron Dukemarriot,2022-08-27,sign,Carolina Reapers,CAR,Y,:Reapers: Carolina Reapers sign P **LaCarpetron Dukemarriot**,,,,
+Lance Lummoxx,,1,2,ACP,Acadia Peregrines,SMD,Sopher McDophers,N,0.462,Magic Simmons,2019-07-23,draft,Ursa Major Grizzlies,,N,With the 39th pick the Ursa Major Grizzlies select Magic Simmons,Magic Simmons,0.462,2019-07-23,With the 39th pick the Ursa Major Grizzlies select Magic Simmons
+LaPrince Frye,,4,9,CIN,Cincinnati Longhorns,MIA,Miami Fuego,Y,1.0,P LaPrince Frye,2023-05-24,sign,miami,MIA,Y,:miami: sign P **LaPrince Frye**,,,,
+Larold,,5,6,POR,Portland Pioneers,OO,Oslo Otters,Y,1.0,Larold (Fake Larry!),2020-09-26,draft,Portland Pioneers,POR,N,"With the 11th overall pick in the S5 Draft, the Portland Pioneers select @Larold  (Fake Larry!)",,,,
+Larry Longshot,,3,4,SUN,Sunnydale Slayers,ACP,Acadia Peregrines,N,0.48,Cam'ron West,2020-06-09,sign,FlappyBois,,N,:FlappyBois: sign Cam'ron West,Cam'ron West,0.48,2020-06-09,:FlappyBois: sign Cam'ron West
+Lawrence Wiseman,,1,2,SMD,Sopher McDophers,CIN,Cincinnati Longhorns,N,0.429,Deleted User,2018-12-02,draft,Sleepy Hollow Horsemen,,N,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User",Deleted User,0.429,2018-12-02,"With the twenty eighth pick in the Season 2 Draft, the Sleepy Hollow Horsemen select @Deleted User"
+Lazer Dave,,8,9,SMD,Sopher McDophers,SUN,Sunnydale Slayers,Y,1.0,Lazer Dave,2023-04-19,draft,Prisoners of Azerbaijan,POR,N,"🇦🇿 With the 53rd overall pick in the WNC draft, the Prisoners of Azerbaijan select **RF Lazer Dave**",,,,
+Lee Allen Ripley,,1,6,OAK,Alemeda Originals,ASS,Aruba Sea Serpents,N,0.519,Alex “Big Champion” Yaxley 💍,2021-04-28,draft,San Marino,,N,":sanmarino: With the 16th overall pick in the WNC draft, San Marino selects @Alex “Big Champion” Yaxley 💍",Alex “Big Champion” Yaxley 💍,0.519,2021-04-28,":sanmarino: With the 16th overall pick in the WNC draft, San Marino selects @Alex “Big Champion” Yaxley 💍"
+Lee Luda,,10,11,CAR,Carolina Reapers,ACP,Acadia Peregrines,Y,1.0,2B/UTIL Lee Luda,2024-10-01,sign,Acadia Peregrines,ACP,Y,:ACP: Acadia Peregrines sign 2B/UTIL **Lee Luda**,,,,
+Lefty Louis,lefty louis - s3 gl mvp,8,10,SUN,Sunnydale Slayers,REK,Reykjavik Valkyries,Y,1.0,1B/UTIL Lefty Louis,2024-01-22,sign,Reykjavik Valkyries,REK,Y,:Valkyries: Reykjavik Valkyries sign 1B/UTIL **Lefty Louis**,,,,
+Lincoln Crawford,chris88,3,4,POR,Portland Pioneers,NO,New Orleans Crawdads,Y,0.821,Lincoln Crawford 1B/UTIL,2020-04-20,sign,nola,NO,Y,:nola: sign Lincoln Crawford 1B/UTIL,,,,
+Lincoln Crawford,chris88,8,9,NO,New Orleans Crawdads,MIA,Miami Fuego,Y,1.0,First Baseman Lincoln Crawford,2022-01-18,sign,Sunnydale Slayers,SUN,N,:slayers: Sunnydale Slayers sign First Baseman **Lincoln Crawford**,,,,
+Loghan O'Brien,moosey,3,4,SUN,Sunnydale Slayers,POR,Portland Pioneers,Y,1.0,Loghan O'Brien,2020-09-21,sign,Buff,BUF,N,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**",,,,
+Loghan O'Brien,moosey,4,5,POR,Portland Pioneers,BUF,Buffalo Bullfrogs,Y,1.0,Loghan O'Brien,2020-09-21,sign,Buff,BUF,Y,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**",,,,
+Mack Quackerson,,9,10,POR,Portland Pioneers,ACP,Acadia Peregrines,Y,1.0,Mack Quackerson,2024-01-27,draft,ACP Acadia Peregrines,ACP,Y,"With the 5th overall pick in the S10 MLN Draft, the :ACP: *Acadia Peregrines* select C/COF **Mack Quackerson**",,,,
+Mad Monty,mad_monty,1,3,MAL,Malibu Waverunners,BBG,Baldur's Gate Beholders,N,0.6,Maud Nelson,2018-12-02,draft,Henrik Omegas,,N,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson",Maud Nelson,0.6,2018-12-02,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson"
+Magic Simmons,,1,2,VAN,Vancouver Vampires,CIN,Cincinnati Longhorns,Y,1.0,Magic Simmons,2019-07-23,draft,Ursa Major Grizzlies,GRZ,N,With the 39th pick the Ursa Major Grizzlies select Magic Simmons,,,,
+Magic Simmons,,2,3,CIN,Cincinnati Longhorns,BBG,Baldur's Gate Beholders,Y,1.0,Magic Simmons,2019-07-23,draft,Ursa Major Grizzlies,GRZ,N,With the 39th pick the Ursa Major Grizzlies select Magic Simmons,,,,
+Makesiondon Kelkboom,,6,9,ASS,Aruba Sea Serpents,MIA,Miami Fuego,Y,1.0,3B Makesiondon Kelkboom,2023-05-03,sign,miami,MIA,Y,:miami: sign 3B **Makesiondon Kelkboom**,,,,
+Mama Luigi,,9,11,ACP,Acadia Peregrines,GHG,Gas House Gorillas,Y,1.0,2B/UTIL Mama Luigi,2023-09-15,sign,ACP,ACP,N,:ACP: sign 2B/UTIL** Mama Luigi**,,,,
+Master Cashier,cash - just a player,1,2,MAL,Malibu Waverunners,SUN,Sunnydale Slayers,Y,1.0,Master Cashier,2018-11-28,sign,The Sunnydale Slayers,SUN,Y,The Sunnydale Slayers sign Master Cashier,,,,
+Master Cashier,cash - just a player,11,12,SUN,Sunnydale Slayers,SMD,Sopher McDophers,Y,1.0,RF Master Cashier,2025-08-02,sign,Sopher McDophers,SMD,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Matt Himynamis,hi_mynameis_matt,7,10,POR,Portland Pioneers,MIA,Miami Fuego,Y,1.0,P Matt Himynamis,2024-04-27,sign,Miami Fuego,MIA,Y,"## Session 6 Transactions
+
+:RC: Raccoon City release P **Ryan Gastings**
+
+:POR: Portland Pioneers release 3B/UTIL **Talo",,,,
+Matthew Longballo,,6,7,HFX,Halifax Helmsmen,NO,New Orleans Crawdads,Y,1.0,Pitcher Matthew Longballo,2022-01-18,sign,Baldur's Gate Beholders,BBG,N,:BBG: Baldur's Gate Beholders sign Pitcher **Matthew Longballo**,,,,
+Mattress,fearthebeardbruh,6,7,SUN,Sunnydale Slayers,ASS,Aruba Sea Serpents,Y,1.0,Second Baseman Mattress,2022-01-23,sign,Aruba Sea Serpents,ASS,Y,:Serpents: Aruba Sea Serpents sign Second Baseman **Mattress**,,,,
+Maud Nelson,maud nelson,2,3,REK,Reykjavik Valkyries,BBG,Baldur's Gate Beholders,Y,1.0,Maud Nelson,2018-12-02,draft,Henrik Omegas,SMD,N,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson",,,,
+Maurice Cheeks,,9,10,ACP,Acadia Peregrines,RC,Raccoon City Outbreak,Y,1.0,P Maurice Cheeks,2024-01-28,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign P **Maurice Cheeks**,,,,
+Meat Wad,,10,11,GRZ,Ursa Major Grizzlies,SMD,Sopher McDophers,Y,1.0,CF Meat Wad,2024-10-01,sign,Sopher McDophers,SMD,Y,:SMD:Sopher McDophers sign CF **Meat Wad**,,,,
+Meerkat Preller,"meerkat ""timmons aj"" preller",10,11,CAR,Carolina Reapers,GHG,Gas House Gorillas,Y,1.0,Meerkat Preller,2024-10-01,release,Carolina Reapers,CAR,N,":RC: Raccoon City Outbreak release C/CINF **Derek Bongiovanni**
+:RC: Raccoon City Outbreak P **Vis Pacifiera** retires
+:",,,,
+Mickey May,,8,9,GRZ,Ursa Major Grizzlies,MIA,Miami Fuego,Y,1.0,Mickey May,2023-04-19,draft,Prisoners of Azerbaijan,POR,N,"🇦🇿 With the 17th overall pick in the WNC draft, the Prisoners of Azerbaijan select **P Mickey May**",,,,
+Mike Fruitstand,mike fruitstand,5,7,POR,Portland Pioneers,GHG,Gas House Gorillas,Y,1.0,Second Baseman Mike Fruitstand,2022-01-24,sign,Gas House Gorillas,GHG,Y,:Gorillas: Gas House Gorillas sign Second Baseman **Mike Fruitstand**,,,,
+Miss Bats,,1,2,CIN,Cincinnati Longhorns,ACP,Acadia Peregrines,N,0.5,Famous Anus,2018-12-02,draft,Henrik Omegas,,N,"With the forty third pick in the Season 2 Draft, the Henrik Omegas select @Famous Anus",Famous Anus,0.5,2018-12-02,"With the forty third pick in the Season 2 Draft, the Henrik Omegas select @Famous Anus"
+Mitch Meanmug,mitch meanmug,7,8,BUF,Buffalo Bullfrogs,ASS,Aruba Sea Serpents,Y,1.0,P Mitch Meanmug,2022-08-27,sign,Aruba Sea Serpents,ASS,Y,:SeaSerpents: Aruba Sea Serpents sign P **Mitch Meanmug**,,,,
+Mitch Meanmug,mitch meanmug,8,9,ASS,Aruba Sea Serpents,CAR,Carolina Reapers,Y,1.0,Mitch Meanmug,2023-04-19,draft,Seychelles Sea Shells,KYM,Y,"🇸🇨 With the 74th overall pick in the WNC draft, the Seychelles Sea Shells select **3B Mitch Meanmug**",,,,
+Mitch Meanmug,mitch meanmug,10,11,CAR,Carolina Reapers,RC,Raccoon City Outbreak,Y,1.0,P Mitch Meanmug,2024-10-01,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign P **Mitch Meanmug**,,,,
+Moob Chicago,,8,9,SUN,Sunnydale Slayers,ACP,Acadia Peregrines,Y,1.0,P Moob Chicago,2023-08-20,sign,ACP,ACP,Y,"We have been lacking here so have 1 big post to catch us up!
+
+*Session 2 moves*
+:ACP: sign 1B **Cookie Mongster**
+:Valky",,,,
+Morris Deratt,,1,5,LPJ,Lonestar Pumpjacks,MAL,Malibu Waverunners,Y,1.0,Morris Deratt,2020-09-22,sign,Waverunners,MAL,Y,:Waverunners:  sign **Morris Deratt**,,,,
+Mr Plow,,9,10,OGO,Ogaki Oni,KC,Kansas City Kitties,Y,1.0,Mr Plow,2023-04-19,draft,Japan Weeb Kitties,KC,Y,"🇯🇵 With the 47th overall pick in the WNC draft, the Japan Weeb Kitties select **SS Mr Plow**",,,,
+Mylo Grams,,1,2,ACP,Acadia Peregrines,HMH,Humongous Melonheads,N,0.526,CodyH,2019-07-23,draft,New Orleans Crawdads,,N,With the 43rd pick the New Orleans Crawdads select @CodyH,CodyH,0.526,2019-07-23,With the 43rd pick the New Orleans Crawdads select @CodyH
+Narancia Ghirga,ycbear,7,8,POR,Portland Pioneers,GRZ,Ursa Major Grizzlies,Y,1.0,C Narancia Ghirga,2022-09-05,sign,Ursa Major Grizzlies,GRZ,Y,:Grizzlies: Ursa Major Grizzlies sign C **Narancia Ghirga**,,,,
+Nate Duke,bigbosstone,6,7,POR,Portland Pioneers,BUF,Buffalo Bullfrogs,Y,1.0,Pitcher Nate Duke,2022-01-18,sign,Buffalo Bullfrogs,BUF,Y,:buf: Buffalo Bullfrogs sign Pitcher **Nate Duke**,,,,
+Nate Lewis,,2,3,MAL,Malibu Waverunners,NO,New Orleans Crawdads,N,0.571,Jonah Levin,2020-02-23,draft,Kentucky Mashers,,N,With the 26th overall pick in the S4 Draft the Kentucky Mashers select **2B Jonah Levin**,Jonah Levin,0.571,2020-02-23,With the 26th overall pick in the S4 Draft the Kentucky Mashers select **2B Jonah Levin**
+Nathanial Swenson,,11,12,ACP,Acadia Peregrines,BBEG,Baldur's Gate Beholders,Y,0.941,Nathaniel Swenson,2025-07-20,draft,Sweden Caroleans,CAR,N,":SwedenCaroleans: With the 58th overall pick in the WNC Draft, the Sweden Caroleans select **Nathaniel Swenson**",,,,
+Neco Arc Enjoyer,,9,10,POR,Portland Pioneers,OGO,Ogaki Oni,Y,1.0,RF Neco Arc Enjoyer,2024-01-22,sign,Ogaki Oni,OGO,Y,:Oni: Ogaki Oni sign RF **Neco Arc Enjoyer**,,,,
+Neco Arc Enjoyer,,10,11,OGO,Ogaki Oni,CAR,Carolina Reapers,Y,1.0,RF Neco Arc Enjoyer,2024-01-22,sign,Ogaki Oni,OGO,N,:Oni: Ogaki Oni sign RF **Neco Arc Enjoyer**,,,,
+Nicholas Fouss,,5,6,HFX,Halifax Helmsmen,BUF,Buffalo Bullfrogs,N,0.5,Dallas Houston,2020-09-22,sign,crawdads,,N,:crawdads: sign **Dallas Houston**,Dallas Houston,0.5,2020-09-22,:crawdads: sign **Dallas Houston**
+Nicholas Fouss,,6,7,BUF,Buffalo Bullfrogs,MAL,Malibu Waverunners,Y,1.0,Right Fielder Nicholas Fouss,2022-01-18,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Right Fielder **Nicholas Fouss**,,,,
+Niklas Sheely,,1,2,BFB,Blubs Bay Flappy Bois,SHH,Sleepy Hollow Horsemen,N,0.444,Master Cashier,2018-11-28,sign,The Sunnydale Slayers,,N,The Sunnydale Slayers sign Master Cashier,Master Cashier,0.444,2018-11-28,The Sunnydale Slayers sign Master Cashier
+North McLean,,4,5,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,Y,1.0,North McLean,2020-09-22,sign,Buff,BUF,Y,:Buff: sign **North McLean**,,,,
+North McLean,,5,6,BUF,Buffalo Bullfrogs,MAL,Malibu Waverunners,Y,1.0,North McLean,2020-09-22,sign,Buff,BUF,N,:Buff: sign **North McLean**,,,,
+Ohtani But Wide,,6,7,GHG,Gas House Gorillas,MAL,Malibu Waverunners,Y,1.0,Catcher Ohtani But Wide,2022-01-23,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Catcher **Ohtani But Wide**,,,,
+Ohtani But Wide,,7,8,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,Y,1.0,Catcher Ohtani But Wide,2022-01-23,sign,Malibu Waverunners,MAL,N,:Waverunners: Malibu Waverunners sign Catcher **Ohtani But Wide**,,,,
+Oliver Yu,alf,2,3,GHG,Gas House Gorillas,CIN,Cincinnati Longhorns,Y,1.0,Alf,2019-07-23,draft,Cincinnati Rhinos,CIN,Y,With the 35th pick the Cincinnati Rhinos select @Alf,,,,
+Osha Wott,,10,12,OGO,Ogaki Oni,KC,Kansas City Kitties,Y,1.0,LF Osha Wott,2025-08-02,sign,Kansas City Kitties,KC,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Pablo Pabloson,pablo pabloson,1,7,CIN,Cincinnati Longhorns,KYM,Kentucky Mashers,Y,1.0,P Pablo Pabloson,2022-03-27,sign,Kentucky Mashers,KYM,Y,"**Transactions effective Sessions 6**
+
+:Valkyries: Reykjavik Valkyries place RF **Barney Turbo** on hiatus
+
+:Highlanders",,,,
+Pablo Sanchez,pabs,5,6,SUN,Sunnydale Slayers,KYM,Kentucky Mashers,Y,1.0,Pabs,2021-04-28,draft,Vatican City,RLY,N,":vaticancity: With the 158th pick in the WNC draft, Vatican City selects @Pabs",,,,
+Pablo Sanchez,pabs,8,9,CAR,Carolina Reapers,HFX,Halifax Helmsmen,Y,1.0,P Pablo Sanchez,2023-05-03,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign P **Pablo Sanchez**,,,,
+Perry Platypus,og pepsi dealer,7,8,SUN,Sunnydale Slayers,BUF,Buffalo Bullfrogs,Y,1.0,RF Perry Platypus,2022-08-27,sign,Buffalo Bullfrogs,BUF,Y,:buffalo: Buffalo Bullfrogs sign RF **Perry Platypus**,,,,
+Peter Hoomanawanui,,11,12,RLY,R'Lyeh Ancients,ACP,Acadia Peregrines,Y,1.0,CF Peter Hoomanawanui,2025-12-08,sign,ACP,ACP,Y,"Happy December, folks!
+
+
+:ACP: **Copernicus Hel** steps down as Co-GM and leaves team
+:ACP: **Elijah Walker** to Co-GM a",,,,
+Petra Sabor,,6,7,MAL,Malibu Waverunners,BUF,Buffalo Bullfrogs,Y,1.0,Pitcher Petra Sabor,2022-01-18,sign,Buffalo Bullfrogs,BUF,Y,:bullfrogs: Buffalo Bullfrogs sign Pitcher **Petra Sabor**,,,,
+Petra Sabor,,7,8,BUF,Buffalo Bullfrogs,OGO,Ogaki Oni,Y,1.0,Petra Sabor,2021-09-14,unretire,Waverunners,MAL,Y,"**Session 6 Transactions (Effective Session 7)**
+
+:Buff: Sign **Sarah Buntingsworth** (P) & **Sandy Collazo** (P) Retire",,,,
+Pokey Fleece,,10,11,SUN,Sunnydale Slayers,RC,Raccoon City Outbreak,Y,1.0,SS/UTIL Pokey Fleece,2024-10-01,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign SS/UTIL **Pokey Fleece**,,,,
+Pope Coswi,,9,10,OGO,Ogaki Oni,CAR,Carolina Reapers,Y,1.0,CF Pope Coswi,2024-04-01,sign,Carolina Reapers,CAR,Y,"## Session 3 Transactions
+
+:GHG: Gas House Gorillas **Dominus Nominus** retires as a player
+
+:KC: Kansas City Kitties re",,,,
+Pope Coswi,,10,12,CAR,Carolina Reapers,MIA,Miami Fuego,Y,1.0,CF Pope Coswi,2024-04-01,sign,Miami Fuego,MIA,Y,"## Session 3 Transactions
+
+:GHG: Gas House Gorillas **Dominus Nominus** retires as a player
+
+:KC: Kansas City Kitties re",,,,
+Q Kimbrel,,1,2,MAL,Malibu Waverunners,POR,Portland Pioneers,N,0.444,KigerWulf,2018-12-02,draft,Malibu Waverunners,,N,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf",KigerWulf,0.444,2018-12-02,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf"
+Q Kimbrel,,5,6,POR,Portland Pioneers,KYM,Kentucky Mashers,Y,1.0,Q Kimbrel,2021-06-18,re_sign,Pioneers,POR,N,:Pioneers: re-sign **Q Kimbrel** (CF),,,,
+Q Kimbrel,,9,10,CAR,Carolina Reapers,OGO,Ogaki Oni,Y,1.0,CF Q Kimbrel,2024-01-27,sign,Ogaki Oni,OGO,Y,:OGO: Ogaki Oni sign CF **Q Kimbrel**,,,,
+Q Kimbrel,,10,11,OGO,Ogaki Oni,CAR,Carolina Reapers,Y,1.0,2B/UTIL Q Kimbrel,2024-10-01,sign,Carolina Reapers,CAR,Y,":CAR: Carolina Reapers sign 2B/UTIL **Q Kimbrel**
+:CAR: Carolina Reapers sign CF **Bryce Parker**",,,,
+Raffy Benitez,,7,8,MAL,Malibu Waverunners,GRZ,Ursa Major Grizzlies,Y,1.0,Raffy Benitez,2022-08-31,draft,Ursa Major Grizzlies,GRZ,Y,":Grizzlies: With the 10th overall pick in the S8 Draft, the Ursa Major Grizzlies select **1B Raffy Benitez**",,,,
+Raffy Benitez,,8,9,GRZ,Ursa Major Grizzlies,NO,New Orleans Crawdads,Y,1.0,1B Raffy Benitez,2023-05-03,sign,Crawdads,NO,Y,:Crawdads: sign 1B **Raffy Benitez**,,,,
+Raffy Benitez,,9,10,NO,New Orleans Crawdads,ACP,Acadia Peregrines,Y,1.0,1B/UTIL Raffy Benitez,2024-01-22,sign,Acadia Peregrines,ACP,Y,:ACP:  Acadia Peregrines sign 1B/UTIL **Raffy Benitez**,,,,
+Raphael Akias,,3,4,HFX,Halifax Helmsmen,POR,Portland Pioneers,N,0.5,Crash Davis,2020-11-19,sign,McDophers,,N,:McDophers: sign **Crash Davis**,Crash Davis,0.5,2020-11-19,:McDophers: sign **Crash Davis**
+Red Arrow,,3,4,ACP,Acadia Peregrines,CIN,Cincinnati Longhorns,Y,1.0,Red Arrow,2020-02-23,draft,Cincinnati Redlegs Longhorns Rhinos,CIN,Y,With the 11th overall pick in the S4 Draft the Cincinnati ~~Redlegs~~ ~~Longhorns~~ Rhinos select **P Red Arrow**,,,,
+Reese Worthington,jason,6,7,HFX,Halifax Helmsmen,ASS,Aruba Sea Serpents,Y,1.0,jason,2021-04-28,draft,Cuba,CAR,N,":cuba: With pick 101 pick in the draft, Cuba selects @jason",,,,
+Reese Worthington,jason,7,8,ASS,Aruba Sea Serpents,HFX,Halifax Helmsmen,Y,1.0,LF Reese Worthington,2022-08-27,sign,Halifax Highlanders,HFX,Y,:Highlanders: Halifax Highlanders sign LF **Reese Worthington**,,,,
+Rekt Kiddo,,3,4,CIN,Cincinnati Longhorns,GHG,Gas House Gorillas,N,0.444,DeadRedd,2019-07-23,draft,Ursa Major Grizzlies,,N,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd",DeadRedd,0.444,2019-07-23,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd"
+Release T. Kraken,release t kraken,1,5,KYM,Kentucky Mashers,BBG,Baldur's Gate Beholders,Y,1.0,Release T Kraken,2021-04-28,draft,Vatican City,RLY,N,":vaticancity: With the 155th pick in the WNC draft, Vatican City selects @Release T Kraken",,,,
+Rickey Tucker,,4,5,ACP,Acadia Peregrines,GHG,Gas House Gorillas,Y,1.0,Rickey Tucker,2020-09-21,sign,Gorillas,GHG,Y,:Gorillas: sign **Rickey Tucker**,,,,
+Ricky Calzone,jacobh,2,3,MAL,Malibu Waverunners,SHH,Sleepy Hollow Horsemen,Y,1.0,JacobH,2018-12-02,draft,Malibu Waverunners,MAL,N,"With the forty second pick in the Season 2 Draft, the Malibu Waverunners select @JacobH",,,,
+Ricky Vaughn,,1,2,HMH,Humongous Melonheads,SUN,Sunnydale Slayers,N,0.64,JacobH,2018-12-02,draft,Malibu Waverunners,,N,"With the forty second pick in the Season 2 Draft, the Malibu Waverunners select @JacobH",JacobH,0.64,2018-12-02,"With the forty second pick in the Season 2 Draft, the Malibu Waverunners select @JacobH"
+Robin Reynolds,,1,2,BFB,Blubs Bay Flappy Bois,POR,Portland Pioneers,N,0.615,Megatomic,2018-12-02,draft,Portland Pioneers,,N,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic",Megatomic,0.615,2018-12-02,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic"
+Robin Reynolds,,2,3,POR,Portland Pioneers,GRZ,Ursa Major Grizzlies,N,0.615,Megatomic,2018-12-02,draft,Portland Pioneers,,N,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic",Megatomic,0.615,2018-12-02,"With the thirty sixth pick in the Season 2 Draft, the Portland Pioneers select @Megatomic"
+Roidy Magoo,na bonobo,6,7,ASS,Aruba Sea Serpents,BFB,Blubs Bay Flappy Bois,N,0.526,Redwagon,2021-04-28,draft,Ivory Coast,,N,":ivorycoast: With the 135th pick in the WNC draft, Ivory Coast selects @Redwagon",Redwagon,0.526,2021-04-28,":ivorycoast: With the 135th pick in the WNC draft, Ivory Coast selects @Redwagon"
+Ronald Eagle V,,1,2,CIN,Cincinnati Longhorns,BFB,Blubs Bay Flappy Bois,N,0.511,"the K leader himself, Ronald Eagle",2018-11-28,re_sign,The Cincinnati Redlegs,,N,"The Cincinnati Redlegs re-sign the K leader himself, Ronald Eagle","the K leader himself, Ronald Eagle",0.511,2018-11-28,"The Cincinnati Redlegs re-sign the K leader himself, Ronald Eagle"
+Rotticus Scott Jr.,,3,4,HFX,Halifax Helmsmen,HMH,Humongous Melonheads,N,0.438,Leonidas States,2020-02-23,draft,Baldur's Gate Beholders,,N,With the 7th overall pick in the S4 Draft the Baldur's Gate Beholders select **1B Leonidas States**,Leonidas States,0.438,2020-02-23,With the 7th overall pick in the S4 Draft the Baldur's Gate Beholders select **1B Leonidas States**
+Rub A. Chikin,acash,5,6,POR,Portland Pioneers,HMH,Humongous Melonheads,Y,1.0,acash,2021-04-28,draft,San Marino,GRZ,N,":sanmarino: With the 33rd overall pick in the WNC draft, San Marino selects @acash",,,,
+Rusty LaRue,,1,2,HMH,Humongous Melonheads,SHH,Sleepy Hollow Horsemen,N,0.636,"rusty ""champion"" nails",2019-07-23,draft,Halifax Helmsmen,,N,"With the 12th pick in the season 3 draft, the Halifax Helmsmen select @rusty ""champion"" nails","rusty ""champion"" nails",0.636,2019-07-23,"With the 12th pick in the season 3 draft, the Halifax Helmsmen select @rusty ""champion"" nails"
+Rusty LaRue,,3,6,SHH,Sleepy Hollow Horsemen,JAM,JAM,N,0.636,Rusty Nails,2020-09-21,sign,Gorillas,,N,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**",Rusty Nails,0.636,2020-09-21,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**"
+Rusty LaRue,,6,7,JAM,JAM,HFX,Halifax Helmsmen,Y,1.0,Pitcher Rusty LaRue,2022-01-22,sign,Halifax Highlanders,HFX,Y,:halifax: Halifax Highlanders sign Pitcher **Rusty LaRue**,,,,
+Rusty Nails,"rusty ""champion"" nails",4,5,HFX,Halifax Helmsmen,GHG,Gas House Gorillas,Y,1.0,Rusty Nails,2020-09-21,sign,Gorillas,GHG,Y,":Buff: sign **Loghan O'Brien**
+:Gorillas: sign **Rusty Nails**
+:Waverunners: sign **Clive Babineaux**",,,,
+Rusty Nails,"rusty ""champion"" nails",5,6,GHG,Gas House Gorillas,BFB,Blubs Bay Flappy Bois,Y,1.0,"rusty ""champion"" nails",2021-04-28,draft,United Kingdom,MIA,Y,":brexhits: With the 118th pick in the WNC draft, The United Kingdom selects @rusty ""champion"" nails",,,,
+Rusty Nails,"rusty ""champion"" nails",6,7,BFB,Blubs Bay Flappy Bois,HFX,Halifax Helmsmen,Y,1.0,"rusty ""champion"" nails",2021-04-28,draft,United Kingdom,MIA,N,":brexhits: With the 118th pick in the WNC draft, The United Kingdom selects @rusty ""champion"" nails",,,,
+Rusty Nails,"rusty ""champion"" nails",7,8,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,N,0.636,Pitcher Rusty LaRue,2022-01-22,sign,Halifax Highlanders,,N,:halifax: Halifax Highlanders sign Pitcher **Rusty LaRue**,Pitcher Rusty LaRue,0.636,2022-01-22,:halifax: Halifax Highlanders sign Pitcher **Rusty LaRue**
+Rusty Nails,"rusty ""champion"" nails",8,12,BFB,Blubs Bay Flappy Bois,SMD,Sopher McDophers,Y,1.0,CF Rusty Nails,2025-08-02,sign,Sopher McDophers,SMD,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Ryan Gastings,ryan gasting,1,5,GHG,Gas House Gorillas,ACP,Acadia Peregrines,Y,1.0,Ryan Gasting,2020-09-26,draft,Acadia Peregrines,ACP,Y,"With the 8th overall pick in the S5 Draft, the Acadia Peregrines select @Ryan Gasting",,,,
+Ryan Gastings,ryan gasting,8,9,ACP,Acadia Peregrines,NO,New Orleans Crawdads,N,0.667,Ryan Sir,2023-08-20,unretire,Reapers,,N,"We have been lacking here so have 1 big post to catch us up!
+
+*Session 2 moves*
+:ACP: sign 1B **Cookie Mongster**
+:Valky",Ryan Sir,0.667,2023-08-20,"We have been lacking here so have 1 big post to catch us up!
+
+*Session 2 moves*
+:ACP: sign 1B **Cookie Mongster**
+:Valky"
+Ryan Gastings,ryan gasting,9,10,NO,New Orleans Crawdads,MIA,Miami Fuego,Y,1.0,P Ryan Gastings,2024-04-27,release,Raccoon City,RC,N,"## Session 6 Transactions
+
+:RC: Raccoon City release P **Ryan Gastings**
+
+:POR: Portland Pioneers release 3B/UTIL **Talo",,,,
+Ryan Gastings,ryan gasting,10,11,MIA,Miami Fuego,HFX,Halifax Helmsmen,Y,1.0,P Ryan Gastings,2024-12-01,sign,Halifax Highlanders,HFX,Y,:HFX: Halifax Highlanders sign P **Ryan Gastings**,,,,
+Sandy Collazo,kal,3,4,HFX,Halifax Helmsmen,BUF,Buffalo Bullfrogs,N,0.5,Sal De Luca,2019-07-23,draft,Ursa Major Grizzlies,,N,With the 44th pick the Ursa Major Grizzlies select @Sal De Luca,Sal De Luca,0.5,2019-07-23,With the 44th pick the Ursa Major Grizzlies select @Sal De Luca
+Sandy Collazo,kal,6,7,BUF,Buffalo Bullfrogs,REK,Reykjavik Valkyries,Y,1.0,P Sandy Collazo,2022-08-27,re_sign,Reykjavik Valkyries,REK,Y,:Valkyries: Reykjavik Valkyries re-sign P **Sandy Collazo**,,,,
+Sarah Buntingsworth,sarah,5,6,POR,Portland Pioneers,BUF,Buffalo Bullfrogs,Y,1.0,sarah,2021-04-28,draft,Israel,MAL,N,":israel: With the 89th pick in the WNC draft, Israel selects @sarah",,,,
+Scherbie Fully-Loaded,,6,7,BBG,Baldur's Gate Beholders,KYM,Kentucky Mashers,Y,1.0,Center Fielder Scherbie Fully-Loaded,2022-01-21,sign,Kentucky Mashers,KYM,Y,:Mashers: Kentucky Mashers sign Center Fielder **Scherbie Fully-Loaded**,,,,
+Scherbie Fully-Loaded,,7,8,KYM,Kentucky Mashers,ASS,Aruba Sea Serpents,Y,1.0,CF Scherbie Fully-Loaded,2022-08-28,sign,Aruba Sea Serpents,ASS,Y,:SeaSerpents: Aruba Sea Serpents sign CF **Scherbie Fully-Loaded**,,,,
+Schmidt Happens,,11,12,SUN,Sunnydale Slayers,HFX,Halifax Helmsmen,Y,1.0,LF Schmidt Happens,2025-08-02,sign,Halifax Highlanders,HFX,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Sheridan Blackstone,side eye master,6,7,NO,New Orleans Crawdads,BBG,Baldur's Gate Beholders,Y,1.0,Side Eye Master,2021-04-28,draft,Israel,MAL,N,":israel: With the 80th pick in the WNC draft, Israel selects @Side Eye Master",,,,
+Shovel Bryant,shovel bryant,5,6,KYM,Kentucky Mashers,NO,New Orleans Crawdads,Y,1.0,Shovel Bryant,2021-06-17,sign,crawdads,NO,Y,:crawdads: sign **Shovel Bryant** (2B),,,,
+Simba Martinez II,,5,6,POR,Portland Pioneers,TT,TT,Y,1.0,Simba Martinez II,2020-11-18,sign,Gus Buster to Hiatus &,ASS,N,"**Session 4 Transactions (Effective Session 5)**
+
+:otters: **Art Vulfmon** Retires & Sign **Finn Hudson**
+
+:pioneers: **",,,,
+Simba Martinez II,,6,7,TT,TT,BUF,Buffalo Bullfrogs,Y,0.903,Simba Martinez,2022-01-22,draft,buf Buffalo Bullfrogs,BUF,Y,"With the 2nd overall pick in the S7 Draft, the :buf: Buffalo Bullfrogs select **C Simba Martinez**",,,,
+Six,,9,10,OGO,Ogaki Oni,MIA,Miami Fuego,Y,1.0,Six,2023-04-19,draft,Freedom Flyers,CAR,N,"🇺🇸 With the 19th overall pick of the WNC Draft, the Freedom Flyers select **P Six**",,,,
+Six,,10,11,MIA,Miami Fuego,RLY,R'Lyeh Ancients,Y,1.0,LF Six,2024-10-03,sign,Carolina Reapers,CAR,N,:CAR: Carolina Reapers sign LF **Six**,,,,
+Six Finger McMillan,,6,7,ACP,Acadia Peregrines,MAL,Malibu Waverunners,Y,1.0,Pitcher Six Finger McMillan,2022-01-18,sign,Malibu Waverunners,MAL,Y,:Waverunners: Malibu Waverunners sign Pitcher **Six Finger McMillan**,,,,
+Sleve McDichael,,2,5,ACP,Acadia Peregrines,MAL,Malibu Waverunners,Y,1.0,sleve,2021-04-28,draft,San Marino,GRZ,N,":sanmarino: With the 88th pick in the WNC draft, San Marino selects @sleve",,,,
+Sleve McDichael,,6,7,MAL,Malibu Waverunners,HMH,Humongous Melonheads,Y,1.0,sleve,2021-04-28,draft,San Marino,GRZ,N,":sanmarino: With the 88th pick in the WNC draft, San Marino selects @sleve",,,,
+Sonar McDeuceski,,11,12,SUN,Sunnydale Slayers,MIA,Miami Fuego,Y,0.889,RHP Sonar McDeuceski,2025-08-02,sign,Miami Fuego,MIA,Y,":SMD:Sopher McDophers sign CF **Rusty Nails**
+:SMD:Sopher McDophers sign RF **Master Cashier**
+:SMD:Sopher McDophers sig",,,,
+Speedo Meter,,9,10,MIA,Miami Fuego,POR,Portland Pioneers,Y,1.0,CF Speedo Meter,2024-01-23,sign,Portland Pioneers,POR,Y,:Pioneers: Portland Pioneers sign CF **Speedo Meter**,,,,
+Spike Suzuki,spike - vancouver vampires,5,6,HFX,Halifax Helmsmen,SMD,Sopher McDophers,Y,1.0,Spike - Vancouver Vampires,2021-04-28,draft,Peru Penguins,ACP,N,":peru: With the 4th overall pic in the WNC draft, the Peru Penguins select @Spike - Vancouver Vampires",,,,
+Sticky Mickey Mantle,whitt is my best friend,6,7,HFX,Halifax Helmsmen,BFB,Blubs Bay Flappy Bois,Y,0.974,Pitcher Sticky Micky Mantle,2022-01-20,sign,Blubs Bay Flappy Bois,BFB,Y,:FlappyBois: Blubs Bay Flappy Bois sign Pitcher **Sticky Micky Mantle**,,,,
+Strawberry Jones,,9,10,POR,Portland Pioneers,HFX,Halifax Helmsmen,Y,1.0,Strawberry Jones,2024-01-27,draft,HFX Halifax Highlanders,HFX,Y,"With the 7th overall pick in the S10 MLN Draft, the :HFX: *Halifax Highlanders* select 3B/UTIL **Strawberry Jones**",,,,
+Strawberry Jones,,10,11,HFX,Halifax Helmsmen,MIA,Miami Fuego,Y,1.0,Strawberry Jones,2024-01-27,draft,HFX Halifax Highlanders,HFX,N,"With the 7th overall pick in the S10 MLN Draft, the :HFX: *Halifax Highlanders* select 3B/UTIL **Strawberry Jones**",,,,
+Superbone Threefinger,superbone,4,5,BBG,Baldur's Gate Beholders,SUN,Sunnydale Slayers,Y,1.0,Superbone Threefinger,2020-09-22,sign,otters,OO,N,:otters: sign **Superbone Threefinger**,,,,
+Superbone Threefinger,superbone,5,6,SUN,Sunnydale Slayers,OO,Oslo Otters,Y,1.0,Superbone Threefinger,2020-09-22,sign,otters,OO,Y,:otters: sign **Superbone Threefinger**,,,,
+Superbone Threefinger,superbone,9,10,REK,Reykjavik Valkyries,MIA,Miami Fuego,Y,1.0,1B/UTIL Superbone Threefinger,2024-01-24,sign,Miami Fuego,MIA,Y,:MIA: Miami Fuego sign 1B/UTIL **Superbone Threefinger**,,,,
+Superbone Threefinger,superbone,10,11,MIA,Miami Fuego,CAR,Carolina Reapers,Y,1.0,1B/UTIL Superbone Threefinger,2024-10-01,sign,Carolina Reapers,CAR,Y,:CAR:Carolina Reapers sign 1B/UTIL **Superbone Threefinger**,,,,
+Syd Kidd,,1,2,LPJ,Lonestar Pumpjacks,POR,Portland Pioneers,N,0.435,DeadRedd,2019-07-23,draft,Ursa Major Grizzlies,,N,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd",DeadRedd,0.435,2019-07-23,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd"
+Syd Kidd,,2,3,POR,Portland Pioneers,BBG,Baldur's Gate Beholders,N,0.435,DeadRedd,2019-07-23,draft,Ursa Major Grizzlies,,N,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd",DeadRedd,0.435,2019-07-23,"With the second pick in the Season 3 Draft, the Ursa Major Grizzlies select @DeadRedd"
+Sylvia Bluesky,,11,12,ACP,Acadia Peregrines,SUN,Sunnydale Slayers,Y,1.0,Sylvia Bluesky,2025-09-20,draft,Sunnydale Slayers,SUN,Y,":SUN: With the 25th overall pick of the S12 MLN Draft, the *Sunnydale Slayers* select **Sylvia Bluesky**",,,,
+Talon Wingdiver,talon wingdiver,9,10,POR,Portland Pioneers,MIA,Miami Fuego,Y,1.0,3B/UTIL Talon Wingdiver,2024-05-14,sign,Miami Fuego,MIA,Y,"## Session 7 Transactions
+
+:KC: Kansas City release 1B/UTIL **Pope Coswi**
+
+:MIA: Miami Fuego CF **Ferda Bois** retires
+",,,,
+Talon Wingdiver,talon wingdiver,10,11,MIA,Miami Fuego,BBEG,Baldur's Gate Beholders,Y,1.0,LF Talon Wingdiver,2024-10-01,sign,Beholders of Baldurs Gate,BBEG,Y,:BBEG: Beholders of Baldurs Gate sign LF **Talon Wingdiver**,,,,
+Tanner Hendrix,relaxpats,2,3,CIN,Cincinnati Longhorns,MAL,Malibu Waverunners,Y,1.0,Tanner Hendrix,2020-05-14,release,Waverunners,MAL,Y,:Waverunners: release Tanner Hendrix,,,,
+Teddy Ballinger,,1,2,MAL,Malibu Waverunners,KYM,Kentucky Mashers,N,0.533,Talon Wingdiver,2019-07-23,draft,Malibu Waverunners,,N,With the 25th pick the Malibu Waverunners select @Talon Wingdiver,Talon Wingdiver,0.533,2019-07-23,With the 25th pick the Malibu Waverunners select @Talon Wingdiver
+Thelonius Junk,,3,4,SUN,Sunnydale Slayers,CIN,Cincinnati Longhorns,Y,1.0,Thelonius Junk,2020-02-23,draft,Cincinnati Red Longhorned Rhinos,CIN,Y,With the 27th overall pick in the S4 Draft the Cincinnati Red Longhorned Rhinos select **RF Thelonius Junk**,,,,
+Thelonius Junk,,5,6,ASS,Aruba Sea Serpents,SUN,Sunnydale Slayers,Y,1.0,Thelonius Junk,2021-07-26,sign,slayers,SUN,Y,"~~Bad Bob Moment occurred~~ Backlog Cleanup:
+
+
+
+**Pre-Season/Post Draft Transactions (Effective Sesssion 1)**
+
+:Helmsmen",,,,
+Thomas Nova,nov,1,2,SUN,Sunnydale Slayers,MAL,Malibu Waverunners,N,0.48,ooga,2018-12-02,draft,Henrik Omegas,,N,"With the first pick in the Season 2 Draft, the Henrik Omegas choose @ooga.",ooga,0.48,2018-12-02,"With the first pick in the Season 2 Draft, the Henrik Omegas choose @ooga."
+Thomas Nova,nov,2,3,MAL,Malibu Waverunners,SUN,Sunnydale Slayers,N,0.545,Andrew Nova,2020-02-23,draft,Reyahgsdavik Valkyries,,N,With the 13th overall pick in the S4 Draft the Reyahgsdavik Valkyries select **P Andrew Nova**,Andrew Nova,0.545,2020-02-23,With the 13th overall pick in the S4 Draft the Reyahgsdavik Valkyries select **P Andrew Nova**
+Thomas Nova,nov,4,5,SUN,Sunnydale Slayers,SMD,Sopher McDophers,Y,1.0,Thomas Nova,2020-09-21,sign,McDophers,SMD,Y,":BBG:  sign **Release T. Kraken**
+:Rhinos:  sign **Harry Peritestes**
+:McDophers:  sign **Thomas Nova**
+:Helmsmen:  sign",,,,
+Thomas Nova,nov,6,7,SMD,Sopher McDophers,SUN,Sunnydale Slayers,Y,1.0,Left Fielder Thomas Nova,2022-01-18,sign,Sunnydale Slayers,SUN,Y,:slayers: Sunnydale Slayers sign Left Fielder **Thomas Nova**,,,,
+Thomas Nova,nov,9,10,SUN,Sunnydale Slayers,RC,Raccoon City Outbreak,Y,1.0,2B/UTIL Thomas Nova,2024-01-22,sign,Raccoon City Outbreak,RC,Y,:RC: Raccoon City Outbreak sign 2B/UTIL **Thomas Nova**,,,,
+Thomas Thompson III,t3b - slayer gm & lg,1,2,MAL,Malibu Waverunners,SMD,Sopher McDophers,N,0.462,"rusty ""champion"" nails",2019-07-23,draft,Halifax Helmsmen,,N,"With the 12th pick in the season 3 draft, the Halifax Helmsmen select @rusty ""champion"" nails","rusty ""champion"" nails",0.462,2019-07-23,"With the 12th pick in the season 3 draft, the Halifax Helmsmen select @rusty ""champion"" nails"
+Thomas Thompson III,t3b - slayer gm & lg,7,8,SMD,Sopher McDophers,SUN,Sunnydale Slayers,Y,1.0,3B Thomas Thompson III,2022-08-27,sign,Sunnydale Slayers,SUN,Y,:Slayers: Sunnydale Slayers sign 3B **Thomas Thompson III**,,,,
+Tommy Tightpants,,6,7,BFB,Blubs Bay Flappy Bois,MAL,Malibu Waverunners,Y,1.0,Tommy Tightpants,2021-06-19,draft,Blubs Bay Flappy Bois,BFB,N,"With the 7th overall pick in the S6 Draft, the Blubs Bay Flappy Bois select **P Tommy Tightpants**",,,,
+Tommy Tightpants,,7,8,MAL,Malibu Waverunners,BFB,Blubs Bay Flappy Bois,N,0.519,Jimmy Payne,2023-05-09,draft,Pioneers Portland Pioneers,,N,"With the 13th overall pick in the Season 9 MLN Draft, the :Pioneers: Portland Pioneers select **LF Jimmy Payne**",Jimmy Payne,0.519,2023-05-09,"With the 13th overall pick in the Season 9 MLN Draft, the :Pioneers: Portland Pioneers select **LF Jimmy Payne**"
+Tony Bigdik,,1,2,SUN,Sunnydale Slayers,REK,Reykjavik Valkyries,N,0.615,Talon Wingdiver,2019-07-23,draft,Malibu Waverunners,,N,With the 25th pick the Malibu Waverunners select @Talon Wingdiver,Talon Wingdiver,0.615,2019-07-23,With the 25th pick the Malibu Waverunners select @Talon Wingdiver
+Tony Bigdik,,2,3,REK,Reykjavik Valkyries,GHG,Gas House Gorillas,N,0.615,Talon Wingdiver,2019-07-23,draft,Malibu Waverunners,,N,With the 25th pick the Malibu Waverunners select @Talon Wingdiver,Talon Wingdiver,0.615,2019-07-23,With the 25th pick the Malibu Waverunners select @Talon Wingdiver
+Tony Smehrik,tony smehrik third-time cy,2,3,BFB,Blubs Bay Flappy Bois,SMD,Sopher McDophers,N,0.522,m🚲cycle,2019-07-23,draft,Ursa Major Grizzlies,,N,With the 33rd pick the Ursa Major Grizzlies select @m🚲cycle,m🚲cycle,0.522,2019-07-23,With the 33rd pick the Ursa Major Grizzlies select @m🚲cycle
+Tony Smehrik,tony smehrik third-time cy,3,4,SMD,Sopher McDophers,GRZ,Ursa Major Grizzlies,Y,0.727,Tony Stark,2020-09-26,sign,Ballatrix2,BUF,N,:Ballatrix2:  sign **Tony Stark**,,,,
+Toppo Thamornin,zpheldin,5,6,BBG,Baldur's Gate Beholders,BFB,Blubs Bay Flappy Bois,Y,1.0,Zpheldin,2021-04-28,draft,Puerto Rico,ACP,N,":puertorico: With the 139th pick of the WNC draft, Puerto Rico selects @Zpheldin",,,,
+Tucker Doubt,tucker doubt,3,9,MAL,Malibu Waverunners,MIA,Miami Fuego,Y,1.0,P Tucker Doubt,2023-05-04,sign,miami,MIA,Y,:miami: sign P **Tucker Doubt**,,,,
+Tucker Doubt,tucker doubt,9,11,MIA,Miami Fuego,RC,Raccoon City Outbreak,Y,1.0,LF Tucker Doubt,2024-10-04,sign,Raccoon City,RC,Y,:RC: Raccoon City sign LF **Tucker Doubt**,,,,
+Tucker Doubt,tucker doubt,11,12,RC,Raccoon City Outbreak,GRZ,Ursa Major Grizzlies,Y,1.0,LF Tucker Doubt,2024-10-04,sign,Raccoon City,RC,N,:RC: Raccoon City sign LF **Tucker Doubt**,,,,
+Twatt Barton,,10,11,ACP,Acadia Peregrines,BBEG,Baldur's Gate Beholders,Y,1.0,??? Twatt Barton,2025-04-20,sign,Baldur's Gate Beholders,BBG,Y,":SMD:**Seeing Eye McGee** retires as a player one session after making me change his name
+:SMD:**Sopher McDophers** sign",,,,
+Tyler Palmatier,,6,7,KYM,Kentucky Mashers,BFB,Blubs Bay Flappy Bois,Y,0.889,1B/UTIL Ty Palmatier,2022-05-16,sign,Blubs Bay Flappy Bois,BFB,Y,"**Transactions effective Session 10**
+
+we'll organize this by team...
+
+:Waverunners: Malibu Waverunners sign 1B/UTIL **R",,,,
+Tyrone Jennings III,,3,4,SHH,Sleepy Hollow Horsemen,REK,Reykjavik Valkyries,N,0.629,JEFFERS140,2019-07-23,draft,Sunnydale Slayers,,N,"With the 17th pick in the season 3 draft, the Sunnydale Slayers select @JEFFERS140",JEFFERS140,0.629,2019-07-23,"With the 17th pick in the season 3 draft, the Sunnydale Slayers select @JEFFERS140"
+Ura Irons,ura irons,5,6,BUF,Buffalo Bullfrogs,OO,Oslo Otters,Y,1.0,Ura Irons,2021-04-28,draft,Israel,MAL,N,":israel: With the 113th pick in the neverending draft, Israel selects @Ura Irons",,,,
+Viking Fishbird,,1,2,CIN,Cincinnati Longhorns,BFB,Blubs Bay Flappy Bois,N,0.4,KigerWulf,2018-12-02,draft,Malibu Waverunners,,N,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf",KigerWulf,0.4,2018-12-02,"With the twenty fourth pick in the Season 2 Draft, the Malibu Waverunners select @KigerWulf"
+Viking Fishbird,,2,3,BFB,Blubs Bay Flappy Bois,NO,New Orleans Crawdads,N,0.48,King Kruul,2020-02-23,draft,Gassy Gorillas,,N,With the 10th overall pick in the S4 Draft the Gassy Gorillas select **RF King Kruul**,King Kruul,0.48,2020-02-23,With the 10th overall pick in the S4 Draft the Gassy Gorillas select **RF King Kruul**
+Wallace Grommet,wally,8,9,GRZ,Ursa Major Grizzlies,GHG,Gas House Gorillas,Y,0.882,LHP Wallace Grommet,2023-09-15,sign,Gorillas,GHG,Y,"**Session 9 moves**
+
+:Gorillas: sign LHP** Wallace Grommet**",,,,
+Wallace Grommet,wally,10,11,GHG,Gas House Gorillas,SUN,Sunnydale Slayers,Y,1.0,P Wallace Grommet,2024-10-01,sign,Sunnydale Slayers,SUN,Y,:SUN:Sunnydale Slayers sign P **Wallace Grommet**,,,,
+Wallace Grommet,wally,11,12,SUN,Sunnydale Slayers,GRZ,Ursa Major Grizzlies,Y,1.0,P Wallace Grommet,2024-10-01,sign,Sunnydale Slayers,SUN,N,:SUN:Sunnydale Slayers sign P **Wallace Grommet**,,,,
+War Hamster,,1,2,MAL,Malibu Waverunners,LPJ,Lonestar Pumpjacks,N,0.5,CodyH,2019-07-23,draft,New Orleans Crawdads,,N,With the 43rd pick the New Orleans Crawdads select @CodyH,CodyH,0.5,2019-07-23,With the 43rd pick the New Orleans Crawdads select @CodyH
+Will The Thrill,freewill99,4,5,MAL,Malibu Waverunners,ACP,Acadia Peregrines,Y,1.0,Will The Thrill,2020-09-21,sign,Peregrines,ACP,Y,:Peregrines: sign **Will The Thrill**,,,,
+Willie Mays Hayes,,2,3,SUN,Sunnydale Slayers,NO,New Orleans Crawdads,N,0.471,Chevalier Mal Fet,2019-07-23,draft,Portland Pioneers,,N,With the 31st pick the Portland Pioneers select @Chevalier Mal Fet,Chevalier Mal Fet,0.471,2019-07-23,With the 31st pick the Portland Pioneers select @Chevalier Mal Fet
+Willie Mays Hayes,,4,5,NO,New Orleans Crawdads,POR,Portland Pioneers,N,0.483,marisa (she/her),2021-04-29,draft,Peru,,N,":peru: With the 171th pick in the WNC draft, Peru selects @marisa (she/her)",marisa (she/her),0.483,2021-04-29,":peru: With the 171th pick in the WNC draft, Peru selects @marisa (she/her)"
+Willie Mays Hayes,,5,6,POR,Portland Pioneers,ACP,Acadia Peregrines,Y,1.0,Willie Mays Hayes,2021-07-26,release,Pioneers,POR,N,"**Session 3 Transactions (Effective Session 4)**
+
+:Pioneers:  Release **Willie Mays Hayes** (2B) & Sign  **Damien Anders",,,,
+Willie Mays Hayes,,7,9,ACP,Acadia Peregrines,MIA,Miami Fuego,Y,1.0,2b Willie Mays Hayes,2023-05-07,sign,miami,MIA,Y,:miami: sign 2b **Willie Mays Hayes**,,,,
+Willie Mays Hayes,,10,11,MIA,Miami Fuego,HFX,Halifax Helmsmen,N,0.483,1B/UTIL Swiftie ESPN,2025-04-20,sign,Sopher McDophers,,N,":SMD:**Seeing Eye McGee** retires as a player one session after making me change his name
+:SMD:**Sopher McDophers** sign",1B/UTIL Swiftie ESPN,0.483,2025-04-20,":SMD:**Seeing Eye McGee** retires as a player one session after making me change his name
+:SMD:**Sopher McDophers** sign"
+Willoughby Hoose,,1,2,BFB,Blubs Bay Flappy Bois,REK,Reykjavik Valkyries,N,0.452,Freewill99,2019-07-23,draft,Gas House Gorillas,,N,"With the 16th pick in the season 3 draft, the Gas House Gorillas select @Freewill99",Freewill99,0.452,2019-07-23,"With the 16th pick in the season 3 draft, the Gas House Gorillas select @Freewill99"
+Xavier McMagic,,8,9,REK,Reykjavik Valkyries,OGO,Ogaki Oni,N,0.545,Pitcher Six Finger McMillan,2022-01-18,sign,Malibu Waverunners,,N,:Waverunners: Malibu Waverunners sign Pitcher **Six Finger McMillan**,Pitcher Six Finger McMillan,0.545,2022-01-18,:Waverunners: Malibu Waverunners sign Pitcher **Six Finger McMillan**
+Xavier Phoenix,touchdownmike55,2,3,REK,Reykjavik Valkyries,SHH,Sleepy Hollow Horsemen,Y,1.0,Touchdownmike55,2018-12-02,draft,Henrik Omegas,SMD,N,"With the thirty fifth pick in the Season 2 Draft, the Henrik Omegas select @Touchdownmike55",,,,
+Xerxes Dalin,,3,4,KYM,Kentucky Mashers,BFB,Blubs Bay Flappy Bois,Y,1.0,Xerxes Dalin,2020-02-23,draft,Blubs Bay Flappy Bois,BFB,Y,With the 14th overall pick in the S4 Draft the Blubs Bay Flappy Bois select **SS Xerxes Dalin**,,,,
+Y.E. Wally,,8,9,ACP,Acadia Peregrines,GHG,Gas House Gorillas,Y,0.875,W.E. Wally,2023-04-19,draft,Freedom Flyers,CAR,N,"🇺🇸 With the 80th overall pick of the WNC Draft, the Freedom Flyers select **P W.E. Wally**",,,,
+Yoel Roshi,,3,4,SMD,Sopher McDophers,BUF,Buffalo Bullfrogs,N,0.5,Bryzzo El Mago,2019-07-23,draft,New Orleans Crawdads,,N,With the 41st pick the New Orleans Crawdads select @Bryzzo El Mago,Bryzzo El Mago,0.5,2019-07-23,With the 41st pick the New Orleans Crawdads select @Bryzzo El Mago
+Yoel Roshi,,7,9,BUF,Buffalo Bullfrogs,GRZ,Ursa Major Grizzlies,Y,1.0,1B Yoel Roshi,2023-05-04,sign,Grizzlies,GRZ,Y,:Grizzlies: sign 1B **Yoel Roshi**,,,,
+Yolanda Martinez,,2,3,HFX,Halifax Helmsmen,NO,New Orleans Crawdads,N,0.556,jlh2b,2018-12-02,draft,Vancouver Vampires,,N,"With the sixth pick in the Season 2 Draft, the Vancouver Vampires select @jlh2b.",jlh2b,0.556,2018-12-02,"With the sixth pick in the Season 2 Draft, the Vancouver Vampires select @jlh2b."
+Zed Leona,m̶e̶l̶o̸n̶h̶e̷a̶d̶ ̷z̸e̴d̸,1,2,CIN,Cincinnati Longhorns,HMH,Humongous Melonheads,N,0.5,Maud Nelson,2018-12-02,draft,Henrik Omegas,,N,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson",Maud Nelson,0.5,2018-12-02,"With the forty seventh pick in the Season 2 Draft, the Henrik Omegas select @Maud Nelson"
+Zin Martinez,,8,9,BFB,Blubs Bay Flappy Bois,HFX,Halifax Helmsmen,Y,1.0,RF Zin Martinez,2023-05-04,sign,highlanders,HFX,Y,:highlanders: sign RF **Zin Martinez**,,,,
