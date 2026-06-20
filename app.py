@@ -39,8 +39,10 @@ def _is_authenticated() -> bool:
 
 if not _is_authenticated():
     st.title("Numberball")
-    pw = st.text_input("Password", type="password")
-    if st.button("Enter"):
+    with st.form("login"):
+        pw = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Enter")
+    if submitted:
         if pw == _APP_PASSWORD:
             cookie_manager.set(
                 _COOKIE_NAME,
