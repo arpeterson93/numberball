@@ -460,6 +460,14 @@ for _, grp in result.groupby(["remaining", "obc", "batting_lead"]):
     parts5.append(g)
 result = pd.concat(parts5, ignore_index=True)
 
+# ── Hard overrides for terminal states ───────────────────────────────────────
+# remaining=1 + batting_lead >= 1: game is already over (walkoff scored).
+# The batting team cannot lose from this state; no further plays occur.
+terminal_mask = (result["remaining"] == 1) & (result["batting_lead"] >= 1)
+result.loc[terminal_mask, "win_prob"] = 1.0
+print(f"\nTerminal state override: {terminal_mask.sum()} cells set to 1.0 "
+      f"(remaining=1, batting_lead>=1)")
+
 # ── Isotonic delta: how much correction was applied ───────────────────────────
 
 result["iso_delta"] = (result["win_prob"] - result["pre_iso_wp"]).round(6)
