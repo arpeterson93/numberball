@@ -995,7 +995,7 @@ def flatten_games(plays: list[dict]) -> pd.DataFrame:
         row = {k: v for k, v in play.items() if k != "games"}
         if play.get("games"):
             g = play["games"]
-            row["season"] = g.get("season")
+            row["season"] = g.get("season") or row.get("season")
             row["session_number"] = g.get("session_number")
             row["home_team"] = g.get("home_team")
             row["away_team"] = g.get("away_team")
@@ -1472,58 +1472,81 @@ def parse_result_ranges_from_sheet(sheet_url: str):
 
     Returns (normal_ranges, bunt_ranges, batter_name, pitcher_name).
     bunt_ranges is None if no second Result table is found.
+    Tries the gid-based URL first; if no parseable ranges are found, falls
+    back to the 'Gameday' tab by name (scrimmage sheets store ranges there).
     """
     import re
+    import urllib.parse as _uparse
     sheet_id_match = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
     gid_match = re.search(r"[?&]gid=(\d+)", sheet_url)
     if not sheet_id_match:
         raise ValueError("Could not parse a Google Sheets ID from the URL.")
     sheet_id = sheet_id_match.group(1)
     gid = gid_match.group(1) if gid_match else "0"
-    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-    raw = pd.read_csv(csv_url, header=None, dtype=str)
+    def _fetch_raw(url: str) -> pd.DataFrame:
+        return pd.read_csv(url, header=None, dtype=str)
 
-    def _parse_table(start_row, col):
-        low_col, high_col = col + 2, col + 3
-        out: list[tuple[str, int, int]] = []
-        for i in range(start_row + 1, len(raw)):
-            name = str(raw.iloc[i, col]).strip()
-            if not name or name.lower() == "nan":
-                break
-            try:
-                lo = int(float(str(raw.iloc[i, low_col]).strip()))
-                hi = int(float(str(raw.iloc[i, high_col]).strip()))
-                out.append((name, lo, hi))
-            except (ValueError, IndexError):
-                break
-        return out or None
+    def _scan_and_parse(df: pd.DataFrame):
+        def _parse_table(start_row, col):
+            low_col, high_col = col + 2, col + 3
+            out: list[tuple[str, int, int]] = []
+            for i in range(start_row + 1, len(df)):
+                name = str(df.iloc[i, col]).strip()
+                if not name or name.lower() == "nan":
+                    break
+                try:
+                    lo = int(float(str(df.iloc[i, low_col]).strip()))
+                    hi = int(float(str(df.iloc[i, high_col]).strip()))
+                    out.append((name, lo, hi))
+                except (ValueError, IndexError):
+                    break
+            return out or None
 
-    # Find all "Result" header cells
-    result_headers: list[tuple[int, int]] = []
-    for i in range(len(raw)):
-        for j in range(len(raw.columns)):
-            if str(raw.iloc[i, j]).strip().lower() == "result":
-                result_headers.append((i, j))
+        headers: list[tuple[int, int]] = []
+        for i in range(len(df)):
+            for j in range(len(df.columns)):
+                if str(df.iloc[i, j]).strip().lower() == "result":
+                    headers.append((i, j))
 
-    if not result_headers:
-        raise ValueError("Could not find a 'Result' header in the sheet.")
+        if not headers:
+            return None, None, None
 
-    normal_ranges = _parse_table(*result_headers[0])
-    if not normal_ranges:
-        raise ValueError("Result table found but no rows could be parsed.")
+        normal = _parse_table(*headers[0])
+        bunt   = _parse_table(*headers[1]) if len(headers) > 1 else None
+        return normal, bunt, headers
 
-    bunt_ranges = _parse_table(*result_headers[1]) if len(result_headers) > 1 else None
-
-    def _cell(r, c):
+    def _cell(df, r, c):
         try:
-            v = str(raw.iloc[r, c]).strip()
+            v = str(df.iloc[r, c]).strip()
             return v if v.lower() not in ("nan", "") else ""
         except Exception:
             return ""
 
-    batter_name  = _cell(11, 7)
-    pitcher_name = _cell(10, 7)
+    # First attempt: gid-based URL
+    gid_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    raw = _fetch_raw(gid_url)
+    normal_ranges, bunt_ranges, result_headers = _scan_and_parse(raw)
+
+    # If no parseable ranges, fall back to Gameday tab by its known gid
+    # (same gid used by parse_gameplay_from_sheet; export URL preserves full column width
+    # so _cell row/col offsets match the live-game path)
+    if not normal_ranges:
+        gameday_url = (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+            f"/export?format=csv&gid=1498066521"
+        )
+        try:
+            raw = _fetch_raw(gameday_url)
+            normal_ranges, bunt_ranges, result_headers = _scan_and_parse(raw)
+        except Exception:
+            pass
+
+    if not normal_ranges:
+        raise ValueError("Result table found but no rows could be parsed.")
+
+    batter_name  = _cell(raw, 11, 7)
+    pitcher_name = _cell(raw, 10, 7)
 
     return normal_ranges, bunt_ranges, batter_name, pitcher_name
 
@@ -3126,12 +3149,12 @@ def read_games_from_sheet(sheet_id: str) -> list[dict]:
     return games
 
 
-def read_plays_from_sheet(sheet_id: str) -> list[dict]:
-    """Read the 'Plays (Raw)' tab and return a list of play dicts."""
+def read_plays_from_sheet(sheet_id: str, tab: str = "Plays (Raw)") -> list[dict]:
+    """Read a plays tab from a public Google Sheet and return a list of play dicts."""
     import urllib.parse
     url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote('Plays (Raw)')}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
     )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
@@ -3224,22 +3247,23 @@ def read_teams_from_sheet(sheet_id: str) -> list[dict]:
         if not abbrev:
             continue
         teams.append({
-            "team_id": _str(row.get("Team ID")),
-            "abbrev": abbrev,
-            "location": _str(row.get("Location")),
+            "s_team":    abbrev,
+            "team_id":   _str(row.get("Team ID")),
+            "abbrev":    abbrev,
+            "location":  _str(row.get("Location")),
             "team_name": _str(row.get("Team Name")),
-            "role_id": _str(row.get("Role ID")),
-            "hype_id": _str(row.get("Hype ID")),
-            "league": _str(row.get("League")),
-            "division": _str(row.get("Division")),
-            "logo_url": _str(row.get("Logo URL")),
-            "name": _str(row.get("Full Team")) or abbrev,
-            "stadium": _str(row.get("Stadium")),
-            "primary_hex": _str(row.get("Primary Hex")),
+            "role_id":   _str(row.get("Role ID")),
+            "hype_id":   _str(row.get("Hype ID")),
+            "league":    _str(row.get("League")),
+            "division":  _str(row.get("Division")),
+            "logo_url":  _str(row.get("Logo URL")),
+            "name":      _str(row.get("Full Team")) or abbrev,
+            "stadium":   _str(row.get("Stadium")),
+            "primary_hex":  _str(row.get("Primary Hex")),
             "ballpark_url": _str(row.get("Ballpark URL")),
-            "wins": _safe_int(row.get("W")),
-            "losses": _safe_int(row.get("L")),
-            "runs_scored": _safe_int(row.get("RS")),
+            "wins":         _safe_int(row.get("W")),
+            "losses":       _safe_int(row.get("L")),
+            "runs_scored":  _safe_int(row.get("RS")),
             "runs_allowed": _safe_int(row.get("RA")),
         })
     return teams
@@ -3338,21 +3362,31 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
         if not s_team:
             continue
         teams.append({
-            "league":       "MLN",
-            "s_team":       s_team,
-            "abbrev":       _str(row.get("Abv")),
-            "season":       _safe_int(row.get("Season")),
-            "sub_league":   _str(row.get("League")),
-            "division":     _str(row.get("Division")),
-            "team_id":      _str(row.get("Team ID")),
-            "location":     _str(row.get("Location")),
-            "team_name":    _str(row.get("Team Name")),
-            "full_team":    _str(row.get("Full Team")),
-            "primary_hex":  _str(row.get("Primary Hex")),
-            "wins":         _safe_int(row.get("W")),
-            "losses":       _safe_int(row.get("L")),
-            "runs_scored":  _safe_int(row.get("RS")),
-            "runs_allowed": _safe_int(row.get("RA")),
+            "league":              "MLN",
+            "s_team":              s_team,
+            "abbrev":              _str(row.get("Abv")),
+            "season":              _safe_int(row.get("Season")),
+            "sub_league":          _str(row.get("League")),
+            "division":            _str(row.get("Division")),
+            "team_id":             _str(row.get("Team ID")),
+            "location":            _str(row.get("Location")),
+            "team_name":           _str(row.get("Team Name")),
+            "full_team":           _str(row.get("Full Team")),
+            "name":                _str(row.get("Full Team")),
+            "stadium":             _str(row.get("Stadium")),
+            "primary_hex":         _str(row.get("Primary Hex")),
+            "logo_url":            _str(row.get("Postimg Logo")),
+            "role_id":             _str(row.get("Role ID")),
+            "hype_id":             _str(row.get("Hype ID")),
+            "wins":                _safe_int(row.get("W")),
+            "losses":              _safe_int(row.get("L")),
+            "runs_scored":         _safe_int(row.get("RS")),
+            "runs_allowed":        _safe_int(row.get("RA")),
+            "ballpark_url":        _str(row.get("Ballpark URL")),
+            "ballpark_channel_id": _str(row.get("Ballpark Channel ID")),
+            "real_logo":           _str(row.get("Real Logo")),
+            "toos":                _str(row.get("ToOS")),
+            "ballpark_sheet_id":   _str(row.get("Ballpark SheetID")),
         })
     return teams
 
@@ -3404,7 +3438,7 @@ def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int
                 "cmd":              _safe_int(row.get("CMD")),
                 "vel":              _safe_int(row.get("VEL")),
                 "awr":              _safe_int(row.get("AWR")),
-                "rookie":           _parse_bool(row.get("Rookie?")),
+                "is_rookie":        _parse_bool(row.get("Rookie?")),
             })
         return players
 
@@ -3442,7 +3476,7 @@ def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int
             "cmd":              _safe_int(_col(15)[row.name]),
             "vel":              _safe_int(_col(16)[row.name]),
             "awr":              _safe_int(_col(17)[row.name]),
-            "rookie":           _parse_bool(_col(19)[row.name]),
+            "is_rookie":        _parse_bool(_col(19)[row.name]),
         })
     return players
 
@@ -3609,14 +3643,18 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
         obc = BRC_TO_OBC.get(brc, "Empty")
 
         plays.append({
-            "league":     "MLN",
-            "season":     _safe_int(row.get("Season")),
-            "game_code":  game_code,
-            "play_num":   play_num,
-            "away":       _str(row.get("Away")),    # Team ID e.g. T1009
-            "home":       _str(row.get("Home")),    # Team ID e.g. T1003
-            "inning":     inning_num,
-            "half":       half,
+            "league":      "MLN",
+            "season":      _safe_int(row.get("Season")),
+            "season_type": _str(row.get("Season.1")),
+            "game_code":   game_code,
+            "play_num":    play_num,
+            "timestamp":   _str(row.get("Timestamp")),
+            "umpire":      _str(row.get("Umpire")),
+            "away":        _str(row.get("Away")),    # Team ID e.g. T1009
+            "home":        _str(row.get("Home")),    # Team ID e.g. T1003
+            "inning_raw":  inning_raw,
+            "inning":      inning_num,
+            "half":        half,
             "away_score": _safe_int(row.get("a_Scr")),
             "home_score": _safe_int(row.get("h_Scr")),
             "play_type":  play_type,
@@ -3624,6 +3662,7 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
             "play_code":  _str(row.get("Playcode")),
             "pitcher_id": _safe_int(row.get("Pitcher")),
             "catcher_id": _safe_int(row.get("Catcher")),
+            "pos":        _str(row.get("Pos") or row.get("Pos*")),
             "batter_id":  _safe_int(row.get("Batter")),
             "on_first":   on_first,
             "on_second":  on_second,
@@ -3631,6 +3670,10 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
             "scored2":    _str(row.get("scored2")),
             "scored3":    _str(row.get("scored3")),
             "scored4":    _str(row.get("scored4")),
+            "er1":        _str(row.get("er1")),
+            "er2":        _str(row.get("er2")),
+            "er3":        _str(row.get("er3")),
+            "er4":        _str(row.get("er4")),
             "pitch":      pitch,
             "swing":      swing,
             "throw_num":  _safe_int(row.get("Throw")),

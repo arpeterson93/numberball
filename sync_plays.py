@@ -15,8 +15,12 @@ import utils
 _RLN_SHEET_ID = "1lcgT6np-4O5x83b2JZXjv8REfNDYXE7GMYMZeu5znRY"
 _MLN_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 
+# Update these each season - export sheets have no Season column
+_CURRENT_RLN_SEASON = 13
+_CURRENT_MLN_SEASON = 13
+
 _GAMES_TABLE_COLS = {
-    "game_code", "game_id_short", "league", "season", "session_number",
+    "game_code", "game_id_short", "league", "game_type", "season", "session_number",
     "away_team", "home_team",
     "away_score", "home_score", "win_team", "loss_team",
     "umpire",
@@ -39,6 +43,7 @@ def sync_rln_games(sheet_id: str) -> tuple[int, list[str]]:
         return 0, ["No games found in the RLN Games tab."]
     for g in games:
         g["league"] = "RLN"
+        g["game_type"] = "live"
     try:
         return db.bulk_upsert_games(games), []
     except Exception as e:
@@ -96,6 +101,8 @@ def sync_rln_plays(sheet_id: str) -> tuple[int, list[str]]:
         rows.append({
             **{k: v for k, v in play.items() if k != "game_code"},
             "league":       "RLN",
+            "game_type":    "live",
+            "season":       _CURRENT_RLN_SEASON,
             "game_id":      game_db_id,
             "pitcher_name": pitcher_name,
             "batter_name":  batter_name,
@@ -134,6 +141,7 @@ def sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
             elif h_scr > a_scr:
                 g["win_team"], g["loss_team"] = g["home_team"], g["away_team"]
         g["archive_sheet_id"] = sheet_id
+        g["game_type"] = "live"
     games = [{k: v for k, v in g.items() if k in _GAMES_TABLE_COLS} for g in games]
     try:
         return db.bulk_upsert_games(games), []
@@ -147,8 +155,8 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
         return 0, ["No plays found in the MLN Plays (Raw) tab."]
 
     all_games = db.get_games()
-    game_code_to_id = {g["game_code"]: g["id"] for g in all_games if g.get("game_code")}
-    mln_game_codes  = sorted(g["game_code"] for g in all_games
+    game_code_to_id = {str(g["game_code"]).strip(): g["id"] for g in all_games if g.get("game_code") and g.get("id")}
+    mln_game_codes  = sorted(str(g["game_code"]).strip() for g in all_games
                              if g.get("league") == "MLN" and g.get("game_code"))
     play_game_codes = sorted({p["game_code"] for p in plays})
     if not mln_game_codes:
@@ -179,7 +187,7 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     for play in plays_sorted:
         gc         = play["game_code"]
-        season     = play.get("season") or (int(gc[:2]) if gc and len(gc) >= 2 and gc[:2].isdigit() else None)
+        season     = play.get("season") or _CURRENT_MLN_SEASON or (int(gc[:2]) if gc and len(gc) >= 2 and gc[:2].isdigit() else None)
         game_db_id = game_code_to_id.get(gc)
         if not game_db_id:
             errors.append(f"Play {play['play_num']}: game {gc} not in DB - sync MLN Games first.")
@@ -213,7 +221,10 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
         rows.append({
             **{k: v for k, v in play.items() if k not in ("game_code", "away", "home")},
+            "game_type":    "live",
             "game_id":      game_db_id,
+            "away":         play.get("away"),
+            "home":         play.get("home"),
             "pitcher_name": pitcher_name,
             "batter_name":  batter_name,
             "catcher_name": catcher_name,

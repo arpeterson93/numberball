@@ -31,11 +31,15 @@ def _load_all_games() -> list:
 @st.cache_data(ttl=300)
 def _load_scrimmage_plays() -> pd.DataFrame:
     raw = db.get_all_scrimmage_plays()
-    return utils.enrich_df(utils.flatten_scrimmage(raw)) if raw else pd.DataFrame()
+    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def _load_all_players() -> list:
     return db.get_all_players()
+
+@st.cache_data(ttl=300)
+def _load_all_teams_data() -> list:
+    return db.get_all_teams()
 
 @st.cache_data(ttl=3600)
 def _load_run_lookup(_v: int = 3) -> dict:
@@ -57,27 +61,10 @@ def _sheet_name(url: str) -> str:
 
 # ── selectors (shown before any data load) ───────────────────────────────────
 
-_src_col, _clr_col = st.columns([5, 1])
-with _src_col:
-    _source_label = st.radio(
-        "Data source", ["Real Games", "Scrimmages", "All"],
-        horizontal=True, key="scouting_source",
-    )
-with _clr_col:
-    st.write("")
-    if st.button("Refresh data", key="clear_play_cache"):
-        _load_pitcher_plays.clear()
-        _load_batter_plays.clear()
-        _load_team_offense_plays.clear()
-        _load_scrimmage_plays.clear()
-        _load_all_games.clear()
-        _load_pitcher_stats.clear()
-        _load_game_plays.clear()
-        db.get_plays_for_pitcher.clear()
-        db.get_plays_for_batter.clear()
-        db.get_plays_for_team_offense.clear()
-        db.get_pitcher_stats.clear()
-        st.rerun()
+_source_label = st.radio(
+    "Data source", ["Real Games", "Scrimmages", "All"],
+    horizontal=True, key="scouting_source",
+)
 _source_key = {"Real Games": "real", "Scrimmages": "scrimmage", "All": "all"}[_source_label]
 
 _sel_leagues: list[str] = []
@@ -100,11 +87,22 @@ if _source_key in ("scrimmage", "all"):
     _scrimmage_df = _load_scrimmage_plays()
 
 _all_players      = _load_all_players()
-_pbyn             = {p["name"]: p for p in _all_players if p.get("name")}
-_all_teams        = sorted({utils.TEAM_ABBREV.get(p.get("team",""), p.get("team","?"))
-                             for p in _all_players if p.get("team")})
-_full_to_abbrev   = {v: k for k, v in utils.TEAM_ABBREV.items()}
-_all_player_names = sorted(p["name"] for p in _all_players if p.get("name"))
+# Sort by season ascending so later seasons overwrite earlier ones in the name dict
+_players_by_season   = sorted(_all_players, key=lambda p: p.get("season") or 0)
+_pbyn                = {p["name"]: p for p in _players_by_season if p.get("name")}
+_all_player_names    = sorted({p["name"] for p in _all_players if p.get("name")})
+
+# Build abbrev -> team_name from DB; latest season overwrites earlier for same abbrev
+_teams_by_season     = sorted(_load_all_teams_data(), key=lambda t: t.get("season") or 0)
+_abbrev_to_team_name = {
+    t["abbrev"]: (t.get("team_name") or t["abbrev"])
+    for t in _teams_by_season if t.get("abbrev")
+}
+_team_name_to_abbrev = {v: k for k, v in _abbrev_to_team_name.items()}
+_all_teams           = sorted({
+    _abbrev_to_team_name.get(p.get("team", ""), p.get("team", "?"))
+    for p in _all_players if p.get("team")
+})
 
 @st.cache_data(ttl=3600)
 def _load_team_hex() -> dict[str, str]:
@@ -119,20 +117,17 @@ def _load_team_hex() -> dict[str, str]:
             n = t.get(key) or ""
             if n:
                 result[n] = hex_c
-        abbrev = t.get("abbrev") or ""
-        if abbrev in utils.TEAM_ABBREV:
-            result[utils.TEAM_ABBREV[abbrev]] = hex_c
     return result
 
 _team_hex_map = _load_team_hex()
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 
-def _players_for_team(team_full: str) -> list[str]:
-    if team_full == "All":
+def _players_for_team(team_display: str) -> list[str]:
+    if team_display == "All":
         return _all_player_names
-    abbrev = _full_to_abbrev.get(team_full, team_full)
-    return sorted(p["name"] for p in _all_players if p.get("name") and p.get("team") == abbrev)
+    abbrev = _team_name_to_abbrev.get(team_display, team_display)
+    return sorted({p["name"] for p in _all_players if p.get("name") and p.get("team") == abbrev})
 
 def _stat(p: dict, key: str, default: int = 3) -> int:
     v = p.get(key)
@@ -143,7 +138,7 @@ def _hand(p: dict) -> str:
     return h if h in ("L", "R", "S") else "R"
 
 _hand_opts   = ["R", "L", "S"]
-_runner_opts = ["Empty"] + _all_player_names
+_runner_opts = ["Empty"] + list(_all_player_names)
 _pid_to_name = {str(p["player_id"]): p["name"] for p in _all_players if p.get("player_id") and p.get("name")}
 
 # ── session-state defaults ────────────────────────────────────────────────────
@@ -215,7 +210,12 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
     if row.empty:
         return
     r = row.iloc[0]
-    st.session_state["pred_calc_outs"] = int(r.get("outs",0)) if pd.notna(r.get("outs")) else 0
+    st.session_state["pred_calc_outs"] = int(r.get("outs", 0)) if pd.notna(r.get("outs")) else 0
+    _half_raw = str(r.get("half", "top")).lower()
+    st.session_state["mgr_half"]       = "Bottom" if _half_raw.startswith("b") else "Top"
+    st.session_state["mgr_inning"]     = int(r.get("inning", 1)) if pd.notna(r.get("inning")) else 1
+    st.session_state["mgr_away_score"] = int(r.get("away_score", 0)) if pd.notna(r.get("away_score")) else 0
+    st.session_state["mgr_home_score"] = int(r.get("home_score", 0)) if pd.notna(r.get("home_score")) else 0
     for _base, _field in [(1, "on_first"), (2, "on_second"), (3, "on_third")]:
         _pid = str(r.get(_field) or "-").strip()
         _name = _pid_to_name.get(_pid, "Empty") if _pid != "-" else "Empty"
@@ -223,7 +223,7 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
 
     p_name = r.get("pitcher_name","")
     pp = _pbyn.get(p_name, {})
-    p_tf = utils.TEAM_ABBREV.get(pp.get("team",""), "All")
+    p_tf = _abbrev_to_team_name.get(pp.get("team",""), "All")
     if p_tf in _all_teams:
         st.session_state["pred_calc_p_team"] = p_tf
     st.session_state["pred_calc_p_name"] = p_name if p_name in _pbyn else "-- Manual --"
@@ -235,7 +235,7 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
 
     b_name = r.get("batter_name","")
     bp = _pbyn.get(b_name, {})
-    b_tf = utils.TEAM_ABBREV.get(bp.get("team",""), "All")
+    b_tf = _abbrev_to_team_name.get(bp.get("team",""), "All")
     if b_tf in _all_teams:
         st.session_state["pred_calc_b_team"] = b_tf
     st.session_state["pred_calc_b_name"] = b_name if b_name in _pbyn else "-- Manual --"
@@ -561,19 +561,41 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state["pred_sheet_batter"]  = fetched_batter
                     st.session_state["pred_sheet_pitcher"] = fetched_pitcher
 
-                    # Auto-populate tab data filters from fetched names
-                    if fetched_pitcher and fetched_pitcher in _all_player_names:
-                        st.session_state["tab_p_pitcher"] = fetched_pitcher
-                        _pp = _pbyn.get(fetched_pitcher, {})
-                        _p_tf = utils.TEAM_ABBREV.get(_pp.get("team", ""), "All")
+                    # Auto-populate data filters and matchup calculator from fetched names
+                    _names_lower = {n.lower(): n for n in _all_player_names}
+                    _fp_canon = _names_lower.get((fetched_pitcher or "").lower(), "")
+                    if _fp_canon:
+                        _pp = _pbyn.get(_fp_canon, {})
+                        _p_tf = _abbrev_to_team_name.get(_pp.get("team", ""), "All")
+                        # Data tab filter - only set pitcher, NOT tab_p_team, to avoid
+                        # triggering _on_tab_p_team which resets tab_p_pitcher to "All"
+                        st.session_state["tab_p_pitcher"] = _fp_canon
+                        # Matchup calculator
+                        st.session_state["pred_calc_p_name"] = _fp_canon if _fp_canon in _pbyn else "-- Manual --"
                         if _p_tf in _all_teams:
-                            st.session_state["tab_p_team"] = _p_tf
-                    if fetched_batter and fetched_batter in _all_player_names:
-                        st.session_state["tab_b_batter"] = fetched_batter
-                        _bp = _pbyn.get(fetched_batter, {})
-                        _b_tf = utils.TEAM_ABBREV.get(_bp.get("team", ""), "All")
+                            st.session_state["pred_calc_p_team"] = _p_tf
+                        if _fp_canon in _pbyn:
+                            st.session_state["pred_calc_p_hand"] = _hand(_pp)
+                            st.session_state["pred_calc_p_mov"]  = _stat(_pp, "mov")
+                            st.session_state["pred_calc_p_cmd"]  = _stat(_pp, "cmd")
+                            st.session_state["pred_calc_p_vel"]  = _stat(_pp, "vel")
+                            st.session_state["pred_calc_p_awr"]  = _stat(_pp, "awr")
+                    _fb_canon = _names_lower.get((fetched_batter or "").lower(), "")
+                    if _fb_canon:
+                        _bp = _pbyn.get(_fb_canon, {})
+                        _b_tf = _abbrev_to_team_name.get(_bp.get("team", ""), "All")
+                        # Data tab filter - only set batter, NOT tab_b_team, same reason
+                        st.session_state["tab_b_batter"] = _fb_canon
+                        # Matchup calculator
+                        st.session_state["pred_calc_b_name"] = _fb_canon if _fb_canon in _pbyn else "-- Manual --"
                         if _b_tf in _all_teams:
-                            st.session_state["tab_b_team"] = _b_tf
+                            st.session_state["pred_calc_b_team"] = _b_tf
+                        if _fb_canon in _pbyn:
+                            st.session_state["pred_calc_b_hand"] = _hand(_bp)
+                            st.session_state["pred_calc_b_con"]  = _stat(_bp, "con")
+                            st.session_state["pred_calc_b_eye"]  = _stat(_bp, "eye")
+                            st.session_state["pred_calc_b_pow"]  = _stat(_bp, "pwr")
+                            st.session_state["pred_calc_b_spd"]  = _stat(_bp, "spd")
 
                     fetched_gameplay = utils.parse_gameplay_from_sheet(pred_sheet_url)
                     st.session_state["steal_runner_data"]  = fetched_gameplay["steal_runners"]
@@ -696,7 +718,8 @@ with tab_p:
                 _p_dfs.append(_p_scrim)
         df_p = pd.concat(_p_dfs, ignore_index=True) if _p_dfs else pd.DataFrame()
         if not df_p.empty and tab_p_seasons:
-            df_p = df_p[df_p["season"].isin(tab_p_seasons)]
+            _is_scrim_p = (df_p.get("game_type") == "scrimmage") if "game_type" in df_p.columns else pd.Series(False, index=df_p.index)
+            df_p = df_p[df_p["season"].isin(tab_p_seasons) | _is_scrim_p]
         if not df_p.empty and tab_p_team != "All":
             df_p = df_p[df_p["def_team"] == tab_p_team]
     else:
@@ -910,7 +933,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         st.divider()
         st.subheader("Next Pitch Delta vs Prior Pitch Delta")
         st.caption("How does a pitcher adjust their next pitch movement based on their previous pitch movement?")
-        dd_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=50, key="dd_bucket_p")
+        dd_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_p")
         st.plotly_chart(
             utils.next_delta_vs_prior_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Pitch Δ", value_col="pitch", bucket_size=dd_bucket_p),
             width="stretch", config={"displayModeBar": False}, key="p_delta_delta_hm",
@@ -1105,7 +1128,8 @@ with tab_b:
         df_b = pd.DataFrame()
 
     if not df_b.empty and tab_b_seasons:
-        df_b = df_b[df_b["season"].isin(tab_b_seasons)]
+        _is_scrim_b = (df_b.get("game_type") == "scrimmage") if "game_type" in df_b.columns else pd.Series(False, index=df_b.index)
+        df_b = df_b[df_b["season"].isin(tab_b_seasons) | _is_scrim_b]
     if not df_b.empty and tab_b_team != "All":
         df_b = df_b[df_b["off_team"] == tab_b_team]
 
@@ -1301,7 +1325,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         st.divider()
         st.subheader("Next Swing Delta vs Prior Swing Delta")
         st.caption("How does a batter adjust their next swing based on their previous swing movement?")
-        dd_bucket_b = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=50, key="dd_bucket_b")
+        dd_bucket_b = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_b")
         st.plotly_chart(
             utils.next_delta_vs_prior_delta_heatmap(df_b, title="Next Swing Δ vs Prior Swing Δ", value_col="swing", bucket_size=dd_bucket_b),
             width="stretch", config={"displayModeBar": False}, key="b_delta_delta_hm",

@@ -149,7 +149,8 @@ def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -
     )
     if leagues:
         q = q.in_("league", leagues)
-    return _fetch_all(q)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
 @st.cache_data(ttl=300)
@@ -162,7 +163,8 @@ def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> 
     )
     if leagues:
         q = q.in_("league", leagues)
-    return _fetch_all(q)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
 @st.cache_data(ttl=300)
@@ -175,7 +177,8 @@ def get_plays_for_team_offense(team_name: str, leagues: list[str] | None = None)
     )
     if leagues:
         q = q.in_("league", leagues)
-    return _fetch_all(q)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
 def bulk_upsert_plays(plays: list[dict]) -> int:
@@ -222,18 +225,31 @@ def bulk_upsert_mln_players(players: list[dict]) -> int:
     return _bulk_upsert("players", players, "s_id")
 
 
-# ------------------------------------------------------------------ scrimmage plays
+# ------------------------------------------------------------------ scrimmage
+
+def get_scrimmage_games() -> list[dict]:
+    """Return all games with game_type='scrimmage', newest first."""
+    return _fetch_all(
+        _client().table("games")
+        .select("*")
+        .eq("game_type", "scrimmage")
+        .order("id", desc=True)
+    )
+
 
 def get_all_scrimmage_plays() -> list[dict]:
+    """Return all plays with game_type='scrimmage' (stored in the shared plays table)."""
     return _fetch_all(
-        _client().table("scrimmage_plays")
-        .select("*")
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("game_type", "scrimmage")
         .order("id", desc=False)
     )
 
 
 def bulk_upsert_scrimmage_plays(plays: list[dict]) -> int:
-    return _bulk_upsert("scrimmage_plays", plays, "play_num")
+    """Upsert scrimmage plays into the shared plays table, keyed on (play_num, game_id)."""
+    return _bulk_upsert("plays", plays, "play_num,game_id")
 
 
 # ------------------------------------------------------------------ teams
@@ -243,8 +259,8 @@ def get_all_teams() -> list[dict]:
 
 
 def bulk_upsert_teams(teams: list[dict]) -> int:
-    """Upsert a list of team dicts keyed on abbrev. Returns rows processed."""
-    return _bulk_upsert("teams", teams, "abbrev")
+    """Upsert a list of team dicts keyed on s_team. Returns rows processed."""
+    return _bulk_upsert("teams", teams, "s_team")
 
 
 # ------------------------------------------------------------------ players
