@@ -269,7 +269,7 @@ def bulk_upsert_teams(teams: list[dict]) -> int:
 def get_all_players() -> list[dict]:
     return _fetch_all(
         _client().table("players")
-        .select("player_id, name, team, primary_pos, secondary_pos, status, gm, hand, con, eye, pwr, spd, mov, cmd, vel, awr")
+        .select("player_id, s_id, season, name, team, primary_pos, secondary_pos, status, gm, hand, con, eye, pwr, spd, mov, cmd, vel, awr")
         .order("name")
     )
 
@@ -303,3 +303,30 @@ def get_pitcher_stats() -> list[dict]:
 def upsert_pitcher_stats(rows: list[dict]) -> int:
     """Upsert pitcher stats keyed on pitcher_name. Returns rows processed."""
     return _bulk_upsert("pitcher_stats", rows, "pitcher_name")
+
+
+# ------------------------------------------------------------------ user preferences
+
+def get_user_preferences(user_id: str) -> dict:
+    rows = (
+        _client().table("user_preferences")
+        .select("scouting_view, last_sheet_url")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else {}
+
+
+def upsert_user_preferences(user_id: str, scouting_view: str) -> None:
+    _client().table("user_preferences").upsert(
+        {"user_id": user_id, "scouting_view": scouting_view},
+        on_conflict="user_id",
+    ).execute()
+
+
+def upsert_last_sheet_url(user_id: str, sheet_url: str) -> None:
+    _client().table("user_preferences").upsert(
+        {"user_id": user_id, "last_sheet_url": sheet_url},
+        on_conflict="user_id",
+    ).execute()

@@ -1420,7 +1420,7 @@ def last_n_combined_chart(
     )
     fig.update_yaxes(range=[0, 1080], row=1, col=1)
     fig.update_yaxes(
-        range=[-110, 540], title_text="Delta", row=2, col=1,
+        range=[-110, 540], row=2, col=1,
         tickmode="array", tickvals=[100, 200, 300, 400, 500],
     )
 
