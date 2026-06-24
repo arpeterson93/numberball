@@ -173,6 +173,8 @@ with _qs_btn_col:
         if _qs_all_errs:
             st.session_state["_sync_errors"] = _qs_all_errs
         st.cache_data.clear()
+        st.session_state.pop("_auto_fetch_done", None)
+        st.session_state.pop("pred_result_ranges", None)
         st.rerun()
 
 # Seed radio state once from DB-backed preference so index never fights the widget
@@ -208,35 +210,35 @@ st.divider()
 
 # ── data ─────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
     raw = db.get_plays_for_pitcher(pitcher_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_batter_plays(batter_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
     raw = db.get_plays_for_batter(batter_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
     raw = db.get_plays_for_team_offense(team_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_all_games() -> list:
     return db.get_games()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_scrimmage_plays() -> pd.DataFrame:
     raw = db.get_all_scrimmage_plays()
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_all_players() -> list:
     return db.get_all_players()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def _load_all_teams_data() -> list:
     return db.get_all_teams()
 
