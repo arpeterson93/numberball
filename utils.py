@@ -1741,7 +1741,7 @@ _BATTING_QUALITY: dict[str, float] = {
     "GO": 0.00, "LO": 0.00, "LODP": 0.00,
     "K": 0.00, "DPRun": 0.10, "DP": 0.00, "DP21": 0.00,
     "DP31": 0.00, "DPH1": 0.00, "TP": 0.00, "LOTP": 0.00,
-    "B1BWH": 0.60, "B1B": 0.55, "BFC": 0.00,
+    "B1BWH": 0.60, "B1B": 0.55,
     "SacB": 0.20, "DSacB": 0.25, "BDP": 0.00,
 }
 
@@ -2089,7 +2089,7 @@ def swing_predictor_chart(
     df_last = df.sort_values("id").tail(n)
     vals = df_last[value_col].astype(int).tolist()
     n_vals = len(vals)
-    if tick_weights is not None and len(tick_weights) == n_vals:
+    if tick_weights is not None and len(tick_weights) == n_vals and n_vals > 0:
         _w = _np.array(tick_weights, dtype=float)
         _wmin, _wmax = _w.min(), _w.max()
         color_vals = (
@@ -2709,9 +2709,12 @@ def compute_at_bat_ranges(
         b_bb = w_bb
         b_k  = w_k
         b_go = max(1, 500 - (b1bwh + b1b + b_bb + b_k) + 1)
-        rows: list[tuple[str, int]] = [
-            ("B1BWH", b1bwh), ("B1B", b1b), ("BB", b_bb), ("K", b_k), ("BFC", b_go),
-        ]
+        # Fixed bunt order from calculator S67:S75
+        _BUNT_ORDER = ["B1BWH","B1B","BB","SacB","K","GO","BDP","TP","LOTP"]
+        _bunt_w: dict[str, int] = {
+            "B1BWH": b1bwh, "B1B": b1b, "BB": b_bb, "K": b_k, "GO": b_go,
+        }
+        rows = [(_n, _bunt_w[_n]) for _n in _BUNT_ORDER if _bunt_w.get(_n, 0) > 0]
     else:
         # Runner effective speeds: H&R gives +1 SPD to all runners for dynamic rate calcs
         def _eff(s: int | None) -> int | None:
@@ -2905,29 +2908,36 @@ def compute_at_bat_ranges(
             if _go_rem > 0:
                 _go_rows.append(("GO", _go_rem))
 
-        # --- Assemble rows ---
-        rows = [("HR", w_hr), ("3B", w_3b)]
+        # Fixed stack order from calculator S column (S26:S63)
+        # Order 1-9: hits/BB; 10: GORA; 11-14: FO group; 15: PO;
+        # 16-20: GO group (non-DP); 21: K; 22-25: DP group; 30-32: LO
+        _SWING_ORDER = [
+            "HR","3B","2BWH","2B","1BWH","1BWH2","1B","IF1B","BB",
+            "GORA",
+            "DSacF","DFO","SacF","FO",
+            "PO",
+            "FCH","FC","GO","FC3rd","DPRun",
+            "K",
+            "DP","DP21","DP31","DPH1",
+            "LODP","TP","LOTP",
+        ]
 
-        if w_2bwh > 0:
-            rows.append(("2BWH", w_2bwh))
-        rows.append(("2B", w_2b_plain))
+        # Collect all widths into a dict
+        _widths: dict[str, int] = {
+            "HR": w_hr, "3B": w_3b,
+            "2BWH": w_2bwh, "2B": w_2b_plain,
+            "1BWH": w_1bwh, "1BWH2": w_1bwh2, "1B": w_1b_plain,
+            "IF1B": (w_if1b if not (hit_and_run and infield_in) else 0),
+            "BB": w_bb, "PO": w_po, "K": w_k,
+        }
+        for _name, _w in _fo_rows:
+            _widths[_name] = _widths.get(_name, 0) + _w
+        for _name, _w in _lo_rows:
+            _widths[_name] = _widths.get(_name, 0) + _w
+        for _name, _w in _go_rows:
+            _widths[_name] = _widths.get(_name, 0) + _w
 
-        if w_1bwh > 0:
-            rows.append(("1BWH", w_1bwh))
-        if w_1bwh2 > 0:
-            rows.append(("1BWH2", w_1bwh2))
-        rows.append(("1B", w_1b_plain))
-
-        # IF1B: shown unless infield_in, or already absorbed into 1BWH via H&R+Infield In bonus
-        if w_if1b > 0 and not (hit_and_run and infield_in):
-            rows.append(("IF1B", w_if1b))
-
-        rows.append(("BB", w_bb))
-        rows.extend(_fo_rows)
-        rows.append(("PO", w_po))
-        rows.extend(_lo_rows)
-        rows.extend(_go_rows)
-        rows.append(("K", w_k))
+        rows = [(_n, _widths[_n]) for _n in _SWING_ORDER if _widths.get(_n, 0) > 0]
 
     result = []
     pos = 0
