@@ -739,8 +739,9 @@ def get_res_category(result: str, diff: int) -> str:
 
 
 _OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "DFO", "SacF", "FC", "LO",
-                "LCO", "FC3rd", "FCH", "SacB", "CS"}
-_DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP"}
+                "LCO", "FC3rd", "FCH", "SacB", "CS", "CS2", "CS3", "CS4",
+                "BFC", "BGO"}
+_DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP", "KCS"}
 _TP_RESULTS  = {"TP", "LOTP"}
 
 
