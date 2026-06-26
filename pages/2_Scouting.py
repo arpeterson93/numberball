@@ -366,7 +366,7 @@ _DEFS = {
     "pred_calc_b_team":"All","pred_calc_b_name":"-- Manual --",
     "pred_calc_b_hand":"R","pred_calc_b_con":3,"pred_calc_b_eye":3,"pred_calc_b_pow":3,"pred_calc_b_spd":3,
     "pred_calc_c_eye":3,
-    "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,
+    "pred_calc_outs":0,"pred_calc_bunt":False,"pred_calc_hnr":False,"pred_calc_if_in":False,
     "pred_calc_1b":"Empty","pred_calc_2b":"Empty","pred_calc_3b":"Empty",
     "pred_calc_hist_obc":"000",
     "mgr_inning":1,"mgr_half":"Top","mgr_away_score":0,"mgr_home_score":0,
@@ -563,7 +563,7 @@ def _render_calc_inputs():
     st.divider()
 
     # ── Situation ────────────────────────────────────────────────────────
-    col_s1, col_s2, col_s3 = st.columns(3)
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
     with col_s1:
         if st.session_state.get("pred_calc_outs") not in [0, 1, 2]:
             st.session_state["pred_calc_outs"] = 0
@@ -572,6 +572,16 @@ def _render_calc_inputs():
         st.checkbox("Bunting?", key="pred_calc_bunt")
     with col_s3:
         st.checkbox("Hit & Run?", key="pred_calc_hnr")
+    with col_s4:
+        _has_3b = (
+            st.session_state.get("pred_calc_3b", "Empty") != "Empty"
+            or st.session_state.get("pred_calc_hist_obc", "000")[0] == "1"
+        )
+        _if_in_valid = _has_3b and st.session_state.get("pred_calc_outs", 0) < 2
+        if not _if_in_valid:
+            st.session_state["pred_calc_if_in"] = False
+        st.checkbox("Infield In?", key="pred_calc_if_in", disabled=not _if_in_valid,
+                    help="Only valid with runner on 3rd and fewer than 2 outs")
     col_c1, _col_c2, _col_c3 = st.columns(3)
     with col_c1:
         st.number_input("Catcher EYE", min_value=1, max_value=5, key="pred_calc_c_eye")
@@ -598,10 +608,22 @@ def _render_calc_inputs():
         if _r3 != "Empty" and _r3 in _pbyn:
             st.caption(f"SPD: {_stat(_pbyn[_r3],'spd')}")
 
-def _calc_ranges(bunt: bool | None = None, hit_and_run: bool | None = None) -> list:
-    _runners = any(st.session_state.get(f"pred_calc_{b}b", "Empty") != "Empty" for b in [1, 2, 3])
-    if not _runners:
-        _runners = any(c == "1" for c in st.session_state.get("pred_calc_hist_obc", "000"))
+def _calc_ranges(bunt: bool | None = None, hit_and_run: bool | None = None, infield_in: bool | None = None) -> list:
+    _r1n = st.session_state.get("pred_calc_1b", "Empty")
+    _r2n = st.session_state.get("pred_calc_2b", "Empty")
+    _r3n = st.session_state.get("pred_calc_3b", "Empty")
+    # Build OBC from named runners, fall back to historical OBC
+    _named_obc = (
+        ("1" if _r3n != "Empty" else "0")
+        + ("1" if _r2n != "Empty" else "0")
+        + ("1" if _r1n != "Empty" else "0")
+    )
+    _hist_obc = st.session_state.get("pred_calc_hist_obc", "000") or "000"
+    _obc = _named_obc if _named_obc != "000" else _hist_obc
+    # Runner speeds from named runners (None = unknown, calc will use neutral rate)
+    _r1_spd = _stat(_pbyn.get(_r1n, {}), "spd") if (_r1n != "Empty" and _obc[2] == "1") else None
+    _r2_spd = _stat(_pbyn.get(_r2n, {}), "spd") if (_r2n != "Empty" and _obc[1] == "1") else None
+    _r3_spd = _stat(_pbyn.get(_r3n, {}), "spd") if (_r3n != "Empty" and _obc[0] == "1") else None
     return utils.compute_at_bat_ranges(
         pitcher_hand=st.session_state.get("pred_calc_p_hand","R"),
         pitcher_mov=int(st.session_state.get("pred_calc_p_mov",3)),
@@ -615,8 +637,13 @@ def _calc_ranges(bunt: bool | None = None, hit_and_run: bool | None = None) -> l
         batter_spd=int(st.session_state.get("pred_calc_b_spd",3)),
         bunt=bunt if bunt is not None else bool(st.session_state.get("pred_calc_bunt", False)),
         hit_and_run=hit_and_run if hit_and_run is not None else bool(st.session_state.get("pred_calc_hnr", False)),
+        infield_in=infield_in if infield_in is not None else bool(st.session_state.get("pred_calc_if_in", False)),
         outs=int(st.session_state.get("pred_calc_outs",0)),
-        runners_on=_runners,
+        runners_on=_obc != "000",
+        obc=_obc,
+        runner_1b_spd=_r1_spd,
+        runner_2b_spd=_r2_spd,
+        runner_3b_spd=_r3_spd,
     )
 
 # ── play picker helper ────────────────────────────────────────────────────────
@@ -708,11 +735,13 @@ elif pred_mode == "Fetch Live Matchup":
         st.session_state["pred_sheet_sel"] = _pioneer_url
 
     def _run_fetch(url: str) -> None:
-        _fr, _fbr, _fb, _fp = utils.parse_result_ranges_from_sheet(url)
-        st.session_state["pred_result_ranges"] = _fr
-        st.session_state["pred_bunt_ranges"]   = _fbr
-        st.session_state["pred_sheet_batter"]  = _fb
-        st.session_state["pred_sheet_pitcher"] = _fp
+        _fr, _fbr, _fb, _fp, _stype, _sif_in = utils.parse_result_ranges_from_sheet(url)
+        st.session_state["pred_result_ranges"]    = _fr
+        st.session_state["pred_bunt_ranges"]      = _fbr
+        st.session_state["pred_sheet_batter"]     = _fb
+        st.session_state["pred_sheet_pitcher"]    = _fp
+        st.session_state["pred_sheet_swing_type"] = _stype
+        st.session_state["pred_sheet_if_in"]      = _sif_in
         _nl = {n.lower(): n for n in _all_player_names}
         _fpc = _nl.get((_fp or "").lower(), "")
         if _fpc:
@@ -790,7 +819,16 @@ elif pred_mode == "Fetch Live Matchup":
     result_ranges = st.session_state.get("pred_result_ranges")
     _sp = st.session_state.get("pred_sheet_pitcher", "")
     _sb = st.session_state.get("pred_sheet_batter", "")
+    _sheet_swing_type = st.session_state.get("pred_sheet_swing_type", "Normal Swing")
+    _sheet_if_in      = st.session_state.get("pred_sheet_if_in", False)
     matchup_label = " vs ".join(filter(None, [_sp, _sb]))
+    _badge_parts = []
+    if _sheet_swing_type and _sheet_swing_type != "Normal Swing":
+        _badge_parts.append(_sheet_swing_type)
+    if _sheet_if_in:
+        _badge_parts.append("Infield In")
+    if _badge_parts:
+        matchup_label += f"  [{' | '.join(_badge_parts)}]"
 
 _has_ranges = bool(result_ranges)
 
@@ -2063,6 +2101,80 @@ with tab_m:
         with st.expander("Outcome Breakdown", expanded=False):
             st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
 
+    def _hnr_outcome_grid(hnr_ranges, obc, outs, hnr_k_steal_safe_rng, remaining=None, batting_lead=0):
+        """Like _outcome_grid but splits K into K+SB and K+CS rows using normal steal speed."""
+        sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
+        op = 1.0 - sp
+        rows = []
+        for entry in (hnr_ranges or []):
+            r, lo, hi = _norm(entry)
+            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
+            if r == "K":
+                _, _, k_nout = _lookup("K", obc, outs)
+                k_nout = min(k_nout, 3)
+                # K + SB row
+                sb_obc, sb_runs = _hnr_steal_advance_obc(obc)
+                sb_er = round(utils.get_expected_runs(k_nout, sb_obc) or 0, 2) if k_nout < 3 else 0.0
+                sb_row = {
+                    "_sort":      sb_runs + sb_er,
+                    "Result":     "K+SB",
+                    "Range":      f"{lo}-{hi}",
+                    "Prob":       f"{prob * sp * 100:.1f}%",
+                    "3-2-1":      utils.obc_circles(sb_obc),
+                    "Outs After": "End" if k_nout >= 3 else k_nout,
+                    "Runs":       int(sb_runs),
+                    "ER After":   sb_er,
+                }
+                if remaining is not None and _wp_table_ready:
+                    sb_row["Exp WP"] = f"{_wp_for_state(remaining, k_nout, sb_obc, batting_lead + int(round(sb_runs))) * 100:.1f}%"
+                rows.append(sb_row)
+                # K + CS row
+                cs_obc  = _hnr_steal_cs_obc(obc)
+                cs_nout = min(k_nout + 1, 3)
+                cs_er   = round(utils.get_expected_runs(cs_nout, cs_obc) or 0, 2) if cs_nout < 3 else 0.0
+                cs_row = {
+                    "_sort":      cs_er,
+                    "Result":     "K+CS",
+                    "Range":      f"{lo}-{hi}",
+                    "Prob":       f"{prob * op * 100:.1f}%",
+                    "3-2-1":      utils.obc_circles(cs_obc),
+                    "Outs After": "End" if cs_nout >= 3 else cs_nout,
+                    "Runs":       0,
+                    "ER After":   cs_er,
+                }
+                if remaining is not None and _wp_table_ready:
+                    cs_row["Exp WP"] = f"{_wp_for_state(remaining, cs_nout, cs_obc, batting_lead) * 100:.1f}%"
+                rows.append(cs_row)
+            else:
+                runs, new_obc_code, nout = _lookup(r, obc, outs)
+                nout = min(nout, 3)
+                er_after = round(utils.get_expected_runs(nout, new_obc_code) or 0, 2) if nout < 3 else 0.0
+                row = {
+                    "_sort":      runs + er_after,
+                    "Result":     r,
+                    "Range":      f"{lo}-{hi}",
+                    "Prob":       f"{prob * 100:.1f}%",
+                    "3-2-1":      utils.obc_circles(new_obc_code),
+                    "Outs After": "End" if nout >= 3 else nout,
+                    "Runs":       int(runs),
+                    "ER After":   er_after,
+                }
+                if remaining is not None and _wp_table_ready:
+                    row["Exp WP"] = f"{_wp_for_state(remaining, nout, new_obc_code, batting_lead + int(round(runs))) * 100:.1f}%"
+                rows.append(row)
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        return df.sort_values("_sort", ascending=False).drop(columns=["_sort"]).reset_index(drop=True)
+
+    def _show_hnr_outcome_grid(hnr_ranges, obc, outs, hnr_k_steal_safe_rng, key, remaining=None, batting_lead=0):
+        grid = _hnr_outcome_grid(hnr_ranges, obc, outs, hnr_k_steal_safe_rng, remaining, batting_lead)
+        if grid.empty:
+            return
+        st.plotly_chart(_outcome_scatter(grid), use_container_width=True, key=f"{key}_scatter")
+        with st.expander("Outcome Breakdown", expanded=False):
+            st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
+
     def _calc_steal_ev_and_probs(safe_range):
         safe_prob = min(safe_range * 2 / 1000, 1.0)
         out_prob  = 1.0 - safe_prob
@@ -2106,9 +2218,9 @@ with tab_m:
         else:                   # 3B runner caught
             return "000"
 
-    def _calc_ev_hnr_and_probs(hnr_ranges, hnr_steal_safe_rng):
-        """EV for hit and run: non-K outcomes use BRC; K outcomes fold in steal attempt."""
-        sp = min(hnr_steal_safe_rng * 2 / 1000, 1.0)
+    def _calc_ev_hnr_and_probs(hnr_ranges, hnr_k_steal_safe_rng):
+        """EV for hit and run: non-K outcomes use BRC; K steal uses normal speed (no +1 boost)."""
+        sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
         op = 1.0 - sp
         ev = 0.0
         _tprobs: dict[int, float] = {}
@@ -2147,8 +2259,20 @@ with tab_m:
         p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
         return ev, p1r, p2r, p3pr
 
-    _bunt_ranges = st.session_state.get("pred_bunt_ranges") or result_ranges
-    _hnr_ranges  = utils.compute_at_bat_ranges(
+    _bunt_ranges  = st.session_state.get("pred_bunt_ranges") or result_ranges
+
+    # Helper: look up runner speed from session state given a base key and OBC bit
+    def _mgr_rspd(base_ltr: str, obc_bit: str) -> int | None:
+        if obc_bit != "1":
+            return None
+        _n = st.session_state.get(f"pred_calc_{base_ltr}b", "Empty")
+        return _stat(_pbyn.get(_n, {}), "spd") if _n != "Empty" else None
+
+    _mgr_r1 = _mgr_rspd("1", _current_obc[2])
+    _mgr_r2 = _mgr_rspd("2", _current_obc[1])
+    _mgr_r3 = _mgr_rspd("3", _current_obc[0])
+
+    _mgr_kwargs = dict(
         pitcher_hand=st.session_state.get("pred_calc_p_hand", "R"),
         pitcher_mov=int(st.session_state.get("pred_calc_p_mov", 3)),
         pitcher_cmd=int(st.session_state.get("pred_calc_p_cmd", 3)),
@@ -2159,9 +2283,21 @@ with tab_m:
         batter_eye=int(st.session_state.get("pred_calc_b_eye", 3)),
         batter_pow=int(st.session_state.get("pred_calc_b_pow", 3)),
         batter_spd=int(st.session_state.get("pred_calc_b_spd", 3)),
-        bunt=False, hit_and_run=True,
         outs=_current_outs,
         runners_on=_current_obc != "000",
+        obc=_current_obc,
+        runner_1b_spd=_mgr_r1,
+        runner_2b_spd=_mgr_r2,
+        runner_3b_spd=_mgr_r3,
+    )
+    _if_in_ranges = utils.compute_at_bat_ranges(
+        bunt=False, hit_and_run=False, infield_in=True, **_mgr_kwargs,
+    )
+    _hnr_ranges  = utils.compute_at_bat_ranges(
+        bunt=False,
+        hit_and_run=True,
+        infield_in=bool(st.session_state.get("pred_calc_if_in", False)),
+        **_mgr_kwargs,
     )
 
     _steal_runners = st.session_state.get("steal_runner_data") or []
@@ -2200,9 +2336,14 @@ with tab_m:
             )
             if _hnr_steal_runner else 50
         )
+        _hnr_normal_rng = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else 50
     else:
         _hnr_steal_runner = None
-        _hnr_safe_rng    = 50
+        _hnr_safe_rng     = 50
+        _hnr_normal_rng   = 50
+
+    # Infield In valid when runner on 3rd and fewer than 2 outs
+    _has_if_in = _current_obc[0] == "1" and _current_outs < 2
 
     _wp_table_ready = utils.get_win_probability(1, 0, "000", 0) is not None
 
@@ -2235,8 +2376,8 @@ with tab_m:
         cs_wp   = _wp_for_state(remaining, cs_nout, cs_obc, batting_lead)
         return safe_prob * safe_wp + out_prob * cs_wp
 
-    def _calc_hnr_wp_after(hnr_ranges, hnr_safe_rng, remaining, batting_lead):
-        sp = min(hnr_safe_rng * 2 / 1000, 1.0)
+    def _calc_hnr_wp_after(hnr_ranges, hnr_k_steal_safe_rng, remaining, batting_lead):
+        sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
         op = 1.0 - sp
         total = 0.0
         for entry in (hnr_ranges or []):
@@ -2301,18 +2442,23 @@ with tab_m:
         else:
             ev_steal = st_p1r = st_p2r = st_p3pr = None
         if _has_hnr:
-            ev_hr, hr_p1r, hr_p2r, hr_p3pr = _calc_ev_hnr_and_probs(_hnr_ranges, _hnr_safe_rng)
+            ev_hr, hr_p1r, hr_p2r, hr_p3pr = _calc_ev_hnr_and_probs(_hnr_ranges, _hnr_normal_rng)
         else:
             ev_hr = hr_p1r = hr_p2r = hr_p3pr = None
+        if _has_if_in:
+            ev_ifin, ii_p1r, ii_p2r, ii_p3pr = _calc_ev_and_probs(_if_in_ranges)
+        else:
+            ev_ifin = ii_p1r = ii_p2r = ii_p3pr = None
 
         # WP after each decision
         if _wp_table_ready:
             wp_swing = _calc_wp_after(result_ranges, _mgr_remaining, _mgr_batting_lead)
             wp_bunt  = _calc_wp_after(_bunt_ranges,  _mgr_remaining, _mgr_batting_lead)
             wp_steal = _calc_steal_wp_after(_steal_ev_rng, _mgr_remaining, _mgr_batting_lead) if _has_runners else None
-            wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_safe_rng, _mgr_remaining, _mgr_batting_lead) if _has_hnr else None
+            wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_normal_rng, _mgr_remaining, _mgr_batting_lead) if _has_hnr else None
+            wp_ifin  = _calc_wp_after(_if_in_ranges, _mgr_remaining, _mgr_batting_lead) if _has_if_in else None
         else:
-            wp_swing = wp_bunt = wp_steal = wp_hnr = None
+            wp_swing = wp_bunt = wp_steal = wp_hnr = wp_ifin = None
 
         # EV summary table
         _gs_col, _tbl_col = st.columns([1, 2])
@@ -2345,6 +2491,13 @@ with tab_m:
                 _p2r_col   += [f"{hr_p2r*100:.1f}%"]
                 _p3pr_col  += [f"{hr_p3pr*100:.1f}%"]
                 _wp_col    += [f"{wp_hnr*100:.1f}%" if wp_hnr is not None else "-"]
+            if _has_if_in:
+                _decisions += ["vs. Infield In"]
+                _exp_runs  += [f"{ev_ifin:.2f}"]
+                _p1r_col   += [f"{ii_p1r*100:.1f}%"]
+                _p2r_col   += [f"{ii_p2r*100:.1f}%"]
+                _p3pr_col  += [f"{ii_p3pr*100:.1f}%"]
+                _wp_col    += [f"{wp_ifin*100:.1f}%" if wp_ifin is not None else "-"]
             _tbl_data = {"Decision": _decisions}
             if _wp_table_ready:
                 _tbl_data["Exp WP"] = _wp_col
@@ -2402,13 +2555,26 @@ with tab_m:
             _hnr_base_lbl = _hnr_steal_runner["base"] if _hnr_steal_runner else "?"
             _orig_rng     = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else "?"
             st.caption(
-                f"{_hnr_base_lbl} runner steals at spd+1: range {_orig_rng} -> {_hnr_safe_rng}  |  "
-                f"K outcome = batter out + steal attempt"
+                f"{_hnr_base_lbl} runner: swing at spd+1 range {_orig_rng} -> {_hnr_safe_rng}  |  "
+                f"K: batter out + steal at normal range {_orig_rng}"
             )
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _hnr_ranges,
                             label="Swing", x_label="Swing Values"),
                             use_container_width=True, key="mgr_bar_hr")
-            _show_outcome_grid(_hnr_ranges, _current_obc, _current_outs, "grid_hr",
+            _show_hnr_outcome_grid(_hnr_ranges, _current_obc, _current_outs, _hnr_normal_rng,
+                                   "grid_hr", _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
+
+        if _has_if_in:
+            st.divider()
+            st.subheader("Infield In (opponent defensive option)")
+            st.caption(
+                "Ranges if the defense brings the infield in: IF1B removed, +20 to 1B, GORA disabled. "
+                f"Normal swing ER: {_current_er:.2f} vs. Infield In ER: {ev_ifin:.2f}"
+            )
+            st.plotly_chart(utils.manager_color_bar(int(_proposed), _if_in_ranges,
+                            label="Swing", x_label="Swing Values"),
+                            use_container_width=True, key="mgr_bar_ifin")
+            _show_outcome_grid(_if_in_ranges, _current_obc, _current_outs, "grid_ifin",
                                _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
     _manager_fragment()

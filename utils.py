@@ -1548,7 +1548,24 @@ def parse_result_ranges_from_sheet(sheet_url: str):
     batter_name  = _cell(raw, 11, 7)
     pitcher_name = _cell(raw, 10, 7)
 
-    return normal_ranges, bunt_ranges, batter_name, pitcher_name
+    # Read swing type and Infield In toggle from Gameplay tab (gid 533199361)
+    swing_type = "Normal Swing"
+    infield_in = False
+    try:
+        gameplay_url = (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+            f"/export?format=csv&gid=533199361"
+        )
+        gp = _fetch_raw(gameplay_url)
+        _st = str(gp.iloc[1, 28]).strip()
+        if _st.lower() not in ("nan", ""):
+            swing_type = _st
+        _ii = str(gp.iloc[2, 28]).strip().upper()
+        infield_in = _ii in ("TRUE", "1", "YES")
+    except Exception:
+        pass
+
+    return normal_ranges, bunt_ranges, batter_name, pitcher_name, swing_type, infield_in
 
 
 _OBC_CODE_TO_STRING = {
@@ -2599,18 +2616,39 @@ def compute_at_bat_ranges(
     batter_spd: int,
     bunt: bool = False,
     hit_and_run: bool = False,
+    infield_in: bool = False,
     outs: int = 0,
     runners_on: bool = False,
+    obc: str = "000",
+    runner_1b_spd: int | None = None,
+    runner_2b_spd: int | None = None,
+    runner_3b_spd: int | None = None,
 ) -> list[dict]:
     """Compute at-bat result ranges from pitcher/batter stats.
 
     Returns list of dicts: {result, range, low, high}.
-    Verified against MLN Calculator 11.0 (Fat Lever vs Cody Anderson example).
+    Verified against MLN Calculator 11.0.
+    hit_and_run: batter CON -1; runner SPD +1 for all dynamic rate calcs.
+    infield_in: IF1B removed, +20 to 1B (W14); GORA = 0.
+    obc: on-base string "3b2b1b" e.g. "010" = runner on 2B only.
+    runner_Xb_spd: runner speeds for WH%, FO, LO, GO subrange splits.
     """
     import math
 
     def clamp(v, lo, hi):
         return max(lo, min(hi, int(v)))
+
+    def clampf(v, lo=0.0, hi=1.0):
+        return max(lo, min(hi, float(v)))
+
+    # OBC bits
+    on_3b = len(obc) >= 1 and obc[0] == "1"
+    on_2b = len(obc) >= 2 and obc[1] == "1"
+    on_1b = len(obc) >= 3 and obc[2] == "1"
+    _has_runners = on_3b or on_2b or on_1b or runners_on
+
+    # H&R: batter CON reduced by 1 before any differential calculation
+    _batter_con = batter_con - 1 if hit_and_run else batter_con
 
     # Handedness modifier
     if str(batter_hand).upper() == "S":
@@ -2621,7 +2659,7 @@ def compute_at_bat_ranges(
         hnd = 1.025
 
     # Stat differentials (clamped -5..+5)
-    d_hit = clamp(batter_con - pitcher_mov, -5, 5)
+    d_hit = clamp(_batter_con - pitcher_mov, -5, 5)
     d_pow = clamp(batter_pow - pitcher_vel, -5, 5)
     d_spd = clamp(batter_spd - pitcher_awr, -5, 5)
     d_eye = clamp(batter_eye - pitcher_cmd, -5, 5)
@@ -2629,16 +2667,15 @@ def compute_at_bat_ranges(
     def w_std(key, diff):
         return max(1, math.floor(_obr_lookup(key, diff) * hnd))
 
-    w_hr = w_std("HR", d_pow)
-    w_3b = w_std("3B", d_spd)
-    w_2b = w_std("2B", d_spd)
-    w_if1b = 0 if hit_and_run else w_std("IF1B", d_spd)
-    w_bb = w_std("BB", d_eye)
-    w_k = w_std("K", d_hit)
+    w_hr   = w_std("HR", d_pow)
+    w_3b   = w_std("3B", d_spd)
+    w_2b   = w_std("2B", d_spd)
+    w_if1b = 0 if infield_in else w_std("IF1B", d_spd)
+    w_bb   = w_std("BB", d_eye)
+    w_k    = w_std("K", d_hit)
 
-    # 1B: Hit-base * handedness + SPD/AWR modifier + pitcher-AWR modifier + constant - HR - 3B - 2B [+ HnR bonus]
+    # 1B: Hit-base * handedness + modifiers + constant - XBH [+ 20 if Infield In (W14)]
     hit_base = math.floor(_obr_lookup("Hit", d_hit) * hnd)
-    hnr_bonus = 20 if hit_and_run else 0
     w_1b = max(1,
         hit_base
         + _1B_HIT_NEG[d_hit]
@@ -2646,19 +2683,19 @@ def compute_at_bat_ranges(
         + _1B_PITCH_AWR.get(clamp(pitcher_awr - 3, -3, 3), 0)
         + 5
         - w_hr - w_3b - w_2b
-        + hnr_bonus
+        + (20 if infield_in else 0)
     )
 
-    # FO and PO: rate-based, each using the POW vs VEL differential
+    # FO and PO: rate-based from d_pow
     fo_rate = _obr_lookup("FO_HND", d_pow) / 500
     po_rate = _obr_lookup("PO_HND", d_pow) / 500
     after_hits = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb)
-    after_bb = 500 - w_bb
+    after_bb   = 500 - w_bb
     w_fo = max(1, math.floor(after_hits * fo_rate * (1 - po_rate)))
-    w_po = max(1, math.floor(after_bb * fo_rate * po_rate))
+    w_po = max(1, math.floor(after_bb   * fo_rate * po_rate))
 
-    # LO: 4-wide slot inside GO, only with runners on and fewer than 2 outs
-    w_lo = 4 if (runners_on and outs < 2) else 0
+    # LO: 4-wide slot, only with runners on and fewer than 2 outs (W21)
+    w_lo = 4 if (_has_runners and outs < 2) else 0
 
     # GO: remainder of 501 total (0-500 inclusive)
     w_go = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb + w_fo + w_po + w_k + w_lo) + 1
@@ -2670,21 +2707,227 @@ def compute_at_bat_ranges(
         spd_mov = batter_spd - pitcher_mov
         b1b = max(1, round((1 + spd_mov * 0.04) * base_hit) - b1bwh)
         b_bb = w_bb
-        b_k = w_k
+        b_k  = w_k
         b_go = max(1, 500 - (b1bwh + b1b + b_bb + b_k) + 1)
         rows: list[tuple[str, int]] = [
             ("B1BWH", b1bwh), ("B1B", b1b), ("BB", b_bb), ("K", b_k), ("BFC", b_go),
         ]
     else:
-        rows = [
-            ("HR", w_hr), ("3B", w_3b), ("2B", w_2b), ("1B", w_1b),
-        ]
-        if not hit_and_run:
-            rows.append(("IF1B", w_if1b))
-        rows += [("BB", w_bb), ("FO", w_fo), ("PO", w_po)]
+        # Runner effective speeds: H&R gives +1 SPD to all runners for dynamic rate calcs
+        def _eff(s: int | None) -> int | None:
+            return (s + (1 if hit_and_run else 0)) if s is not None else None
+
+        s1 = _eff(runner_1b_spd) if on_1b else None
+        s2 = _eff(runner_2b_spd) if on_2b else None
+        s3 = _eff(runner_3b_spd) if on_3b else None
+
+        def _avg(*vals: int | None) -> float:
+            v = [x for x in vals if x is not None]
+            return float(sum(v)) / len(v) if v else 3.0
+
+        # --- Well Hit % (H75/H76) ---
+        # H&R multiplier effectively forces WH% = 1.0; 2-out mult = 3; else 1
+        def _wh_rate(spd: int | None) -> float:
+            if spd is None:
+                return 0.0
+            if hit_and_run:
+                return 1.0 if spd > 0 else 0.0
+            mult = 3.0 if outs == 2 else 1.0
+            delta = spd - 3
+            return clampf((0.15 + delta * (1.0 if delta >= 0 else 0.5) * 0.07) * mult)
+
+        # F75: lead runner (2B if present, else 1B)
+        _lead_spd = s2 if on_2b else (s1 if on_1b else None)
+        # F76: trail runner (1B capped at 2B speed; only exists when both runners present)
+        _trail_spd: int | None = None
+        if on_1b and on_2b:
+            _trail_spd = min(
+                s1 if s1 is not None else 3,
+                s2 if s2 is not None else 3,
+            )
+
+        _lead_wh  = _wh_rate(_lead_spd)
+        _trail_wh = _wh_rate(_trail_spd) if _trail_spd is not None else None
+
+        # T30: 2BWH rate - 0 if no runner on 1B; else trail_wh or lead_wh
+        _2bwh_rate = (_trail_wh if _trail_wh is not None else _lead_wh) if on_1b else 0.0
+        # T33: 1BWH rate - 0 if no runners on 1B/2B; else trail_wh or lead_wh
+        _1bwh_rate = (_trail_wh if _trail_wh is not None else _lead_wh) if (on_1b or on_2b) else 0.0
+        # T34: 1BWH2 rate - only when runners on 1B AND 2B
+        _1bwh2_rate = clampf(_lead_wh - (_trail_wh or 0.0)) if (on_1b and on_2b) else 0.0
+
+        # 2B split (V30/V31)
+        w_2bwh = math.floor(_2bwh_rate * w_2b)
+        w_2b_plain = max(0, w_2b - w_2bwh)
+
+        # 1B split (V33/V34/V35); V33 adds IF1B width when H&R AND Infield In both on
+        # V35 = U35 - V33 - V34 with no enforced minimum (min=1 is on U35 base only)
+        _if1b_bonus = w_if1b if (hit_and_run and infield_in) else 0
+        w_1bwh  = math.floor(_1bwh_rate  * w_1b) + _if1b_bonus
+        w_1bwh2 = math.floor(_1bwh2_rate * w_1b)
+        w_1b_plain = max(0, w_1b - w_1bwh - w_1bwh2)
+
+        # --- I75: DFO% (for FO split) - lead runner WH% sans 2-out mult, only if runner on 2B ---
+        _dfo_pct = 0.0
+        if on_2b and outs < 2:
+            _s2_eff = s2 if s2 is not None else 3
+            delta = _s2_eff - 3
+            _dfo_pct = clampf(0.15 + delta * (1.0 if delta >= 0 else 0.5) * 0.07)
+
+        # --- FO split (T41-T44 / V41-V44) ---
+        # DSacF/DFO require runners on 2B AND 3B, <2 outs
+        # SacF requires runner on 3B, <2 outs; pure FO otherwise
+        _fo_rows: list[tuple[str, int]] = []
+        if outs == 2 or not on_3b:
+            _fo_rows = [("FO", w_fo)]
+        elif on_3b and on_2b:
+            w_dsacf = math.floor(_dfo_pct * w_fo)
+            w_dfo   = math.floor(_dfo_pct * w_fo)
+            w_sacf  = max(0, w_fo - w_dsacf - w_dfo)
+            if w_dsacf > 0: _fo_rows.append(("DSacF", w_dsacf))
+            if w_dfo   > 0: _fo_rows.append(("DFO",   w_dfo))
+            w_sacf_final = w_fo - sum(w for _, w in _fo_rows)
+            if w_sacf_final > 0: _fo_rows.append(("SacF", w_sacf_final))
+        else:
+            _fo_rows = [("SacF", w_fo)]
+
+        # --- LO split (V61/V62) ---
+        # TP: runners on 1B AND 2B and 0 outs -> full LO = TP
+        # LODP: all other runner situations
+        _lo_rows: list[tuple[str, int]] = []
         if w_lo > 0:
-            rows.append(("LO", w_lo))
-        rows += [("GO", w_go), ("K", w_k)]
+            if on_1b and on_2b and outs == 0:
+                _lo_rows = [("TP", w_lo)]
+            else:
+                _lo_rows = [("LODP", w_lo)]
+
+        # --- GO split (T48-T57 / V48-V57) ---
+        _dp_base = clampf(0.5 - 0.1 * (batter_spd - 3))
+        _dp_mult = 0.15  # E57: DP range multiplier for OBC 4
+
+        def _gora_r() -> float:
+            """Dynamic GORA rate. 0 when infield_in, outs==2, or no runners."""
+            if infield_in or outs == 2 or not _has_runners:
+                return 0.0
+            if on_1b and not on_2b and not on_3b:       # 001
+                return clampf(0.09 + 0.023 * ((s1 or 3) - 3))
+            if not on_1b and on_2b and not on_3b:       # 010
+                return clampf(0.25 + 0.05  * ((s2 or 3) - 3))
+            if not on_1b and not on_2b and on_3b:       # 100
+                return clampf(0.25 + 0.05  * ((s3 or 3) - 3))
+            if on_1b and on_2b and not on_3b:            # 011
+                return clampf(0.09 + 0.023 * (_avg(s1, s2) - 3))
+            if on_1b and not on_2b and on_3b:            # 101
+                return clampf(0.09 + 0.023 * (_avg(s1, s3) - 3))
+            if not on_1b and on_2b and on_3b:            # 110
+                return clampf(0.35 + 0.05  * (_avg(s2, s3) - 3))
+            if on_1b and on_2b and on_3b:                # 111: equals OBC 5 formula
+                return clampf(0.09 + 0.023 * (_avg(s1, s3) - 3))
+            return 0.0
+
+        gora_rate = _gora_r()
+        w_gora = math.floor(gora_rate * w_go)
+
+        _go_rows: list[tuple[str, int]] = []
+        if w_gora > 0:
+            _go_rows.append(("GORA", w_gora))
+
+        _go_rem = w_go - w_gora
+
+        if not _has_runners or outs == 2:
+            # No FC/DP/FCH without runners or with 2 outs
+            if _go_rem > 0:
+                _go_rows.append(("GO", _go_rem))
+
+        elif on_1b and not on_2b and not on_3b:         # 001: GORA + FC + DP
+            dp_r  = _dp_base
+            w_dp  = math.floor(dp_r * w_go)
+            w_fc  = max(0, _go_rem - w_dp)
+            if w_fc > 0: _go_rows.append(("FC", w_fc))
+            if w_dp > 0: _go_rows.append(("DP", w_dp))
+
+        elif not on_1b and on_2b and not on_3b:         # 010: GORA + GO
+            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
+
+        elif not on_1b and not on_2b and on_3b:         # 100: GORA + GO
+            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
+
+        elif on_1b and on_2b and not on_3b:              # 011: GORA + FC + FC3rd + DP21 + DP31
+            dp31_r  = clampf((_dp_base / 2) * (1 + _dp_mult))
+            dp21_r  = dp31_r
+            fc_half = clampf((1.0 - dp21_r - dp31_r - gora_rate) / 2)
+            w_dp31  = math.floor(dp31_r  * w_go)
+            w_dp21  = math.floor(dp21_r  * w_go)
+            w_fc    = math.floor(fc_half  * w_go)
+            w_fc3rd = math.floor(fc_half  * w_go)
+            w_go_left = max(0, w_go - w_gora - w_dp31 - w_dp21 - w_fc - w_fc3rd)
+            if w_fc    > 0: _go_rows.append(("FC",    w_fc))
+            if w_fc3rd > 0: _go_rows.append(("FC3rd", w_fc3rd))
+            if w_dp21  > 0: _go_rows.append(("DP21",  w_dp21))
+            if w_dp31  > 0: _go_rows.append(("DP31",  w_dp31))
+            if w_go_left > 0: _go_rows.append(("GO",  w_go_left))
+
+        elif on_1b and not on_2b and on_3b:              # 101: GORA + FC + DPRun + DP
+            dp_5    = clampf((_dp_base / 2) * (1 + _dp_mult))
+            dprun_5 = clampf((1.0 - gora_rate - 2 * dp_5) / 2) if outs == 0 else 0.0
+            w_dp_5    = math.floor(dp_5    * w_go)
+            w_dprun_5 = math.floor(dprun_5 * w_go)
+            w_fc_5    = max(0, _go_rem - w_dp_5 - w_dprun_5)
+            if w_dprun_5 > 0: _go_rows.append(("DPRun", w_dprun_5))
+            if w_fc_5    > 0: _go_rows.append(("FC",    w_fc_5))
+            if w_dp_5    > 0: _go_rows.append(("DP",    w_dp_5))
+
+        elif not on_1b and on_2b and on_3b:              # 110: GORA + GO
+            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
+
+        elif on_1b and on_2b and on_3b:                  # 111: GORA + FCH + DP21 + DP31 + DPH1
+            _avg_spd_13 = _avg(s1, s3)
+            fch_r  = clampf(0.15 + 0.025 * (_avg_spd_13 - 3))
+            _rem7  = clampf(1.0 - fch_r - gora_rate)
+            div_31 = 4 if infield_in else 3
+            div_h1 = 2 if infield_in else 3
+            dp31_r  = math.floor(clampf(_rem7 / div_31) * 1000) / 1000
+            dph1_r  = math.floor(clampf(_rem7 / div_h1) * 1000) / 1000
+            dp21_r  = clampf(_rem7 - dp31_r - dph1_r)
+            w_fch  = math.floor(fch_r  * w_go)
+            w_dp31 = math.floor(dp31_r * w_go)
+            w_dph1 = math.floor(dph1_r * w_go)
+            w_dp21 = math.floor(dp21_r * w_go)
+            w_go_left = max(0, w_go - w_gora - w_fch - w_dp31 - w_dph1 - w_dp21)
+            if w_fch  > 0: _go_rows.append(("FCH",  w_fch))
+            if w_dp21 > 0: _go_rows.append(("DP21", w_dp21))
+            if w_dp31 > 0: _go_rows.append(("DP31", w_dp31))
+            if w_dph1 > 0: _go_rows.append(("DPH1", w_dph1))
+            if w_go_left > 0: _go_rows.append(("GO", w_go_left))
+
+        else:
+            # Runners present but OBC not recognized (e.g. runners_on=True, obc="000")
+            if _go_rem > 0:
+                _go_rows.append(("GO", _go_rem))
+
+        # --- Assemble rows ---
+        rows = [("HR", w_hr), ("3B", w_3b)]
+
+        if w_2bwh > 0:
+            rows.append(("2BWH", w_2bwh))
+        rows.append(("2B", w_2b_plain))
+
+        if w_1bwh > 0:
+            rows.append(("1BWH", w_1bwh))
+        if w_1bwh2 > 0:
+            rows.append(("1BWH2", w_1bwh2))
+        rows.append(("1B", w_1b_plain))
+
+        # IF1B: shown unless infield_in, or already absorbed into 1BWH via H&R+Infield In bonus
+        if w_if1b > 0 and not (hit_and_run and infield_in):
+            rows.append(("IF1B", w_if1b))
+
+        rows.append(("BB", w_bb))
+        rows.extend(_fo_rows)
+        rows.append(("PO", w_po))
+        rows.extend(_lo_rows)
+        rows.extend(_go_rows)
+        rows.append(("K", w_k))
 
     result = []
     pos = 0
@@ -2700,7 +2943,7 @@ def range_bar_chart(ranges: list[dict], title: str = "") -> go.Figure:
     """Horizontal stacked bar showing each result's share of the 0-500 number line."""
     fig = go.Figure()
     for r in ranges:
-        color = RESULT_COLORS.get(r["result"], "#888")
+        color = _result_color(r["result"]) or RESULT_COLORS.get(r["result"], "#888")
         fig.add_trace(go.Bar(
             x=[r["range"]],
             y=[""],
