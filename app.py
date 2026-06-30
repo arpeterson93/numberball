@@ -1,6 +1,6 @@
+import json
 import streamlit as st
 import streamlit.components.v1 as components
-from datetime import datetime, timedelta
 
 st.set_page_config(
     page_title="Numberball",
@@ -9,7 +9,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Hide native toolbar and status widget via CSS (st.markdown CSS does execute)
 st.markdown(
     "<style>"
     "[data-testid='stToolbarActions']{display:none !important;}"
@@ -18,9 +17,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Custom loading overlay - must use components.html() because <script> tags
-# injected via st.markdown innerHTML are inert and never execute in browsers.
-# The iframe's script accesses the parent document via window.parent.
 components.html(
     """<script>
 (function () {
@@ -58,42 +54,33 @@ components.html(
     height=0,
 )
 
-import extra_streamlit_components as stx
 import auth
 import database as db
 
-_COOKIE_NAME = "nb_refresh_token"
-_COOKIE_DAYS = 90
-
-cookie_manager = stx.CookieManager(key="auth")
+_COOKIE_KEY     = "nb_auth"
+_COOKIE_MAX_AGE = 34560000  # 400 days in seconds
 
 
-def _try_restore_session() -> bool:
-    if st.session_state.pop("_logged_out", False):
-        return False
-    token = None
-    try:
-        token = cookie_manager.get(_COOKIE_NAME)
-    except Exception:
-        pass
-    if not token:
-        return False
-    result = auth.refresh_session(token)
-    if not result:
-        try:
-            cookie_manager.delete(_COOKIE_NAME)
-        except Exception:
-            pass
-        return False
-    user_id, new_token, email = result
-    st.session_state.user_id = user_id
-    st.session_state.user_email = email
-    st.session_state.authenticated = True
-    cookie_manager.set(
-        _COOKIE_NAME, new_token,
-        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS),
+def _cookie_write(token: str) -> None:
+    """Persist the refresh token in a long-lived browser cookie."""
+    components.html(
+        "<script>document.cookie="
+        + json.dumps(
+            f"{_COOKIE_KEY}={token}; max-age={_COOKIE_MAX_AGE}; path=/; SameSite=Strict"
+        )
+        + ";</script>",
+        height=0,
     )
-    return True
+
+
+def _cookie_clear() -> None:
+    """Expire the auth cookie immediately."""
+    components.html(
+        "<script>document.cookie="
+        + json.dumps(f"{_COOKIE_KEY}=; max-age=0; path=/; SameSite=Strict")
+        + ";</script>",
+        height=0,
+    )
 
 
 def _load_preferences() -> None:
@@ -102,6 +89,8 @@ def _load_preferences() -> None:
         if user_id:
             try:
                 prefs = db.get_user_preferences(user_id)
+                if not prefs:
+                    db.upsert_user_preferences(user_id, "complex")
                 st.session_state["scouting_view"] = prefs.get("scouting_view", "complex")
                 if prefs.get("last_sheet_url"):
                     st.session_state["pred_sheet_sel"] = prefs["last_sheet_url"]
@@ -109,36 +98,41 @@ def _load_preferences() -> None:
                 st.session_state["scouting_view"] = "complex"
 
 
+# ── Session restore via cookie (Python-readable on every render) ──────────────
 if not st.session_state.get("authenticated"):
-    if not _try_restore_session():
-        # On the very first render the CookieManager iframe hasn't communicated
-        # back yet, so the token appears missing even when a valid cookie exists.
-        # Show nothing and stop; the CookieManager triggers an immediate rerun,
-        # and on that second pass we either restore the session or show the form.
-        if "_cookie_ready" not in st.session_state:
-            st.session_state["_cookie_ready"] = True
-            st.stop()
-        st.title("Numberball")
-        with st.form("login"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            remember = st.checkbox("Remember Me", value=True)
-            submitted = st.form_submit_button("Sign In")
-        if submitted:
-            try:
-                user_id, refresh_token, user_email = auth.sign_in(email, password)
-                st.session_state.authenticated = True
-                st.session_state.user_id = user_id
-                st.session_state.user_email = user_email
-                if remember:
-                    cookie_manager.set(
-                        _COOKIE_NAME, refresh_token,
-                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS),
-                    )
-                st.rerun()
-            except Exception:
-                st.error("Invalid email or password.")
-        st.stop()
+    _cookie_token = st.context.cookies.get(_COOKIE_KEY, "")
+    if _cookie_token:
+        _result = auth.refresh_session(_cookie_token)
+        if _result:
+            _uid, _new_token, _email = _result
+            st.session_state.authenticated  = True
+            st.session_state.user_id        = _uid
+            st.session_state.user_email     = _email
+            st.session_state["_refresh_token"] = _new_token
+            _cookie_write(_new_token)   # rotate token so the cookie stays fresh
+            st.rerun()
+
+# ── Auth gate ─────────────────────────────────────────────────────────────────
+if not st.session_state.get("authenticated"):
+    st.title("Numberball")
+    with st.form("login"):
+        email    = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        remember = st.checkbox("Remember Me", value=True)
+        submitted = st.form_submit_button("Sign In")
+    if submitted:
+        try:
+            user_id, refresh_token, user_email = auth.sign_in(email, password)
+            st.session_state.authenticated  = True
+            st.session_state.user_id        = user_id
+            st.session_state.user_email     = user_email
+            st.session_state["_refresh_token"] = refresh_token
+            if remember:
+                _cookie_write(refresh_token)
+            st.rerun()
+        except Exception:
+            st.error("Invalid email or password.")
+    st.stop()
 
 _load_preferences()
 
@@ -146,19 +140,14 @@ with st.sidebar:
     _email = st.session_state.get("user_email", "")
     st.caption(f"Signed in as `{_email}`")
     if st.button("Sign Out"):
-        _token = None
-        try:
-            _token = cookie_manager.get(_COOKIE_NAME)
-        except Exception:
-            pass
+        _token = st.session_state.get("_refresh_token")
         if _token:
-            auth.sign_out(_token)
-        try:
-            cookie_manager.delete(_COOKIE_NAME)
-        except Exception:
-            pass
+            try:
+                auth.sign_out(_token)
+            except Exception:
+                pass
+        _cookie_clear()
         st.session_state.clear()
-        st.session_state["_logged_out"] = True
         st.rerun()
 
 pages = [

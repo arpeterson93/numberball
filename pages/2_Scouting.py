@@ -134,6 +134,8 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
 
         rows.append({
             **{k: v for k, v in play.items() if k not in ("game_code", "away", "home")},
+            "game_code":    gc,
+            "season":       season,
             "game_type":    "live",
             "game_id":      game_db_id,
             "away":         play.get("away"),
@@ -470,6 +472,12 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
         _rp   = _look(r.get(_field))
         _rname = _rp.get("name", "") if _rp else ""
         st.session_state[f"pred_calc_{_base}b"] = _rname if _rname in _runner_opts else "Empty"
+        # Store season-correct runner speed so _calc_ranges uses the right season's stats
+        _rspd_raw = _rp.get("spd") if _rp else None
+        if _rspd_raw is not None:
+            st.session_state[f"pred_calc_{_base}b_spd"] = int(_rspd_raw)
+        else:
+            st.session_state.pop(f"pred_calc_{_base}b_spd", None)
 
     if p_tf in _all_teams:
         st.session_state["pred_calc_p_team"] = p_tf
@@ -571,7 +579,21 @@ def _render_calc_inputs():
     with col_s2:
         st.checkbox("Bunting?", key="pred_calc_bunt")
     with col_s3:
-        st.checkbox("Hit & Run?", key="pred_calc_hnr")
+        _hnr_obc = (
+            ("1" if st.session_state.get("pred_calc_3b", "Empty") != "Empty" else "0")
+            + ("1" if st.session_state.get("pred_calc_2b", "Empty") != "Empty" else "0")
+            + ("1" if st.session_state.get("pred_calc_1b", "Empty") != "Empty" else "0")
+        )
+        if _hnr_obc == "000":
+            _hnr_obc = st.session_state.get("pred_calc_hist_obc", "000") or "000"
+        _hnr_valid = (
+            st.session_state.get("pred_calc_outs", 0) < 2
+            and _hnr_obc in {"001", "010", "011", "101"}
+        )
+        if not _hnr_valid:
+            st.session_state["pred_calc_hnr"] = False
+        st.checkbox("Hit & Run?", key="pred_calc_hnr", disabled=not _hnr_valid,
+                    help="Only valid with 0-1 outs and runner on 1B, 2B, 1B+2B, or 1B+3B")
     with col_s4:
         _has_3b = (
             st.session_state.get("pred_calc_3b", "Empty") != "Empty"
@@ -619,11 +641,18 @@ def _calc_ranges(bunt: bool | None = None, hit_and_run: bool | None = None, infi
         + ("1" if _r1n != "Empty" else "0")
     )
     _hist_obc = st.session_state.get("pred_calc_hist_obc", "000") or "000"
-    _obc = _named_obc if _named_obc != "000" else _hist_obc
-    # Runner speeds from named runners (None = unknown, calc will use neutral rate)
-    _r1_spd = _stat(_pbyn.get(_r1n, {}), "spd") if (_r1n != "Empty" and _obc[2] == "1") else None
-    _r2_spd = _stat(_pbyn.get(_r2n, {}), "spd") if (_r2n != "Empty" and _obc[1] == "1") else None
-    _r3_spd = _stat(_pbyn.get(_r3n, {}), "spd") if (_r3n != "Empty" and _obc[0] == "1") else None
+    # Per-bit merge: keep named "1" where resolved; fill unresolved "0" from hist
+    _obc = "".join(n if n == "1" else h for n, h in zip(_named_obc, _hist_obc))
+    # Runner speeds: named runner -> pbyn lookup; unnamed hist_obc runner -> stored fetch speed
+    def _runner_spd(name: str, spd_key: str, obc_bit: bool) -> int | None:
+        if not obc_bit:
+            return None
+        if name != "Empty":
+            return _stat(_pbyn.get(name, {}), "spd") if name in _pbyn else None
+        return st.session_state.get(spd_key)  # hist_obc runner: speed stored at fetch time
+    _r1_spd = _runner_spd(_r1n, "pred_calc_1b_spd", _obc[2] == "1")
+    _r2_spd = _runner_spd(_r2n, "pred_calc_2b_spd", _obc[1] == "1")
+    _r3_spd = _runner_spd(_r3n, "pred_calc_3b_spd", _obc[0] == "1")
     return utils.compute_at_bat_ranges(
         pitcher_hand=st.session_state.get("pred_calc_p_hand","R"),
         pitcher_mov=int(st.session_state.get("pred_calc_p_mov",3)),
@@ -659,16 +688,16 @@ def _play_picker(src_df: pd.DataFrame, season_key: str, game_key: str, play_key:
         _h_season  = st.selectbox("Season", _h_seasons, key=season_key)
     _df_hs = src_df[src_df["season"] == _h_season]
     with col_hg:
-        _h_games = sorted(_df_hs["game_id"].dropna().unique())
-        _h_game  = st.selectbox("Game", _h_games, format_func=lambda x: f"Game {int(x)}", key=game_key)
-    _df_hg = _df_hs[_df_hs["game_id"] == _h_game].sort_values("id")
+        _h_games = sorted(_df_hs["game_code"].dropna().unique())
+        _h_game  = st.selectbox("Game", _h_games, format_func=lambda x: f"Game {x}", key=game_key)
+    _df_hg = _df_hs[_df_hs["game_code"] == _h_game].sort_values("id")
     with col_hp:
         _h_po = _df_hg[["id","inning","half","outs","obc","pitcher_name","batter_name","pitch","swing","result"]].copy()
         _h_po["label"] = _h_po.apply(
             lambda r: (
                 f"{'▲' if str(r['half']).lower().startswith('t') else '▼'}{int(r['inning'])}"
                 f"  {r.get('result','')}  {r['batter_name']} vs {r['pitcher_name']}"
-            ), axis=1,
+            ), axis=1, result_type="reduce",
         )
         _h_ids  = _h_po["id"].tolist()
         _h_play = st.selectbox(
@@ -781,6 +810,25 @@ elif pred_mode == "Fetch Live Matchup":
             st.session_state["game_tab_sel"]     = _mg["id"]
             _fl = _mg.get("league", "MLN")
             st.session_state["mgr_league"] = _fl
+            # Resolve runner identities from sheet player IDs -> look up speed
+            _season_mg  = _mg.get("season")
+            _is_mln_mg  = _fl.upper() == "MLN"
+            _runner_ids = _gp.get("runner_ids", {})
+            for _base_ltr, _base_key in [("1", "1B"), ("2", "2B"), ("3", "3B")]:
+                _rid = _runner_ids.get(_base_key)
+                _rp_sheet: dict = {}
+                if _rid:
+                    if _is_mln_mg and _season_mg:
+                        _rp_sheet = _p_by_sid.get(f"{_season_mg}_{_rid}", {})
+                    if not _rp_sheet:
+                        _rp_sheet = _p_by_pid.get(str(_rid), {})
+                _rname = _rp_sheet.get("name", "") if _rp_sheet else ""
+                _rspd  = _rp_sheet.get("spd")      if _rp_sheet else None
+                st.session_state[f"pred_calc_{_base_ltr}b"] = _rname if _rname in _runner_opts else "Empty"
+                if _rspd is not None:
+                    st.session_state[f"pred_calc_{_base_ltr}b_spd"] = int(_rspd)
+                else:
+                    st.session_state.pop(f"pred_calc_{_base_ltr}b_spd", None)
             _fi = utils.game_innings(_fl)
             st.session_state["mgr_away_score"] = int(_mg["away_score"]) if _mg.get("away_score") is not None else 0
             st.session_state["mgr_home_score"] = int(_mg["home_score"]) if _mg.get("home_score") is not None else 0
@@ -801,6 +849,23 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state["mgr_inning"] = _li
                     st.session_state["mgr_half"]   = "Top" if _lh == "top" else "Bottom"
         st.session_state.pop("mgr_steal_runner", None)
+
+        # Fetch HnR / InfIn / HnR+InfIn scenario sheets in parallel
+        # Match the fetched URL against teams.ballpark_url for the current season
+        _stadium_sheets = db.get_stadium_sheets(url, _MLN_QS_SEASON)
+        _scenario_urls = {
+            k: _stadium_sheets[k]
+            for k in ("sheet_hnr", "sheet_ifinfield", "sheet_hnr_ifin")
+            if _stadium_sheets.get(k)
+        }
+        if _scenario_urls:
+            _scenario_ranges = utils.fetch_scenario_ranges(_scenario_urls)
+            st.session_state["pred_hnr_ranges"]       = _scenario_ranges.get("sheet_hnr")
+            st.session_state["pred_ifinfield_ranges"] = _scenario_ranges.get("sheet_ifinfield")
+            st.session_state["pred_hnr_ifin_ranges"]  = _scenario_ranges.get("sheet_hnr_ifin")
+        else:
+            for _k in ("pred_hnr_ranges", "pred_ifinfield_ranges", "pred_hnr_ifin_ranges"):
+                st.session_state.pop(_k, None)
 
     # Auto-fetch saved/default sheet on first page load
     _auto_url = st.session_state.get("pred_sheet_sel") or (sheet_urls[0] if sheet_urls else None)
@@ -1082,7 +1147,7 @@ with tab_p:
         n_pitches = st.session_state.get("last_n_pitch", 20)
 
     # ── percentile card ───────────────────────────────────────────────────────
-    if tab_p_pitcher != "All":
+    if tab_p_pitcher != "All" and not df_p.empty:
         _pitcher_stats_df = _load_pitcher_stats()
         _recent_df    = df_p.sort_values("id").tail(n_pitches)
         _recent_stats = utils.compute_recent_pitcher_stats(_recent_df)
@@ -1123,22 +1188,22 @@ with tab_p:
                     st.markdown("**1 - Recency**")
                     st.slider("Older vs Newer", 0, 100, value=50, key="p_rel_recency",
                               help="50=equal. 0=weight older pitches more. 100=weight recent pitches more.")
-                    st.number_input("Weight", 0, 100, value=34, step=1, key="p_rel_g1")
+                    st.number_input("Weight", 0, 100, value=20, step=1, key="p_rel_g1")
                 with _prw2:
                     st.markdown("**2 - Result**")
                     st.slider("Pitcher vs Batter", 0, 100, value=50, key="p_rel_result",
                               help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
-                    st.number_input("Weight ", 0, 100, value=33, step=1, key="p_rel_g2")
+                    st.number_input("Weight ", 0, 100, value=40, step=1, key="p_rel_g2")
                     st.toggle("Previous result", key="p_rel_result_offset", value=True,
                               help="Weight each pitch by the result of the previous pitch instead of its own result.")
                 with _prw3:
                     st.markdown("**3 - State**")
                     st.slider("Any vs Similar", 0, 100, value=0, key="p_rel_state",
                               help="50=equal. 100=upweight pitches from similar OBC + outs situations.")
-                    st.number_input("Weight  ", 0, 100, value=33, step=1, key="p_rel_g3")
-                _prg1 = st.session_state.get("p_rel_g1", 34)
-                _prg2 = st.session_state.get("p_rel_g2", 33)
-                _prg3 = st.session_state.get("p_rel_g3", 33)
+                    st.number_input("Weight  ", 0, 100, value=40, step=1, key="p_rel_g3")
+                _prg1 = st.session_state.get("p_rel_g1", 20)
+                _prg2 = st.session_state.get("p_rel_g2", 40)
+                _prg3 = st.session_state.get("p_rel_g3", 40)
                 _prg_tot = max(_prg1 + _prg2 + _prg3, 1)
                 st.caption(
                     f"Normalized: Recency {_prg1/_prg_tot*100:.0f}% | "
@@ -1160,9 +1225,9 @@ with tab_p:
                 recency_slider=st.session_state.get("p_rel_recency", 50),
                 result_slider=st.session_state.get("p_rel_result",  50),
                 state_slider=st.session_state.get("p_rel_state",   50),
-                g1=st.session_state.get("p_rel_g1", 34),
-                g2=st.session_state.get("p_rel_g2", 33),
-                g3=st.session_state.get("p_rel_g3", 33),
+                g1=st.session_state.get("p_rel_g1", 20),
+                g2=st.session_state.get("p_rel_g2", 40),
+                g3=st.session_state.get("p_rel_g3", 40),
                 result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
             )
             _pa_weights_p = utils.compute_pa_weights(
@@ -1266,14 +1331,21 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         st.divider()
         _actual_pitches_p = len(df_p_pred.sort_values("id").tail(n_pitches)) if not df_p_pred.empty else 0
         st.subheader(f"Last {_actual_pitches_p} Pitches")
-        swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
-                               help="+1: shifts swing markers right by one AB.")
+        _p_chart_c1, _p_chart_c2 = st.columns([3, 2])
+        with _p_chart_c1:
+            swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
+                                   help="+1: shifts swing markers right by one AB.")
+        with _p_chart_c2:
+            est_delta_p = st.toggle("Est. Δ overlay", key="est_delta_p", value=False,
+                                    help="Shows batter's estimated delta (swing vs prior pitch) as a diamond line on the delta chart.")
         st.plotly_chart(
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {_actual_pitches_p} Pitches",
                                         swing_offset=(swing_off_p == "+1"),
                                         segment_games=True,
-                                        tick_weights=_lnc_weights_p or None),
+                                        tick_weights=_lnc_weights_p or None,
+                                        pannable=True,
+                                        est_delta_overlay=est_delta_p),
             width="stretch", key="p_last_n",
         )
 
@@ -1296,6 +1368,38 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 width="stretch", config={"displayModeBar": False}, key="p_delta_delta_hm",
             )
 
+            _dd_p_abs_hist = (
+                df_p[df_p["pitch_circ_delta"].notna()]
+                .sort_values("id")["pitch_circ_delta"].abs().astype(int).tolist()
+            )
+            _dd_p_def_init   = _dd_p_abs_hist[-2] if len(_dd_p_abs_hist) >= 2 else 250
+            _dd_p_def_follow = _dd_p_abs_hist[-1] if _dd_p_abs_hist else 250
+            _ddc1_p, _ddc2_p = st.columns(2)
+            with _ddc1_p:
+                _dd_p_init_val = st.number_input(
+                    "Initial |Δ|", min_value=0, max_value=500,
+                    value=_dd_p_def_init, step=1, key=f"dd_p_init_{tab_p_pitcher}",
+                )
+            with _ddc2_p:
+                _dd_p_follow_val = st.number_input(
+                    "Following |Δ|", min_value=0, max_value=500,
+                    value=_dd_p_def_follow, step=1, key=f"dd_p_follow_{tab_p_pitcher}",
+                )
+            _n_bkts_p = 500 // dd_bucket_p
+            _dd_p_ii = min(max(0, (_dd_p_init_val - 1) // dd_bucket_p if _dd_p_init_val > 0 else 0), _n_bkts_p - 1)
+            _dd_p_fi = min(max(0, (_dd_p_follow_val - 1) // dd_bucket_p if _dd_p_follow_val > 0 else 0), _n_bkts_p - 1)
+            _dd_p_init_lbl   = f"{_dd_p_ii * dd_bucket_p}-{(_dd_p_ii + 1) * dd_bucket_p}"
+            _dd_p_follow_lbl = f"{_dd_p_fi * dd_bucket_p}-{(_dd_p_fi + 1) * dd_bucket_p}"
+            _third_delta_fig_p = utils.delta_third_dist(
+                df_p, value_col="pitch", bucket_size=dd_bucket_p,
+                init_label=_dd_p_init_lbl, follow_label=_dd_p_follow_lbl,
+            )
+            if _third_delta_fig_p:
+                st.plotly_chart(_third_delta_fig_p, width="stretch",
+                                config={"displayModeBar": False}, key="p_delta_third")
+            else:
+                st.caption("Not enough data for this delta sequence.")
+
             st.divider()
             st.subheader("Next Pitch Delta vs Prior Diff")
             st.caption("How does a pitcher adjust their next pitch based on how close the previous swing was?")
@@ -1310,9 +1414,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.caption("How often each pitch range is followed by each other pitch range. Click a cell to see the 3rd pitch distribution.")
             _hzp_sl1, _hzp_sl2 = st.columns(2)
             with _hzp_sl1:
-                init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=100, key="hz_init_bucket_p")
+                init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=200, key="hz_init_bucket_p")
             with _hzp_sl2:
-                follow_bucket_p = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=100, key="hz_follow_bucket_p")
+                follow_bucket_p = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=200, key="hz_follow_bucket_p")
             group_cols_p = ["game_id","pitcher_name"] if tab_p_pitcher != "All" else ["pitcher_name"]
 
             st.plotly_chart(
@@ -1366,6 +1470,38 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                                    title=f"First Pitch of Inning (n={len(_fpi)})"),
                                 width="stretch", config={"displayModeBar": False}, key="p_fpi")
 
+            # ── pitch delta distributions ─────────────────────────────────────────
+            st.subheader("Pitch Delta Distributions")
+            st.caption("Left: last pitch of one inning → first of next. Middle: last pitch of one game → first of next. Right: consecutive at-bats within the same game.")
+            _inn_deltas_p  = utils.between_inning_deltas(df_p, value_col="pitch")
+            _game_deltas_p = utils.between_game_deltas(df_p, value_col="pitch")
+            _p_delta_signed = st.toggle("Signed", value=True, key="p_delta_signed",
+                                        help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
+            _bd_c1_p, _bd_c2_p = st.columns(2)
+            with _bd_c1_p:
+                if not _inn_deltas_p.empty:
+                    st.plotly_chart(
+                        utils.delta_histogram(_inn_deltas_p, title="Between-Inning", signed=_p_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="p_inn_delta",
+                    )
+                else:
+                    st.caption("Not enough between-inning data.")
+            with _bd_c2_p:
+                if not _game_deltas_p.empty:
+                    st.plotly_chart(
+                        utils.delta_histogram(_game_deltas_p, title="Between-Game", signed=_p_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="p_game_delta",
+                    )
+                else:
+                    st.caption("Not enough between-game data.")
+            if not _deltas_p.empty:
+                st.plotly_chart(
+                    utils.delta_histogram(_deltas_p, title="Previous AB", signed=_p_delta_signed),
+                    width="stretch", config={"displayModeBar": False}, key="p_delta",
+                )
+            else:
+                st.caption("Need at least 2 at-bats from the same pitcher.")
+
             # ── zone by out count ─────────────────────────────────────────────────
             st.subheader("Zone by Out Count")
             _cols_p = st.columns(3)
@@ -1387,20 +1523,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.plotly_chart(utils.zone_heatmap(_df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {},
                                                        title=f"{_lbl} (n={len(_df_obc)})"), width="stretch", key=f"p_obc_{_lbl}")
 
-            # ── delta ─────────────────────────────────────────────────────────────
-            st.divider()
-            st.subheader("Pitch Delta (Change from Previous AB)")
-            if not _deltas_p.empty:
-                st.plotly_chart(utils.delta_histogram(_deltas_p), width="stretch", key="p_delta")
-            else:
-                st.caption("Need at least 2 at-bats from the same pitcher in a session.")
-
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
         with st.expander("Tendencies", expanded=not _simple_mode):
             _tm_p, _tl_p = st.columns(2)
             with _tm_p:
-                st.markdown("**Meme Pitches (42, 69, 420)**")
+                st.markdown("**Meme Pitches (1, 67, 69, 420, 666, 1000)**")
                 _mc = {str(n): int((df_p["pitch"] == n).sum()) for n in utils.MEME_NUMBERS}
                 _mt = sum(_mc.values())
                 st.metric("Meme Pitches", _mt, help=f"{_mt / _p_total * 100:.1f}% of all pitches" if _p_total else "")
@@ -1515,22 +1643,22 @@ with tab_b:
                     st.markdown("**1 - Recency**")
                     st.slider("Older vs Newer", 0, 100, value=50, key="b_rel_recency",
                               help="50=equal. 0=weight older swings more. 100=weight recent swings more.")
-                    st.number_input("Weight", 0, 100, value=34, step=1, key="b_rel_g1")
+                    st.number_input("Weight", 0, 100, value=20, step=1, key="b_rel_g1")
                 with _brw2:
                     st.markdown("**2 - Result**")
                     st.slider("Pitcher vs Batter", 0, 100, value=50, key="b_rel_result",
                               help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
-                    st.number_input("Weight ", 0, 100, value=33, step=1, key="b_rel_g2")
+                    st.number_input("Weight ", 0, 100, value=40, step=1, key="b_rel_g2")
                     st.toggle("Previous result", key="b_rel_result_offset", value=True,
                               help="Weight each swing by the result of the previous swing instead of its own result.")
                 with _brw3:
                     st.markdown("**3 - State**")
                     st.slider("Any vs Similar", 0, 100, value=50, key="b_rel_state",
                               help="50=equal. 100=upweight swings from similar OBC + outs situations.")
-                    st.number_input("Weight  ", 0, 100, value=33, step=1, key="b_rel_g3")
-                _brg1 = st.session_state.get("b_rel_g1", 34)
-                _brg2 = st.session_state.get("b_rel_g2", 33)
-                _brg3 = st.session_state.get("b_rel_g3", 33)
+                    st.number_input("Weight  ", 0, 100, value=40, step=1, key="b_rel_g3")
+                _brg1 = st.session_state.get("b_rel_g1", 20)
+                _brg2 = st.session_state.get("b_rel_g2", 40)
+                _brg3 = st.session_state.get("b_rel_g3", 40)
                 _brg_tot = max(_brg1 + _brg2 + _brg3, 1)
                 st.caption(
                     f"Normalized: Recency {_brg1/_brg_tot*100:.0f}% | "
@@ -1552,9 +1680,9 @@ with tab_b:
                 recency_slider=st.session_state.get("b_rel_recency", 50),
                 result_slider=st.session_state.get("b_rel_result",  50),
                 state_slider=st.session_state.get("b_rel_state",   50),
-                g1=st.session_state.get("b_rel_g1", 34),
-                g2=st.session_state.get("b_rel_g2", 33),
-                g3=st.session_state.get("b_rel_g3", 33),
+                g1=st.session_state.get("b_rel_g1", 20),
+                g2=st.session_state.get("b_rel_g2", 40),
+                g3=st.session_state.get("b_rel_g3", 40),
                 result_offset=bool(st.session_state.get("b_rel_result_offset", True)),
             )
             _pa_weights_b = utils.compute_pa_weights(
@@ -1668,7 +1796,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                         title=f"Last {_actual_swings_b} Swings",
                                         swing_offset=(swing_off_b == "+1"),
                                         highlight_name=_hl_name,
-                                        tick_weights=_lnc_weights_b or None),
+                                        tick_weights=_lnc_weights_b or None,
+                                        pannable=True),
             width="stretch", key="b_last_n",
         )
 
@@ -1689,6 +1818,38 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 width="stretch", config={"displayModeBar": False}, key="b_delta_delta_hm",
             )
 
+            _dd_b_abs_hist = (
+                df_b[df_b["swing_circ_delta"].notna()]
+                .sort_values("id")["swing_circ_delta"].abs().astype(int).tolist()
+            ) if "swing_circ_delta" in df_b.columns else []
+            _dd_b_def_init   = _dd_b_abs_hist[-2] if len(_dd_b_abs_hist) >= 2 else 250
+            _dd_b_def_follow = _dd_b_abs_hist[-1] if _dd_b_abs_hist else 250
+            _ddc1_b, _ddc2_b = st.columns(2)
+            with _ddc1_b:
+                _dd_b_init_val = st.number_input(
+                    "Initial |Δ|", min_value=0, max_value=500,
+                    value=_dd_b_def_init, step=1, key=f"dd_b_init_{tab_b_batter}",
+                )
+            with _ddc2_b:
+                _dd_b_follow_val = st.number_input(
+                    "Following |Δ|", min_value=0, max_value=500,
+                    value=_dd_b_def_follow, step=1, key=f"dd_b_follow_{tab_b_batter}",
+                )
+            _n_bkts_b = 500 // dd_bucket_b
+            _dd_b_ii = min(max(0, (_dd_b_init_val - 1) // dd_bucket_b if _dd_b_init_val > 0 else 0), _n_bkts_b - 1)
+            _dd_b_fi = min(max(0, (_dd_b_follow_val - 1) // dd_bucket_b if _dd_b_follow_val > 0 else 0), _n_bkts_b - 1)
+            _dd_b_init_lbl   = f"{_dd_b_ii * dd_bucket_b}-{(_dd_b_ii + 1) * dd_bucket_b}"
+            _dd_b_follow_lbl = f"{_dd_b_fi * dd_bucket_b}-{(_dd_b_fi + 1) * dd_bucket_b}"
+            _third_delta_fig_b = utils.delta_third_dist(
+                df_b, value_col="swing", bucket_size=dd_bucket_b,
+                init_label=_dd_b_init_lbl, follow_label=_dd_b_follow_lbl,
+            )
+            if _third_delta_fig_b:
+                st.plotly_chart(_third_delta_fig_b, width="stretch",
+                                config={"displayModeBar": False}, key="b_delta_third")
+            else:
+                st.caption("Not enough data for this delta sequence.")
+
             st.divider()
             st.subheader("Next Swing Delta vs Prior Diff")
             st.caption("How does a batter adjust their next swing based on how close the previous pitch was?")
@@ -1703,9 +1864,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.caption("How often each swing range is followed by each other swing range. Click a cell to see the 3rd swing distribution.")
             _hzb_sl1, _hzb_sl2 = st.columns(2)
             with _hzb_sl1:
-                init_bucket_b   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=100, key="hz_init_bucket_b")
+                init_bucket_b   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=200, key="hz_init_bucket_b")
             with _hzb_sl2:
-                follow_bucket_b = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=100, key="hz_follow_bucket_b")
+                follow_bucket_b = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=200, key="hz_follow_bucket_b")
             group_cols_b = ["game_id","batter_name"] if tab_b_batter != "All" else ["batter_name"]
 
             st.plotly_chart(
@@ -1759,6 +1920,42 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                                    title=f"First Pitch of Inning (n={len(_fpib)})"),
                                 width="stretch", config={"displayModeBar": False}, key="b_fpi")
 
+            # ── swing delta distributions ─────────────────────────────────────────
+            st.subheader("Swing Delta Distributions")
+            st.caption("Left: last swing of one inning → first of next. Middle: last swing of one game → first of next. Right: consecutive at-bats within the same game.")
+            _inn_deltas_b  = utils.between_inning_deltas(df_b, value_col="swing")
+            _game_deltas_b = utils.between_game_deltas(df_b, value_col="swing")
+            _b_delta_signed = st.toggle("Signed", value=True, key="b_delta_signed",
+                                        help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
+            _bd_c1_b, _bd_c2_b = st.columns(2)
+            with _bd_c1_b:
+                if not _inn_deltas_b.empty:
+                    st.plotly_chart(
+                        utils.delta_histogram(_inn_deltas_b, title="Between-Inning", signed=_b_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="b_inn_delta",
+                    )
+                else:
+                    st.caption("Not enough between-inning data.")
+            with _bd_c2_b:
+                if not _game_deltas_b.empty:
+                    st.plotly_chart(
+                        utils.delta_histogram(_game_deltas_b, title="Between-Game", signed=_b_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="b_game_delta",
+                    )
+                else:
+                    st.caption("Not enough between-game data.")
+            if not _deltas_b.empty:
+                st.plotly_chart(
+                    utils.delta_histogram(_deltas_b, title="Previous AB", signed=_b_delta_signed),
+                    width="stretch", config={"displayModeBar": False}, key="b_delta",
+                )
+                _dc1b, _dc2b, _dc3b = st.columns(3)
+                _dc1b.metric("Avg Δ", f"{_deltas_b.mean():+.1f}")
+                _dc2b.metric("Avg |Δ|", f"{_deltas_b.abs().mean():.1f}")
+                _dc3b.metric("n", len(_deltas_b))
+            else:
+                st.caption("Need at least 2 at-bats from the same batter.")
+
             # ── zone by out count ─────────────────────────────────────────────────
             st.subheader("Swing Zone by Out Count")
             _cols_b = st.columns(3)
@@ -1789,25 +1986,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.plotly_chart(utils.zone_heatmap(_df_res["swing_zone"].value_counts().to_dict() if not _df_res.empty else {},
                                                        title=f"{_lbl} (n={len(_df_res)})"), width="stretch", key=f"b_res_{_lbl}")
 
-            # ── delta ─────────────────────────────────────────────────────────────
-            st.divider()
-            st.subheader("Swing Delta (Change from Previous AB)")
-            _deltas_b = df_b["swing_circ_delta"].dropna()
-            if not _deltas_b.empty:
-                st.plotly_chart(utils.delta_histogram(_deltas_b, title="Swing Delta Distribution"), width="stretch", key="b_delta")
-                _dc1b, _dc2b, _dc3b = st.columns(3)
-                _dc1b.metric("Avg Delta", f"{_deltas_b.mean():+.1f}")
-                _dc2b.metric("Avg |Delta|", f"{_deltas_b.abs().mean():.1f}")
-                _dc3b.metric("# with Delta", len(_deltas_b))
-            else:
-                st.caption("Need at least 2 at-bats from the same batter in a session.")
-
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
         with st.expander("Tendencies", expanded=not _simple_mode):
             _tm_b, _tl_b = st.columns(2)
             with _tm_b:
-                st.markdown("**Meme Swings (42, 69, 420)**")
+                st.markdown("**Meme Swings (1, 67, 69, 420, 666, 1000)**")
                 _mc_b = {str(n): int((df_b["swing"] == n).sum()) for n in utils.MEME_NUMBERS}
                 _mt_b = sum(_mc_b.values())
                 st.metric("Meme Swings", _mt_b, help=f"{_mt_b / _b_total * 100:.1f}% of all swings" if _b_total else "")
@@ -2101,6 +2285,102 @@ with tab_m:
         with st.expander("Outcome Breakdown", expanded=False):
             st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
 
+    def _show_debug_panel(dbg: dict, label: str):
+        if not dbg:
+            return
+        with st.container(border=True):
+            st.caption(f"Debug: {label}")
+            _dc1, _dc2 = st.columns(2)
+            with _dc1:
+                st.dataframe(pd.DataFrame({
+                    "Stat": ["d_hit", "d_pow", "d_spd", "d_eye", "hnd"],
+                    "Value": [dbg.get("d_hit"), dbg.get("d_pow"), dbg.get("d_spd"),
+                              dbg.get("d_eye"), dbg.get("hnd")],
+                }), hide_index=True, use_container_width=True)
+            with _dc2:
+                st.dataframe(pd.DataFrame({
+                    "OBR": ["HR", "3B", "2B", "1B", "IF1B", "BB", "K"],
+                    "Width": [dbg.get("w_hr"), dbg.get("w_3b"), dbg.get("w_2b"),
+                              dbg.get("w_1b"), dbg.get("w_if1b"), dbg.get("w_bb"),
+                              dbg.get("w_k")],
+                }), hide_index=True, use_container_width=True)
+            if dbg.get("mode") == "bunt":
+                _bunt_items = [
+                    ("total_hit",   dbg.get("total_hit")),
+                    ("base_hit",    dbg.get("base_hit")),
+                    ("B1BWH",       dbg.get("b1bwh")),
+                    ("B1B",         dbg.get("b1b")),
+                    ("TP base",     dbg.get("b_tp_base")),
+                    ("LOTP base",   dbg.get("b_lotp_base")),
+                    ("pool",        dbg.get("b_go_pool")),
+                    ("SacB rate",   f"{dbg.get('sacb_rate', 0):.4f}"),
+                    ("BDP rate",    f"{dbg.get('bdp_rate', 0):.4f}"),
+                    ("SacB",        dbg.get("b_sacb")),
+                    ("BDP",         dbg.get("b_bdp")),
+                    ("TP final",    dbg.get("b_tp_final")),
+                    ("LOTP final",  dbg.get("b_lotp_final")),
+                    ("GO/BFC",      dbg.get("b_go")),
+                ]
+                st.dataframe(pd.DataFrame({
+                    "Checkpoint": [x[0] for x in _bunt_items],
+                    "Value":      [x[1] for x in _bunt_items],
+                }), hide_index=True, use_container_width=True)
+            else:
+                # --- Well-Hit rates ---
+                _wh_items: list[tuple[str, object]] = [
+                    ("s1 (1B spd)",   dbg.get("s1")),
+                    ("s2 (2B spd)",   dbg.get("s2")),
+                    ("s3 (3B spd)",   dbg.get("s3")),
+                    ("lead spd",      dbg.get("lead_spd")),
+                    ("trail spd",     dbg.get("trail_spd")),
+                    ("lead WH%",      f"{dbg.get('lead_wh', 0):.4f}"),
+                    ("trail WH%",     f"{dbg.get('trail_wh') or 0:.4f}"),
+                    ("2BWH rate",     f"{dbg.get('2bwh_rate', 0):.4f}"),
+                    ("1BWH rate",     f"{dbg.get('1bwh_rate', 0):.4f}"),
+                    ("1BWH2 rate",    f"{dbg.get('1bwh2_rate', 0):.4f}"),
+                    ("IF1B bonus",    dbg.get("if1b_bonus")),
+                    ("w_2BWH",        dbg.get("w_2bwh")),
+                    ("w_1BWH",        dbg.get("w_1bwh")),
+                    ("w_1BWH2",       dbg.get("w_1bwh2")),
+                    ("w_1B plain",    dbg.get("w_1b_plain")),
+                ]
+                # --- FO detail ---
+                _fo_items: list[tuple[str, object]] = [
+                    ("after_hits",    dbg.get("after_hits")),
+                    ("FO rate",       f"{dbg.get('fo_rate', 0):.4f}"),
+                    ("PO rate",       f"{dbg.get('po_rate', 0):.4f}"),
+                    ("w_FO pool",     dbg.get("w_fo")),
+                    ("w_PO",          dbg.get("w_po")),
+                    ("DFO%",          f"{dbg.get('dfo_pct', 0):.4f}"),
+                ]
+                for _fn, _fw in (dbg.get("fo_rows") or []):
+                    _fo_items.append((_fn, _fw))
+                # --- GO detail ---
+                _go_items: list[tuple[str, object]] = [
+                    ("GO pool",       dbg.get("w_go")),
+                    ("dp_base",       f"{dbg.get('dp_base', 0):.4f}"),
+                    ("dp_mult",       dbg.get("dp_mult")),
+                ]
+                for _gn, _gr, _gw in (dbg.get("go_detail") or []):
+                    _go_items.append((f"{_gn} rate", _gr))
+                    _go_items.append((f"{_gn} width", _gw))
+                _dc3, _dc4, _dc5 = st.columns(3)
+                with _dc3:
+                    st.dataframe(pd.DataFrame({
+                        "Well-Hit":  [x[0] for x in _wh_items],
+                        "Value":     [x[1] for x in _wh_items],
+                    }), hide_index=True, use_container_width=True)
+                with _dc4:
+                    st.dataframe(pd.DataFrame({
+                        "FO Detail": [x[0] for x in _fo_items],
+                        "Value":     [x[1] for x in _fo_items],
+                    }), hide_index=True, use_container_width=True)
+                with _dc5:
+                    st.dataframe(pd.DataFrame({
+                        "GO Detail": [x[0] for x in _go_items],
+                        "Value":     [x[1] for x in _go_items],
+                    }), hide_index=True, use_container_width=True)
+
     def _hnr_outcome_grid(hnr_ranges, obc, outs, hnr_k_steal_safe_rng, remaining=None, batting_lead=0):
         """Like _outcome_grid but splits K into K+SB and K+CS rows using normal steal speed."""
         sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
@@ -2129,8 +2409,8 @@ with tab_m:
                     sb_row["Exp WP"] = f"{_wp_for_state(remaining, k_nout, sb_obc, batting_lead + int(round(sb_runs))) * 100:.1f}%"
                 rows.append(sb_row)
                 # K + CS row
-                cs_obc  = _hnr_steal_cs_obc(obc)
                 cs_nout = min(k_nout + 1, 3)
+                cs_obc  = "000" if cs_nout >= 3 else _hnr_steal_cs_obc(obc)
                 cs_er   = round(utils.get_expected_runs(cs_nout, cs_obc) or 0, 2) if cs_nout < 3 else 0.0
                 cs_row = {
                     "_sort":      cs_er,
@@ -2199,21 +2479,25 @@ with tab_m:
         return ev, p1r, p2r, p3pr
 
     def _hnr_steal_advance_obc(obc: str) -> tuple[str, int]:
-        """Advance the H&R runner: 1B->2B if present, else 2B->3B, else 3B->home."""
+        """Advance the H&R runner on a successful steal-on-K."""
         on_3b, on_2b, on_1b = obc[0] == "1", obc[1] == "1", obc[2] == "1"
+        if on_1b and on_2b:
+            return "110", 0     # both advance: 1B->2B, 2B->3B
         if on_1b:
-            return f"{obc[0]}10", 0
+            return f"{obc[0]}10", 0  # 1B->2B, 3B stays
         elif on_2b:
-            return "100", 0
+            return "100", 0     # 2B->3B
         elif on_3b:
-            return "000", 1
+            return "000", 1     # 3B->home
         return obc, 0
 
     def _hnr_steal_cs_obc(obc: str) -> str:
         """OBC after the H&R runner is caught stealing."""
-        if obc[2] == "1":       # 1B runner caught - remove them, keep 3B
+        if obc[1] == "1" and obc[2] == "1":  # 011: 2B runner caught at 3rd, 1B safely at 2nd
+            return "010"
+        if obc[2] == "1":       # 1B runner caught (001, 101)
             return f"{obc[0]}00"
-        elif obc[1] == "1":     # 2B runner caught
+        elif obc[1] == "1":     # 2B runner caught (010)
             return f"{obc[0]}00"
         else:                   # 3B runner caught
             return "000"
@@ -2232,8 +2516,8 @@ with tab_m:
                 k_nout = min(k_nout, 3)
                 s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
                 s_ner  = utils.get_expected_runs(k_nout, s_obc) or 0 if k_nout < 3 else 0
-                cs_obc  = _hnr_steal_cs_obc(_current_obc)
                 cs_nout = min(k_nout + 1, 3)
+                cs_obc  = "000" if cs_nout >= 3 else _hnr_steal_cs_obc(_current_obc)
                 cs_ner  = utils.get_expected_runs(cs_nout, cs_obc) or 0 if cs_nout < 3 else 0
                 ev += prob * (sp * (s_runs + s_ner) + op * cs_ner)
                 _simm  = int(s_runs)
@@ -2266,7 +2550,9 @@ with tab_m:
         if obc_bit != "1":
             return None
         _n = st.session_state.get(f"pred_calc_{base_ltr}b", "Empty")
-        return _stat(_pbyn.get(_n, {}), "spd") if _n != "Empty" else None
+        if _n != "Empty":
+            return _stat(_pbyn.get(_n, {}), "spd") if _n in _pbyn else None
+        return st.session_state.get(f"pred_calc_{base_ltr}b_spd")
 
     _mgr_r1 = _mgr_rspd("1", _current_obc[2])
     _mgr_r2 = _mgr_rspd("2", _current_obc[1])
@@ -2290,14 +2576,20 @@ with tab_m:
         runner_2b_spd=_mgr_r2,
         runner_3b_spd=_mgr_r3,
     )
-    _if_in_ranges = utils.compute_at_bat_ranges(
-        bunt=False, hit_and_run=False, infield_in=True, **_mgr_kwargs,
+    _if_in_checked = bool(st.session_state.get("pred_calc_if_in", False))
+
+    _if_in_ranges = (
+        st.session_state.get("pred_ifinfield_ranges")
+        or utils.compute_at_bat_ranges(
+            bunt=False, hit_and_run=False, infield_in=True, **_mgr_kwargs,
+        )
     )
-    _hnr_ranges  = utils.compute_at_bat_ranges(
-        bunt=False,
-        hit_and_run=True,
-        infield_in=bool(st.session_state.get("pred_calc_if_in", False)),
-        **_mgr_kwargs,
+    _hnr_sheet_key = "pred_hnr_ifin_ranges" if _if_in_checked else "pred_hnr_ranges"
+    _hnr_ranges = (
+        st.session_state.get(_hnr_sheet_key)
+        or utils.compute_at_bat_ranges(
+            bunt=False, hit_and_run=True, infield_in=_if_in_checked, **_mgr_kwargs,
+        )
     )
 
     _steal_runners = st.session_state.get("steal_runner_data") or []
@@ -2320,26 +2612,19 @@ with tab_m:
     # Default safe range: lead runner from sheet/manual, or fallback to 50
     _default_safe_rng = _steal_runners[0]["safe_range"] if _steal_runners else 50
 
-    # H&R valid only with < 2 outs and a single-runner OBC (1,2,4,5 = 001,010,100,101)
-    _HNR_VALID_OBCS = {"001", "010", "100", "101"}
+    # H&R valid with < 2 outs and runner on 1B, 2B, 1B+2B, or 1B+3B
+    _HNR_VALID_OBCS = {"001", "010", "011", "101"}
     _has_hnr = _current_obc in _HNR_VALID_OBCS and _current_outs < 2 and bool(_steal_runners)
     if _has_hnr:
-        # For OBC 101 (1B+3B), H&R steals with the 1B runner specifically
+        # For OBC 101 (1B+3B), H&R steals with the 1B runner; all others use the lead runner
         _hnr_steal_runner = (
             next((r for r in _steal_runners if r["base"] == "1B"), None)
             if _current_obc == "101"
             else (_steal_runners[0] if _steal_runners else None)
         )
-        _hnr_safe_rng = (
-            utils.steal_safe_range_plus1_spd(
-                _hnr_steal_runner["safe_range"], _hnr_steal_runner["base"]
-            )
-            if _hnr_steal_runner else 50
-        )
         _hnr_normal_rng = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else 50
     else:
         _hnr_steal_runner = None
-        _hnr_safe_rng     = 50
         _hnr_normal_rng   = 50
 
     # Infield In valid when runner on 3rd and fewer than 2 outs
@@ -2388,8 +2673,9 @@ with tab_m:
                 k_nout = min(k_nout, 3)
                 s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
                 s_wp = _wp_for_state(remaining, k_nout, s_obc, batting_lead + int(s_runs))
-                cs_obc = _hnr_steal_cs_obc(_current_obc)
-                cs_wp  = _wp_for_state(remaining, min(k_nout + 1, 3), cs_obc, batting_lead)
+                cs_nout_wp = min(k_nout + 1, 3)
+                cs_obc = "000" if cs_nout_wp >= 3 else _hnr_steal_cs_obc(_current_obc)
+                cs_wp  = _wp_for_state(remaining, cs_nout_wp, cs_obc, batting_lead)
                 total += prob * (sp * s_wp + op * cs_wp)
             else:
                 runs_f, new_obc, new_outs = _lookup(r, _current_obc, _current_outs)
@@ -2512,8 +2798,27 @@ with tab_m:
                 use_container_width=True, hide_index=True,
             )
 
-        _proposed = st.number_input("Proposed Value", min_value=1, max_value=1000,
+        _proposed  = st.number_input("Proposed Value", min_value=1, max_value=1000,
                                     value=500, step=1, key="mgr_proposed")
+        _mgr_debug = st.toggle("Debug Info", key="mgr_debug")
+
+        if _mgr_debug:
+            _, _swing_dbg = utils.compute_at_bat_ranges(
+                bunt=False, hit_and_run=False, infield_in=False, _debug=True, **_mgr_kwargs,
+            )
+            _, _bunt_dbg = utils.compute_at_bat_ranges(
+                bunt=True, hit_and_run=False, infield_in=False, _debug=True, **_mgr_kwargs,
+            )
+            _, _hnr_dbg = utils.compute_at_bat_ranges(
+                bunt=False, hit_and_run=True,
+                infield_in=bool(st.session_state.get("pred_calc_if_in", False)),
+                _debug=True, **_mgr_kwargs,
+            )
+            _, _ifin_dbg = utils.compute_at_bat_ranges(
+                bunt=False, hit_and_run=False, infield_in=True, _debug=True, **_mgr_kwargs,
+            )
+        else:
+            _swing_dbg = _bunt_dbg = _hnr_dbg = _ifin_dbg = {}
 
         st.divider()
 
@@ -2521,6 +2826,8 @@ with tab_m:
         st.plotly_chart(utils.manager_color_bar(int(_proposed), result_ranges,
                         label="Swing", x_label="Swing Values"),
                         use_container_width=True, key="mgr_bar_swing")
+        if _mgr_debug:
+            _show_debug_panel(_swing_dbg, "Normal Swing")
         _show_outcome_grid(result_ranges, _current_obc, _current_outs, "grid_swing",
                            _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
@@ -2532,6 +2839,8 @@ with tab_m:
         st.plotly_chart(utils.manager_color_bar(int(_proposed), _bunt_ranges,
                         label="Bunt", x_label="Bunt Values"),
                         use_container_width=True, key="mgr_bar_bunt")
+        if _mgr_debug:
+            _show_debug_panel(_bunt_dbg, "Bunt")
         _show_outcome_grid(_bunt_ranges, _current_obc, _current_outs, "grid_bunt",
                            _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
@@ -2554,26 +2863,24 @@ with tab_m:
             st.subheader("Hit and Run")
             _hnr_base_lbl = _hnr_steal_runner["base"] if _hnr_steal_runner else "?"
             _orig_rng     = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else "?"
-            st.caption(
-                f"{_hnr_base_lbl} runner: swing at spd+1 range {_orig_rng} -> {_hnr_safe_rng}  |  "
-                f"K: batter out + steal at normal range {_orig_rng}"
-            )
+            st.caption(f"K: {_hnr_base_lbl} runner steals at normal range {_orig_rng}")
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _hnr_ranges,
                             label="Swing", x_label="Swing Values"),
                             use_container_width=True, key="mgr_bar_hr")
+            if _mgr_debug:
+                _show_debug_panel(_hnr_dbg, "Hit and Run")
             _show_hnr_outcome_grid(_hnr_ranges, _current_obc, _current_outs, _hnr_normal_rng,
                                    "grid_hr", _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
         if _has_if_in:
             st.divider()
             st.subheader("Infield In (opponent defensive option)")
-            st.caption(
-                "Ranges if the defense brings the infield in: IF1B removed, +20 to 1B, GORA disabled. "
-                f"Normal swing ER: {_current_er:.2f} vs. Infield In ER: {ev_ifin:.2f}"
-            )
+            st.caption("+20 to 1B, IF1B shifted to 1B, GORA disabled.")
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _if_in_ranges,
                             label="Swing", x_label="Swing Values"),
                             use_container_width=True, key="mgr_bar_ifin")
+            if _mgr_debug:
+                _show_debug_panel(_ifin_dbg, "Infield In")
             _show_outcome_grid(_if_in_ranges, _current_obc, _current_outs, "grid_ifin",
                                _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 

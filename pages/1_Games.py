@@ -90,6 +90,7 @@ def _sync_plays(sheet_id: str) -> tuple[int, list[str]]:
 
         rows.append({
             **{k: v for k, v in play.items() if k != "game_code"},
+            "game_code":    gc,
             "league":       "RLN",
             "game_type":    "live",
             "season":       _CURRENT_RLN_SEASON,
@@ -186,6 +187,7 @@ def _sync_scrimmage_plays(game: dict) -> tuple[int, list[str]]:
 
         rows.append({
             **{k: v for k, v in play.items() if k != "game_code"},
+            "game_code":    gc,
             "league":       "MLN",
             "game_type":    "scrimmage",
             "game_id":      game_db_id,
@@ -391,6 +393,8 @@ def _sync_mln_plays(sheet_id: str, tab: str = "Plays", season_override: int | No
 
         rows.append({
             **{k: v for k, v in play.items() if k not in ("game_code", "away", "home")},
+            "game_code":    gc,
+            "season":       season,
             "game_type":    "live",
             "game_id":      game_db_id,
             "away":         play.get("away"),

@@ -1,9 +1,9 @@
 games,games,games,games,players,players,players,players,plays,plays,plays,plays,plays,teams,teams,teams,teams
 Supabase,RLN,MLN,MLN Archive,Supabase,RLN,MLN,MLN Archive,Supabase,RLN,MLN,MLN Archive,Scrimmage,Supabase,RLN,MLN,MLN Archive
 id,,,,id,,,,id,,,,,id,,,
-game_code,Game#,Game#,Game#,player_id,ID,ID,ID,game_id,Game,Game,Game,Game,team_id,Team ID,Team ID,Team ID
+game_code,Game#,Game#,Game#,player_id,ID,ID,ID,game_id,,,,,team_id,Team ID,Team ID,Team ID
 game_id_short,GameID,GameID,GameID,team,Team,Team,Team,play_num,Play,Play,Play,Play,abbrev,Abv,Abv,Abv
-session_number,Session,Session,Session,gm,GM,GM,GM,game_code,,,,,location,Location,Location,Location
+session_number,Session,Session,Session,gm,GM,GM,GM,game_code,Game,Game,Game,Game,location,Location,Location,Location
 away_team,Away,Away,Away,name,Government Name,Government Name,Full Player Name,timestamp,Timestamp,Timestamp,Timestamp*,Timestamp,team_name,Team Name,Team Name,Team Name
 home_team,Home,Home,Home,last_name,Last Name,Last Name,Last Name,umpire,Umpire,Umpire,Umpire,Umpire,role_id,Role ID,Role ID,Role ID
 umpire,Umpire Assignment,Umpire Assignment,Umpire,discord_id,Discord ID,Discord ID,Discord ID*,away,Away,Away,Away,Away,hype_id,Hype ID,Hype ID,Hype ID

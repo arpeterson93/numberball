@@ -258,6 +258,23 @@ def get_all_teams() -> list[dict]:
     return _fetch_all(_client().table("teams").select("*").order("abbrev"))
 
 
+@st.cache_data(ttl=3600)
+def get_stadium_sheets(ballpark_url: str, season: int) -> dict:
+    """Return scenario sheet URLs for the stadium matching ballpark_url and season.
+
+    Columns fetched: sheet_hnr, sheet_ifinfield, sheet_hnr_ifin.
+    Returns an empty dict if no matching team row is found.
+    """
+    rows = _fetch_all(
+        _client().table("teams")
+        .select("sheet_hnr, sheet_ifinfield, sheet_hnr_ifin")
+        .eq("ballpark_url", ballpark_url)
+        .eq("season", season)
+        .limit(1)
+    )
+    return rows[0] if rows else {}
+
+
 def bulk_upsert_teams(teams: list[dict]) -> int:
     """Upsert a list of team dicts keyed on s_team. Returns rows processed."""
     return _bulk_upsert("teams", teams, "s_team")

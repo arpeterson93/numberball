@@ -1,6 +1,7 @@
 """Derived stats, constants, and chart helpers for Numberball."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -42,7 +43,7 @@ RESULT_CATEGORIES = {
     "XBH": ["2B", "3B", "HR"],
 }
 
-MEME_NUMBERS = [42, 69, 420]
+MEME_NUMBERS = [1, 67, 69, 420, 666, 1000]
 
 # Run Expectancy Matrix: (outs, obc) -> expected runs (overwritten by CSV on load)
 RUN_EXPECTANCY = {
@@ -740,7 +741,7 @@ def get_res_category(result: str, diff: int) -> str:
 
 _OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "DFO", "SacF", "FC", "LO",
                 "LCO", "FC3rd", "FCH", "SacB", "CS", "CS2", "CS3", "CS4",
-                "BFC", "BGO"}
+                "BFC"}
 _DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP", "KCS"}
 _TP_RESULTS  = {"TP", "LOTP"}
 
@@ -967,24 +968,40 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_wraparound"] = pd.NA
     if sw.any():
         sw_df = df[sw]
-        df.loc[sw, "pitch_delta"] = sw_df.groupby(["game_id", "pitcher_name"])["pitch"].diff()
+        gk_pit = (sw_df["game_id"].astype(str) + "|" + sw_df["pitcher_name"].fillna(""))
+        gk_bat = (sw_df["game_id"].astype(str) + "|" + sw_df["batter_name"].fillna(""))
+        df.loc[sw, "pitch_delta"] = sw_df.groupby(gk_pit)["pitch"].diff()
         df.loc[sw, "pitch_circ_delta"] = sw_df.groupby(
-            ["game_id", "pitcher_name"], group_keys=False
+            gk_pit, group_keys=False
         )["pitch"].apply(_circ_delta_group)
         df.loc[sw, "swing_circ_delta"] = sw_df.groupby(
-            ["game_id", "batter_name"], group_keys=False
+            gk_bat, group_keys=False
         )["swing"].apply(_circ_delta_group)
         df.loc[sw, "pitch_wraparound"] = sw_df.groupby(
-            ["game_id", "pitcher_name"], group_keys=False
+            gk_pit, group_keys=False
         )["pitch"].apply(_wraparound_group)
         # Second derivative and approach - re-read df to pick up pitch_circ_delta
         sw_df2 = df[sw]
+        gk_pit2 = (sw_df2["game_id"].astype(str) + "|" + sw_df2["pitcher_name"].fillna(""))
         df.loc[sw, "pitch_circ_delta2"] = sw_df2.groupby(
-            ["game_id", "pitcher_name"], group_keys=False
+            gk_pit2, group_keys=False
         )["pitch_circ_delta"].apply(lambda g: g.abs().diff().abs())
+        # Use SeriesGroupBy (pitch only) with swing captured via closure to avoid
+        # DataFrameGroupBy.apply returning a DataFrame in pandas 2.x
+        _sw2_swing = sw_df2["swing"]
+        def _approach_fn(pitch_grp: pd.Series) -> pd.Series:
+            idx = pitch_grp.index
+            pitches = pitch_grp.astype(int).tolist()
+            swings  = _sw2_swing.loc[idx].astype(int).tolist()
+            results = [float("nan")]
+            for i in range(1, len(pitches)):
+                prev_dist = abs(circular_signed_delta(pitches[i - 1], swings[i - 1]))
+                curr_dist = abs(circular_signed_delta(pitches[i], swings[i - 1]))
+                results.append(1.0 if curr_dist < prev_dist else 0.0)
+            return pd.Series(results, index=idx)
         df.loc[sw, "pitch_approach"] = sw_df2.groupby(
-            ["game_id", "pitcher_name"], group_keys=False
-        )[["pitch", "swing"]].apply(_approach_group)
+            gk_pit2, group_keys=False
+        )["pitch"].apply(_approach_fn)
 
     return df
 
@@ -1072,24 +1089,119 @@ def zone_heatmap(
     return fig
 
 
-def delta_histogram(deltas: pd.Series, title: str = "Pitch Delta Distribution") -> go.Figure:
-    """Histogram of pitch-to-pitch changes."""
-    fig = go.Figure(go.Histogram(
-        x=deltas.dropna(),
-        nbinsx=30,
-        marker_color="#4C78A8",
+def delta_histogram(
+    deltas: pd.Series,
+    title: str = "Pitch Delta Distribution",
+    signed: bool = True,
+) -> go.Figure:
+    """Bar chart of circular deltas. Signed: green/red by direction. Unsigned: neutral blue."""
+    deltas = deltas.dropna()
+    if deltas.empty:
+        return go.Figure()
+
+    if not signed:
+        deltas = deltas.abs()
+
+    bin_size = 50
+    bins = list(range(-500, 501, bin_size)) if signed else list(range(0, 501, bin_size))
+    counts, edges = np.histogram(deltas.astype(float), bins=bins)
+    centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
+    total = int(counts.sum())
+
+    if signed:
+        colors = [
+            "#4CAF50" if c > 25 else "#d6604d" if c < -25 else "#888888"
+            for c in centers
+        ]
+    else:
+        colors = ["#4C78A8"] * len(centers)
+
+    hover = [
+        f"{int(edges[i]):+d} to {int(edges[i + 1]):+d}: {counts[i]} ({counts[i] / total * 100:.1f}%)"
+        for i in range(len(counts))
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=centers, y=counts,
+        marker_color=colors,
+        marker_line_width=0,
+        hovertext=hover, hoverinfo="text",
+        name="",
     ))
+    mean_val = float(deltas.mean())
+    mean_fmt = f"{mean_val:.0f}" if not signed else f"{mean_val:+.0f}"
+    fig.add_vline(
+        x=mean_val, line_dash="dot",
+        line_color="rgba(255,255,100,0.75)", line_width=1.5,
+        annotation_text=f"Mean {mean_fmt}",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color="rgba(255,255,100,0.85)"),
+    )
+    x_title = "|Δ|" if not signed else "Δ"
+    x_range = [-25, 525] if not signed else [-525, 525]
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
-        xaxis_title="Change from Previous Pitch",
+        title=dict(text=f"{title} (n={total})", x=0.5, xanchor="center"),
+        xaxis=dict(title=x_title, tickmode="linear", dtick=100, range=x_range),
         yaxis_title="Count",
-        height=280,
-        margin=dict(l=40, r=10, t=45, b=40),
+        height=300,
+        showlegend=False,
+        bargap=0.06,
+        margin=dict(l=45, r=10, t=52, b=45),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
+
+
+def between_inning_deltas(df: pd.DataFrame, value_col: str = "pitch") -> pd.Series:
+    """Signed delta from last pitch of one inning to first pitch of the next, same game and pitcher/batter."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_sw = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    if len(df_sw) < 2:
+        return pd.Series(dtype=float)
+
+    df_sw["_inn_key"] = df_sw["inning"].astype(str) + "_" + df_sw["half"].fillna("").astype(str)
+    df_sw["_prev_inn"] = df_sw.groupby(["game_id", group_col])["_inn_key"].shift(1)
+    df_sw["_prev_val"] = df_sw.groupby(["game_id", group_col])[value_col].shift(1)
+
+    mask = (
+        df_sw["_prev_inn"].notna() &
+        df_sw["_prev_val"].notna() &
+        (df_sw["_inn_key"] != df_sw["_prev_inn"])
+    )
+    subset = df_sw[mask].copy()
+    if subset.empty:
+        return pd.Series(dtype=float)
+
+    return subset.apply(
+        lambda r: circular_signed_delta(int(r["_prev_val"]), int(r[value_col])), axis=1
+    ).dropna()
+
+
+def between_game_deltas(df: pd.DataFrame, value_col: str = "pitch") -> pd.Series:
+    """Signed delta from last pitch of one game to first pitch of the next, same pitcher/batter."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_sw = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    if len(df_sw) < 2:
+        return pd.Series(dtype=float)
+
+    df_sw["_prev_game"] = df_sw.groupby([group_col])["game_id"].shift(1)
+    df_sw["_prev_val"]  = df_sw.groupby([group_col])[value_col].shift(1)
+
+    mask = (
+        df_sw["_prev_game"].notna() &
+        df_sw["_prev_val"].notna() &
+        (df_sw["game_id"] != df_sw["_prev_game"])
+    )
+    subset = df_sw[mask].copy()
+    if subset.empty:
+        return pd.Series(dtype=float)
+
+    return subset.apply(
+        lambda r: circular_signed_delta(int(r["_prev_val"]), int(r[value_col])), axis=1
+    ).dropna()
 
 
 _HOT_ZONE_LABELS = [
@@ -1191,13 +1303,16 @@ def last_n_combined_chart(
     highlight_name: str | None = None,
     segment_games: bool = False,
     tick_weights: list[float] | None = None,
+    pannable: bool = False,
+    est_delta_overlay: bool = False,
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
     highlight_name: swing markers for that batter use a star symbol.
     segment_games: breaks lines at game boundaries; dashes lines across inning boundaries.
     """
-    df_last = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id").tail(n).reset_index(drop=True)
+    _df_filtered = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id")
+    df_last = _df_filtered.reset_index(drop=True) if pannable else _df_filtered.tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
     pitches = df_last["pitch"].astype(int).tolist()
@@ -1253,7 +1368,13 @@ def last_n_combined_chart(
             if i < len(xs) - 1 and i < n_rows - 1:
                 r0 = df_last.iloc[i]
                 r1 = df_last.iloc[i + 1]
-                same_game = r0["game_id"] == r1["game_id"]
+                g0, g1 = r0["game_id"], r1["game_id"]
+                if pd.notna(g0) and pd.notna(g1):
+                    same_game = g0 == g1
+                elif "game_code" in df_last.columns:
+                    same_game = r0["game_code"] == r1["game_code"]
+                else:
+                    same_game = True
                 same_inn  = (r0["inning"] == r1["inning"] and r0["half"] == r1["half"])
                 if not same_game:
                     sx.append(None); sy.append(None)
@@ -1364,11 +1485,41 @@ def last_n_combined_chart(
                 textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
             ), row=1, col=1)
 
+    # Bars first (no text — labels added as a separate trace on top of everything)
     fig.add_trace(go.Bar(
         x=x_delta, y=[abs(d) for d in deltas], marker_color=colors,
-        text=[f"{d:+d}" for d in deltas], textposition="outside",
-        textfont=dict(size=10), hovertext=hover, hoverinfo="text",
+        hovertext=hover, hoverinfo="text",
         name="Delta", showlegend=False,
+    ), row=2, col=1)
+
+    # Estimated delta overlay on top of bars: swing[i] vs pitch[i-1] at each PA position
+    if est_delta_overlay and n_actual > 1:
+        est_deltas = [
+            circular_signed_delta(pitches[j], swings[j + 1])
+            for j in range(n_actual - 1)
+        ]
+        est_colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in est_deltas]
+        est_hover  = [
+            f"PA {x}: batter swing {swings[j+1]} vs prev pitch {pitches[j]} → est Δ {est_deltas[j]:+d}"
+            for j, x in enumerate(x_delta)
+        ]
+        fig.add_trace(go.Scatter(
+            x=x_delta, y=[abs(d) for d in est_deltas],
+            mode="lines+markers", name="Est. Δ",
+            line=dict(color="rgba(200,200,200,0.55)", width=1.5),
+            marker=dict(color=est_colors, size=8, symbol="diamond",
+                        line=dict(color="rgba(255,255,255,0.4)", width=0.5)),
+            hovertext=est_hover, hoverinfo="text",
+        ), row=2, col=1)
+
+    # Delta labels rendered last so they sit above everything including est. delta markers
+    fig.add_trace(go.Scatter(
+        x=x_delta, y=[abs(d) for d in deltas],
+        mode="text",
+        text=[f"{d:+d}" for d in deltas],
+        textposition="top center",
+        textfont=dict(size=10),
+        showlegend=False, hoverinfo="skip",
     ), row=2, col=1)
 
     # Add result labels as text below the delta bars
@@ -1386,19 +1537,23 @@ def last_n_combined_chart(
     ), row=2, col=1)
 
     # Color-coded weight circles below result labels
-    if tick_weights is not None and len(tick_weights) == n_actual:
-        import numpy as _np
+    # tick_weights may cover only the last N entries (pannable shows all career PAs)
+    if tick_weights is not None and 0 < len(tick_weights) <= n_actual:
         _wt_display = swing_offset and len(tick_weights) > 1
         _wt_vals = tick_weights[1:] if _wt_display else tick_weights
-        if len(_wt_vals) == len(result_x):
-            _w = _np.array(_wt_vals, dtype=float)
+        _n_wt = len(_wt_vals)
+        # Align circles to the last _n_wt positions of result_x
+        _circle_x = result_x[-_n_wt:] if len(result_x) >= _n_wt else result_x
+        _wt_aligned = _wt_vals[-len(_circle_x):]
+        if _circle_x:
+            _w = np.array(_wt_aligned, dtype=float)
             _wmin, _wmax = _w.min(), _w.max()
             _color_vals = (
                 ((_w - _wmin) / (_wmax - _wmin)).tolist()
-                if _wmax > _wmin else [0.5] * len(_wt_vals)
+                if _wmax > _wmin else [0.5] * len(_wt_aligned)
             )
             fig.add_trace(go.Scatter(
-                x=result_x, y=[-90] * len(result_x),
+                x=_circle_x, y=[-90] * len(_circle_x),
                 mode="markers",
                 marker=dict(
                     symbol="circle", size=10,
@@ -1413,15 +1568,16 @@ def last_n_combined_chart(
                 xaxis="x2", yaxis="y2",
             ), row=2, col=1)
 
-    x_range = [0.5, n_actual + 0.5]
+    _view_start = max(0.5, n_actual - n + 0.5) if pannable else 0.5
+    x_range = [_view_start, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
     fig.update_xaxes(
         title_text="← Older  ·  PA #  ·  Newer →",
         tickmode="linear", dtick=1, range=x_range, row=2, col=1,
     )
-    fig.update_yaxes(range=[0, 1080], row=1, col=1)
+    fig.update_yaxes(range=[0, 1080], fixedrange=pannable, row=1, col=1)
     fig.update_yaxes(
-        range=[-110, 540], row=2, col=1,
+        range=[-110, 540], fixedrange=pannable, row=2, col=1,
         tickmode="array", tickvals=[100, 200, 300, 400, 500],
     )
 
@@ -1430,9 +1586,14 @@ def last_n_combined_chart(
         height=560,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=45, r=10, t=60, b=60),
-        dragmode=False,
-        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
-                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+        dragmode="pan" if pannable else False,
+        modebar_remove=(
+            ["zoom2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+             "autoScale2d", "resetScale2d", "toImage"]
+            if pannable else
+            ["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+             "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"]
+        ),
     )
     return fig
 
@@ -1466,6 +1627,36 @@ def get_sheet_name(sheet_url: str) -> str:
     except Exception:
         pass
     return f"Sheet {sheet_id[:12]}…"
+
+
+def fetch_scenario_ranges(sheet_urls: dict[str, str]) -> dict[str, list | None]:
+    """Fetch result ranges from multiple scenario sheet URLs in parallel.
+
+    sheet_urls: mapping of key -> URL, e.g. {"sheet_hnr": "https://..."}
+    Returns same keys mapped to parsed range lists, or None if a fetch fails.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: dict[str, list | None] = {k: None for k in sheet_urls}
+
+    def _fetch(key: str, url: str):
+        try:
+            ranges, _, _, _, _, _ = parse_result_ranges_from_sheet(url)
+            return key, ranges
+        except Exception:
+            return key, None
+
+    valid = {k: v for k, v in sheet_urls.items() if v}
+    if not valid:
+        return results
+
+    with ThreadPoolExecutor(max_workers=len(valid)) as ex:
+        futures = {ex.submit(_fetch, k, v): k for k, v in valid.items()}
+        for fut in as_completed(futures):
+            key, ranges = fut.result()
+            results[key] = ranges
+
+    return results
 
 
 def parse_result_ranges_from_sheet(sheet_url: str):
@@ -1640,7 +1831,16 @@ def parse_gameplay_from_sheet(sheet_url: str) -> dict:
             runners.append({"base": base, "safe_range": _default_safe_rng_for(base, raw_runners)})
     runners.sort(key=lambda r: base_order.get(r["base"], 9))
 
-    return {"outs": outs, "obc": obc, "steal_runners": runners}
+    # Raw player IDs from S6/T6/U6 - used by caller to look up runner speeds
+    runner_ids = {}
+    if on_1b and s6 and s6 != "0":
+        runner_ids["1B"] = s6
+    if on_2b and t6 and t6 != "0":
+        runner_ids["2B"] = t6
+    if on_3b and u6 and u6 != "0":
+        runner_ids["3B"] = u6
+
+    return {"outs": outs, "obc": obc, "steal_runners": runners, "runner_ids": runner_ids}
 
 
 def _default_safe_rng_for(base: str, raw_runners) -> int:
@@ -1781,7 +1981,7 @@ def compute_pa_weights(
     gn1, gn2, gn3 = g1 / g_total, g2 / g_total, g3 / g_total
 
     pos = np.linspace(0, 1, n) if n > 1 else np.array([0.5])
-    recency_w = np.exp(tr * (2 * pos - 1) * 3)
+    recency_w = np.exp(tr * (2 * pos - 1) * 1.151)
 
     result_w = np.ones(n)
     for i in range(n):
@@ -1791,7 +1991,7 @@ def compute_pa_weights(
         else:
             r = df_s.iloc[src_i].get("result") if "result" in df_s.columns else None
             q = _BATTING_QUALITY.get(str(r) if pd.notna(r) else "", 0.5)
-        result_w[i] = np.exp(ts * (2 * q - 1) * 3)
+        result_w[i] = np.exp(ts * (2 * q - 1) * 1.151)
 
     state_w = np.ones(n)
     if "obc" in df_s.columns and "outs" in df_s.columns:
@@ -1803,7 +2003,7 @@ def compute_pa_weights(
             obc_sim  = sum(a == b for a, b in zip(cur_obc, pa_obc)) / 3.0
             outs_sim = 1.0 - abs(current_outs - pa_outs) / 2.0
             similarity = 0.5 * obc_sim + 0.5 * outs_sim
-            state_w[i] = np.exp(te * (2 * similarity - 1) * 3)
+            state_w[i] = np.exp(te * (2 * similarity - 1) * 1.151)
 
     def _norm01(w: "numpy.ndarray") -> "numpy.ndarray":
         wmin, wmax = w.min(), w.max()
@@ -2624,10 +2824,12 @@ def compute_at_bat_ranges(
     runner_1b_spd: int | None = None,
     runner_2b_spd: int | None = None,
     runner_3b_spd: int | None = None,
-) -> list[dict]:
+    _debug: bool = False,
+) -> "list[dict] | tuple[list[dict], dict]":
     """Compute at-bat result ranges from pitcher/batter stats.
 
     Returns list of dicts: {result, range, low, high}.
+    When _debug=True, returns (result_list, debug_dict) with intermediate values.
     Verified against MLN Calculator 11.0.
     hit_and_run: batter CON -1; runner SPD +1 for all dynamic rate calcs.
     infield_in: IF1B removed, +20 to 1B (W14); GORA = 0.
@@ -2665,17 +2867,31 @@ def compute_at_bat_ranges(
     d_spd = clamp(batter_spd - pitcher_awr, -5, 5)
     d_eye = clamp(batter_eye - pitcher_cmd, -5, 5)
 
+    _dbg: dict = {
+        "d_hit": d_hit, "d_pow": d_pow, "d_spd": d_spd, "d_eye": d_eye,
+        "hnd": round(hnd, 3),
+    }
+
     def w_std(key, diff):
         return max(1, math.floor(_obr_lookup(key, diff) * hnd))
 
     w_hr   = w_std("HR", d_pow)
     w_3b   = w_std("3B", d_spd)
     w_2b   = w_std("2B", d_spd)
-    w_if1b = 0 if infield_in else w_std("IF1B", d_spd)
+    # Base IF1B width (SPD:AWR diff + handedness) - always computed for bonus transfers
+    _base_if1b = w_std("IF1B", d_spd)
+    # Slot is removed when infield_in (AC17); not affected by hit_and_run
+    w_if1b = 0 if infield_in else _base_if1b
     w_bb   = w_std("BB", d_eye)
     w_k    = w_std("K", d_hit)
 
-    # 1B: Hit-base * handedness + modifiers + constant - XBH [+ 20 if Infield In (W14)]
+    _dbg.update({
+        "w_hr": w_hr, "w_3b": w_3b, "w_2b": w_2b, "w_1b": None,
+        "w_if1b": w_if1b, "w_bb": w_bb, "w_k": w_k,
+    })
+
+    # 1B: Hit-base * handedness + modifiers + constant - XBH
+    # +20 fixed when infield_in (Excel W14: IF(AC17,20,0))
     hit_base = math.floor(_obr_lookup("Hit", d_hit) * hnd)
     w_1b = max(1,
         hit_base
@@ -2686,11 +2902,12 @@ def compute_at_bat_ranges(
         - w_hr - w_3b - w_2b
         + (20 if infield_in else 0)
     )
+    _dbg["w_1b"] = w_1b
 
     # FO and PO: rate-based from d_pow
     fo_rate = _obr_lookup("FO_HND", d_pow) / 500
     po_rate = _obr_lookup("PO_HND", d_pow) / 500
-    after_hits = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb)
+    after_hits = 500 - (w_hr + w_3b + w_2b + w_1b + _base_if1b + w_bb)
     after_bb   = 500 - w_bb
     w_fo = max(1, math.floor(after_hits * fo_rate * (1 - po_rate)))
     w_po = max(1, math.floor(after_bb   * fo_rate * po_rate))
@@ -2699,21 +2916,68 @@ def compute_at_bat_ranges(
     w_lo = 4 if (_has_runners and outs < 2) else 0
 
     # GO: remainder of 501 total (0-500 inclusive)
-    w_go = 500 - (w_hr + w_3b + w_2b + w_1b + w_if1b + w_bb + w_fo + w_po + w_k + w_lo) + 1
+    # Use _base_if1b (not w_if1b): when II, w_if1b=0 but 1B_plain gains +_base_if1b,
+    # so the IF1B width still comes out of the GO pool either way.
+    w_go = 500 - (w_hr + w_3b + w_2b + w_1b + _base_if1b + w_bb + w_fo + w_po + w_k + w_lo) + 1
 
     if bunt:
-        b1bwh = 9
+        b1bwh   = 9
         total_hit = w_hr + w_3b + w_2b + w_1b + w_if1b
-        base_hit = total_hit - 1
-        spd_mov = batter_spd - pitcher_mov
+        base_hit  = total_hit - 1
+        spd_mov   = batter_spd - pitcher_mov
         b1b = max(1, round((1 + spd_mov * 0.04) * base_hit) - b1bwh)
         b_bb = w_bb
         b_k  = w_k
-        b_go = max(1, 500 - (b1bwh + b1b + b_bb + b_k) + 1)
-        # Fixed bunt order from calculator S67:S75
-        _BUNT_ORDER = ["B1BWH","B1B","BB","SacB","K","GO","BDP","TP","LOTP"]
+        # TP and LOTP: base of 4 each when runners on base (used for SacB/BDP pool)
+        _b_tp_base   = 4 if _has_runners else 0
+        _b_lotp_base = 4 if _has_runners else 0
+        b_go_pool = max(0, 500 - (b1bwh + b1b + b_bb + b_k + _b_tp_base + _b_lotp_base))
+
+        # TP final width: rate (T62) = 1 when outs==0 AND on_1b AND on_2b, else 0
+        _b_tp_active = on_1b and on_2b and outs == 0
+        _b_tp_final  = 4 if _b_tp_active else 0
+
+        # LOTP final width: rate (T63) = 0.25 when outs==0, TP not active, >=2 runners
+        _runner_count = sum(1 for b in [on_1b, on_2b, on_3b] if b)
+        _b_lotp_rate  = 0.25 if (_has_runners and not _b_tp_active and outs == 0 and _runner_count >= 2) else 0.0
+        _b_lotp_final = math.floor(_b_lotp_rate * _b_lotp_base)
+
+        # SacB rate from A85:N89 lookup keyed on d_spd (batter_spd - pitcher_awr)
+        # Bunt use determined by lead runner: on_3b -> Runner Home, on_2b -> Runner to 3rd, else -> Runner to 2nd
+        if not _has_runners:
+            sacb_rate = 0.0
+            bdp_rate  = 0.0
+        elif on_3b:
+            sacb_rate = clampf(0.06 + 0.01 * d_spd)
+            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
+        elif on_2b:
+            sacb_rate = clampf(0.27 + 0.03 * d_spd)
+            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
+        else:
+            sacb_rate = clampf(0.50 + 0.07 * d_spd)
+            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
+        b_sacb = math.floor(sacb_rate * b_go_pool)
+        b_bdp  = math.floor(bdp_rate  * b_go_pool)
+        # BFC = 501 - all other finals (V73 formula); pool uses bases, BFC uses finals
+        b_go = max(0, 501 - b1bwh - b1b - b_bb - b_k - b_sacb - b_bdp - _b_tp_final - _b_lotp_final)
+        _dbg.update({
+            "mode": "bunt",
+            "total_hit": total_hit, "base_hit": base_hit,
+            "b1bwh": b1bwh, "b1b": b1b,
+            "b_tp_base": _b_tp_base, "b_lotp_base": _b_lotp_base,
+            "b_tp_final": _b_tp_final, "b_lotp_final": _b_lotp_final,
+            "b_go_pool": b_go_pool,
+            "sacb_rate": sacb_rate, "bdp_rate": bdp_rate,
+            "b_sacb": b_sacb, "b_bdp": b_bdp, "b_go": b_go,
+        })
+        # BFC when runners on base, GO when bases empty
+        _go_label = "BFC" if _has_runners else "GO"
+        # Bunt order from calculator S67:S75
+        _BUNT_ORDER = ["B1BWH","B1B","BB","SacB","K",_go_label,"BDP","TP","LOTP"]
         _bunt_w: dict[str, int] = {
-            "B1BWH": b1bwh, "B1B": b1b, "BB": b_bb, "K": b_k, "GO": b_go,
+            "B1BWH": b1bwh, "B1B": b1b, "BB": b_bb, "K": b_k,
+            "SacB": b_sacb, _go_label: b_go, "BDP": b_bdp,
+            "TP": _b_tp_final, "LOTP": _b_lotp_final,
         }
         rows = [(_n, _bunt_w[_n]) for _n in _BUNT_ORDER if _bunt_w.get(_n, 0) > 0]
     else:
@@ -2764,12 +3028,12 @@ def compute_at_bat_ranges(
         w_2bwh = math.floor(_2bwh_rate * w_2b)
         w_2b_plain = max(0, w_2b - w_2bwh)
 
-        # 1B split (V33/V34/V35); V33 adds IF1B width when H&R AND Infield In both on
-        # V35 = U35 - V33 - V34 with no enforced minimum (min=1 is on U35 base only)
-        _if1b_bonus = w_if1b if (hit_and_run and infield_in) else 0
+        # 1B split (V33/V34/V35); V33 adds IF1B base width when H&R AND Infield In both on
+        # V35 = U35 - V33 - V34 (catch-all, no min) + IF1B base width when Infield In
+        _if1b_bonus = _base_if1b if (hit_and_run and infield_in) else 0
         w_1bwh  = math.floor(_1bwh_rate  * w_1b) + _if1b_bonus
         w_1bwh2 = math.floor(_1bwh2_rate * w_1b)
-        w_1b_plain = max(0, w_1b - w_1bwh - w_1bwh2)
+        w_1b_plain = max(0, w_1b - w_1bwh - w_1bwh2) + (_base_if1b if infield_in else 0)
 
         # --- I75: DFO% (for FO split) - lead runner WH% sans 2-out mult, only if runner on 2B ---
         _dfo_pct = 0.0
@@ -2780,30 +3044,42 @@ def compute_at_bat_ranges(
 
         # --- FO split (T41-T44 / V41-V44) ---
         # DSacF/DFO require runners on 2B AND 3B, <2 outs
-        # SacF requires runner on 3B, <2 outs; pure FO otherwise
+        # SacF requires runner on 3B, <2 outs
+        # DFO (2B runner tags to 3B) applies whenever runner on 2B, <2 outs
         _fo_rows: list[tuple[str, int]] = []
-        if outs == 2 or not on_3b:
+        if outs == 2 or (not on_2b and not on_3b):
+            # No tagging opportunity or 2-out: plain FO
             _fo_rows = [("FO", w_fo)]
         elif on_3b and on_2b:
-            w_dsacf = math.floor(_dfo_pct * w_fo)
-            w_dfo   = math.floor(_dfo_pct * w_fo)
-            w_sacf  = max(0, w_fo - w_dsacf - w_dfo)
-            if w_dsacf > 0: _fo_rows.append(("DSacF", w_dsacf))
-            if w_dfo   > 0: _fo_rows.append(("DFO",   w_dfo))
-            w_sacf_final = w_fo - sum(w for _, w in _fo_rows)
-            if w_sacf_final > 0: _fo_rows.append(("SacF", w_sacf_final))
-        else:
+            # 3B runner always scores; _dfo_pct share of 2B runner also tags (DSacF), rest is SacF
+            # DSacF and DFO are mutually exclusive - DFO does not appear when on_3b
+            w_dsacf      = math.floor(_dfo_pct * w_fo)
+            w_sacf_final = max(0, w_fo - w_dsacf)
+            if w_dsacf      > 0: _fo_rows.append(("DSacF", w_dsacf))
+            if w_sacf_final > 0: _fo_rows.append(("SacF",  w_sacf_final))
+        elif on_3b:
+            # Only 3B runner; no 2B to tag - entire FO pool is SacF
             _fo_rows = [("SacF", w_fo)]
+        else:  # on_2b and not on_3b: 2B runner can tag to 3B (DFO); no scoring runner
+            w_dfo      = math.floor(_dfo_pct * w_fo)
+            w_fo_plain = max(0, w_fo - w_dfo)
+            if w_dfo      > 0: _fo_rows.append(("DFO", w_dfo))
+            if w_fo_plain > 0: _fo_rows.append(("FO",  w_fo_plain))
 
         # --- LO split (V61/V62) ---
         # TP: runners on 1B AND 2B and 0 outs -> full LO = TP
-        # LODP: all other runner situations
+        # LODP: runners present, no runner on 1B (CSV T61: Z11=1B runner; LODP=0 when Z11>0)
+        # When runner on 1B and no TP: LODP=0, LO width reallocated to K (CSV V59)
         _lo_rows: list[tuple[str, int]] = []
+        _k_lo_bonus = 0
         if w_lo > 0:
             if on_1b and on_2b and outs == 0:
                 _lo_rows = [("TP", w_lo)]
-            else:
+            elif not on_1b:
                 _lo_rows = [("LODP", w_lo)]
+            else:
+                # Runner on 1B (but not TP): LODP rate = 0, reallocated to K (CSV V59)
+                _k_lo_bonus = w_lo
 
         # --- GO split (T48-T57 / V48-V57) ---
         _dp_base = clampf(0.5 - 0.1 * (batter_spd - 3))
@@ -2832,9 +3108,11 @@ def compute_at_bat_ranges(
         gora_rate = _gora_r()
         w_gora = math.floor(gora_rate * w_go)
 
-        _go_rows: list[tuple[str, int]] = []
+        _go_rows:   list[tuple[str, int]] = []
+        _go_detail: list[tuple[str, str, int]] = []  # (name, rate_str, width) for debug
         if w_gora > 0:
             _go_rows.append(("GORA", w_gora))
+            _go_detail.append(("GORA", f"{gora_rate:.4f}", w_gora))
 
         _go_rem = w_go - w_gora
 
@@ -2845,10 +3123,12 @@ def compute_at_bat_ranges(
 
         elif on_1b and not on_2b and not on_3b:         # 001: GORA + FC + DP
             dp_r  = _dp_base
-            w_dp  = math.floor(dp_r * w_go)
-            w_fc  = max(0, _go_rem - w_dp)
+            fc_r  = clampf(1.0 - gora_rate - dp_r)
+            w_fc  = math.floor(fc_r * w_go)
+            w_dp  = max(0, _go_rem - w_fc)   # DP is last -> catch-all
             if w_fc > 0: _go_rows.append(("FC", w_fc))
             if w_dp > 0: _go_rows.append(("DP", w_dp))
+            _go_detail += [("FC", f"{fc_r:.4f}", w_fc), ("DP", "catch", w_dp)]
 
         elif not on_1b and on_2b and not on_3b:         # 010: GORA + GO
             if _go_rem > 0: _go_rows.append(("GO", _go_rem))
@@ -2860,26 +3140,38 @@ def compute_at_bat_ranges(
             dp31_r  = clampf((_dp_base / 2) * (1 + _dp_mult))
             dp21_r  = dp31_r
             fc_half = clampf((1.0 - dp21_r - dp31_r - gora_rate) / 2)
-            w_dp31  = math.floor(dp31_r  * w_go)
             w_dp21  = math.floor(dp21_r  * w_go)
             w_fc    = math.floor(fc_half  * w_go)
             w_fc3rd = math.floor(fc_half  * w_go)
-            w_go_left = max(0, w_go - w_gora - w_dp31 - w_dp21 - w_fc - w_fc3rd)
+            # DP31 absorbs the floor-rounding remainder (CSV V55 catch-all)
+            w_dp31  = max(0, w_go - w_gora - w_dp21 - w_fc - w_fc3rd)
             if w_fc    > 0: _go_rows.append(("FC",    w_fc))
             if w_fc3rd > 0: _go_rows.append(("FC3rd", w_fc3rd))
             if w_dp21  > 0: _go_rows.append(("DP21",  w_dp21))
             if w_dp31  > 0: _go_rows.append(("DP31",  w_dp31))
-            if w_go_left > 0: _go_rows.append(("GO",  w_go_left))
+            _go_detail += [
+                ("FC",    f"{fc_half:.4f}", w_fc),
+                ("FC3rd", f"{fc_half:.4f}", w_fc3rd),
+                ("DP21",  f"{dp21_r:.4f}",  w_dp21),
+                ("DP31",  "catch",          w_dp31),
+            ]
 
         elif on_1b and not on_2b and on_3b:              # 101: GORA + FC + DPRun + DP
             dp_5    = clampf((_dp_base / 2) * (1 + _dp_mult))
             dprun_5 = clampf((1.0 - gora_rate - 2 * dp_5) / 2) if outs == 0 else 0.0
-            w_dp_5    = math.floor(dp_5    * w_go)
+            fc_5    = clampf(1.0 - gora_rate - dp_5 - dprun_5)
             w_dprun_5 = math.floor(dprun_5 * w_go)
-            w_fc_5    = max(0, _go_rem - w_dp_5 - w_dprun_5)
+            w_fc_5    = math.floor(fc_5    * w_go)
+            # DP absorbs the floor-rounding remainder (G64 sheet: FC is a derived rate)
+            w_dp_5    = max(0, _go_rem - w_fc_5 - w_dprun_5)
             if w_dprun_5 > 0: _go_rows.append(("DPRun", w_dprun_5))
             if w_fc_5    > 0: _go_rows.append(("FC",    w_fc_5))
             if w_dp_5    > 0: _go_rows.append(("DP",    w_dp_5))
+            _go_detail += [
+                ("DPRun", f"{dprun_5:.4f}", w_dprun_5),
+                ("FC",    f"{fc_5:.4f}",    w_fc_5),
+                ("DP",    "catch",          w_dp_5),
+            ]
 
         elif not on_1b and on_2b and on_3b:              # 110: GORA + GO
             if _go_rem > 0: _go_rows.append(("GO", _go_rem))
@@ -2890,24 +3182,50 @@ def compute_at_bat_ranges(
             _rem7  = clampf(1.0 - fch_r - gora_rate)
             div_31 = 4 if infield_in else 3
             div_h1 = 2 if infield_in else 3
-            dp31_r  = math.floor(clampf(_rem7 / div_31) * 1000) / 1000
-            dph1_r  = math.floor(clampf(_rem7 / div_h1) * 1000) / 1000
-            dp21_r  = clampf(_rem7 - dp31_r - dph1_r)
+            dp31_r = math.floor(clampf(_rem7 / div_31) * 1000) / 1000
+            dph1_r = math.floor(clampf(_rem7 / div_h1) * 1000) / 1000
+            dp21_r = clampf(_rem7 - dp31_r - dph1_r)
             w_fch  = math.floor(fch_r  * w_go)
             w_dp31 = math.floor(dp31_r * w_go)
-            w_dph1 = math.floor(dph1_r * w_go)
             w_dp21 = math.floor(dp21_r * w_go)
-            w_go_left = max(0, w_go - w_gora - w_fch - w_dp31 - w_dph1 - w_dp21)
+            # DPH1 is last in _SWING_ORDER -> catch-all
+            w_dph1 = max(0, _go_rem - w_fch - w_dp21 - w_dp31)
             if w_fch  > 0: _go_rows.append(("FCH",  w_fch))
             if w_dp21 > 0: _go_rows.append(("DP21", w_dp21))
             if w_dp31 > 0: _go_rows.append(("DP31", w_dp31))
             if w_dph1 > 0: _go_rows.append(("DPH1", w_dph1))
-            if w_go_left > 0: _go_rows.append(("GO", w_go_left))
+            _go_detail += [
+                ("FCH",  f"{fch_r:.4f}",  w_fch),
+                ("DP21", f"{dp21_r:.4f}", w_dp21),
+                ("DP31", f"{dp31_r:.4f}", w_dp31),
+                ("DPH1", "catch",         w_dph1),
+            ]
 
         else:
             # Runners present but OBC not recognized (e.g. runners_on=True, obc="000")
             if _go_rem > 0:
                 _go_rows.append(("GO", _go_rem))
+
+        _dbg.update({
+            "mode": "hnr" if hit_and_run else ("ifin" if infield_in else "swing"),
+            # FO detail
+            "fo_rate": round(fo_rate, 4), "po_rate": round(po_rate, 4),
+            "after_hits": after_hits, "w_fo": w_fo, "w_po": w_po,
+            "dfo_pct": round(_dfo_pct, 4), "fo_rows": list(_fo_rows),
+            # WH detail
+            "s1": s1, "s2": s2, "s3": s3,
+            "lead_spd": _lead_spd, "trail_spd": _trail_spd,
+            "lead_wh": round(_lead_wh, 4),
+            "trail_wh": round(_trail_wh, 4) if _trail_wh is not None else None,
+            "2bwh_rate": round(_2bwh_rate, 4),
+            "1bwh_rate": round(_1bwh_rate, 4), "1bwh2_rate": round(_1bwh2_rate, 4),
+            "if1b_bonus": _if1b_bonus,
+            "w_2bwh": w_2bwh, "w_1bwh": w_1bwh, "w_1bwh2": w_1bwh2, "w_1b_plain": w_1b_plain,
+            # GO detail
+            "dp_base": round(_dp_base, 4), "dp_mult": _dp_mult,
+            "w_go": w_go, "gora_rate": round(gora_rate, 4), "w_gora": w_gora,
+            "go_rows": list(_go_rows), "go_detail": list(_go_detail),
+        })
 
         # Fixed stack order from calculator S column (S26:S63)
         # Order 1-9: hits/BB; 10: GORA; 11-14: FO group; 15: PO;
@@ -2929,7 +3247,7 @@ def compute_at_bat_ranges(
             "2BWH": w_2bwh, "2B": w_2b_plain,
             "1BWH": w_1bwh, "1BWH2": w_1bwh2, "1B": w_1b_plain,
             "IF1B": (w_if1b if not (hit_and_run and infield_in) else 0),
-            "BB": w_bb, "PO": w_po, "K": w_k,
+            "BB": w_bb, "PO": w_po, "K": w_k + _k_lo_bonus,
         }
         for _name, _w in _fo_rows:
             _widths[_name] = _widths.get(_name, 0) + _w
@@ -2947,6 +3265,8 @@ def compute_at_bat_ranges(
             continue
         result.append({"result": name, "range": width, "low": pos, "high": pos + width - 1})
         pos += width
+    if _debug:
+        return result, _dbg
     return result
 
 
@@ -3121,7 +3441,9 @@ def next_delta_vs_prior_delta_heatmap(
     ct = pd.crosstab(df_sw["_next_delta_cat"], df_sw["_prior_delta_cat"]).reindex(
         index=labels, columns=labels, fill_value=0
     )
-    col_totals = ct.sum(axis=0).replace(0, 1)
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
+    col_totals = _col_n.replace(0, 1)
     ct_norm = ct.div(col_totals, axis=1) * 100
     z_norm = ct_norm.values.tolist()
     z_raw = ct.values.tolist()
@@ -3131,6 +3453,24 @@ def next_delta_vs_prior_delta_heatmap(
         for i in range(len(labels))
     ]
     customdata = z_raw
+
+    annotations = []
+    for j, lbl in enumerate(labels):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"n={int(_col_n.get(lbl, 0))}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(labels):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"n={int(_row_n.get(lbl, 0))}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
 
     fig = go.Figure(go.Heatmap(
         z=z_norm,
@@ -3149,8 +3489,9 @@ def next_delta_vs_prior_delta_heatmap(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Prior |Δ|"),
         yaxis=dict(title="Next |Δ|"),
+        annotations=annotations,
         height=max(360, len(labels) * 40 + 110),
-        margin=dict(l=80, r=10, t=50, b=70),
+        margin=dict(l=80, r=62, t=68, b=70),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -3192,7 +3533,9 @@ def hot_zone_matrix(
     )
 
     # Normalize by column so each initial-pitch column sums to 100%
-    col_totals  = matrix.sum(axis=0).replace(0, 1)
+    _col_n  = matrix.sum(axis=0)
+    _row_n  = matrix.sum(axis=1)
+    col_totals  = _col_n.replace(0, 1)
     matrix_norm = matrix.div(col_totals, axis=1) * 100
     z_norm = matrix_norm.values.tolist()
     z_raw  = matrix.values.tolist()
@@ -3201,6 +3544,24 @@ def hot_zone_matrix(
          for j in range(n_init)]
         for i in range(n_follow)
     ]
+
+    annotations = []
+    for j, lbl in enumerate(init_labels):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"n={int(_col_n.iloc[j])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(follow_labels):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"n={int(_row_n.iloc[i])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
 
     fig = go.Figure(go.Heatmap(
         z=z_norm,
@@ -3218,8 +3579,9 @@ def hot_zone_matrix(
     fig.update_layout(
         xaxis=dict(title="Initial Pitch", tickangle=0, side="bottom"),
         yaxis=dict(title="Following Pitch"),
+        annotations=annotations,
         height=max(400, n_follow * 42 + 120),
-        margin=dict(l=90, r=10, t=30, b=80),
+        margin=dict(l=90, r=65, t=50, b=80),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -3300,6 +3662,93 @@ def hot_zone_third_dist(
         yaxis=dict(showticklabels=True),
         height=130,
         margin=dict(l=80, r=10, t=60, b=40),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def delta_third_dist(
+    df: pd.DataFrame,
+    value_col: str = "pitch",
+    bucket_size: int = 50,
+    init_label: str = "",
+    follow_label: str = "",
+) -> go.Figure | None:
+    """Single-row heatmap: distribution of the 3rd |delta| given init->follow |delta| pair.
+
+    Mirrors the bucketing used by next_delta_vs_prior_delta_heatmap (unsigned, 0..500).
+    Returns None when there is no data for the given label pair.
+    """
+    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+
+    n_buckets = 500 // bucket_size
+    bins   = list(range(0, 501, bucket_size))
+    labels = [f"{i}-{i + bucket_size}" for i in range(0, 500, bucket_size)]
+
+    if init_label not in labels or follow_label not in labels:
+        return None
+
+    init_idx   = labels.index(init_label)
+    follow_idx = labels.index(follow_label)
+
+    df_sw = df[df[value_col].notna()].copy()
+    if len(df_sw) < 3:
+        return None
+
+    df_sw = df_sw.sort_values(["game_id", group_col, "id"])
+    df_sw[delta_col] = df_sw.groupby(
+        ["game_id", group_col], group_keys=False
+    )[value_col].apply(_circ_delta_group)
+    df_sw = df_sw[df_sw[delta_col].notna()].copy()
+    if len(df_sw) < 3:
+        return None
+
+    df_sw["_d1_abs"] = df_sw[delta_col].abs()
+    df_sw["_d2_abs"] = df_sw.groupby(["game_id", group_col])[delta_col].shift(-1).abs()
+    df_sw["_d3_abs"] = df_sw.groupby(["game_id", group_col])[delta_col].shift(-2).abs()
+    df_sw = df_sw.dropna(subset=["_d2_abs", "_d3_abs"]).copy()
+    if df_sw.empty:
+        return None
+
+    df_sw["_b1"] = pd.cut(df_sw["_d1_abs"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    df_sw["_b2"] = pd.cut(df_sw["_d2_abs"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    df_sw["_b3"] = pd.cut(df_sw["_d3_abs"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+
+    subset = df_sw[(df_sw["_b1"] == init_idx) & (df_sw["_b2"] == follow_idx)]
+    if subset.empty:
+        return None
+
+    counts = subset["_b3"].value_counts().reindex(range(n_buckets), fill_value=0)
+    total  = int(counts.sum())
+    pcts   = counts / total * 100 if total > 0 else counts * 0.0
+
+    text = [[f"{pcts[i]:.0f}%" if counts[i] > 0 else "" for i in range(n_buckets)]]
+
+    fig = go.Figure(go.Heatmap(
+        z=[pcts.values.tolist()],
+        x=labels,
+        y=["3rd |Δ|"],
+        text=text,
+        texttemplate="%{text}",
+        customdata=[counts.values.tolist()],
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="%{x}<br>%{z:.1f}% (%{customdata} instances)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(
+            text=f"3rd |Δ|  |  {init_label} → {follow_label}  (n={total})",
+            x=0.5, xanchor="center", font=dict(size=13),
+        ),
+        xaxis=dict(title=None, tickangle=0, side="bottom"),
+        yaxis=dict(showticklabels=True),
+        height=130,
+        margin=dict(l=80, r=10, t=55, b=40),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
