@@ -162,6 +162,10 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
         return 0, diag + errors + [str(e)]
 
 
+# Detect narrow viewport (mobile) for responsive hint chart layout
+_ua = st.context.headers.get("user-agent", "").lower()
+_is_mobile = any(k in _ua for k in ("mobile", "android", "iphone", "ipad", "silk"))
+
 _title_col, _qs_btn_col = st.columns([5, 1], vertical_alignment="bottom")
 with _title_col:
     st.title("Scouting")
@@ -1249,50 +1253,66 @@ with tab_p:
                                      "Strength": f"{_h_ss_d2:.0f}% signal"})
 
             def _delta_row_p(signal, h_dict, n_bkts):
+                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
                 if _h_prior_pitch is not None:
                     r1, r2 = utils.delta_to_pitch_ranges(_h_prior_pitch, h_dict["delta_lo"], h_dict["delta_hi"])
                     return {"Signal": signal,
                             "lo": r1[0], "hi": r1[1],
                             "lo2": r2[0], "hi2": r2[1],
-                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                            "_zscore": _zs}
                 return {"Signal": signal, "lo": None, "hi": None,
-                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                        "_zscore": _zs}
 
             if _h_prior_delta is not None:
                 _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta)
                 if _h:
-                    _hint_rows_p.append(_delta_row_p("2-delta seq", _h, _h_dd_n))
+                    _row = _delta_row_p("2-Δ seq", _h, _h_dd_n)
+                    _row["_zone_dist"] = utils.delta_next_zone_dist(df_p, "pitch", _h_dd_bkt, _h_prior_delta)
+                    _hint_rows_p.append(_row)
 
             if _h_prior_delta is not None and _h_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta)
                 if _h:
-                    _hint_rows_p.append(_delta_row_p("3-delta seq", _h, _h_dd_n))
+                    _row = _delta_row_p("3-Δ seq", _h, _h_dd_n)
+                    _row["_zone_dist"] = utils.delta3_next_zone_dist(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta)
+                    _hint_rows_p.append(_row)
 
             if _h_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff)
                 if _h:
-                    _hint_rows_p.append(_delta_row_p("Prior diff -> delta", _h, 5))
+                    _row = _delta_row_p("Prior diff → Δ", _h, 5)
+                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_p, "pitch", _h_prior_diff)
+                    _hint_rows_p.append(_row)
 
             if _h_prior_pitch is not None:
                 _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch)
                 if _h:
                     _hint_rows_p.append({"Signal": "2-pitch seq",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n)})
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
+                                         "_zone_dist": utils.seq2_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
 
             if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
                 _h = utils.seq3_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch)
                 if _h:
                     _hint_rows_p.append({"Signal": "3-pitch seq",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n)})
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
+                                         "_zone_dist": utils.seq3_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
 
             if "outs" in df_p.columns:
                 _h = utils.best_zone_hint(df_p[df_p["outs"] == _h_outs], "pitch")
                 if _h:
                     _hint_rows_p.append({"Signal": f"Outs({_h_outs})",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "obc" in df_p.columns:
                 _obc_is_zero = (_h_obc == "000")
@@ -1302,26 +1322,49 @@ with tab_p:
                 if _h:
                     _hint_rows_p.append({"Signal": f"Base state ({_obc_lbl_p})",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_inn" in df_p.columns:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
                 if _h:
                     _hint_rows_p.append({"Signal": "1st pitch inning",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_app" in df_p.columns:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
                 if _h:
                     _hint_rows_p.append({"Signal": "1st pitch appearance",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+
+            # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
+            _obp_rows_p = [r for r in _hint_rows_p if r["Signal"].startswith("OBP")]
+            _seq_rows_p = [r for r in _hint_rows_p if not r["Signal"].startswith("OBP")]
+            _seq_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
+            _hint_rows_p = _obp_rows_p + _seq_rows_p
 
             if _hint_rows_p:
-                st.plotly_chart(utils.hint_bars_figure(_hint_rows_p),
-                                use_container_width=True,
-                                config={"displayModeBar": False})
+                _hint_all_p = st.toggle("All zones", value=False, key="hint_all_p")
+                st.plotly_chart(
+                    utils.hint_bars_figure(
+                        _hint_rows_p,
+                        mode="all" if _hint_all_p else "best",
+                        mobile=_is_mobile,
+                        prior_val=_h_prior_pitch,
+                    ),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
             elif not result_ranges or not _h_recent:
                 st.caption("Fetch a matchup and select a pitcher to see suggestions.")
             else:
@@ -1856,50 +1899,66 @@ with tab_b:
             _hb_hz_n = 1000 // _hb_hz_bkt
 
             def _delta_row_b(signal, h_dict, n_bkts):
+                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
                 if _hb_prior_swing is not None:
                     r1, r2 = utils.delta_to_pitch_ranges(_hb_prior_swing, h_dict["delta_lo"], h_dict["delta_hi"])
                     return {"Signal": signal,
                             "lo": r1[0], "hi": r1[1],
                             "lo2": r2[0], "hi2": r2[1],
-                            "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                            "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts),
+                            "_zscore": _zs}
                 return {"Signal": signal, "lo": None, "hi": None,
-                        "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                        "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts),
+                        "_zscore": _zs}
 
             if _hb_prior_delta is not None:
                 _h = utils.seq2_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta)
                 if _h:
-                    _hint_rows_b.append(_delta_row_b("2-delta seq", _h, _hb_dd_n))
+                    _row = _delta_row_b("2-Δ seq", _h, _hb_dd_n)
+                    _row["_zone_dist"] = utils.delta_next_zone_dist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta)
+                    _hint_rows_b.append(_row)
 
             if _hb_prior_delta is not None and _hb_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta)
                 if _h:
-                    _hint_rows_b.append(_delta_row_b("3-delta seq", _h, _hb_dd_n))
+                    _row = _delta_row_b("3-Δ seq", _h, _hb_dd_n)
+                    _row["_zone_dist"] = utils.delta3_next_zone_dist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta)
+                    _hint_rows_b.append(_row)
 
             if _hb_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_b, "swing", _hb_prior_diff)
                 if _h:
-                    _hint_rows_b.append(_delta_row_b("Prior diff -> delta", _h, 5))
+                    _row = _delta_row_b("Prior diff → Δ", _h, 5)
+                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_b, "swing", _hb_prior_diff)
+                    _hint_rows_b.append(_row)
 
             if _hb_prior_swing is not None:
                 _h = utils.seq2_hint(df_b, "swing", _hb_hz_bkt, _hb_prior_swing)
                 if _h:
                     _hint_rows_b.append({"Signal": "2-pitch seq",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n)})
+                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n),
+                                         "_zone_dist": utils.seq2_zone_dist(df_b, "swing", _hb_hz_bkt, _hb_prior_swing),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _hb_hz_n)})
 
             if _hb_prior_swing is not None and _hb_prior_swing2 is not None:
                 _h = utils.seq3_hint(df_b, "swing", _hb_hz_bkt, _hb_prior_swing2, _hb_prior_swing)
                 if _h:
                     _hint_rows_b.append({"Signal": "3-pitch seq",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n)})
+                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n),
+                                         "_zone_dist": utils.seq3_zone_dist(df_b, "swing", _hb_hz_bkt, _hb_prior_swing2, _hb_prior_swing),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _hb_hz_n)})
 
             if "outs" in df_b.columns:
                 _h = utils.best_zone_hint(df_b[df_b["outs"] == _hb_outs], "swing")
                 if _h:
                     _hint_rows_b.append({"Signal": f"Outs({_hb_outs})",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "obc" in df_b.columns:
                 _obc_is_zero_b = (_hb_obc == "000")
@@ -1909,26 +1968,49 @@ with tab_b:
                 if _h:
                     _hint_rows_b.append({"Signal": f"Base state ({_obc_lbl_b})",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_inn" in df_b.columns:
                 _h = utils.best_zone_hint(df_b[df_b["is_fp_inn"] == True], "swing")
                 if _h:
                     _hint_rows_b.append({"Signal": "1st pitch inning",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_app" in df_b.columns:
                 _h = utils.best_zone_hint(df_b[df_b["is_fp_app"] == True], "swing")
                 if _h:
                     _hint_rows_b.append({"Signal": "1st pitch appearance",
                                          "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+
+            # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
+            _obp_rows_b = [r for r in _hint_rows_b if r["Signal"].startswith("OBP")]
+            _seq_rows_b = [r for r in _hint_rows_b if not r["Signal"].startswith("OBP")]
+            _seq_rows_b.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
+            _hint_rows_b = _obp_rows_b + _seq_rows_b
 
             if _hint_rows_b:
-                st.plotly_chart(utils.hint_bars_figure(_hint_rows_b),
-                                use_container_width=True,
-                                config={"displayModeBar": False})
+                _hint_all_b = st.toggle("All zones", value=False, key="hint_all_b")
+                st.plotly_chart(
+                    utils.hint_bars_figure(
+                        _hint_rows_b,
+                        mode="all" if _hint_all_b else "best",
+                        mobile=_is_mobile,
+                        prior_val=_hb_prior_swing,
+                    ),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
             elif not result_ranges or not _hb_recent:
                 st.caption("Fetch a matchup and select a batter to see suggestions.")
             else:

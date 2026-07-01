@@ -2225,103 +2225,190 @@ def optimal_swing_chart(
 
 # ── Swing suggestion bars figure ────────────────────────────────────────────
 
-def hint_bars_figure(hints: list[dict]) -> go.Figure:
+def hint_bars_figure(
+    hints: list[dict],
+    mode: str = "best",
+    mobile: bool = False,
+    prior_val: int | None = None,
+) -> go.Figure:
     """Stacked horizontal range bars for swing/pitch suggestions.
 
-    Each dict in hints must have:
-        Signal (str), Strength (str),
-        lo (int|None), hi (int|None)  -- primary highlighted range
-        lo2 (int|None), hi2 (int|None) -- optional second range (delta hints)
-    lo/hi follow 1-1000 pitch space; lo > hi means the range wraps.
+    hints keys: Signal, Strength, lo, hi, lo2, hi2, _zone_dist (optional list[int]).
+    mode: "best" highlights the top zone(s) in green; "all" colors all 9 ZONES
+          by relative frequency using a diverging green/red scale.
+    mobile: compact layout - labels inside bars, l/r margins collapsed to ~5px.
+    prior_val: most-recent pitch/swing; draws a dotted reference line + ▼ marker.
     """
     n = len(hints)
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
-        x=[0.5, 1000.5], y=[-0.5, n - 0.5],
+        x=[0.5, 1000.5], y=[-0.5, n],
         mode="markers", marker=dict(opacity=0),
         showlegend=False, hoverinfo="skip",
     ))
 
-    _GREEN  = "rgba(40,150,55,0.80)"
-    _GREEN2 = "rgba(40,150,55,0.55)"
     _GRAY   = "rgba(100,100,100,0.22)"
+    _GREEN  = "rgba(40,150,55,0.80)"
+    _GREEN2 = "rgba(40,150,55,0.80)"
+    _bar_half = 0.32 if mobile else 0.40
+
+    def _zone_color(t: float) -> str:
+        # t in [-1, 1] already incorporates z-score attenuation.
+        # t=0 -> neutral gray. t=+1 -> deep green. t=-1 -> deep red.
+        if t >= 0:
+            a = 0.15 + 0.70 * t
+            r = int(100 - 70 * t)
+            g = int(115 + 35 * t)
+            b = int(100 - 55 * t)
+        else:
+            a = 0.15 + 0.70 * abs(t)
+            r = int(100 + 110 * abs(t))
+            g = int(115 - 70 * abs(t))
+            b = int(100 - 55 * abs(t))
+        return f"rgba({r},{g},{b},{a:.2f})"
 
     for idx, h in enumerate(hints):
-        y  = n - idx - 1
-        y0 = y - 0.40
-        y1 = y + 0.40
+        y   = n - idx - 1
+        y0  = y - _bar_half
+        y1  = y + _bar_half
 
         fig.add_shape(type="rect", x0=0.5, x1=1000.5, y0=y0, y1=y1,
                       fillcolor=_GRAY, line=dict(width=0))
 
-        lo, hi   = h.get("lo"),  h.get("hi")
-        lo2, hi2 = h.get("lo2"), h.get("hi2")
+        lo, hi    = h.get("lo"),  h.get("hi")
+        lo2, hi2  = h.get("lo2"), h.get("hi2")
+        zone_dist = h.get("_zone_dist")
 
-        def _zone(lo, hi, color):
-            if lo is None or hi is None:
-                return
-            if lo <= hi:
-                fig.add_shape(type="rect", x0=lo - 0.5, x1=hi + 0.5,
-                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
-            else:
-                fig.add_shape(type="rect", x0=lo - 0.5, x1=1000.5,
-                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
-                fig.add_shape(type="rect", x0=0.5, x1=hi + 0.5,
-                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+        if mode == "all" and zone_dist is not None:
+            total_dist = sum(zone_dist)
+            if total_dist > 0:
+                # Attenuate color intensity by z-score of the row's top zone so that
+                # weak-signal rows stay muted rather than screaming red on empty zones.
+                row_z = h.get("_zscore")
+                if row_z is None:
+                    row_z = hint_zscore(max(zone_dist) / total_dist, total_dist, 9)
+                atten = min(1.0, (max(0.0, row_z) / 3.5) ** 0.6)
+                for zi, z in enumerate(ZONES):
+                    raw_t = max(-1.0, min(1.0, zone_dist[zi] / total_dist * 9.0 - 1.0))
+                    color = _zone_color(raw_t * atten)
+                    fig.add_shape(type="rect",
+                                  x0=z[0] - 0.5, x1=z[1] + 0.5,
+                                  y0=y0, y1=y1,
+                                  fillcolor=color, line=dict(width=0))
+        else:
+            def _colored_zone(lo, hi, color):
+                if lo is None or hi is None:
+                    return
+                if lo <= hi:
+                    fig.add_shape(type="rect", x0=lo - 0.5, x1=hi + 0.5,
+                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+                else:
+                    fig.add_shape(type="rect", x0=lo - 0.5, x1=1000.5,
+                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+                    fig.add_shape(type="rect", x0=0.5, x1=hi + 0.5,
+                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
 
-        def _bound(x, label, anchor):
-            fig.add_shape(type="line", x0=x, x1=x, y0=y0, y1=y1,
-                          line=dict(color="rgba(255,255,255,0.85)", width=1.5))
+            def _bound(x, label, anchor):
+                fig.add_shape(type="line", x0=x, x1=x, y0=y0, y1=y1,
+                              line=dict(color="rgba(255,255,255,0.85)", width=1.5))
+                fig.add_annotation(
+                    x=x, y=y, text=f"<b>{label}</b>",
+                    showarrow=False,
+                    xanchor=anchor, yanchor="middle",
+                    font=dict(size=9, color="rgba(255,255,255,0.95)"),
+                    bgcolor="rgba(0,0,0,0)",
+                )
+
+            _colored_zone(lo, hi, _GREEN)
+            _colored_zone(lo2, hi2, _GREEN2)
+
+            if lo is not None and hi is not None:
+                _bound(lo, lo, "right")
+                _bound(hi, hi, "left")
+            if lo2 is not None and hi2 is not None:
+                _bound(lo2, lo2, "right")
+                _bound(hi2, hi2, "left")
+
+        signal   = h.get("Signal", "")
+        strength = h.get("Strength", "")
+
+        if mobile:
             fig.add_annotation(
-                x=x, y=y, text=f"<b>{label}</b>",
-                showarrow=False,
-                xanchor=anchor, yanchor="middle",
-                font=dict(size=9, color="rgba(255,255,255,0.95)"),
+                x=3, y=y1 - 0.04,
+                text=f"<b>{signal}</b>",
+                showarrow=False, xanchor="left", yanchor="top",
+                font=dict(size=8, color="rgba(255,255,255,0.9)"),
                 bgcolor="rgba(0,0,0,0)",
             )
+            if strength:
+                fig.add_annotation(
+                    x=997, y=y1 - 0.04,
+                    text=strength,
+                    showarrow=False, xanchor="right", yanchor="top",
+                    font=dict(size=8, color="rgba(255,255,255,0.85)"),
+                    bgcolor="rgba(0,0,0,0)",
+                )
+        else:
+            if strength:
+                fig.add_annotation(
+                    x=1.01, y=y,
+                    xref="paper", yref="y",
+                    text=strength,
+                    showarrow=False, xanchor="left", yanchor="middle",
+                    font=dict(size=10, color="rgba(255,255,255,0.92)"),
+                    bgcolor="rgba(0,0,0,0)",
+                )
 
-        _zone(lo, hi, _GREEN)
-        _zone(lo2, hi2, _GREEN2)
-
-        if lo is not None and hi is not None:
-            _bound(lo, lo, "right")
-            _bound(hi, hi, "left")
-        if lo2 is not None and hi2 is not None:
-            _bound(lo2, lo2, "right")
-            _bound(hi2, hi2, "left")
-
-        if h.get("Strength"):
-            fig.add_annotation(
-                x=1.01, y=y,
-                xref="paper", yref="y",
-                text=h["Strength"],
-                showarrow=False, xanchor="left", yanchor="middle",
-                font=dict(size=10, color="rgba(255,255,255,0.92)"),
-                bgcolor="rgba(0,0,0,0)",
-            )
+    # Most-recent pitch/swing reference
+    if prior_val is not None:
+        fig.add_shape(
+            type="line", x0=prior_val, x1=prior_val,
+            y0=-0.5, y1=n,
+            line=dict(color="rgba(255,230,100,0.30)", width=1, dash="dot"),
+        )
+        # ▼N sits above the 1-1000 tick labels in the top margin.
+        # Tick labels are ~14 px; placing at 22 px above the plot edge clears them with a small gap.
+        _t_margin = 42
+        _b_margin = 8
+        _h_val = (n * 38 + 55) if mobile else (n * 44 + 60)
+        _plot_h = max(1, _h_val - _t_margin - _b_margin)
+        _y_above = 1.0 + 22.0 / _plot_h
+        fig.add_annotation(
+            x=prior_val, y=_y_above,
+            xref="x", yref="paper",
+            text=f"▼{prior_val}",
+            showarrow=False, xanchor="center", yanchor="bottom",
+            font=dict(size=8.5, color="rgba(255,230,100,0.95)"),
+            bgcolor="rgba(0,0,0,0)",
+        )
 
     y_ticks  = list(range(n))
     y_labels = [hints[n - 1 - i]["Signal"] for i in range(n)]
 
+    if mobile:
+        yaxis_cfg  = dict(range=[-0.5, n - 0.3], tickmode="array", tickvals=y_ticks,
+                          ticktext=[""] * n, showgrid=False, zeroline=False)
+        margin_cfg = dict(l=5, r=5, t=42, b=8)
+        height_val = n * 38 + 55
+    else:
+        yaxis_cfg  = dict(range=[-0.5, n - 0.3], tickmode="array", tickvals=y_ticks,
+                          ticktext=y_labels, tickfont=dict(size=11),
+                          showgrid=False, zeroline=False, automargin=True)
+        margin_cfg = dict(l=170, r=155, t=42, b=8)
+        height_val = n * 44 + 60
+
     fig.update_layout(
         xaxis=dict(
             range=[-70, 1070],
+            side="top",
             tickmode="array",
             tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
             tickfont=dict(size=10),
         ),
-        yaxis=dict(
-            range=[-0.5, n - 0.5],
-            tickmode="array",
-            tickvals=y_ticks,
-            ticktext=y_labels,
-            tickfont=dict(size=11),
-            showgrid=False,
-            zeroline=False,
-        ),
-        height=n * 44 + 50,
-        margin=dict(l=170, r=155, t=8, b=38),
+        yaxis=yaxis_cfg,
+        height=height_val,
+        margin=margin_cfg,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
@@ -2585,9 +2672,10 @@ def context_zone_hint(
 
 
 def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
-    """Return {lo, hi, prob, n} for the highest-count ZONES grid cell (111-unit buckets).
+    """Return top-zone hint for the highest-count ZONES grid cell (111-unit buckets).
 
-    Uses the pre-computed pitch_zone / swing_zone column (set by enrich_df).
+    Handles ties by collecting all tied zones, merging contiguous ones.
+    Returns: {lo, hi, lo2, hi2, prob, n, _zone_dist} or None.
     """
     zone_col = f"{value_col}_zone"
     if zone_col not in df.columns:
@@ -2595,13 +2683,151 @@ def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
     counts = df[zone_col].dropna().value_counts()
     if counts.empty:
         return None
-    top_label = counts.index[0]
-    top_n     = int(counts.iloc[0])
-    total     = int(counts.sum())
-    zone = next((z for z in ZONES if z[2] == top_label), None)
-    if zone is None:
+    total = int(counts.sum())
+    top_n = int(counts.iloc[0])
+
+    _idx = {z[2]: i for i, z in enumerate(ZONES)}
+    tied = sorted((lbl for lbl, c in counts.items() if c == top_n),
+                  key=lambda l: _idx.get(l, 99))
+
+    groups: list[list[str]] = []
+    cur: list[str] = [tied[0]] if tied else []
+    for lbl in tied[1:]:
+        if _idx.get(lbl, 99) == _idx.get(cur[-1], -1) + 1:
+            cur.append(lbl)
+        else:
+            groups.append(cur)
+            cur = [lbl]
+    if cur:
+        groups.append(cur)
+
+    def _bounds(grp: list[str]) -> tuple[int, int]:
+        zs = [z for z in ZONES if z[2] in grp]
+        return min(z[0] for z in zs), max(z[1] for z in zs)
+
+    lo, hi = _bounds(groups[0])
+    lo2, hi2 = _bounds(groups[1]) if len(groups) > 1 else (None, None)
+    zone_counts = [int(counts.get(z[2], 0)) for z in ZONES]
+
+    return {
+        "lo": lo, "hi": hi,
+        "lo2": lo2, "hi2": hi2,
+        "prob": top_n / total,
+        "n": total,
+        "_zone_dist": zone_counts,
+    }
+
+
+def seq2_zone_dist(
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_val: int
+) -> list[int] | None:
+    """Zone counts of next value when the prior value falls in the same bucket."""
+    zone_col = f"{value_col}_zone"
+    if zone_col not in df.columns:
         return None
-    return {"lo": zone[0], "hi": zone[1], "prob": top_n / total, "n": total}
+    vals = df[value_col].dropna()
+    if vals.empty:
+        return None
+    prior_bkt = (int(prior_val) - 1) // bucket_size
+    bkts = (vals.astype(int) - 1) // bucket_size
+    mask = bkts.shift(1) == prior_bkt
+    zones = df.loc[mask & df[zone_col].notna(), zone_col]
+    if zones.empty:
+        return None
+    c = zones.value_counts()
+    return [int(c.get(z[2], 0)) for z in ZONES]
+
+
+def seq3_zone_dist(
+    df: pd.DataFrame, value_col: str, bucket_size: int,
+    prior_val_1: int, prior_val_2: int,
+) -> list[int] | None:
+    """Zone counts of 3rd value when the prior two values fall in matching buckets."""
+    zone_col = f"{value_col}_zone"
+    if zone_col not in df.columns:
+        return None
+    vals = df[value_col].dropna()
+    if vals.empty:
+        return None
+    b1 = (int(prior_val_1) - 1) // bucket_size
+    b2 = (int(prior_val_2) - 1) // bucket_size
+    bkts = (vals.astype(int) - 1) // bucket_size
+    s1 = bkts.shift(1)
+    s2 = bkts.shift(2)
+    mask = (s1 == b2) & (s2 == b1)
+    zones = df.loc[mask & df[zone_col].notna(), zone_col]
+    if zones.empty:
+        return None
+    c = zones.value_counts()
+    return [int(c.get(z[2], 0)) for z in ZONES]
+
+
+def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
+    """Binomial Z-score: how many std-devs the observed proportion exceeds uniform 1/n_bkts."""
+    if n <= 0 or n_bkts <= 0:
+        return 0.0
+    p0  = 1.0 / n_bkts
+    std = (p0 * (1 - p0) / n) ** 0.5
+    return (prob - p0) / std if std > 0 else 0.0
+
+
+def delta_next_zone_dist(
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
+) -> list[int] | None:
+    """Zone counts of the next pitch when the current pitch's circular delta is in the same bucket."""
+    zone_col  = f"{value_col}_zone"
+    delta_col = f"{value_col}_circ_delta"
+    if zone_col not in df.columns or delta_col not in df.columns:
+        return None
+    prior_bkt = (int(prior_delta) - 1) // bucket_size
+    d    = df[delta_col].abs()
+    mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
+    next_zone = df[zone_col].shift(-1)
+    zones = next_zone[mask & next_zone.notna()]
+    if zones.empty:
+        return None
+    c = zones.value_counts()
+    return [int(c.get(z[2], 0)) for z in ZONES]
+
+
+def delta3_next_zone_dist(
+    df: pd.DataFrame, value_col: str, bucket_size: int,
+    prior_delta_1: int, prior_delta_2: int,
+) -> list[int] | None:
+    """Zone counts of the next pitch when the prior two circular deltas match the given buckets."""
+    zone_col  = f"{value_col}_zone"
+    delta_col = f"{value_col}_circ_delta"
+    if zone_col not in df.columns or delta_col not in df.columns:
+        return None
+    b1 = (int(prior_delta_1) - 1) // bucket_size
+    b2 = (int(prior_delta_2) - 1) // bucket_size
+    d    = df[delta_col].abs()
+    bkts = (d - 1) // bucket_size
+    mask = ((bkts == b2) & (bkts.shift(1) == b1)).fillna(False)
+    next_zone = df[zone_col].shift(-1)
+    zones = next_zone[mask & next_zone.notna()]
+    if zones.empty:
+        return None
+    c = zones.value_counts()
+    return [int(c.get(z[2], 0)) for z in ZONES]
+
+
+def diff_next_zone_dist(
+    df: pd.DataFrame, value_col: str, prior_diff: int,
+) -> list[int] | None:
+    """Zone counts of the next pitch when the current diff falls in the same 200-unit bucket."""
+    zone_col = f"{value_col}_zone"
+    if zone_col not in df.columns or "diff" not in df.columns:
+        return None
+    prior_bkt = min(4, (int(prior_diff) - 1) // 200)
+    d    = df["diff"].abs()
+    mask = (((d - 1) // 200).clip(0, 4) == prior_bkt).fillna(False)
+    next_zone = df[zone_col].shift(-1)
+    zones = next_zone[mask & next_zone.notna()]
+    if zones.empty:
+        return None
+    c = zones.value_counts()
+    return [int(c.get(z[2], 0)) for z in ZONES]
 
 
 def swing_predictor_chart(
