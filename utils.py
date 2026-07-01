@@ -1568,7 +1568,7 @@ def last_n_combined_chart(
                 xaxis="x2", yaxis="y2",
             ), row=2, col=1)
 
-    _view_start = max(0.5, n_actual - n + 0.5) if pannable else 0.5
+    _view_start = max(0.5, n_actual - 20 + 0.5) if pannable else 0.5
     x_range = [_view_start, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
     fig.update_xaxes(
@@ -1642,20 +1642,24 @@ def fetch_scenario_ranges(sheet_urls: dict[str, str]) -> dict[str, list | None]:
     def _fetch(key: str, url: str):
         try:
             ranges, _, _, _, _, _ = parse_result_ranges_from_sheet(url)
-            return key, ranges
-        except Exception:
-            return key, None
+            return key, ranges, None
+        except Exception as _e:
+            return key, None, str(_e)
 
     valid = {k: v for k, v in sheet_urls.items() if v}
     if not valid:
         return results
 
+    errors: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=len(valid)) as ex:
         futures = {ex.submit(_fetch, k, v): k for k, v in valid.items()}
         for fut in as_completed(futures):
-            key, ranges = fut.result()
+            key, ranges, err = fut.result()
             results[key] = ranges
+            if err:
+                errors[key] = err
 
+    results["_errors"] = errors  # type: ignore[assignment]
     return results
 
 
@@ -2217,6 +2221,387 @@ def optimal_swing_chart(
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
+
+
+# ── Swing suggestion bars figure ────────────────────────────────────────────
+
+def hint_bars_figure(hints: list[dict]) -> go.Figure:
+    """Stacked horizontal range bars for swing/pitch suggestions.
+
+    Each dict in hints must have:
+        Signal (str), Strength (str),
+        lo (int|None), hi (int|None)  -- primary highlighted range
+        lo2 (int|None), hi2 (int|None) -- optional second range (delta hints)
+    lo/hi follow 1-1000 pitch space; lo > hi means the range wraps.
+    """
+    n = len(hints)
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=[0.5, 1000.5], y=[-0.5, n - 0.5],
+        mode="markers", marker=dict(opacity=0),
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    _GREEN  = "rgba(40,150,55,0.80)"
+    _GREEN2 = "rgba(40,150,55,0.55)"
+    _GRAY   = "rgba(100,100,100,0.22)"
+
+    for idx, h in enumerate(hints):
+        y  = n - idx - 1
+        y0 = y - 0.40
+        y1 = y + 0.40
+
+        fig.add_shape(type="rect", x0=0.5, x1=1000.5, y0=y0, y1=y1,
+                      fillcolor=_GRAY, line=dict(width=0))
+
+        lo, hi   = h.get("lo"),  h.get("hi")
+        lo2, hi2 = h.get("lo2"), h.get("hi2")
+
+        def _zone(lo, hi, color):
+            if lo is None or hi is None:
+                return
+            if lo <= hi:
+                fig.add_shape(type="rect", x0=lo - 0.5, x1=hi + 0.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+            else:
+                fig.add_shape(type="rect", x0=lo - 0.5, x1=1000.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+                fig.add_shape(type="rect", x0=0.5, x1=hi + 0.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+
+        def _bound(x, label, anchor):
+            fig.add_shape(type="line", x0=x, x1=x, y0=y0, y1=y1,
+                          line=dict(color="rgba(255,255,255,0.85)", width=1.5))
+            fig.add_annotation(
+                x=x, y=y, text=f"<b>{label}</b>",
+                showarrow=False,
+                xanchor=anchor, yanchor="middle",
+                font=dict(size=9, color="rgba(255,255,255,0.95)"),
+                bgcolor="rgba(0,0,0,0)",
+            )
+
+        _zone(lo, hi, _GREEN)
+        _zone(lo2, hi2, _GREEN2)
+
+        if lo is not None and hi is not None:
+            _bound(lo, lo, "right")
+            _bound(hi, hi, "left")
+        if lo2 is not None and hi2 is not None:
+            _bound(lo2, lo2, "right")
+            _bound(hi2, hi2, "left")
+
+        if h.get("Strength"):
+            fig.add_annotation(
+                x=1.01, y=y,
+                xref="paper", yref="y",
+                text=h["Strength"],
+                showarrow=False, xanchor="left", yanchor="middle",
+                font=dict(size=10, color="rgba(255,255,255,0.92)"),
+                bgcolor="rgba(0,0,0,0)",
+            )
+
+    y_ticks  = list(range(n))
+    y_labels = [hints[n - 1 - i]["Signal"] for i in range(n)]
+
+    fig.update_layout(
+        xaxis=dict(
+            range=[-70, 1070],
+            tickmode="array",
+            tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            tickfont=dict(size=10),
+        ),
+        yaxis=dict(
+            range=[-0.5, n - 0.5],
+            tickmode="array",
+            tickvals=y_ticks,
+            ticktext=y_labels,
+            tickfont=dict(size=11),
+            showgrid=False,
+            zeroline=False,
+        ),
+        height=n * 44 + 50,
+        margin=dict(l=170, r=155, t=8, b=38),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        dragmode=False,
+        modebar=dict(remove=["all"]),
+    )
+    return fig
+
+
+# ── Swing context hint helpers ──────────────────────────────────────────────
+
+def optimal_swing_range(
+    recent_opp_vals: list[int],
+    result_ranges: list,
+    metric: str = "obp",
+    maximize: bool = True,
+    weights: list[float] | None = None,
+) -> tuple[int, int] | None:
+    """Return (lo, hi) of the widest contiguous above-midpoint zone, or None if flat.
+
+    lo and hi are 1-indexed pitch values (1-1000). If lo > hi the zone wraps
+    across the 1000/1 boundary.
+    """
+    if not recent_opp_vals:
+        return None
+    scores = _scores_via_fft(
+        _build_weight_array(recent_opp_vals, weights),
+        _diff_score_array(result_ranges, metric),
+    )
+    best  = float(np.max(scores) if maximize else np.min(scores))
+    worst = float(np.min(scores) if maximize else np.max(scores))
+    if (best - worst) < 1e-6:
+        return None
+    mid = (best + worst) / 2.0
+    above = (scores > mid) if maximize else (scores < mid)
+    n = len(above)
+    doubled = np.concatenate([above, above])
+    max_run = cur = 0
+    best_start = cur_start = 0
+    for i, val in enumerate(doubled):
+        if val:
+            if cur == 0:
+                cur_start = i
+            cur += 1
+            if cur > max_run:
+                max_run = cur
+                best_start = cur_start
+        else:
+            cur = 0
+    run = min(max_run, n)
+    if run == 0:
+        return None
+    lo = (best_start % n) + 1
+    hi = ((best_start + run - 1) % n) + 1
+    return (lo, hi)
+
+
+def delta_to_pitch_ranges(prior_pitch: int, delta_lo: int, delta_hi: int) -> list[tuple[int, int]]:
+    """Convert unsigned |Δ| range to two circular pitch ranges (positive and negative direction)."""
+    pos_lo = (prior_pitch + delta_lo - 1) % 1000 + 1
+    pos_hi = (prior_pitch + delta_hi - 1) % 1000 + 1
+    neg_lo = (prior_pitch - delta_hi - 1) % 1000 + 1
+    neg_hi = (prior_pitch - delta_lo - 1) % 1000 + 1
+    return [(pos_lo, pos_hi), (neg_lo, neg_hi)]
+
+
+def seq2_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    prior_val: int,
+) -> dict | None:
+    """Most likely next value bucket given prior_val. Returns {lo, hi, prob, n} or None."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_s = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    df_s["_next"] = df_s.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_s = df_s.dropna(subset=["_next"])
+    if df_s.empty:
+        return None
+    n_bkts = 1000 // bucket_size
+    prior_bkt = min(max(0, (int(prior_val) - 1) // bucket_size), n_bkts - 1)
+    df_s["_cb"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    df_s["_nb"] = ((df_s["_next"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    col_data = df_s[df_s["_cb"] == prior_bkt]["_nb"]
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    return {
+        "lo": best_bkt * bucket_size + 1,
+        "hi": min((best_bkt + 1) * bucket_size, 1000),
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+    }
+
+
+def seq3_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    prior_val_1: int,
+    prior_val_2: int,
+) -> dict | None:
+    """Most likely 3rd value bucket given prior two values. Returns {lo, hi, prob, n} or None."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_s = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    df_s["_n1"] = df_s.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_s["_n2"] = df_s.groupby(["game_id", group_col])[value_col].shift(-2)
+    df_s = df_s.dropna(subset=["_n1", "_n2"])
+    if df_s.empty:
+        return None
+    n_bkts = 1000 // bucket_size
+    b1 = min(max(0, (int(prior_val_1) - 1) // bucket_size), n_bkts - 1)
+    b2 = min(max(0, (int(prior_val_2) - 1) // bucket_size), n_bkts - 1)
+    df_s["_b1"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    df_s["_b2"] = ((df_s["_n1"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    df_s["_b3"] = ((df_s["_n2"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"]
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    return {
+        "lo": best_bkt * bucket_size + 1,
+        "hi": min((best_bkt + 1) * bucket_size, 1000),
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+    }
+
+
+def seq2_delta_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    prior_delta_abs: int,
+) -> dict | None:
+    """Most likely next |Δ| bucket given prior |Δ|. Returns {delta_lo, delta_hi, prob, n} or None."""
+    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    bins = list(range(0, 501, bucket_size))
+    n_bkts = 500 // bucket_size
+    df_s = df[df[value_col].notna()].sort_values(["game_id", group_col, "id"]).copy()
+    df_s[delta_col] = df_s.groupby(["game_id", group_col], group_keys=False)[value_col].apply(_circ_delta_group)
+    df_s = df_s[df_s[delta_col].notna()].copy()
+    df_s["_nd"] = df_s.groupby(["game_id", group_col])[delta_col].shift(-1)
+    df_s = df_s.dropna(subset=["_nd"])
+    if df_s.empty:
+        return None
+    prior_bkt_idx = min(max(0, (int(prior_delta_abs) - 1) // bucket_size if prior_delta_abs > 0 else 0), n_bkts - 1)
+    df_s["_pb"] = pd.cut(df_s[delta_col].abs().astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    df_s["_nb"] = pd.cut(df_s["_nd"].abs().astype(int),      bins=bins, labels=False, right=True, include_lowest=True)
+    col_data = df_s[df_s["_pb"] == prior_bkt_idx]["_nb"].dropna().astype(int)
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    return {
+        "delta_lo": best_bkt * bucket_size,
+        "delta_hi": (best_bkt + 1) * bucket_size,
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+    }
+
+
+def seq3_delta_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    prior_delta_1: int,
+    prior_delta_2: int,
+) -> dict | None:
+    """Most likely 3rd |Δ| bucket given prior two |Δ| values. Returns {delta_lo, delta_hi, prob, n} or None."""
+    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    bins = list(range(0, 501, bucket_size))
+    n_bkts = 500 // bucket_size
+    b1 = min(max(0, (int(prior_delta_1) - 1) // bucket_size if prior_delta_1 > 0 else 0), n_bkts - 1)
+    b2 = min(max(0, (int(prior_delta_2) - 1) // bucket_size if prior_delta_2 > 0 else 0), n_bkts - 1)
+    df_s = df[df[value_col].notna()].sort_values(["game_id", group_col, "id"]).copy()
+    df_s[delta_col] = df_s.groupby(["game_id", group_col], group_keys=False)[value_col].apply(_circ_delta_group)
+    df_s = df_s[df_s[delta_col].notna()].copy()
+    df_s["_d1"] = df_s[delta_col].abs()
+    df_s["_d2"] = df_s.groupby(["game_id", group_col])[delta_col].shift(-1).abs()
+    df_s["_d3"] = df_s.groupby(["game_id", group_col])[delta_col].shift(-2).abs()
+    df_s = df_s.dropna(subset=["_d2", "_d3"]).copy()
+    if df_s.empty:
+        return None
+    df_s["_b1"] = pd.cut(df_s["_d1"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    df_s["_b2"] = pd.cut(df_s["_d2"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    df_s["_b3"] = pd.cut(df_s["_d3"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"].dropna().astype(int)
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    return {
+        "delta_lo": best_bkt * bucket_size,
+        "delta_hi": (best_bkt + 1) * bucket_size,
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+    }
+
+
+def diff_to_delta_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    prior_diff_abs: int,
+) -> dict | None:
+    """Most likely next |Δ| (100-unit fixed bins) given prior |diff|. Returns {delta_lo, delta_hi, prob, n} or None."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_s = df[df[value_col].notna() & df["diff"].notna()].sort_values(["game_id", group_col, "id"]).copy()
+    df_s["_nv"] = df_s.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_s = df_s.dropna(subset=["_nv"])
+    if df_s.empty:
+        return None
+    df_s["_nd"] = df_s.apply(lambda r: circular_diff(int(r[value_col]), int(r["_nv"])), axis=1)
+    df_s["_dc"] = pd.cut(df_s["diff"].abs().astype(int), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
+                         right=True, include_lowest=True)
+    df_s["_nc"] = pd.cut(df_s["_nd"], bins=_DELTA_HM_BINS, labels=False, right=True, include_lowest=True)
+    df_s = df_s.dropna(subset=["_dc", "_nc"])
+    if df_s.empty:
+        return None
+    prior_cat = pd.cut(pd.Series([prior_diff_abs]), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
+                       right=True, include_lowest=True).iloc[0]
+    col_data = df_s[df_s["_dc"] == prior_cat]["_nc"].astype(int)
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    delta_step = (_DELTA_HM_BINS[1] - _DELTA_HM_BINS[0])
+    return {
+        "delta_lo": best_bkt * delta_step,
+        "delta_hi": (best_bkt + 1) * delta_step,
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+    }
+
+
+def context_zone_hint(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    mask: "pd.Series",
+) -> dict | None:
+    """Most likely value bucket for rows matching mask. Returns {lo, hi, prob, n} or None."""
+    df_s = df[mask & df[value_col].notna()]
+    if df_s.empty:
+        return None
+    n_bkts = 1000 // bucket_size
+    bkts = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    counts = bkts.value_counts()
+    if counts.empty:
+        return None
+    best_bkt = int(counts.index[0])
+    return {
+        "lo": best_bkt * bucket_size + 1,
+        "hi": min((best_bkt + 1) * bucket_size, 1000),
+        "prob": counts.iloc[0] / len(bkts),
+        "n": int(len(bkts)),
+    }
+
+
+def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
+    """Return {lo, hi, prob, n} for the highest-count ZONES grid cell (111-unit buckets).
+
+    Uses the pre-computed pitch_zone / swing_zone column (set by enrich_df).
+    """
+    zone_col = f"{value_col}_zone"
+    if zone_col not in df.columns:
+        return None
+    counts = df[zone_col].dropna().value_counts()
+    if counts.empty:
+        return None
+    top_label = counts.index[0]
+    top_n     = int(counts.iloc[0])
+    total     = int(counts.sum())
+    zone = next((z for z in ZONES if z[2] == top_label), None)
+    if zone is None:
+        return None
+    return {"lo": zone[0], "hi": zone[1], "prob": top_n / total, "n": total}
 
 
 def swing_predictor_chart(

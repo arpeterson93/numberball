@@ -110,7 +110,6 @@ if not st.session_state.get("authenticated"):
             st.session_state.user_email     = _email
             st.session_state["_refresh_token"] = _new_token
             _cookie_write(_new_token)   # rotate token so the cookie stays fresh
-            st.rerun()
 
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 if not st.session_state.get("authenticated"):

@@ -852,7 +852,11 @@ elif pred_mode == "Fetch Live Matchup":
 
         # Fetch HnR / InfIn / HnR+InfIn scenario sheets in parallel
         # Match the fetched URL against teams.ballpark_url for the current season
-        _stadium_sheets = db.get_stadium_sheets(url, _MLN_QS_SEASON)
+        # Strip /edit?... suffix so the base spreadsheet URL matches teams.ballpark_url
+        _base_url = url.split("/edit")[0] if "/edit" in url else url
+        _stadium_sheets = db.get_stadium_sheets(_base_url, _MLN_QS_SEASON)
+        st.session_state["_dbg_base_url"]       = _base_url
+        st.session_state["_dbg_stadium_sheets"] = _stadium_sheets
         _scenario_urls = {
             k: _stadium_sheets[k]
             for k in ("sheet_hnr", "sheet_ifinfield", "sheet_hnr_ifin")
@@ -863,6 +867,7 @@ elif pred_mode == "Fetch Live Matchup":
             st.session_state["pred_hnr_ranges"]       = _scenario_ranges.get("sheet_hnr")
             st.session_state["pred_ifinfield_ranges"] = _scenario_ranges.get("sheet_ifinfield")
             st.session_state["pred_hnr_ifin_ranges"]  = _scenario_ranges.get("sheet_hnr_ifin")
+            st.session_state["_dbg_scenario_errors"]  = _scenario_ranges.get("_errors", {})
         else:
             for _k in ("pred_hnr_ranges", "pred_ifinfield_ranges", "pred_hnr_ifin_ranges"):
                 st.session_state.pop(_k, None)
@@ -1170,6 +1175,158 @@ with tab_p:
         else:
             st.warning("No at-bats found for this pitcher with the current filters.")
     else:
+        # ── swing suggestions panel ───────────────────────────────────────────
+        with st.expander("Swing Suggestions", expanded=True):
+            _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"
+            _h_dd_bkt = st.session_state.get("dd_bucket_p", 100)
+            _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 200)
+
+            _h_recent = (
+                df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)["pitch"]
+                .astype(int).tolist()
+            ) if not df_p_pred.empty else []
+            _h_delta_hist = (
+                df_p[df_p["pitch_circ_delta"].notna()].sort_values("id")["pitch_circ_delta"]
+                .abs().astype(int).tolist()
+            ) if "pitch_circ_delta" in df_p.columns else []
+            _h_diff_hist = (
+                df_p[df_p["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
+            ) if "diff" in df_p.columns else []
+
+            _h_prior_pitch  = _h_recent[-1]      if len(_h_recent) >= 1 else None
+            _h_prior_pitch2 = _h_recent[-2]      if len(_h_recent) >= 2 else None
+            _h_prior_delta  = _h_delta_hist[-1]  if len(_h_delta_hist) >= 1 else None
+            _h_prior_delta2 = _h_delta_hist[-2]  if len(_h_delta_hist) >= 2 else None
+            _h_prior_diff   = _h_diff_hist[-1]   if len(_h_diff_hist)  >= 1 else None
+
+            def _hstr(prob, n, n_bkts):
+                pct = prob * 100
+                exp = 100.0 / n_bkts
+                return f"{pct:.0f}% ({pct-exp:+.0f}%) n={n}"
+
+            _hint_rows_p = []
+            _h_dd_n = 500 // _h_dd_bkt
+            _h_hz_n = 1000 // _h_hz_bkt
+
+            # OBP rows (always at top when matchup is loaded)
+            if result_ranges and _h_recent:
+                _h_pa_df = (
+                    df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
+                    if not df_p_pred.empty else pd.DataFrame()
+                )
+                _h_rel_kw = dict(
+                    recency_slider=st.session_state.get("p_rel_recency", 50),
+                    result_slider=st.session_state.get("p_rel_result", 50),
+                    state_slider=st.session_state.get("p_rel_state", 0),
+                    g1=st.session_state.get("p_rel_g1", 20),
+                    g2=st.session_state.get("p_rel_g2", 40),
+                    g3=st.session_state.get("p_rel_g3", 40),
+                    result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
+                )
+                _h_wts   = utils.compute_pa_weights(_h_pa_df, _h_obc, _h_outs, **_h_rel_kw) if not _h_pa_df.empty else []
+                _h_dwts  = _h_wts[1:] if len(_h_wts) > 1 else None
+                _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
+                _h_dvals  = utils.project_from_deltas(_h_recent)
+                _h_d2vals = utils.project_from_delta2s(_h_recent)
+                _h_obp_p  = utils.optimal_swing_range(_h_recent,  result_ranges, "obp", True, _h_wts or None)
+                _h_obp_d  = utils.optimal_swing_range(_h_dvals,   result_ranges, "obp", True, _h_dwts)
+                _h_obp_d2 = utils.optimal_swing_range(_h_d2vals,  result_ranges, "obp", True, _h_d2wts)
+                _h_ss_p   = utils.swing_signal_strength(_h_recent,  result_ranges, "obp", True, _h_wts or None)
+                _h_ss_d   = utils.swing_signal_strength(_h_dvals,   result_ranges, "obp", True, _h_dwts)  if _h_dvals  else 0.0
+                _h_ss_d2  = utils.swing_signal_strength(_h_d2vals,  result_ranges, "obp", True, _h_d2wts) if _h_d2vals else 0.0
+                _hint_rows_p.append({"Signal": "OBP recent pitch",
+                                     "lo": _h_obp_p[0] if _h_obp_p else None,
+                                     "hi": _h_obp_p[1] if _h_obp_p else None,
+                                     "Strength": f"{_h_ss_p:.0f}% signal"})
+                _hint_rows_p.append({"Signal": "OBP recent Δ",
+                                     "lo": _h_obp_d[0] if _h_obp_d else None,
+                                     "hi": _h_obp_d[1] if _h_obp_d else None,
+                                     "Strength": f"{_h_ss_d:.0f}% signal"})
+                _hint_rows_p.append({"Signal": "OBP recent Δ²",
+                                     "lo": _h_obp_d2[0] if _h_obp_d2 else None,
+                                     "hi": _h_obp_d2[1] if _h_obp_d2 else None,
+                                     "Strength": f"{_h_ss_d2:.0f}% signal"})
+
+            def _delta_row_p(signal, h_dict, n_bkts):
+                if _h_prior_pitch is not None:
+                    r1, r2 = utils.delta_to_pitch_ranges(_h_prior_pitch, h_dict["delta_lo"], h_dict["delta_hi"])
+                    return {"Signal": signal,
+                            "lo": r1[0], "hi": r1[1],
+                            "lo2": r2[0], "hi2": r2[1],
+                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                return {"Signal": signal, "lo": None, "hi": None,
+                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts)}
+
+            if _h_prior_delta is not None:
+                _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("2-delta seq", _h, _h_dd_n))
+
+            if _h_prior_delta is not None and _h_prior_delta2 is not None:
+                _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("3-delta seq", _h, _h_dd_n))
+
+            if _h_prior_diff is not None:
+                _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Prior diff -> delta", _h, 5))
+
+            if _h_prior_pitch is not None:
+                _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch)
+                if _h:
+                    _hint_rows_p.append({"Signal": "2-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n)})
+
+            if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
+                _h = utils.seq3_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch)
+                if _h:
+                    _hint_rows_p.append({"Signal": "3-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n)})
+
+            if "outs" in df_p.columns:
+                _h = utils.best_zone_hint(df_p[df_p["outs"] == _h_outs], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": f"Outs({_h_outs})",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+
+            if "obc" in df_p.columns:
+                _obc_is_zero = (_h_obc == "000")
+                _obc_mask_p  = df_p["obc"] == "000" if _obc_is_zero else df_p["obc"] != "000"
+                _obc_lbl_p   = "Empty" if _obc_is_zero else "Runner(s) on"
+                _h = utils.best_zone_hint(df_p[_obc_mask_p], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": f"Base state ({_obc_lbl_p})",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+
+            if "is_fp_inn" in df_p.columns:
+                _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": "1st pitch inning",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+
+            if "is_fp_app" in df_p.columns:
+                _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": "1st pitch appearance",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], 9)})
+
+            if _hint_rows_p:
+                st.plotly_chart(utils.hint_bars_figure(_hint_rows_p),
+                                use_container_width=True,
+                                config={"displayModeBar": False})
+            elif not result_ranges or not _h_recent:
+                st.caption("Fetch a matchup and select a pitcher to see suggestions.")
+            else:
+                st.caption("Not enough history to generate sequence suggestions.")
+
         # ── swing predictor ───────────────────────────────────────────────────
         st.subheader("Swing Analyzer")
         st.caption("Enter a proposed swing to see what each of this pitcher's recent pitches would give.")
@@ -1625,6 +1782,158 @@ with tab_b:
         else:
             st.warning("No at-bats found for this batter with the current filters.")
     else:
+        # ── pitch suggestions panel ───────────────────────────────────────────
+        with st.expander("Pitch Suggestions", expanded=False):
+            _hb_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _hb_obc    = st.session_state.get("mgr_sheet_obc") or "000"
+            _hb_dd_bkt = st.session_state.get("dd_bucket_b", 100)
+            _hb_hz_bkt = st.session_state.get("hz_init_bucket_b", 200)
+
+            _hb_recent = (
+                df_b_pred[df_b_pred["swing"].notna()].sort_values("id").tail(n_swings)["swing"]
+                .astype(int).tolist()
+            ) if not df_b_pred.empty else []
+            _hb_delta_hist = (
+                df_b[df_b["swing_circ_delta"].notna()].sort_values("id")["swing_circ_delta"]
+                .abs().astype(int).tolist()
+            ) if "swing_circ_delta" in df_b.columns else []
+            _hb_diff_hist = (
+                df_b[df_b["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
+            ) if "diff" in df_b.columns else []
+
+            _hb_prior_swing  = _hb_recent[-1]      if len(_hb_recent) >= 1 else None
+            _hb_prior_swing2 = _hb_recent[-2]      if len(_hb_recent) >= 2 else None
+            _hb_prior_delta  = _hb_delta_hist[-1]  if len(_hb_delta_hist) >= 1 else None
+            _hb_prior_delta2 = _hb_delta_hist[-2]  if len(_hb_delta_hist) >= 2 else None
+            _hb_prior_diff   = _hb_diff_hist[-1]   if len(_hb_diff_hist)  >= 1 else None
+
+            def _hbstr(prob, n, n_bkts):
+                pct = prob * 100
+                exp = 100.0 / n_bkts
+                return f"{pct:.0f}% ({pct-exp:+.0f}%) n={n}"
+
+            _hint_rows_b = []
+
+            if result_ranges and _hb_recent:
+                _hb_pa_df = (
+                    df_b_pred[df_b_pred["swing"].notna()].sort_values("id").tail(n_swings)
+                    if not df_b_pred.empty else pd.DataFrame()
+                )
+                _hb_rel_kw = dict(
+                    recency_slider=st.session_state.get("b_rel_recency", 50),
+                    result_slider=st.session_state.get("b_rel_result", 50),
+                    state_slider=st.session_state.get("b_rel_state", 0),
+                    g1=st.session_state.get("b_rel_g1", 20),
+                    g2=st.session_state.get("b_rel_g2", 40),
+                    g3=st.session_state.get("b_rel_g3", 40),
+                    result_offset=bool(st.session_state.get("b_rel_result_offset", True)),
+                )
+                _hb_wts   = utils.compute_pa_weights(_hb_pa_df, _hb_obc, _hb_outs, **_hb_rel_kw) if not _hb_pa_df.empty else []
+                _hb_dwts  = _hb_wts[1:] if len(_hb_wts) > 1 else None
+                _hb_d2wts = [w for w in _hb_wts[2:] for _ in range(2)] if len(_hb_wts) > 2 else None
+                _hb_dvals  = utils.project_from_deltas(_hb_recent)
+                _hb_d2vals = utils.project_from_delta2s(_hb_recent)
+                _hb_obp_p  = utils.optimal_swing_range(_hb_recent,  result_ranges, "obp", False, _hb_wts or None)
+                _hb_obp_d  = utils.optimal_swing_range(_hb_dvals,   result_ranges, "obp", False, _hb_dwts)
+                _hb_obp_d2 = utils.optimal_swing_range(_hb_d2vals,  result_ranges, "obp", False, _hb_d2wts)
+                _hb_ss_p   = utils.swing_signal_strength(_hb_recent,  result_ranges, "obp", False, _hb_wts or None)
+                _hb_ss_d   = utils.swing_signal_strength(_hb_dvals,   result_ranges, "obp", False, _hb_dwts)  if _hb_dvals  else 0.0
+                _hb_ss_d2  = utils.swing_signal_strength(_hb_d2vals,  result_ranges, "obp", False, _hb_d2wts) if _hb_d2vals else 0.0
+                _hint_rows_b.append({"Signal": "OBP recent swing",
+                                     "lo": _hb_obp_p[0] if _hb_obp_p else None,
+                                     "hi": _hb_obp_p[1] if _hb_obp_p else None,
+                                     "Strength": f"{_hb_ss_p:.0f}% signal"})
+                _hint_rows_b.append({"Signal": "OBP recent Δ",
+                                     "lo": _hb_obp_d[0] if _hb_obp_d else None,
+                                     "hi": _hb_obp_d[1] if _hb_obp_d else None,
+                                     "Strength": f"{_hb_ss_d:.0f}% signal"})
+                _hint_rows_b.append({"Signal": "OBP recent Δ²",
+                                     "lo": _hb_obp_d2[0] if _hb_obp_d2 else None,
+                                     "hi": _hb_obp_d2[1] if _hb_obp_d2 else None,
+                                     "Strength": f"{_hb_ss_d2:.0f}% signal"})
+
+            _hb_dd_n = 500 // _hb_dd_bkt
+            _hb_hz_n = 1000 // _hb_hz_bkt
+
+            def _delta_row_b(signal, h_dict, n_bkts):
+                if _hb_prior_swing is not None:
+                    r1, r2 = utils.delta_to_pitch_ranges(_hb_prior_swing, h_dict["delta_lo"], h_dict["delta_hi"])
+                    return {"Signal": signal,
+                            "lo": r1[0], "hi": r1[1],
+                            "lo2": r2[0], "hi2": r2[1],
+                            "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts)}
+                return {"Signal": signal, "lo": None, "hi": None,
+                        "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts)}
+
+            if _hb_prior_delta is not None:
+                _h = utils.seq2_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta)
+                if _h:
+                    _hint_rows_b.append(_delta_row_b("2-delta seq", _h, _hb_dd_n))
+
+            if _hb_prior_delta is not None and _hb_prior_delta2 is not None:
+                _h = utils.seq3_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta)
+                if _h:
+                    _hint_rows_b.append(_delta_row_b("3-delta seq", _h, _hb_dd_n))
+
+            if _hb_prior_diff is not None:
+                _h = utils.diff_to_delta_hint(df_b, "swing", _hb_prior_diff)
+                if _h:
+                    _hint_rows_b.append(_delta_row_b("Prior diff -> delta", _h, 5))
+
+            if _hb_prior_swing is not None:
+                _h = utils.seq2_hint(df_b, "swing", _hb_hz_bkt, _hb_prior_swing)
+                if _h:
+                    _hint_rows_b.append({"Signal": "2-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n)})
+
+            if _hb_prior_swing is not None and _hb_prior_swing2 is not None:
+                _h = utils.seq3_hint(df_b, "swing", _hb_hz_bkt, _hb_prior_swing2, _hb_prior_swing)
+                if _h:
+                    _hint_rows_b.append({"Signal": "3-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n)})
+
+            if "outs" in df_b.columns:
+                _h = utils.best_zone_hint(df_b[df_b["outs"] == _hb_outs], "swing")
+                if _h:
+                    _hint_rows_b.append({"Signal": f"Outs({_hb_outs})",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+
+            if "obc" in df_b.columns:
+                _obc_is_zero_b = (_hb_obc == "000")
+                _obc_mask_b    = df_b["obc"] == "000" if _obc_is_zero_b else df_b["obc"] != "000"
+                _obc_lbl_b     = "Empty" if _obc_is_zero_b else "Runner(s) on"
+                _h = utils.best_zone_hint(df_b[_obc_mask_b], "swing")
+                if _h:
+                    _hint_rows_b.append({"Signal": f"Base state ({_obc_lbl_b})",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+
+            if "is_fp_inn" in df_b.columns:
+                _h = utils.best_zone_hint(df_b[df_b["is_fp_inn"] == True], "swing")
+                if _h:
+                    _hint_rows_b.append({"Signal": "1st pitch inning",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+
+            if "is_fp_app" in df_b.columns:
+                _h = utils.best_zone_hint(df_b[df_b["is_fp_app"] == True], "swing")
+                if _h:
+                    _hint_rows_b.append({"Signal": "1st pitch appearance",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hbstr(_h["prob"], _h["n"], 9)})
+
+            if _hint_rows_b:
+                st.plotly_chart(utils.hint_bars_figure(_hint_rows_b),
+                                use_container_width=True,
+                                config={"displayModeBar": False})
+            elif not result_ranges or not _hb_recent:
+                st.caption("Fetch a matchup and select a batter to see suggestions.")
+            else:
+                st.caption("Not enough history to generate sequence suggestions.")
+
         # ── pitch predictor ───────────────────────────────────────────────────
         st.subheader("Pitch Analyzer")
         st.caption("Enter a proposed pitch to see what each of this batter's recent swings would give.")
@@ -2543,7 +2852,8 @@ with tab_m:
         p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
         return ev, p1r, p2r, p3pr
 
-    _bunt_ranges  = st.session_state.get("pred_bunt_ranges") or result_ranges
+    _bunt_ranges      = st.session_state.get("pred_bunt_ranges") or result_ranges
+    _bunt_from_sheet  = bool(st.session_state.get("pred_bunt_ranges"))
 
     # Helper: look up runner speed from session state given a base key and OBC bit
     def _mgr_rspd(base_ltr: str, obc_bit: str) -> int | None:
@@ -2578,6 +2888,7 @@ with tab_m:
     )
     _if_in_checked = bool(st.session_state.get("pred_calc_if_in", False))
 
+    _ifin_from_sheet = bool(st.session_state.get("pred_ifinfield_ranges"))
     _if_in_ranges = (
         st.session_state.get("pred_ifinfield_ranges")
         or utils.compute_at_bat_ranges(
@@ -2585,6 +2896,7 @@ with tab_m:
         )
     )
     _hnr_sheet_key = "pred_hnr_ifin_ranges" if _if_in_checked else "pred_hnr_ranges"
+    _hnr_from_sheet = bool(st.session_state.get(_hnr_sheet_key))
     _hnr_ranges = (
         st.session_state.get(_hnr_sheet_key)
         or utils.compute_at_bat_ranges(
@@ -2803,6 +3115,13 @@ with tab_m:
         _mgr_debug = st.toggle("Debug Info", key="mgr_debug")
 
         if _mgr_debug:
+            _dbg_base_url = st.session_state.get("_dbg_base_url", "(not fetched yet)")
+            _dbg_sheets   = st.session_state.get("_dbg_stadium_sheets", {})
+            _dbg_sc_errs  = st.session_state.get("_dbg_scenario_errors", {})
+            st.caption(f"Stadium lookup URL: `{_dbg_base_url}`")
+            st.caption(f"Stadium sheet columns: `{_dbg_sheets}`")
+            if _dbg_sc_errs:
+                st.caption(f"Scenario fetch errors: `{_dbg_sc_errs}`")
             _, _swing_dbg = utils.compute_at_bat_ranges(
                 bunt=False, hit_and_run=False, infield_in=False, _debug=True, **_mgr_kwargs,
             )
@@ -2823,6 +3142,7 @@ with tab_m:
         st.divider()
 
         st.subheader("Normal Swing")
+        st.caption("Ranges: from stadium sheet")
         st.plotly_chart(utils.manager_color_bar(int(_proposed), result_ranges,
                         label="Swing", x_label="Swing Values"),
                         use_container_width=True, key="mgr_bar_swing")
@@ -2834,8 +3154,7 @@ with tab_m:
         st.divider()
 
         st.subheader("Bunt")
-        if not st.session_state.get("pred_bunt_ranges"):
-            st.caption("No bunt ranges fetched - showing normal ranges as fallback")
+        st.caption("Ranges: from stadium sheet" if _bunt_from_sheet else "Ranges: no bunt sheet - using normal swing ranges")
         st.plotly_chart(utils.manager_color_bar(int(_proposed), _bunt_ranges,
                         label="Bunt", x_label="Bunt Values"),
                         use_container_width=True, key="mgr_bar_bunt")
@@ -2861,6 +3180,7 @@ with tab_m:
         if _has_hnr:
             st.divider()
             st.subheader("Hit and Run")
+            st.caption("Ranges: from stadium sheet" if _hnr_from_sheet else "Ranges: calculated live")
             _hnr_base_lbl = _hnr_steal_runner["base"] if _hnr_steal_runner else "?"
             _orig_rng     = _hnr_steal_runner["safe_range"] if _hnr_steal_runner else "?"
             st.caption(f"K: {_hnr_base_lbl} runner steals at normal range {_orig_rng}")
@@ -2875,6 +3195,7 @@ with tab_m:
         if _has_if_in:
             st.divider()
             st.subheader("Infield In (opponent defensive option)")
+            st.caption("Ranges: from stadium sheet" if _ifin_from_sheet else "Ranges: calculated live")
             st.caption("+20 to 1B, IF1B shifted to 1B, GORA disabled.")
             st.plotly_chart(utils.manager_color_bar(int(_proposed), _if_in_ranges,
                             label="Swing", x_label="Swing Values"),
