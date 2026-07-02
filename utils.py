@@ -2293,17 +2293,16 @@ def hint_bars_figure(
         if mode == "all" and zone_dist is not None:
             total_dist = sum(zone_dist)
             if total_dist > 0:
-                # Attenuate color intensity by z-score of the row's top zone so that
-                # weak-signal rows stay muted rather than screaming red on empty zones.
-                row_z = h.get("_zscore")
-                if row_z is None:
-                    row_z = hint_zscore(max(zone_dist) / total_dist, total_dist, 9)
-                atten = min(1.0, (max(0.0, row_z) / 3.5) ** 0.6)
-                for zi, z in enumerate(ZONES):
-                    raw_t = max(-1.0, min(1.0, zone_dist[zi] / total_dist * 9.0 - 1.0))
-                    color = _zone_color(raw_t * atten)
+                _zbkt = h.get("_zone_bucket_size", 111)
+                _zn   = 1000 // _zbkt
+                for bi in range(_zn):
+                    lo_z  = bi * _zbkt + 1
+                    hi_z  = min((bi + 1) * _zbkt, 1000)
+                    count = zone_dist[bi] if bi < len(zone_dist) else 0
+                    raw_t = max(-1.0, min(1.0, count / total_dist * _zn - 1.0))
+                    color = _zone_color(raw_t) if total_dist >= 5 else _GRAY
                     fig.add_shape(type="rect",
-                                  x0=z[0] - 0.5, x1=z[1] + 0.5,
+                                  x0=lo_z - 0.5, x1=hi_z + 0.5,
                                   y0=y0, y1=y1,
                                   fillcolor=color, line=dict(width=0))
         else:
@@ -2798,12 +2797,9 @@ def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
 def seq2_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int, prior_val: int, centered: bool = False,
 ) -> list[int] | None:
-    """Zone counts of next value when the prior value falls in the same bucket."""
-    zone_col = f"{value_col}_zone"
-    if zone_col not in df.columns:
-        return None
-    vals = df[value_col].dropna()
-    if vals.empty:
+    """Bucket counts of next value when the prior value falls in the same bucket."""
+    n_bkts = 1000 // bucket_size
+    if df[value_col].isna().all():
         return None
     if centered:
         half = bucket_size // 2
@@ -2811,30 +2807,28 @@ def seq2_zone_dist(
         mask = (_circ_dist_vec(prev, int(prior_val)) <= half).fillna(False)
     else:
         prior_bkt = (int(prior_val) - 1) // bucket_size
-        bkts = (vals.astype(int) - 1) // bucket_size
-        mask = (bkts.shift(1) == prior_bkt)
-    zones = df.loc[mask & df[zone_col].notna(), zone_col]
-    if zones.empty:
+        bkts = ((df[value_col].astype(float) - 1) // bucket_size).where(df[value_col].notna())
+        mask = (bkts.shift(1) == prior_bkt).fillna(False)
+    pitches = df.loc[mask & df[value_col].notna(), value_col]
+    if pitches.empty:
         return None
-    c = zones.value_counts()
-    return [int(c.get(z[2], 0)) for z in ZONES]
+    bkt_ids = ((pitches.astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    c = bkt_ids.value_counts()
+    return [int(c.get(i, 0)) for i in range(n_bkts)]
 
 
 def seq3_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
     prior_val_1: int, prior_val_2: int, centered: bool = False,
 ) -> list[int] | None:
-    """Zone counts of 3rd value when the prior two values fall in matching buckets."""
-    zone_col = f"{value_col}_zone"
-    if zone_col not in df.columns:
-        return None
-    vals = df[value_col].dropna()
-    if vals.empty:
+    """Bucket counts of 3rd value when the prior two values fall in matching buckets."""
+    n_bkts = 1000 // bucket_size
+    if df[value_col].isna().all():
         return None
     if centered:
         half = bucket_size // 2
-        prev1 = df[value_col].shift(1)  # most recent prior -> matches prior_val_2
-        prev2 = df[value_col].shift(2)  # 2nd most recent -> matches prior_val_1
+        prev1 = df[value_col].shift(1)
+        prev2 = df[value_col].shift(2)
         mask = (
             (_circ_dist_vec(prev1, int(prior_val_2)) <= half) &
             (_circ_dist_vec(prev2, int(prior_val_1)) <= half)
@@ -2842,15 +2836,14 @@ def seq3_zone_dist(
     else:
         b1 = (int(prior_val_1) - 1) // bucket_size
         b2 = (int(prior_val_2) - 1) // bucket_size
-        bkts = (vals.astype(int) - 1) // bucket_size
-        s1 = bkts.shift(1)
-        s2 = bkts.shift(2)
-        mask = (s1 == b2) & (s2 == b1)
-    zones = df.loc[mask & df[zone_col].notna(), zone_col]
-    if zones.empty:
+        bkts = ((df[value_col].astype(float) - 1) // bucket_size).where(df[value_col].notna())
+        mask = ((bkts.shift(1) == b2) & (bkts.shift(2) == b1)).fillna(False)
+    pitches = df.loc[mask & df[value_col].notna(), value_col]
+    if pitches.empty:
         return None
-    c = zones.value_counts()
-    return [int(c.get(z[2], 0)) for z in ZONES]
+    bkt_ids = ((pitches.astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+    c = bkt_ids.value_counts()
+    return [int(c.get(i, 0)) for i in range(n_bkts)]
 
 
 def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
@@ -2863,12 +2856,12 @@ def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
 
 
 def delta_next_zone_dist(
-    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int, centered: bool = False,
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
+    centered: bool = False, zone_bucket_size: int = 111,
 ) -> list[int] | None:
-    """Zone counts of the next pitch when the current pitch's circular delta is in the same bucket."""
-    zone_col  = f"{value_col}_zone"
+    """Bucket counts of the next pitch when the current pitch's circular delta is in the same bucket."""
     delta_col = f"{value_col}_circ_delta"
-    if zone_col not in df.columns or delta_col not in df.columns:
+    if delta_col not in df.columns or df[value_col].isna().all():
         return None
     d = df[delta_col].abs()
     if centered:
@@ -2877,22 +2870,24 @@ def delta_next_zone_dist(
     else:
         prior_bkt = (int(prior_delta) - 1) // bucket_size
         mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
-    next_zone = df[zone_col].shift(-1)
-    zones = next_zone[mask & next_zone.notna()]
-    if zones.empty:
+    next_val = df[value_col].shift(-1)
+    next_pitches = next_val[mask & next_val.notna()]
+    if next_pitches.empty:
         return None
-    c = zones.value_counts()
-    return [int(c.get(z[2], 0)) for z in ZONES]
+    n_bkts = 1000 // zone_bucket_size
+    bkt_ids = ((next_pitches.astype(int) - 1) // zone_bucket_size).clip(0, n_bkts - 1)
+    c = bkt_ids.value_counts()
+    return [int(c.get(i, 0)) for i in range(n_bkts)]
 
 
 def delta3_next_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
-    prior_delta_1: int, prior_delta_2: int, centered: bool = False,
+    prior_delta_1: int, prior_delta_2: int,
+    centered: bool = False, zone_bucket_size: int = 111,
 ) -> list[int] | None:
-    """Zone counts of the next pitch when the prior two circular deltas match the given buckets."""
-    zone_col  = f"{value_col}_zone"
+    """Bucket counts of the next pitch when the prior two circular deltas match the given buckets."""
     delta_col = f"{value_col}_circ_delta"
-    if zone_col not in df.columns or delta_col not in df.columns:
+    if delta_col not in df.columns or df[value_col].isna().all():
         return None
     d = df[delta_col].abs()
     if centered:
@@ -2905,20 +2900,131 @@ def delta3_next_zone_dist(
         b2 = (int(prior_delta_2) - 1) // bucket_size
         bkts = (d - 1) // bucket_size
         mask = ((bkts == b2) & (bkts.shift(1) == b1)).fillna(False)
-    next_zone = df[zone_col].shift(-1)
-    zones = next_zone[mask & next_zone.notna()]
-    if zones.empty:
+    next_val = df[value_col].shift(-1)
+    next_pitches = next_val[mask & next_val.notna()]
+    if next_pitches.empty:
         return None
-    c = zones.value_counts()
-    return [int(c.get(z[2], 0)) for z in ZONES]
+    n_bkts = 1000 // zone_bucket_size
+    bkt_ids = ((next_pitches.astype(int) - 1) // zone_bucket_size).clip(0, n_bkts - 1)
+    c = bkt_ids.value_counts()
+    return [int(c.get(i, 0)) for i in range(n_bkts)]
+
+
+def _delta_hist_to_pitch_zones(
+    next_deltas: pd.Series,
+    bucket_size: int,
+    prior_pitch: int,
+    zone_bucket_size: int,
+) -> list[int] | None:
+    """Convert next-delta histogram to pitch zone counts using delta_to_pitch_ranges."""
+    if next_deltas.empty:
+        return None
+    n_bkts = 1000 // zone_bucket_size
+    n_delta_bkts = 500 // bucket_size
+    bkt_ids = ((next_deltas.astype(int) - 1) // bucket_size).clip(0, n_delta_bkts - 1)
+    counts = bkt_ids.value_counts()
+    pitch_counts = [0.0] * n_bkts
+
+    def _add_range(lo_r: int, hi_r: int, cnt: float, n_zones: int) -> None:
+        contribution = cnt / n_zones
+        if lo_r <= hi_r:
+            lo_bkt = (lo_r - 1) // zone_bucket_size
+            hi_bkt = (hi_r - 1) // zone_bucket_size
+            for bkt in range(lo_bkt, min(hi_bkt + 1, n_bkts)):
+                pitch_counts[bkt] += contribution
+        else:
+            # Wrapping range: [lo_r, 1000] + [1, hi_r]
+            lo_bkt = (lo_r - 1) // zone_bucket_size
+            for bkt in range(lo_bkt, n_bkts):
+                pitch_counts[bkt] += contribution
+            hi_bkt = (hi_r - 1) // zone_bucket_size
+            for bkt in range(0, hi_bkt + 1):
+                pitch_counts[bkt] += contribution
+
+    for di in range(n_delta_bkts):
+        cnt = int(counts.get(di, 0))
+        if cnt == 0:
+            continue
+        delta_lo = di * bucket_size
+        delta_hi = (di + 1) * bucket_size
+        r1, r2 = delta_to_pitch_ranges(prior_pitch, delta_lo, delta_hi)
+        # Count how many distinct zone buckets this delta maps to (for fair weighting)
+        zones_hit: set[int] = set()
+        for lo_r, hi_r in [r1, r2]:
+            if lo_r is None:
+                continue
+            if lo_r <= hi_r:
+                lo_bkt = (lo_r - 1) // zone_bucket_size
+                hi_bkt = (hi_r - 1) // zone_bucket_size
+                zones_hit.update(range(lo_bkt, min(hi_bkt + 1, n_bkts)))
+            else:
+                lo_bkt = (lo_r - 1) // zone_bucket_size
+                zones_hit.update(range(lo_bkt, n_bkts))
+                hi_bkt = (hi_r - 1) // zone_bucket_size
+                zones_hit.update(range(0, hi_bkt + 1))
+        n_zones = max(1, len(zones_hit))
+        for lo_r, hi_r in [r1, r2]:
+            if lo_r is None:
+                continue
+            _add_range(lo_r, hi_r, cnt, n_zones)
+
+    result = [int(round(c)) for c in pitch_counts]
+    return result if any(c > 0 for c in result) else None
+
+
+def delta_zone_via_delta_hist(
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
+    prior_pitch: int, centered: bool = False, zone_bucket_size: int = 111,
+) -> list[int] | None:
+    """Pitch zone dist for 2-delta rows: next-delta histogram converted via prior_pitch."""
+    delta_col = f"{value_col}_circ_delta"
+    if delta_col not in df.columns or df[value_col].isna().all():
+        return None
+    d = df[delta_col].abs()
+    if centered:
+        half = bucket_size // 2
+        mask = ((d - float(prior_delta)).abs() <= half).fillna(False)
+    else:
+        prior_bkt = (int(prior_delta) - 1) // bucket_size
+        mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
+    next_d = d.shift(-1)
+    return _delta_hist_to_pitch_zones(
+        next_d[mask & next_d.notna()], bucket_size, int(prior_pitch), zone_bucket_size
+    )
+
+
+def delta3_zone_via_delta_hist(
+    df: pd.DataFrame, value_col: str, bucket_size: int,
+    prior_delta_1: int, prior_delta_2: int, prior_pitch: int,
+    centered: bool = False, zone_bucket_size: int = 111,
+) -> list[int] | None:
+    """Pitch zone dist for 3-delta rows: next-delta histogram converted via prior_pitch."""
+    delta_col = f"{value_col}_circ_delta"
+    if delta_col not in df.columns or df[value_col].isna().all():
+        return None
+    d = df[delta_col].abs()
+    if centered:
+        half = bucket_size // 2
+        m_curr = ((d - float(prior_delta_2)).abs() <= half).fillna(False)
+        m_prev = ((d.shift(1) - float(prior_delta_1)).abs() <= half).fillna(False)
+        mask = m_curr & m_prev
+    else:
+        b1 = (int(prior_delta_1) - 1) // bucket_size
+        b2 = (int(prior_delta_2) - 1) // bucket_size
+        bkts = (d - 1) // bucket_size
+        mask = ((bkts == b2) & (bkts.shift(1) == b1)).fillna(False)
+    next_d = d.shift(-1)
+    return _delta_hist_to_pitch_zones(
+        next_d[mask & next_d.notna()], bucket_size, int(prior_pitch), zone_bucket_size
+    )
 
 
 def diff_next_zone_dist(
-    df: pd.DataFrame, value_col: str, prior_diff: int, centered: bool = False,
+    df: pd.DataFrame, value_col: str, prior_diff: int,
+    centered: bool = False, zone_bucket_size: int = 111,
 ) -> list[int] | None:
-    """Zone counts of the next pitch when the current diff falls in the same quality bucket."""
-    zone_col = f"{value_col}_zone"
-    if zone_col not in df.columns or "diff" not in df.columns:
+    """Bucket counts of the next pitch when the current diff falls in the same quality bucket."""
+    if "diff" not in df.columns or df[value_col].isna().all():
         return None
     d = df["diff"].abs()
     if centered:
@@ -2929,12 +3035,14 @@ def diff_next_zone_dist(
         prior_cut = pd.cut(pd.Series([int(prior_diff)]), bins=_DIFF_HM_BINS, labels=False,
                            right=True, include_lowest=True).iloc[0]
         mask = (d_cut == prior_cut).fillna(False)
-    next_zone = df[zone_col].shift(-1)
-    zones = next_zone[mask & next_zone.notna()]
-    if zones.empty:
+    next_val = df[value_col].shift(-1)
+    next_pitches = next_val[mask & next_val.notna()]
+    if next_pitches.empty:
         return None
-    c = zones.value_counts()
-    return [int(c.get(z[2], 0)) for z in ZONES]
+    n_bkts = 1000 // zone_bucket_size
+    bkt_ids = ((next_pitches.astype(int) - 1) // zone_bucket_size).clip(0, n_bkts - 1)
+    c = bkt_ids.value_counts()
+    return [int(c.get(i, 0)) for i in range(n_bkts)]
 
 
 def swing_predictor_chart(

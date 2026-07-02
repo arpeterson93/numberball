@@ -1272,21 +1272,24 @@ with tab_p:
                 _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
                     _row = _delta_row_p("2-Δ seq", _h, _h_dd_n)
-                    _row["_zone_dist"] = utils.delta_next_zone_dist(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
+                    _row["_zone_dist"] = utils.delta_zone_via_delta_hist(df_p, "pitch", _h_dd_bkt, _h_prior_delta, _h_prior_pitch, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt) if _h_prior_pitch is not None else None
+                    _row["_zone_bucket_size"] = _h_hz_bkt
                     _hint_rows_p.append(_row)
 
             if _h_prior_delta is not None and _h_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
                     _row = _delta_row_p("3-Δ seq", _h, _h_dd_n)
-                    _row["_zone_dist"] = utils.delta3_next_zone_dist(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
+                    _row["_zone_dist"] = utils.delta3_zone_via_delta_hist(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, _h_prior_pitch, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt) if _h_prior_pitch is not None else None
+                    _row["_zone_bucket_size"] = _h_hz_bkt
                     _hint_rows_p.append(_row)
 
             if _h_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
                 if _h:
                     _row = _delta_row_p("Prior diff → Δ", _h, 5)
-                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
+                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt)
+                    _row["_zone_bucket_size"] = _h_hz_bkt
                     _hint_rows_p.append(_row)
 
             if _h_prior_pitch is not None:
@@ -1296,6 +1299,7 @@ with tab_p:
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
                                          "_zone_dist": utils.seq2_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p),
+                                         "_zone_bucket_size": _h_hz_bkt,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
 
             if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
@@ -1305,6 +1309,7 @@ with tab_p:
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
                                          "_zone_dist": utils.seq3_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch, centered=_hint_centered_p),
+                                         "_zone_bucket_size": _h_hz_bkt,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
 
             if "outs" in df_p.columns:
@@ -1315,6 +1320,7 @@ with tab_p:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "obc" in df_p.columns:
@@ -1328,6 +1334,7 @@ with tab_p:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_inn" in df_p.columns:
@@ -1338,6 +1345,7 @@ with tab_p:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_app" in df_p.columns:
@@ -1348,6 +1356,7 @@ with tab_p:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
@@ -1934,21 +1943,24 @@ with tab_b:
                 _h = utils.seq2_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta, centered=_hint_centered_b)
                 if _h:
                     _row = _delta_row_b("2-Δ seq", _h, _hb_dd_n)
-                    _row["_zone_dist"] = utils.delta_next_zone_dist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta, centered=_hint_centered_b)
+                    _row["_zone_dist"] = utils.delta_zone_via_delta_hist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta, _hb_prior_swing, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt) if _hb_prior_swing is not None else None
+                    _row["_zone_bucket_size"] = _hb_hz_bkt
                     _hint_rows_b.append(_row)
 
             if _hb_prior_delta is not None and _hb_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta, centered=_hint_centered_b)
                 if _h:
                     _row = _delta_row_b("3-Δ seq", _h, _hb_dd_n)
-                    _row["_zone_dist"] = utils.delta3_next_zone_dist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta, centered=_hint_centered_b)
+                    _row["_zone_dist"] = utils.delta3_zone_via_delta_hist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta, _hb_prior_swing, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt) if _hb_prior_swing is not None else None
+                    _row["_zone_bucket_size"] = _hb_hz_bkt
                     _hint_rows_b.append(_row)
 
             if _hb_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_b, "swing", _hb_prior_diff, centered=_hint_centered_b)
                 if _h:
                     _row = _delta_row_b("Prior diff → Δ", _h, 5)
-                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_b, "swing", _hb_prior_diff, centered=_hint_centered_b)
+                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_b, "swing", _hb_prior_diff, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt)
+                    _row["_zone_bucket_size"] = _hb_hz_bkt
                     _hint_rows_b.append(_row)
 
             if _hb_prior_swing is not None:
@@ -1958,6 +1970,7 @@ with tab_b:
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n),
                                          "_zone_dist": utils.seq2_zone_dist(df_b, "swing", _hb_hz_bkt, _hb_prior_swing, centered=_hint_centered_b),
+                                         "_zone_bucket_size": _hb_hz_bkt,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _hb_hz_n)})
 
             if _hb_prior_swing is not None and _hb_prior_swing2 is not None:
@@ -1967,6 +1980,7 @@ with tab_b:
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "Strength": _hbstr(_h["prob"], _h["n"], _hb_hz_n),
                                          "_zone_dist": utils.seq3_zone_dist(df_b, "swing", _hb_hz_bkt, _hb_prior_swing2, _hb_prior_swing, centered=_hint_centered_b),
+                                         "_zone_bucket_size": _hb_hz_bkt,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _hb_hz_n)})
 
             if "outs" in df_b.columns:
@@ -1977,6 +1991,7 @@ with tab_b:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hbstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "obc" in df_b.columns:
@@ -1990,6 +2005,7 @@ with tab_b:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hbstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_inn" in df_b.columns:
@@ -2000,6 +2016,7 @@ with tab_b:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hbstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             if "is_fp_app" in df_b.columns:
@@ -2010,6 +2027,7 @@ with tab_b:
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
                                          "Strength": _hbstr(_h["prob"], _h["n"], 9),
                                          "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
             # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
