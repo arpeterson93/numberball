@@ -139,7 +139,6 @@ def get_plays_for_game(game_id: int) -> list[dict]:
     )
 
 
-@st.cache_data(ttl=300)
 def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
@@ -153,7 +152,6 @@ def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
-@st.cache_data(ttl=300)
 def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")

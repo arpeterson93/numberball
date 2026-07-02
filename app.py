@@ -32,7 +32,7 @@ components.html(
         'align-items:center;justify-content:center;gap:16px}' +
         '#nb-overlay.show{display:flex}' +
         '#nb-ring{width:44px;height:44px;border-radius:50%;' +
-        'border:3px solid rgba(255,255,255,0.12);border-top-color:#ff4b4b;' +
+        'border:3px solid rgba(255,255,255,0.12);border-top-color:#085d05;' +
         'animation:nb-spin 0.8s linear infinite}' +
         '@keyframes nb-spin{to{transform:rotate(360deg)}}' +
         '#nb-lbl{color:rgba(255,255,255,0.65);' +

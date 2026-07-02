@@ -676,6 +676,12 @@ def circular_signed_delta(a: int, b: int) -> int:
     return d
 
 
+def _circ_dist_vec(series: pd.Series, ref: int) -> pd.Series:
+    """Vectorized circular distance on [1, 1000]. NaN inputs produce NaN output."""
+    d = (series.astype(float) - float(ref)).abs()
+    return d.where(d <= 500, 1000.0 - d)
+
+
 def get_zone(value: int) -> str:
     for lo, hi, label in ZONES:
         if lo <= value <= hi:
@@ -2230,6 +2236,10 @@ def hint_bars_figure(
     mode: str = "best",
     mobile: bool = False,
     prior_val: int | None = None,
+    prior_val2: int | None = None,
+    swing_val: int | None = None,
+    obr_lo: int | None = None,
+    obr_hi: int | None = None,
 ) -> go.Figure:
     """Stacked horizontal range bars for swing/pitch suggestions.
 
@@ -2335,17 +2345,17 @@ def hint_bars_figure(
 
         if mobile:
             fig.add_annotation(
-                x=3, y=y1 - 0.04,
+                x=3, y=y1,
                 text=f"<b>{signal}</b>",
-                showarrow=False, xanchor="left", yanchor="top",
+                showarrow=False, xanchor="left", yanchor="bottom",
                 font=dict(size=8, color="rgba(255,255,255,0.9)"),
                 bgcolor="rgba(0,0,0,0)",
             )
             if strength:
                 fig.add_annotation(
-                    x=997, y=y1 - 0.04,
+                    x=997, y=y1,
                     text=strength,
-                    showarrow=False, xanchor="right", yanchor="top",
+                    showarrow=False, xanchor="right", yanchor="bottom",
                     font=dict(size=8, color="rgba(255,255,255,0.85)"),
                     bgcolor="rgba(0,0,0,0)",
                 )
@@ -2360,43 +2370,67 @@ def hint_bars_figure(
                     bgcolor="rgba(0,0,0,0)",
                 )
 
-    # Most-recent pitch/swing reference
-    if prior_val is not None:
-        fig.add_shape(
-            type="line", x0=prior_val, x1=prior_val,
-            y0=-0.5, y1=n,
-            line=dict(color="rgba(255,230,100,0.30)", width=1, dash="dot"),
-        )
-        # ▼N sits above the 1-1000 tick labels in the top margin.
-        # Tick labels are ~14 px; placing at 22 px above the plot edge clears them with a small gap.
-        _t_margin = 42
-        _b_margin = 8
-        _h_val = (n * 38 + 55) if mobile else (n * 44 + 60)
-        _plot_h = max(1, _h_val - _t_margin - _b_margin)
-        _y_above = 1.0 + 22.0 / _plot_h
+    # Reference lines and labels in three rows above the 1-1000 tick labels:
+    #   Row 1 (16 px above plot): prior_val  - most-recent pitch/swing (yellow)
+    #   Row 2 (29 px above plot): prior_val2 - 2nd-most-recent (yellow)
+    #   Row 3 (44 px above plot): swing_val / obr_lo / obr_hi (blue)
+    # Top margin is 60 px: ~14 px tick labels + 3 x 12 px label rows + buffer.
+    _t_margin  = 60
+    _b_margin  = 8
+    _h_val_ref = (n * 38 + 73) if mobile else (n * 44 + 78)
+    _plot_h    = max(1, _h_val_ref - _t_margin - _b_margin)
+
+    _Y_LINE   = "rgba(255,230,100,0.30)"
+    _Y_LABEL  = "rgba(255,230,100,0.95)"
+    _B_LINE   = "rgba(80,160,255,0.35)"
+    _B_LABEL  = "rgba(80,190,255,0.95)"
+
+    def _ref_line(x: int, color: str) -> None:
+        fig.add_shape(type="line", x0=x, x1=x, y0=-0.5, y1=n,
+                      line=dict(color=color, width=1, dash="dot"))
+
+    def _ref_label(x: int, offset_px: float, text: str, color: str) -> None:
         fig.add_annotation(
-            x=prior_val, y=_y_above,
+            x=x, y=1.0 + offset_px / _plot_h,
             xref="x", yref="paper",
-            text=f"▼{prior_val}",
-            showarrow=False, xanchor="center", yanchor="bottom",
-            font=dict(size=8.5, color="rgba(255,230,100,0.95)"),
+            text=text, showarrow=False,
+            xanchor="center", yanchor="bottom",
+            font=dict(size=8.5, color=color),
             bgcolor="rgba(0,0,0,0)",
         )
 
+    if prior_val is not None:
+        _ref_line(prior_val, _Y_LINE)
+        _ref_label(prior_val, 16, f"▼{prior_val}", _Y_LABEL)
+
+    if prior_val2 is not None:
+        _ref_line(prior_val2, _Y_LINE)
+        _ref_label(prior_val2, 29, f"▼{prior_val2}", _Y_LABEL)
+
+    for _rv in [swing_val, obr_lo, obr_hi]:
+        if _rv is not None:
+            _ref_line(_rv, _B_LINE)
+            _ref_label(_rv, 44, f"▼{_rv}", _B_LABEL)
+
     y_ticks  = list(range(n))
-    y_labels = [hints[n - 1 - i]["Signal"] for i in range(n)]
+    y_labels = []
+    for i in range(n):
+        h_i = hints[n - 1 - i]
+        sig = h_i.get("Signal", "")
+        zs  = h_i.get("_zscore")
+        y_labels.append(f"{sig}  {zs:.1f}" if zs is not None else sig)
 
     if mobile:
         yaxis_cfg  = dict(range=[-0.5, n - 0.3], tickmode="array", tickvals=y_ticks,
                           ticktext=[""] * n, showgrid=False, zeroline=False)
-        margin_cfg = dict(l=5, r=5, t=42, b=8)
-        height_val = n * 38 + 55
+        margin_cfg = dict(l=5, r=5, t=60, b=8)
+        height_val = n * 38 + 73
     else:
         yaxis_cfg  = dict(range=[-0.5, n - 0.3], tickmode="array", tickvals=y_ticks,
                           ticktext=y_labels, tickfont=dict(size=11),
                           showgrid=False, zeroline=False, automargin=True)
-        margin_cfg = dict(l=170, r=155, t=42, b=8)
-        height_val = n * 44 + 60
+        margin_cfg = dict(l=170, r=155, t=60, b=8)
+        height_val = n * 44 + 78
 
     fig.update_layout(
         xaxis=dict(
@@ -2466,12 +2500,20 @@ def optimal_swing_range(
     return (lo, hi)
 
 
-def delta_to_pitch_ranges(prior_pitch: int, delta_lo: int, delta_hi: int) -> list[tuple[int, int]]:
-    """Convert unsigned |Δ| range to two circular pitch ranges (positive and negative direction)."""
+def delta_to_pitch_ranges(prior_pitch: int, delta_lo: int, delta_hi: int):
+    """Convert unsigned |Δ| range to circular pitch ranges.
+
+    Returns two (lo, hi) tuples normally.  When delta_lo == 0 the positive and
+    negative arms share the boundary at prior_pitch, so they are merged into one
+    contiguous range and the second tuple is (None, None).
+    """
     pos_lo = (prior_pitch + delta_lo - 1) % 1000 + 1
     pos_hi = (prior_pitch + delta_hi - 1) % 1000 + 1
     neg_lo = (prior_pitch - delta_hi - 1) % 1000 + 1
     neg_hi = (prior_pitch - delta_lo - 1) % 1000 + 1
+    if delta_lo == 0:
+        # neg_hi == pos_lo == prior_pitch; merge into single range (neg_lo, pos_hi).
+        return [(neg_lo, pos_hi), (None, None)]
     return [(pos_lo, pos_hi), (neg_lo, neg_hi)]
 
 
@@ -2480,6 +2522,7 @@ def seq2_hint(
     value_col: str,
     bucket_size: int,
     prior_val: int,
+    centered: bool = False,
 ) -> dict | None:
     """Most likely next value bucket given prior_val. Returns {lo, hi, prob, n} or None."""
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
@@ -2489,10 +2532,15 @@ def seq2_hint(
     if df_s.empty:
         return None
     n_bkts = 1000 // bucket_size
-    prior_bkt = min(max(0, (int(prior_val) - 1) // bucket_size), n_bkts - 1)
-    df_s["_cb"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
     df_s["_nb"] = ((df_s["_next"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
-    col_data = df_s[df_s["_cb"] == prior_bkt]["_nb"]
+    if centered:
+        half = bucket_size // 2
+        mask = _circ_dist_vec(df_s[value_col].astype(int), int(prior_val)) <= half
+        col_data = df_s[mask]["_nb"]
+    else:
+        prior_bkt = min(max(0, (int(prior_val) - 1) // bucket_size), n_bkts - 1)
+        df_s["_cb"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+        col_data = df_s[df_s["_cb"] == prior_bkt]["_nb"]
     if col_data.empty:
         return None
     counts = col_data.value_counts()
@@ -2511,6 +2559,7 @@ def seq3_hint(
     bucket_size: int,
     prior_val_1: int,
     prior_val_2: int,
+    centered: bool = False,
 ) -> dict | None:
     """Most likely 3rd value bucket given prior two values. Returns {lo, hi, prob, n} or None."""
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
@@ -2521,12 +2570,18 @@ def seq3_hint(
     if df_s.empty:
         return None
     n_bkts = 1000 // bucket_size
-    b1 = min(max(0, (int(prior_val_1) - 1) // bucket_size), n_bkts - 1)
-    b2 = min(max(0, (int(prior_val_2) - 1) // bucket_size), n_bkts - 1)
-    df_s["_b1"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
-    df_s["_b2"] = ((df_s["_n1"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
     df_s["_b3"] = ((df_s["_n2"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
-    col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"]
+    if centered:
+        half = bucket_size // 2
+        m1 = _circ_dist_vec(df_s[value_col].astype(int), int(prior_val_1)) <= half
+        m2 = _circ_dist_vec(df_s["_n1"].astype(int), int(prior_val_2)) <= half
+        col_data = df_s[m1 & m2]["_b3"]
+    else:
+        b1 = min(max(0, (int(prior_val_1) - 1) // bucket_size), n_bkts - 1)
+        b2 = min(max(0, (int(prior_val_2) - 1) // bucket_size), n_bkts - 1)
+        df_s["_b1"] = ((df_s[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+        df_s["_b2"] = ((df_s["_n1"].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+        col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"]
     if col_data.empty:
         return None
     counts = col_data.value_counts()
@@ -2544,6 +2599,7 @@ def seq2_delta_hint(
     value_col: str,
     bucket_size: int,
     prior_delta_abs: int,
+    centered: bool = False,
 ) -> dict | None:
     """Most likely next |Δ| bucket given prior |Δ|. Returns {delta_lo, delta_hi, prob, n} or None."""
     delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
@@ -2557,10 +2613,16 @@ def seq2_delta_hint(
     df_s = df_s.dropna(subset=["_nd"])
     if df_s.empty:
         return None
-    prior_bkt_idx = min(max(0, (int(prior_delta_abs) - 1) // bucket_size if prior_delta_abs > 0 else 0), n_bkts - 1)
-    df_s["_pb"] = pd.cut(df_s[delta_col].abs().astype(int), bins=bins, labels=False, right=True, include_lowest=True)
-    df_s["_nb"] = pd.cut(df_s["_nd"].abs().astype(int),      bins=bins, labels=False, right=True, include_lowest=True)
-    col_data = df_s[df_s["_pb"] == prior_bkt_idx]["_nb"].dropna().astype(int)
+    df_s["_nb"] = pd.cut(df_s["_nd"].abs().astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+    if centered:
+        half = bucket_size // 2
+        d_abs = df_s[delta_col].abs()
+        mask = ((d_abs - float(prior_delta_abs)).abs() <= half).fillna(False)
+        col_data = df_s[mask]["_nb"].dropna().astype(int)
+    else:
+        prior_bkt_idx = min(max(0, (int(prior_delta_abs) - 1) // bucket_size if prior_delta_abs > 0 else 0), n_bkts - 1)
+        df_s["_pb"] = pd.cut(df_s[delta_col].abs().astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+        col_data = df_s[df_s["_pb"] == prior_bkt_idx]["_nb"].dropna().astype(int)
     if col_data.empty:
         return None
     counts = col_data.value_counts()
@@ -2579,14 +2641,13 @@ def seq3_delta_hint(
     bucket_size: int,
     prior_delta_1: int,
     prior_delta_2: int,
+    centered: bool = False,
 ) -> dict | None:
     """Most likely 3rd |Δ| bucket given prior two |Δ| values. Returns {delta_lo, delta_hi, prob, n} or None."""
     delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
     bins = list(range(0, 501, bucket_size))
     n_bkts = 500 // bucket_size
-    b1 = min(max(0, (int(prior_delta_1) - 1) // bucket_size if prior_delta_1 > 0 else 0), n_bkts - 1)
-    b2 = min(max(0, (int(prior_delta_2) - 1) // bucket_size if prior_delta_2 > 0 else 0), n_bkts - 1)
     df_s = df[df[value_col].notna()].sort_values(["game_id", group_col, "id"]).copy()
     df_s[delta_col] = df_s.groupby(["game_id", group_col], group_keys=False)[value_col].apply(_circ_delta_group)
     df_s = df_s[df_s[delta_col].notna()].copy()
@@ -2596,10 +2657,18 @@ def seq3_delta_hint(
     df_s = df_s.dropna(subset=["_d2", "_d3"]).copy()
     if df_s.empty:
         return None
-    df_s["_b1"] = pd.cut(df_s["_d1"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
-    df_s["_b2"] = pd.cut(df_s["_d2"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
     df_s["_b3"] = pd.cut(df_s["_d3"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
-    col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"].dropna().astype(int)
+    if centered:
+        half = bucket_size // 2
+        m1 = ((df_s["_d1"] - float(prior_delta_1)).abs() <= half).fillna(False)
+        m2 = ((df_s["_d2"] - float(prior_delta_2)).abs() <= half).fillna(False)
+        col_data = df_s[m1 & m2]["_b3"].dropna().astype(int)
+    else:
+        b1 = min(max(0, (int(prior_delta_1) - 1) // bucket_size if prior_delta_1 > 0 else 0), n_bkts - 1)
+        b2 = min(max(0, (int(prior_delta_2) - 1) // bucket_size if prior_delta_2 > 0 else 0), n_bkts - 1)
+        df_s["_b1"] = pd.cut(df_s["_d1"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+        df_s["_b2"] = pd.cut(df_s["_d2"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
+        col_data = df_s[(df_s["_b1"] == b1) & (df_s["_b2"] == b2)]["_b3"].dropna().astype(int)
     if col_data.empty:
         return None
     counts = col_data.value_counts()
@@ -2616,6 +2685,7 @@ def diff_to_delta_hint(
     df: pd.DataFrame,
     value_col: str,
     prior_diff_abs: int,
+    centered: bool = False,
 ) -> dict | None:
     """Most likely next |Δ| (100-unit fixed bins) given prior |diff|. Returns {delta_lo, delta_hi, prob, n} or None."""
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
@@ -2625,15 +2695,22 @@ def diff_to_delta_hint(
     if df_s.empty:
         return None
     df_s["_nd"] = df_s.apply(lambda r: circular_diff(int(r[value_col]), int(r["_nv"])), axis=1)
-    df_s["_dc"] = pd.cut(df_s["diff"].abs().astype(int), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
-                         right=True, include_lowest=True)
     df_s["_nc"] = pd.cut(df_s["_nd"], bins=_DELTA_HM_BINS, labels=False, right=True, include_lowest=True)
-    df_s = df_s.dropna(subset=["_dc", "_nc"])
+    df_s = df_s.dropna(subset=["_nc"])
     if df_s.empty:
         return None
-    prior_cat = pd.cut(pd.Series([prior_diff_abs]), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
-                       right=True, include_lowest=True).iloc[0]
-    col_data = df_s[df_s["_dc"] == prior_cat]["_nc"].astype(int)
+    if centered:
+        half = _diff_centered_half(int(prior_diff_abs))
+        d_abs = df_s["diff"].abs()
+        mask = ((d_abs - float(prior_diff_abs)).abs() <= half).fillna(False)
+        col_data = df_s[mask]["_nc"].astype(int)
+    else:
+        df_s["_dc"] = pd.cut(df_s["diff"].abs().astype(int), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
+                             right=True, include_lowest=True)
+        df_s = df_s.dropna(subset=["_dc"])
+        prior_cat = pd.cut(pd.Series([prior_diff_abs]), bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS,
+                           right=True, include_lowest=True).iloc[0]
+        col_data = df_s[df_s["_dc"] == prior_cat]["_nc"].astype(int)
     if col_data.empty:
         return None
     counts = col_data.value_counts()
@@ -2719,7 +2796,7 @@ def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
 
 
 def seq2_zone_dist(
-    df: pd.DataFrame, value_col: str, bucket_size: int, prior_val: int
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_val: int, centered: bool = False,
 ) -> list[int] | None:
     """Zone counts of next value when the prior value falls in the same bucket."""
     zone_col = f"{value_col}_zone"
@@ -2728,9 +2805,14 @@ def seq2_zone_dist(
     vals = df[value_col].dropna()
     if vals.empty:
         return None
-    prior_bkt = (int(prior_val) - 1) // bucket_size
-    bkts = (vals.astype(int) - 1) // bucket_size
-    mask = bkts.shift(1) == prior_bkt
+    if centered:
+        half = bucket_size // 2
+        prev = df[value_col].shift(1)
+        mask = (_circ_dist_vec(prev, int(prior_val)) <= half).fillna(False)
+    else:
+        prior_bkt = (int(prior_val) - 1) // bucket_size
+        bkts = (vals.astype(int) - 1) // bucket_size
+        mask = (bkts.shift(1) == prior_bkt)
     zones = df.loc[mask & df[zone_col].notna(), zone_col]
     if zones.empty:
         return None
@@ -2740,7 +2822,7 @@ def seq2_zone_dist(
 
 def seq3_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
-    prior_val_1: int, prior_val_2: int,
+    prior_val_1: int, prior_val_2: int, centered: bool = False,
 ) -> list[int] | None:
     """Zone counts of 3rd value when the prior two values fall in matching buckets."""
     zone_col = f"{value_col}_zone"
@@ -2749,12 +2831,21 @@ def seq3_zone_dist(
     vals = df[value_col].dropna()
     if vals.empty:
         return None
-    b1 = (int(prior_val_1) - 1) // bucket_size
-    b2 = (int(prior_val_2) - 1) // bucket_size
-    bkts = (vals.astype(int) - 1) // bucket_size
-    s1 = bkts.shift(1)
-    s2 = bkts.shift(2)
-    mask = (s1 == b2) & (s2 == b1)
+    if centered:
+        half = bucket_size // 2
+        prev1 = df[value_col].shift(1)  # most recent prior -> matches prior_val_2
+        prev2 = df[value_col].shift(2)  # 2nd most recent -> matches prior_val_1
+        mask = (
+            (_circ_dist_vec(prev1, int(prior_val_2)) <= half) &
+            (_circ_dist_vec(prev2, int(prior_val_1)) <= half)
+        ).fillna(False)
+    else:
+        b1 = (int(prior_val_1) - 1) // bucket_size
+        b2 = (int(prior_val_2) - 1) // bucket_size
+        bkts = (vals.astype(int) - 1) // bucket_size
+        s1 = bkts.shift(1)
+        s2 = bkts.shift(2)
+        mask = (s1 == b2) & (s2 == b1)
     zones = df.loc[mask & df[zone_col].notna(), zone_col]
     if zones.empty:
         return None
@@ -2772,16 +2863,20 @@ def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
 
 
 def delta_next_zone_dist(
-    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
+    df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int, centered: bool = False,
 ) -> list[int] | None:
     """Zone counts of the next pitch when the current pitch's circular delta is in the same bucket."""
     zone_col  = f"{value_col}_zone"
     delta_col = f"{value_col}_circ_delta"
     if zone_col not in df.columns or delta_col not in df.columns:
         return None
-    prior_bkt = (int(prior_delta) - 1) // bucket_size
-    d    = df[delta_col].abs()
-    mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
+    d = df[delta_col].abs()
+    if centered:
+        half = bucket_size // 2
+        mask = ((d - float(prior_delta)).abs() <= half).fillna(False)
+    else:
+        prior_bkt = (int(prior_delta) - 1) // bucket_size
+        mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
     next_zone = df[zone_col].shift(-1)
     zones = next_zone[mask & next_zone.notna()]
     if zones.empty:
@@ -2792,18 +2887,24 @@ def delta_next_zone_dist(
 
 def delta3_next_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
-    prior_delta_1: int, prior_delta_2: int,
+    prior_delta_1: int, prior_delta_2: int, centered: bool = False,
 ) -> list[int] | None:
     """Zone counts of the next pitch when the prior two circular deltas match the given buckets."""
     zone_col  = f"{value_col}_zone"
     delta_col = f"{value_col}_circ_delta"
     if zone_col not in df.columns or delta_col not in df.columns:
         return None
-    b1 = (int(prior_delta_1) - 1) // bucket_size
-    b2 = (int(prior_delta_2) - 1) // bucket_size
-    d    = df[delta_col].abs()
-    bkts = (d - 1) // bucket_size
-    mask = ((bkts == b2) & (bkts.shift(1) == b1)).fillna(False)
+    d = df[delta_col].abs()
+    if centered:
+        half = bucket_size // 2
+        m_curr = ((d - float(prior_delta_2)).abs() <= half).fillna(False)
+        m_prev = ((d.shift(1) - float(prior_delta_1)).abs() <= half).fillna(False)
+        mask = m_curr & m_prev
+    else:
+        b1 = (int(prior_delta_1) - 1) // bucket_size
+        b2 = (int(prior_delta_2) - 1) // bucket_size
+        bkts = (d - 1) // bucket_size
+        mask = ((bkts == b2) & (bkts.shift(1) == b1)).fillna(False)
     next_zone = df[zone_col].shift(-1)
     zones = next_zone[mask & next_zone.notna()]
     if zones.empty:
@@ -2813,15 +2914,21 @@ def delta3_next_zone_dist(
 
 
 def diff_next_zone_dist(
-    df: pd.DataFrame, value_col: str, prior_diff: int,
+    df: pd.DataFrame, value_col: str, prior_diff: int, centered: bool = False,
 ) -> list[int] | None:
-    """Zone counts of the next pitch when the current diff falls in the same 200-unit bucket."""
+    """Zone counts of the next pitch when the current diff falls in the same quality bucket."""
     zone_col = f"{value_col}_zone"
     if zone_col not in df.columns or "diff" not in df.columns:
         return None
-    prior_bkt = min(4, (int(prior_diff) - 1) // 200)
-    d    = df["diff"].abs()
-    mask = (((d - 1) // 200).clip(0, 4) == prior_bkt).fillna(False)
+    d = df["diff"].abs()
+    if centered:
+        half = _diff_centered_half(int(prior_diff))
+        mask = ((d - float(prior_diff)).abs() <= half).fillna(False)
+    else:
+        d_cut = pd.cut(d.astype(int), bins=_DIFF_HM_BINS, labels=False, right=True, include_lowest=True)
+        prior_cut = pd.cut(pd.Series([int(prior_diff)]), bins=_DIFF_HM_BINS, labels=False,
+                           right=True, include_lowest=True).iloc[0]
+        mask = (d_cut == prior_cut).fillna(False)
     next_zone = df[zone_col].shift(-1)
     zones = next_zone[mask & next_zone.notna()]
     if zones.empty:
@@ -3929,6 +4036,17 @@ _DELTA_HM_BINS   = list(range(0, 501, 100))         # [0, 100, 200, 300, 400, 50
 _DELTA_HM_LABELS = [f"{i}–{i + 100}" for i in range(0, 500, 100)]  # 5 bins
 
 
+def _diff_centered_half(diff_val: int) -> int:
+    """Half-width for centered diff window - half the width of the matching quality bucket."""
+    bins = _DIFF_HM_BINS  # [-1, 25, 50, 100, 150, 200, 300, 501]
+    for i in range(len(bins) - 1):
+        left = 0 if i == 0 else bins[i] + 1
+        hi   = bins[i + 1]
+        if left <= diff_val <= hi:
+            return max(1, (hi - left + 1) // 2)
+    return 100
+
+
 def diff_vs_next_pitch_delta_heatmap(
     df: pd.DataFrame,
     title: str = "Next Pitch |Δ| vs Prior Diff",
@@ -3965,8 +4083,10 @@ def diff_vs_next_pitch_delta_heatmap(
     ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_diff_cat"]).reindex(
         index=_DELTA_HM_LABELS, columns=_DIFF_HM_LABELS, fill_value=0
     )
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
     # Normalize each column to 0–100 % so colour reflects within-column distribution.
-    col_totals = ct.sum(axis=0).replace(0, 1)
+    col_totals = _col_n.replace(0, 1)
     ct_norm = ct.div(col_totals, axis=1) * 100
     z_norm = ct_norm.values.tolist()
     z_raw  = ct.values.tolist()
@@ -3977,6 +4097,24 @@ def diff_vs_next_pitch_delta_heatmap(
     ]
     # Flat raw counts for hover (customdata)
     customdata = z_raw
+
+    annotations = []
+    for j, lbl in enumerate(_DIFF_HM_LABELS):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"{int(_col_n.iloc[j])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(_DELTA_HM_LABELS):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"{int(_row_n.iloc[i])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
 
     fig = go.Figure(go.Heatmap(
         z=z_norm,
@@ -3993,10 +4131,11 @@ def diff_vs_next_pitch_delta_heatmap(
     ))
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
-        xaxis=dict(title="Prior diff (abs)", side="bottom"),
+        xaxis=dict(title="Prior diff (abs)"),
         yaxis=dict(title="Next pitch |Δ|", autorange=True),
+        annotations=annotations,
         height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
-        margin=dict(l=80, r=10, t=50, b=70),
+        margin=dict(l=80, r=62, t=50, b=70),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -4069,7 +4208,7 @@ def next_delta_vs_prior_delta_heatmap(
     for j, lbl in enumerate(labels):
         annotations.append(dict(
             xref="x", yref="paper", x=lbl, y=1.0,
-            text=f"n={int(_col_n.get(lbl, 0))}",
+            text=f"{int(_col_n.get(lbl, 0))}",
             showarrow=False,
             font=dict(size=11, color="rgba(255,255,255,0.9)"),
             xanchor="center", yanchor="bottom",
@@ -4077,7 +4216,7 @@ def next_delta_vs_prior_delta_heatmap(
     for i, lbl in enumerate(labels):
         annotations.append(dict(
             xref="paper", yref="y", x=1.0, y=lbl,
-            text=f"n={int(_row_n.get(lbl, 0))}",
+            text=f"{int(_row_n.get(lbl, 0))}",
             showarrow=False,
             font=dict(size=11, color="rgba(255,255,255,0.9)"),
             xanchor="left", yanchor="middle",
@@ -4160,7 +4299,7 @@ def hot_zone_matrix(
     for j, lbl in enumerate(init_labels):
         annotations.append(dict(
             xref="x", yref="paper", x=lbl, y=1.0,
-            text=f"n={int(_col_n.iloc[j])}",
+            text=f"{int(_col_n.iloc[j])}",
             showarrow=False,
             font=dict(size=11, color="rgba(255,255,255,0.9)"),
             xanchor="center", yanchor="bottom",
@@ -4168,7 +4307,7 @@ def hot_zone_matrix(
     for i, lbl in enumerate(follow_labels):
         annotations.append(dict(
             xref="paper", yref="y", x=1.0, y=lbl,
-            text=f"n={int(_row_n.iloc[i])}",
+            text=f"{int(_row_n.iloc[i])}",
             showarrow=False,
             font=dict(size=11, color="rgba(255,255,255,0.9)"),
             xanchor="left", yanchor="middle",
@@ -4188,7 +4327,7 @@ def hot_zone_matrix(
         hovertemplate="Initial %{x} → Following %{y}<br>%{z:.1f}% of col (%{customdata} pitches)<extra></extra>",
     ))
     fig.update_layout(
-        xaxis=dict(title="Initial Pitch", tickangle=0, side="bottom"),
+        xaxis=dict(title="Initial Pitch", side="bottom"),
         yaxis=dict(title="Following Pitch"),
         annotations=annotations,
         height=max(400, n_follow * 42 + 120),
@@ -4264,15 +4403,16 @@ def hot_zone_third_dist(
         ygap=2,
         hovertemplate="%{x}<br>%{z:.1f}% (%{customdata} pitches)<extra></extra>",
     ))
+    _rotate = n_third > 8
     fig.update_layout(
         title=dict(
             text=f"3rd Pitch  |  {init_label} -> {follow_label}  (n={total})",
             x=0.5, xanchor="center", font=dict(size=13),
         ),
-        xaxis=dict(title=None, tickangle=0, side="bottom"),
+        xaxis=dict(title=None, side="bottom", tickangle=-90 if _rotate else 0),
         yaxis=dict(showticklabels=True),
-        height=130,
-        margin=dict(l=80, r=10, t=60, b=40),
+        height=165 if _rotate else 130,
+        margin=dict(l=80, r=10, t=60, b=75 if _rotate else 40),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -4351,15 +4491,16 @@ def delta_third_dist(
         ygap=2,
         hovertemplate="%{x}<br>%{z:.1f}% (%{customdata} instances)<extra></extra>",
     ))
+    _rotate = n_buckets > 8
     fig.update_layout(
         title=dict(
             text=f"3rd |Δ|  |  {init_label} → {follow_label}  (n={total})",
             x=0.5, xanchor="center", font=dict(size=13),
         ),
-        xaxis=dict(title=None, tickangle=0, side="bottom"),
+        xaxis=dict(title=None, side="bottom", tickangle=-90 if _rotate else 0),
         yaxis=dict(showticklabels=True),
-        height=130,
-        margin=dict(l=80, r=10, t=55, b=40),
+        height=165 if _rotate else 130,
+        margin=dict(l=80, r=10, t=55, b=75 if _rotate else 40),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

@@ -1,3 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#085d05"
+
 [client]
 toolbarMode = "viewer"
 
