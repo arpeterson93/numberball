@@ -137,11 +137,17 @@ if not st.session_state.get("authenticated"):
             if remember:
                 device_token = auth.create_device_session(user_id, user_email)
                 st.session_state["_device_token"] = device_token
-                _cookie_write(device_token)
             st.rerun()
         except Exception:
             st.error("Invalid email or password.")
     st.stop()
+
+# Re-assert the auth cookie on every authenticated render. The device token
+# never rotates, so this write is idempotent. Crucially, no st.rerun() follows
+# it here, so the component actually executes - unlike the login handler, whose
+# write is cancelled by its immediate rerun. This is what makes the cookie land.
+if st.session_state.get("_device_token"):
+    _cookie_write(st.session_state["_device_token"])
 
 _load_preferences()
 
