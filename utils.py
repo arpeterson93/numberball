@@ -2258,25 +2258,23 @@ def hint_bars_figure(
         showlegend=False, hoverinfo="skip",
     ))
 
-    _GRAY   = "rgba(100,100,100,0.22)"
+    _GRAY   = "rgba(0,0,0,0.85)"
     _GREEN  = "rgba(40,150,55,0.80)"
     _GREEN2 = "rgba(40,150,55,0.80)"
     _bar_half = 0.32 if mobile else 0.40
 
     def _zone_color(t: float) -> str:
-        # t in [-1, 1] already incorporates z-score attenuation.
-        # t=0 -> neutral gray. t=+1 -> deep green. t=-1 -> deep red.
+        # t=0 -> neutral gray. t=+1 -> vivid green. t=-1 -> vivid red.
+        # Fixed alpha so color alone signals the outlier, nothing fades to transparent.
         if t >= 0:
-            a = 0.15 + 0.70 * t
-            r = int(100 - 70 * t)
-            g = int(115 + 35 * t)
-            b = int(100 - 55 * t)
+            r = int(128 - 98 * t)
+            g = int(128 + 52 * t)
+            b = int(128 - 78 * t)
         else:
-            a = 0.15 + 0.70 * abs(t)
-            r = int(100 + 110 * abs(t))
-            g = int(115 - 70 * abs(t))
-            b = int(100 - 55 * abs(t))
-        return f"rgba({r},{g},{b},{a:.2f})"
+            r = int(128 + 82 * abs(t))
+            g = int(128 - 88 * abs(t))
+            b = int(128 - 88 * abs(t))
+        return f"rgba({r},{g},{b},0.80)"
 
     for idx, h in enumerate(hints):
         y   = n - idx - 1
@@ -2284,40 +2282,58 @@ def hint_bars_figure(
         y1  = y + _bar_half
 
         fig.add_shape(type="rect", x0=0.5, x1=1000.5, y0=y0, y1=y1,
-                      fillcolor=_GRAY, line=dict(width=0))
+                      fillcolor=_GRAY, line=dict(color="rgba(255,255,255,0.35)", width=1))
 
         lo, hi    = h.get("lo"),  h.get("hi")
         lo2, hi2  = h.get("lo2"), h.get("hi2")
         zone_dist = h.get("_zone_dist")
 
-        if mode == "all" and zone_dist is not None:
-            total_dist = sum(zone_dist)
-            if total_dist > 0:
-                _zbkt = h.get("_zone_bucket_size", 111)
-                _zn   = 1000 // _zbkt
-                for bi in range(_zn):
-                    lo_z  = bi * _zbkt + 1
-                    hi_z  = min((bi + 1) * _zbkt, 1000)
-                    count = zone_dist[bi] if bi < len(zone_dist) else 0
-                    raw_t = max(-1.0, min(1.0, count / total_dist * _zn - 1.0))
-                    color = _zone_color(raw_t) if total_dist >= 5 else _GRAY
-                    fig.add_shape(type="rect",
-                                  x0=lo_z - 0.5, x1=hi_z + 0.5,
-                                  y0=y0, y1=y1,
-                                  fillcolor=color, line=dict(width=0))
-        else:
-            def _colored_zone(lo, hi, color):
-                if lo is None or hi is None:
-                    return
-                if lo <= hi:
-                    fig.add_shape(type="rect", x0=lo - 0.5, x1=hi + 0.5,
-                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
-                else:
-                    fig.add_shape(type="rect", x0=lo - 0.5, x1=1000.5,
-                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
-                    fig.add_shape(type="rect", x0=0.5, x1=hi + 0.5,
-                                  y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+        def _colored_zone(cz_lo, cz_hi, color):
+            if cz_lo is None or cz_hi is None:
+                return
+            if cz_lo <= cz_hi:
+                fig.add_shape(type="rect", x0=cz_lo - 0.5, x1=cz_hi + 0.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+            else:
+                fig.add_shape(type="rect", x0=cz_lo - 0.5, x1=1000.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
+                fig.add_shape(type="rect", x0=0.5, x1=cz_hi + 0.5,
+                              y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
 
+        if mode == "all":
+            delta_counts = h.get("_delta_counts")
+            prior_pitch_z = h.get("_prior_pitch_for_zone")
+            if delta_counts is not None and prior_pitch_z is not None:
+                # Delta row: paint each delta bucket's exact pitch range by its proportion.
+                # Adjacent delta buckets tile the wheel without overlap, so the
+                # greenest ranges will directly correspond to Best Zone.
+                total_dc = sum(delta_counts)
+                n_dc = len(delta_counts)
+                dd_bkt = h.get("_dd_bkt_for_zone", 100)
+                for di, cnt in enumerate(delta_counts):
+                    raw_t = max(-1.0, min(1.0, cnt / total_dc * n_dc - 1.0)) if total_dc >= 5 else 0.0
+                    color = _zone_color(raw_t) if total_dc >= 5 else _GRAY
+                    r1, r2 = delta_to_pitch_ranges(prior_pitch_z, di * dd_bkt, (di + 1) * dd_bkt)
+                    _colored_zone(r1[0], r1[1], color)
+                    if r2[0] is not None:
+                        _colored_zone(r2[0], r2[1], color)
+            elif zone_dist is not None:
+                # Non-delta row: color by zone bucket frequency (existing behavior).
+                total_dist = sum(zone_dist)
+                if total_dist > 0:
+                    _zbkt = h.get("_zone_bucket_size", 111)
+                    _zn   = 1000 // _zbkt
+                    for bi in range(_zn):
+                        lo_z  = bi * _zbkt + 1
+                        hi_z  = min((bi + 1) * _zbkt, 1000)
+                        count = zone_dist[bi] if bi < len(zone_dist) else 0
+                        raw_t = max(-1.0, min(1.0, count / total_dist * _zn - 1.0))
+                        color = _zone_color(raw_t) if total_dist >= 5 else _GRAY
+                        fig.add_shape(type="rect",
+                                      x0=lo_z - 0.5, x1=hi_z + 0.5,
+                                      y0=y0, y1=y1,
+                                      fillcolor=color, line=dict(width=0))
+        else:
             def _bound(x, label, anchor):
                 fig.add_shape(type="line", x0=x, x1=x, y0=y0, y1=y1,
                               line=dict(color="rgba(255,255,255,0.85)", width=1.5))
@@ -2331,6 +2347,8 @@ def hint_bars_figure(
 
             _colored_zone(lo, hi, _GREEN)
             _colored_zone(lo2, hi2, _GREEN2)
+            for _er_lo, _er_hi in h.get("extra_ranges", []):
+                _colored_zone(_er_lo, _er_hi, _GREEN)
 
             if lo is not None and hi is not None:
                 _bound(lo, lo, "right")
@@ -2338,6 +2356,10 @@ def hint_bars_figure(
             if lo2 is not None and hi2 is not None:
                 _bound(lo2, lo2, "right")
                 _bound(hi2, hi2, "left")
+            for _er_lo, _er_hi in h.get("extra_ranges", []):
+                if _er_lo is not None and _er_hi is not None:
+                    _bound(_er_lo, _er_lo, "right")
+                    _bound(_er_hi, _er_hi, "left")
 
         signal   = h.get("Signal", "")
         strength = h.get("Strength", "")
@@ -2386,7 +2408,7 @@ def hint_bars_figure(
 
     def _ref_line(x: int, color: str) -> None:
         fig.add_shape(type="line", x0=x, x1=x, y0=-0.5, y1=n,
-                      line=dict(color=color, width=1, dash="dot"))
+                      line=dict(color=color, width=2, dash="dot"))
 
     def _ref_label(x: int, offset_px: float, text: str, color: str) -> None:
         fig.add_annotation(
@@ -2406,10 +2428,15 @@ def hint_bars_figure(
         _ref_line(prior_val2, _Y_LINE)
         _ref_label(prior_val2, 29, f"▼{prior_val2}", _Y_LABEL)
 
-    for _rv in [swing_val, obr_lo, obr_hi]:
-        if _rv is not None:
-            _ref_line(_rv, _B_LINE)
-            _ref_label(_rv, 44, f"▼{_rv}", _B_LABEL)
+    if swing_val is not None:
+        _ref_line(swing_val, _B_LINE)
+        _ref_label(swing_val, 44, f"▼{swing_val}", _B_LABEL)
+    if obr_lo is not None:
+        _ref_line(obr_lo, _B_LINE)
+        _ref_label(obr_lo, 44, f"◄{obr_lo}", _B_LABEL)
+    if obr_hi is not None:
+        _ref_line(obr_hi, _B_LINE)
+        _ref_label(obr_hi, 44, f"{obr_hi}►", _B_LABEL)
 
     y_ticks  = list(range(n))
     y_labels = []
@@ -2499,20 +2526,38 @@ def optimal_swing_range(
     return (lo, hi)
 
 
+def merge_delta_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge adjacent/touching (delta_lo, delta_hi) tuples into consolidated ranges."""
+    if not ranges:
+        return []
+    merged = [list(r) for r in sorted(ranges)]
+    result = [merged[0]]
+    for lo, hi in merged[1:]:
+        if lo <= result[-1][1]:
+            result[-1][1] = max(result[-1][1], hi)
+        else:
+            result.append([lo, hi])
+    return [(r[0], r[1]) for r in result]
+
+
 def delta_to_pitch_ranges(prior_pitch: int, delta_lo: int, delta_hi: int):
     """Convert unsigned |Δ| range to circular pitch ranges.
 
-    Returns two (lo, hi) tuples normally.  When delta_lo == 0 the positive and
-    negative arms share the boundary at prior_pitch, so they are merged into one
-    contiguous range and the second tuple is (None, None).
+    Returns two (lo, hi) tuples normally.
+    Merge cases (second tuple becomes (None, None)):
+      delta_lo == 0   -> positive and negative arms meet at prior_pitch; merge to (neg_lo, pos_hi).
+      delta_hi == 500 -> positive and negative arms meet at the antipodal point; merge to (pos_lo, neg_hi).
     """
     pos_lo = (prior_pitch + delta_lo - 1) % 1000 + 1
     pos_hi = (prior_pitch + delta_hi - 1) % 1000 + 1
     neg_lo = (prior_pitch - delta_hi - 1) % 1000 + 1
     neg_hi = (prior_pitch - delta_lo - 1) % 1000 + 1
     if delta_lo == 0:
-        # neg_hi == pos_lo == prior_pitch; merge into single range (neg_lo, pos_hi).
+        # neg_hi == pos_lo == prior_pitch; merge into single range.
         return [(neg_lo, pos_hi), (None, None)]
+    if delta_hi == 500:
+        # pos_hi == neg_lo == antipodal point; merge into single range.
+        return [(pos_lo, neg_hi), (None, None)]
     return [(pos_lo, pos_hi), (neg_lo, neg_hi)]
 
 
@@ -2626,11 +2671,21 @@ def seq2_delta_hint(
         return None
     counts = col_data.value_counts()
     best_bkt = int(counts.index[0])
+    best_cnt = int(counts.iloc[0])
+    tied = [
+        (int(bkt) * bucket_size, (int(bkt) + 1) * bucket_size)
+        for bkt, cnt in counts.items()
+        if int(cnt) == best_cnt and int(bkt) != best_bkt
+    ]
+    all_counts = [int(counts.get(i, 0)) for i in range(n_bkts)]
     return {
         "delta_lo": best_bkt * bucket_size,
         "delta_hi": (best_bkt + 1) * bucket_size,
         "prob": counts.iloc[0] / len(col_data),
         "n": int(len(col_data)),
+        "tied_buckets": tied,
+        "all_counts": all_counts,
+        "delta_bucket_size": bucket_size,
     }
 
 
@@ -2672,11 +2727,21 @@ def seq3_delta_hint(
         return None
     counts = col_data.value_counts()
     best_bkt = int(counts.index[0])
+    best_cnt = int(counts.iloc[0])
+    tied = [
+        (int(bkt) * bucket_size, (int(bkt) + 1) * bucket_size)
+        for bkt, cnt in counts.items()
+        if int(cnt) == best_cnt and int(bkt) != best_bkt
+    ]
+    all_counts = [int(counts.get(i, 0)) for i in range(n_bkts)]
     return {
         "delta_lo": best_bkt * bucket_size,
         "delta_hi": (best_bkt + 1) * bucket_size,
         "prob": counts.iloc[0] / len(col_data),
         "n": int(len(col_data)),
+        "tied_buckets": tied,
+        "all_counts": all_counts,
+        "delta_bucket_size": bucket_size,
     }
 
 
@@ -2715,11 +2780,15 @@ def diff_to_delta_hint(
     counts = col_data.value_counts()
     best_bkt = int(counts.index[0])
     delta_step = (_DELTA_HM_BINS[1] - _DELTA_HM_BINS[0])
+    n_d_bkts = len(_DELTA_HM_BINS) - 1
+    all_counts = [int(counts.get(i, 0)) for i in range(n_d_bkts)]
     return {
         "delta_lo": best_bkt * delta_step,
         "delta_hi": (best_bkt + 1) * delta_step,
         "prob": counts.iloc[0] / len(col_data),
         "n": int(len(col_data)),
+        "all_counts": all_counts,
+        "delta_bucket_size": delta_step,
     }
 
 
@@ -2799,17 +2868,19 @@ def seq2_zone_dist(
 ) -> list[int] | None:
     """Bucket counts of next value when the prior value falls in the same bucket."""
     n_bkts = 1000 // bucket_size
-    if df[value_col].isna().all():
+    sw = df[df[value_col].notna()].sort_values(["game_id", "id"])
+    if sw.empty:
         return None
+    prev = sw[value_col].shift(1)
+    same_game = (sw["game_id"] == sw["game_id"].shift(1)).fillna(False)
     if centered:
         half = bucket_size // 2
-        prev = df[value_col].shift(1)
-        mask = (_circ_dist_vec(prev, int(prior_val)) <= half).fillna(False)
+        mask = ((_circ_dist_vec(prev, int(prior_val)) <= half) & same_game).fillna(False)
     else:
-        prior_bkt = (int(prior_val) - 1) // bucket_size
-        bkts = ((df[value_col].astype(float) - 1) // bucket_size).where(df[value_col].notna())
-        mask = (bkts.shift(1) == prior_bkt).fillna(False)
-    pitches = df.loc[mask & df[value_col].notna(), value_col]
+        prior_bkt = min(max(0, (int(prior_val) - 1) // bucket_size), n_bkts - 1)
+        bkts = ((sw[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+        mask = ((bkts.shift(1) == prior_bkt) & same_game).fillna(False)
+    pitches = sw.loc[mask, value_col]
     if pitches.empty:
         return None
     bkt_ids = ((pitches.astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
@@ -2823,22 +2894,32 @@ def seq3_zone_dist(
 ) -> list[int] | None:
     """Bucket counts of 3rd value when the prior two values fall in matching buckets."""
     n_bkts = 1000 // bucket_size
-    if df[value_col].isna().all():
+    sw = df[df[value_col].notna()].sort_values(["game_id", "id"])
+    if sw.empty:
         return None
+    prev1 = sw[value_col].shift(1)
+    prev2 = sw[value_col].shift(2)
+    same_game = (
+        (sw["game_id"] == sw["game_id"].shift(1)) &
+        (sw["game_id"] == sw["game_id"].shift(2))
+    ).fillna(False)
     if centered:
         half = bucket_size // 2
-        prev1 = df[value_col].shift(1)
-        prev2 = df[value_col].shift(2)
         mask = (
             (_circ_dist_vec(prev1, int(prior_val_2)) <= half) &
-            (_circ_dist_vec(prev2, int(prior_val_1)) <= half)
+            (_circ_dist_vec(prev2, int(prior_val_1)) <= half) &
+            same_game
         ).fillna(False)
     else:
-        b1 = (int(prior_val_1) - 1) // bucket_size
-        b2 = (int(prior_val_2) - 1) // bucket_size
-        bkts = ((df[value_col].astype(float) - 1) // bucket_size).where(df[value_col].notna())
-        mask = ((bkts.shift(1) == b2) & (bkts.shift(2) == b1)).fillna(False)
-    pitches = df.loc[mask & df[value_col].notna(), value_col]
+        b1 = min(max(0, (int(prior_val_1) - 1) // bucket_size), n_bkts - 1)
+        b2 = min(max(0, (int(prior_val_2) - 1) // bucket_size), n_bkts - 1)
+        bkts = ((sw[value_col].astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
+        mask = (
+            (bkts.shift(1) == b2) &
+            (bkts.shift(2) == b1) &
+            same_game
+        ).fillna(False)
+    pitches = sw.loc[mask, value_col]
     if pitches.empty:
         return None
     bkt_ids = ((pitches.astype(int) - 1) // bucket_size).clip(0, n_bkts - 1)
@@ -2980,7 +3061,10 @@ def delta_zone_via_delta_hist(
     delta_col = f"{value_col}_circ_delta"
     if delta_col not in df.columns or df[value_col].isna().all():
         return None
-    d = df[delta_col].abs()
+    # Filter to swing plays only and sort by id, matching seq2_delta_hint.
+    # First pitches of each game retain NaN delta, acting as natural game-boundary guards.
+    sw = df[df[value_col].notna()].sort_values("id")
+    d = sw[delta_col].abs()
     if centered:
         half = bucket_size // 2
         mask = ((d - float(prior_delta)).abs() <= half).fillna(False)
@@ -3002,7 +3086,9 @@ def delta3_zone_via_delta_hist(
     delta_col = f"{value_col}_circ_delta"
     if delta_col not in df.columns or df[value_col].isna().all():
         return None
-    d = df[delta_col].abs()
+    # Filter to swing plays only and sort by id, matching seq3_delta_hint.
+    sw = df[df[value_col].notna()].sort_values("id")
+    d = sw[delta_col].abs()
     if centered:
         half = bucket_size // 2
         m_curr = ((d - float(prior_delta_2)).abs() <= half).fillna(False)
@@ -3043,6 +3129,34 @@ def diff_next_zone_dist(
     bkt_ids = ((next_pitches.astype(int) - 1) // zone_bucket_size).clip(0, n_bkts - 1)
     c = bkt_ids.value_counts()
     return [int(c.get(i, 0)) for i in range(n_bkts)]
+
+
+def diff_to_delta_zone_dist(
+    df: pd.DataFrame, value_col: str, prior_diff: int, prior_pitch: int,
+    centered: bool = False, zone_bucket_size: int = 111,
+) -> list[int] | None:
+    """Zone distribution for Prior-diff->delta row: projects next-delta histogram via prior_pitch.
+    Conditions on current diff bucket (same as diff_to_delta_hint) then uses delta projection
+    so All Zones aligns with Best Zone for this row type."""
+    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    if "diff" not in df.columns or delta_col not in df.columns or df[value_col].isna().all():
+        return None
+    sw = df[df[value_col].notna() & df["diff"].notna()].sort_values("id")
+    d_delta = sw[delta_col].abs()
+    diff_abs = sw["diff"].abs()
+    if centered:
+        half = _diff_centered_half(int(prior_diff))
+        mask = ((diff_abs - float(prior_diff)).abs() <= half).fillna(False)
+    else:
+        d_cut = pd.cut(diff_abs.astype(int), bins=_DIFF_HM_BINS, labels=False,
+                       right=True, include_lowest=True)
+        prior_cut = pd.cut(pd.Series([int(prior_diff)]), bins=_DIFF_HM_BINS, labels=False,
+                           right=True, include_lowest=True).iloc[0]
+        mask = (d_cut == prior_cut).fillna(False)
+    next_d = d_delta.shift(-1)
+    return _delta_hist_to_pitch_zones(
+        next_d[mask & next_d.notna()], 100, int(prior_pitch), zone_bucket_size
+    )
 
 
 def swing_predictor_chart(
@@ -5544,6 +5658,80 @@ def pitcher_percentile_card(
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+_MA_METRICS: dict[str, dict] = {
+    "avg_delta":      {"label": "Avg |Delta|",   "col": "pitch_circ_delta",  "scale": "abs",   "y_range": [0, 500], "y_title": "Delta"},
+    "avg_delta2":     {"label": "Avg |Delta^2|", "col": "pitch_circ_delta2", "scale": "abs",   "y_range": [0, 500], "y_title": "Delta^2"},
+    "shadow_pct":     {"label": "Shadow %",      "col": "pitch_approach",    "scale": "pct",   "y_range": [0, 100], "y_title": "Shadow %"},
+    "wraparound_pct": {"label": "Wraparound %",  "col": "pitch_wraparound",  "scale": "pct",   "y_range": None, "y_title": "Wraparound %"},
+    "meme_rate":      {"label": "Meme Rate %",   "col": "is_meme_pitch",     "scale": "pct",   "y_range": None, "y_title": "Meme Rate %"},
+}
+
+
+def pitcher_ma_figure(df: pd.DataFrame, metric: str, window: int = 20) -> go.Figure | None:
+    """20-pitch rolling average of a behavioral tendency across a pitcher's filtered history."""
+    defn = _MA_METRICS.get(metric)
+    if defn is None:
+        return None
+    col = defn["col"]
+    sw = df[df["swing"].notna()].sort_values("id")
+    if sw.empty or col not in sw.columns:
+        return None
+    raw = sw[col].astype(float)
+    if defn["scale"] == "pct":
+        raw = raw * 100.0
+    else:
+        raw = raw.abs()
+    ma = raw.rolling(window=window, min_periods=1).mean()
+    overall_avg = raw.mean()
+    x = list(range(1, len(ma) + 1))
+
+    y_range = defn["y_range"]
+    if y_range is None:
+        ma_max = ma.dropna().max() if not ma.dropna().empty else 0
+        y_range = [0, max(float(ma_max) * 1.4, 5.0)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=ma.tolist(),
+        mode="lines",
+        line=dict(color="#4ade80", width=2),
+        hovertemplate=f"Pitch %{{x}}<br>{defn['y_title']}: %{{y:.1f}}<extra></extra>",
+        name=defn["label"],
+    ))
+    if not pd.isna(overall_avg):
+        fig.add_hline(
+            y=overall_avg,
+            line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
+            annotation_text=f"avg {overall_avg:.1f}",
+            annotation_font=dict(color="rgba(255,255,255,0.5)", size=10),
+            annotation_position="top right",
+        )
+    fig.update_layout(
+        height=260,
+        margin=dict(l=55, r=20, t=20, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        xaxis=dict(
+            title="Pitch #",
+            title_font=dict(color="rgba(255,255,255,0.6)", size=11),
+            tickfont=dict(color="rgba(255,255,255,0.55)", size=10),
+            gridcolor="rgba(255,255,255,0.07)",
+            zerolinecolor="rgba(255,255,255,0.1)",
+        ),
+        yaxis=dict(
+            title=defn["y_title"],
+            title_font=dict(color="rgba(255,255,255,0.6)", size=11),
+            tickfont=dict(color="rgba(255,255,255,0.55)", size=10),
+            gridcolor="rgba(255,255,255,0.07)",
+            zerolinecolor="rgba(255,255,255,0.1)",
+            range=y_range,
+        ),
+        hoverlabel=dict(bgcolor="rgba(30,30,30,0.9)", font_size=12),
     )
     return fig
 

@@ -42,9 +42,19 @@ components.html(
     el.id = 'nb-overlay';
     el.innerHTML = '<div id="nb-ring"></div><div id="nb-lbl">Loading…</div>';
     doc.body.appendChild(el);
+    var _showTimer = null;
     function refresh() {
         var w = doc.querySelector('[data-testid="stStatusWidget"]');
-        el.classList.toggle('show', !!(w && w.textContent.trim()));
+        var active = !!(w && w.textContent.trim());
+        if (active) {
+            if (!_showTimer) {
+                _showTimer = setTimeout(function() { el.classList.add('show'); }, 400);
+            }
+        } else {
+            clearTimeout(_showTimer);
+            _showTimer = null;
+            el.classList.remove('show');
+        }
     }
     new p.MutationObserver(refresh).observe(doc.body,
         {childList: true, subtree: true, characterData: true});

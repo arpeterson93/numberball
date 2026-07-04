@@ -1175,6 +1175,25 @@ with tab_p:
             else:
                 st.caption("No career stats on file - run Refresh Pitcher Stats on the Games page.")
 
+        with st.expander("Tendencies Over Time", expanded=False):
+            @st.fragment
+            def _ma_section_p(df):
+                _metric = st.radio(
+                    "Metric",
+                    options=list(utils._MA_METRICS.keys()),
+                    format_func=lambda m: utils._MA_METRICS[m]["label"],
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="ma_metric_p",
+                )
+                _fig = utils.pitcher_ma_figure(df, _metric)
+                if _fig is not None:
+                    st.plotly_chart(_fig, use_container_width=True,
+                                    config={"displayModeBar": False}, key="ma_chart_p")
+                else:
+                    st.caption("Not enough data.")
+            _ma_section_p(df_p)
+
     if df_p.empty:
         if tab_p_pitcher == "All":
             st.info("Select a pitcher in the filters above to load data.")
@@ -1257,40 +1276,49 @@ with tab_p:
 
             def _delta_row_p(signal, h_dict, n_bkts):
                 _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
+                _dc = h_dict.get("all_counts")
+                _dd_bkt_z = h_dict.get("delta_bucket_size", _h_dd_bkt)
+                extra = []
                 if _h_prior_pitch is not None:
-                    r1, r2 = utils.delta_to_pitch_ranges(_h_prior_pitch, h_dict["delta_lo"], h_dict["delta_hi"])
+                    _all_bkts = [(h_dict["delta_lo"], h_dict["delta_hi"])] + h_dict.get("tied_buckets", [])
+                    _merged = utils.merge_delta_ranges(_all_bkts)
+                    _arms = []
+                    for _mlo, _mhi in _merged:
+                        _arms.extend(utils.delta_to_pitch_ranges(_h_prior_pitch, _mlo, _mhi))
+                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
+                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
+                    extra = [a for a in _arms[2:] if a[0] is not None]
                     return {"Signal": signal,
                             "lo": r1[0], "hi": r1[1],
                             "lo2": r2[0], "hi2": r2[1],
+                            "extra_ranges": extra,
                             "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                            "_zscore": _zs}
+                            "_zscore": _zs,
+                            "_delta_counts": _dc,
+                            "_prior_pitch_for_zone": _h_prior_pitch,
+                            "_dd_bkt_for_zone": _dd_bkt_z}
                 return {"Signal": signal, "lo": None, "hi": None,
+                        "extra_ranges": extra,
                         "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                        "_zscore": _zs}
+                        "_zscore": _zs,
+                        "_delta_counts": _dc,
+                        "_prior_pitch_for_zone": _h_prior_pitch,
+                        "_dd_bkt_for_zone": _dd_bkt_z}
 
             if _h_prior_delta is not None:
                 _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
-                    _row = _delta_row_p("2-Δ seq", _h, _h_dd_n)
-                    _row["_zone_dist"] = utils.delta_zone_via_delta_hist(df_p, "pitch", _h_dd_bkt, _h_prior_delta, _h_prior_pitch, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt) if _h_prior_pitch is not None else None
-                    _row["_zone_bucket_size"] = _h_hz_bkt
-                    _hint_rows_p.append(_row)
+                    _hint_rows_p.append(_delta_row_p("2-Δ seq", _h, _h_dd_n))
 
             if _h_prior_delta is not None and _h_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
-                    _row = _delta_row_p("3-Δ seq", _h, _h_dd_n)
-                    _row["_zone_dist"] = utils.delta3_zone_via_delta_hist(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, _h_prior_pitch, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt) if _h_prior_pitch is not None else None
-                    _row["_zone_bucket_size"] = _h_hz_bkt
-                    _hint_rows_p.append(_row)
+                    _hint_rows_p.append(_delta_row_p("3-Δ seq", _h, _h_dd_n))
 
             if _h_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
                 if _h:
-                    _row = _delta_row_p("Prior diff → Δ", _h, 5)
-                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p, zone_bucket_size=_h_hz_bkt)
-                    _row["_zone_bucket_size"] = _h_hz_bkt
-                    _hint_rows_p.append(_row)
+                    _hint_rows_p.append(_delta_row_p("Prior diff → Δ", _h, 5))
 
             if _h_prior_pitch is not None:
                 _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p)
@@ -1337,7 +1365,21 @@ with tab_p:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            if "is_fp_inn" in df_p.columns:
+            _cur_game_id  = st.session_state.get("game_tab_sel")
+            _cur_inn      = int(st.session_state.get("mgr_inning", 1))
+            _p_last_sw    = df_p[df_p["pitch"].notna()].sort_values("id")
+            _p_last_row   = _p_last_sw.iloc[-1] if not _p_last_sw.empty else None
+            _p_last_game  = (int(_p_last_row["game_id"]) if _p_last_row is not None
+                             and pd.notna(_p_last_row.get("game_id")) else None)
+            _p_last_inn   = (int(_p_last_row["inning"]) if _p_last_row is not None
+                             and pd.notna(_p_last_row.get("inning")) else None)
+            _show_fp_app_p = (_cur_game_id is not None
+                              and (_p_last_game is None or _p_last_game != _cur_game_id))
+            _show_fp_inn_p = (_cur_game_id is not None
+                              and (_p_last_game is None or _p_last_game != _cur_game_id
+                                   or _p_last_inn != _cur_inn))
+
+            if "is_fp_inn" in df_p.columns and _show_fp_inn_p:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
                 if _h:
                     _hint_rows_p.append({"Signal": "1st pitch inning",
@@ -1348,7 +1390,7 @@ with tab_p:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            if "is_fp_app" in df_p.columns:
+            if "is_fp_app" in df_p.columns and _show_fp_app_p:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
                 if _h:
                     _hint_rows_p.append({"Signal": "1st pitch appearance",
@@ -1928,40 +1970,49 @@ with tab_b:
 
             def _delta_row_b(signal, h_dict, n_bkts):
                 _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
+                _dc = h_dict.get("all_counts")
+                _dd_bkt_z = h_dict.get("delta_bucket_size", _hb_dd_bkt)
+                extra = []
                 if _hb_prior_swing is not None:
-                    r1, r2 = utils.delta_to_pitch_ranges(_hb_prior_swing, h_dict["delta_lo"], h_dict["delta_hi"])
+                    _all_bkts = [(h_dict["delta_lo"], h_dict["delta_hi"])] + h_dict.get("tied_buckets", [])
+                    _merged = utils.merge_delta_ranges(_all_bkts)
+                    _arms = []
+                    for _mlo, _mhi in _merged:
+                        _arms.extend(utils.delta_to_pitch_ranges(_hb_prior_swing, _mlo, _mhi))
+                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
+                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
+                    extra = [a for a in _arms[2:] if a[0] is not None]
                     return {"Signal": signal,
                             "lo": r1[0], "hi": r1[1],
                             "lo2": r2[0], "hi2": r2[1],
+                            "extra_ranges": extra,
                             "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts),
-                            "_zscore": _zs}
+                            "_zscore": _zs,
+                            "_delta_counts": _dc,
+                            "_prior_pitch_for_zone": _hb_prior_swing,
+                            "_dd_bkt_for_zone": _dd_bkt_z}
                 return {"Signal": signal, "lo": None, "hi": None,
+                        "extra_ranges": extra,
                         "Strength": _hbstr(h_dict["prob"], h_dict["n"], n_bkts),
-                        "_zscore": _zs}
+                        "_zscore": _zs,
+                        "_delta_counts": _dc,
+                        "_prior_pitch_for_zone": _hb_prior_swing,
+                        "_dd_bkt_for_zone": _dd_bkt_z}
 
             if _hb_prior_delta is not None:
                 _h = utils.seq2_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta, centered=_hint_centered_b)
                 if _h:
-                    _row = _delta_row_b("2-Δ seq", _h, _hb_dd_n)
-                    _row["_zone_dist"] = utils.delta_zone_via_delta_hist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta, _hb_prior_swing, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt) if _hb_prior_swing is not None else None
-                    _row["_zone_bucket_size"] = _hb_hz_bkt
-                    _hint_rows_b.append(_row)
+                    _hint_rows_b.append(_delta_row_b("2-Δ seq", _h, _hb_dd_n))
 
             if _hb_prior_delta is not None and _hb_prior_delta2 is not None:
                 _h = utils.seq3_delta_hint(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta, centered=_hint_centered_b)
                 if _h:
-                    _row = _delta_row_b("3-Δ seq", _h, _hb_dd_n)
-                    _row["_zone_dist"] = utils.delta3_zone_via_delta_hist(df_b, "swing", _hb_dd_bkt, _hb_prior_delta2, _hb_prior_delta, _hb_prior_swing, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt) if _hb_prior_swing is not None else None
-                    _row["_zone_bucket_size"] = _hb_hz_bkt
-                    _hint_rows_b.append(_row)
+                    _hint_rows_b.append(_delta_row_b("3-Δ seq", _h, _hb_dd_n))
 
             if _hb_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_b, "swing", _hb_prior_diff, centered=_hint_centered_b)
                 if _h:
-                    _row = _delta_row_b("Prior diff → Δ", _h, 5)
-                    _row["_zone_dist"] = utils.diff_next_zone_dist(df_b, "swing", _hb_prior_diff, centered=_hint_centered_b, zone_bucket_size=_hb_hz_bkt)
-                    _row["_zone_bucket_size"] = _hb_hz_bkt
-                    _hint_rows_b.append(_row)
+                    _hint_rows_b.append(_delta_row_b("Prior diff → Δ", _h, 5))
 
             if _hb_prior_swing is not None:
                 _h = utils.seq2_hint(df_b, "swing", _hb_hz_bkt, _hb_prior_swing, centered=_hint_centered_b)
@@ -2008,7 +2059,21 @@ with tab_b:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            if "is_fp_inn" in df_b.columns:
+            _cur_game_id_b = st.session_state.get("game_tab_sel")
+            _cur_inn_b     = int(st.session_state.get("mgr_inning", 1))
+            _b_last_sw     = df_b[df_b["swing"].notna()].sort_values("id")
+            _b_last_row    = _b_last_sw.iloc[-1] if not _b_last_sw.empty else None
+            _b_last_game   = (int(_b_last_row["game_id"]) if _b_last_row is not None
+                              and pd.notna(_b_last_row.get("game_id")) else None)
+            _b_last_inn    = (int(_b_last_row["inning"]) if _b_last_row is not None
+                              and pd.notna(_b_last_row.get("inning")) else None)
+            _show_fp_app_b = (_cur_game_id_b is not None
+                              and (_b_last_game is None or _b_last_game != _cur_game_id_b))
+            _show_fp_inn_b = (_cur_game_id_b is not None
+                              and (_b_last_game is None or _b_last_game != _cur_game_id_b
+                                   or _b_last_inn != _cur_inn_b))
+
+            if "is_fp_inn" in df_b.columns and _show_fp_inn_b:
                 _h = utils.best_zone_hint(df_b[df_b["is_fp_inn"] == True], "swing")
                 if _h:
                     _hint_rows_b.append({"Signal": "1st pitch inning",
@@ -2019,7 +2084,7 @@ with tab_b:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            if "is_fp_app" in df_b.columns:
+            if "is_fp_app" in df_b.columns and _show_fp_app_b:
                 _h = utils.best_zone_hint(df_b[df_b["is_fp_app"] == True], "swing")
                 if _h:
                     _hint_rows_b.append({"Signal": "1st pitch appearance",
