@@ -109,10 +109,16 @@ def _load_preferences() -> None:
 
 
 # ── Session restore via cookie (Python-readable on every render) ──────────────
+_dbg = {}
 if not st.session_state.get("authenticated"):
     _cookie_token = st.context.cookies.get(_COOKIE_KEY, "")
+    _dbg["cookie_keys"] = list(st.context.cookies.keys())
+    _dbg["nb_auth_present"] = bool(_cookie_token)
+    _dbg["nb_auth_len"] = len(_cookie_token)
+    _dbg["nb_auth_prefix"] = _cookie_token[:8]
     if _cookie_token:
         _result = auth.restore_device_session(_cookie_token)
+        _dbg["restore_result"] = _result
         if _result:
             _uid, _email = _result
             st.session_state.authenticated  = True
@@ -123,6 +129,8 @@ if not st.session_state.get("authenticated"):
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 if not st.session_state.get("authenticated"):
     st.title("Numberball")
+    with st.expander("debug"):
+        st.write(_dbg)
     with st.form("login"):
         email    = st.text_input("Email")
         password = st.text_input("Password", type="password")
