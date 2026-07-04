@@ -1,6 +1,7 @@
 """Derived stats, constants, and chart helpers for Numberball."""
 from __future__ import annotations
 
+import math
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -1091,6 +1092,106 @@ def zone_heatmap(
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def zone_polar(
+    zone_counts: dict[str, int],
+    title: str = "Zone Frequency",
+    compact: bool = False,
+) -> go.Figure:
+    """Doughnut polar chart of zone frequencies.
+
+    Zones are laid out clockwise from the top (pitch 1 at 12 o'clock).
+    Coloring matches the 3x3 heatmap: blue=least frequent, white=mid, red=most frequent.
+    compact=True uses smaller font and omits per-slice counts (for narrow column layouts).
+    """
+    zones_ordered = [
+        "1-111", "112-222", "223-333",
+        "334-444", "445-555", "556-666",
+        "667-777", "778-888", "889-1000",
+    ]
+    total = sum(zone_counts.values()) or 1
+    n = len(zones_ordered)
+    deg_each = 360 / n
+    counts = [zone_counts.get(z, 0) for z in zones_ordered]
+    min_c, max_c = min(counts), max(counts)
+
+    def _bwr(count: int) -> str:
+        # Blue (#2166ac) -> white (#f7f7f7) -> red (#d6604d), matching zone_heatmap colorscale.
+        t = (count - min_c) / (max_c - min_c) if max_c > min_c else 0.5
+        if t <= 0.5:
+            s = t * 2
+            rv = int(33 + (247 - 33) * s)
+            gv = int(102 + (247 - 102) * s)
+            bv = int(172 + (247 - 172) * s)
+        else:
+            s = (t - 0.5) * 2
+            rv = int(247 + (214 - 247) * s)
+            gv = int(247 + (96 - 247) * s)
+            bv = int(247 + (77 - 247) * s)
+        return f"rgb({rv},{gv},{bv})"
+
+    thetas = [i * deg_each + deg_each / 2 for i in range(n)]
+    colors = [_bwr(c) for c in counts]
+    hovers = [f"{z}<br>{c} ({c / total * 100:.1f}%)" for z, c in zip(zones_ordered, counts)]
+    if compact:
+        labels = [f"<b>{z}</b><br>{c / total * 100:.1f}%" for z, c in zip(zones_ordered, counts)]
+    else:
+        labels = [f"<b>{z}</b><br>{c}<br>{c / total * 100:.1f}%" for z, c in zip(zones_ordered, counts)]
+
+    font_size = 8 if compact else 11
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Barpolar(
+        r=[1] * n,
+        theta=thetas,
+        width=[deg_each - 1.5] * n,
+        marker_color=colors,
+        marker_line_color="rgba(80,80,80,0.6)",
+        marker_line_width=0,
+        base=0.35,
+        hovertext=hovers,
+        hovertemplate="%{hovertext}<extra></extra>",
+        showlegend=False,
+    ))
+
+    fig.add_trace(go.Scatterpolar(
+        r=[1.05] * n,
+        theta=thetas,
+        mode="text",
+        text=labels,
+        textfont=dict(size=font_size, color="rgba(10,10,10,0.9)"),
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        title=dict(text=f"{title} (n={total})", x=0.5, xanchor="center", font=dict(size=13)),
+        polar=dict(
+            angularaxis=dict(
+                direction="clockwise",
+                rotation=90,
+                showticklabels=False,
+                showgrid=False,
+                linewidth=0,
+                ticks="",
+            ),
+            radialaxis=dict(
+                visible=False,
+                range=[0, 1.35],
+                ticks="",
+            ),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        height=320,
+        margin=dict(l=20, r=20, t=45, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        dragmode=False,
     )
     return fig
 
@@ -2264,17 +2365,17 @@ def hint_bars_figure(
     _bar_half = 0.32 if mobile else 0.40
 
     def _zone_color(t: float) -> str:
-        # t=0 -> neutral gray. t=+1 -> vivid green. t=-1 -> vivid red.
-        # Fixed alpha so color alone signals the outlier, nothing fades to transparent.
+        # t=0 -> black (blends into bar background). t=+1 -> vivid green. t=-1 -> vivid red.
+        # Fixed alpha so color saturation alone signals the outlier.
         if t >= 0:
-            r = int(128 - 98 * t)
-            g = int(128 + 52 * t)
-            b = int(128 - 78 * t)
+            r = int(30 - 0 * t)
+            g = int(30 + 150 * t)
+            b = int(30 - 0 * t)
         else:
-            r = int(128 + 82 * abs(t))
-            g = int(128 - 88 * abs(t))
-            b = int(128 - 88 * abs(t))
-        return f"rgba({r},{g},{b},0.80)"
+            r = int(30 + 180 * abs(t))
+            g = int(30 - 0 * abs(t))
+            b = int(30 - 0 * abs(t))
+        return f"rgba({r},{g},{b},0.85)"
 
     for idx, h in enumerate(hints):
         y   = n - idx - 1
@@ -2300,7 +2401,7 @@ def hint_bars_figure(
                 fig.add_shape(type="rect", x0=0.5, x1=cz_hi + 0.5,
                               y0=y0, y1=y1, fillcolor=color, line=dict(width=0))
 
-        if mode == "all":
+        if mode == "all" and not h.get("_best_zone_only"):
             delta_counts = h.get("_delta_counts")
             prior_pitch_z = h.get("_prior_pitch_for_zone")
             if delta_counts is not None and prior_pitch_z is not None:

@@ -1264,15 +1264,18 @@ with tab_p:
                 _hint_rows_p.append({"Signal": "OBP recent pitch",
                                      "lo": _h_obp_p[0] if _h_obp_p else None,
                                      "hi": _h_obp_p[1] if _h_obp_p else None,
-                                     "Strength": f"{_h_ss_p:.0f}% signal"})
+                                     "Strength": f"{_h_ss_p:.0f}% signal",
+                                     "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ",
                                      "lo": _h_obp_d[0] if _h_obp_d else None,
                                      "hi": _h_obp_d[1] if _h_obp_d else None,
-                                     "Strength": f"{_h_ss_d:.0f}% signal"})
+                                     "Strength": f"{_h_ss_d:.0f}% signal",
+                                     "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ²",
                                      "lo": _h_obp_d2[0] if _h_obp_d2 else None,
                                      "hi": _h_obp_d2[1] if _h_obp_d2 else None,
-                                     "Strength": f"{_h_ss_d2:.0f}% signal"})
+                                     "Strength": f"{_h_ss_d2:.0f}% signal",
+                                     "_best_zone_only": True})
 
             def _delta_row_p(signal, h_dict, n_bkts):
                 _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
@@ -1719,25 +1722,40 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 else:
                     st.caption("Not enough data for this sequence.")
 
-            # ── zone distribution ─────────────────────────────────────────────────
+            # ── zone charts (shared polar toggle) ────────────────────────────────
             st.divider()
+            _polar_p = st.toggle("Polar view", value=False, key="polar_p")
+
             st.subheader("Zone Distribution (All)")
-            st.plotly_chart(utils.zone_heatmap(df_p["pitch_zone"].value_counts().to_dict(),
-                                               title="Pitch Zone Frequency"), width="stretch", key="p_zone_all")
+            _zone_counts_p = df_p["pitch_zone"].value_counts().to_dict()
+            if _polar_p:
+                st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
+                                width="stretch", key="p_zone_all")
+            else:
+                st.plotly_chart(utils.zone_heatmap(_zone_counts_p, title="Pitch Zone Frequency"),
+                                width="stretch", key="p_zone_all")
 
             # ── first pitch tendencies ────────────────────────────────────────────
             st.subheader("First Pitch Tendencies")
+            _fpa = df_p[df_p["is_fp_app"] == True]
+            _fpi = df_p[df_p["is_fp_inn"] == True]
             col_a_p, col_b_p = st.columns(2)
             with col_a_p:
-                _fpa = df_p[df_p["is_fp_app"] == True]
-                st.plotly_chart(utils.zone_heatmap(_fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {},
-                                                   title=f"First Pitch of Appearance (n={len(_fpa)})"),
-                                width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                _fpa_counts = _fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {}
+                if _polar_p:
+                    st.plotly_chart(utils.zone_polar(_fpa_counts, title="First Pitch of Appearance"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                else:
+                    st.plotly_chart(utils.zone_heatmap(_fpa_counts, title=f"First Pitch of Appearance (n={len(_fpa)})"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpa")
             with col_b_p:
-                _fpi = df_p[df_p["is_fp_inn"] == True]
-                st.plotly_chart(utils.zone_heatmap(_fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {},
-                                                   title=f"First Pitch of Inning (n={len(_fpi)})"),
-                                width="stretch", config={"displayModeBar": False}, key="p_fpi")
+                _fpi_counts = _fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {}
+                if _polar_p:
+                    st.plotly_chart(utils.zone_polar(_fpi_counts, title="First Pitch of Inning"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpi")
+                else:
+                    st.plotly_chart(utils.zone_heatmap(_fpi_counts, title=f"First Pitch of Inning (n={len(_fpi)})"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpi")
 
             # ── pitch delta distributions ─────────────────────────────────────────
             st.subheader("Pitch Delta Distributions")
@@ -1776,9 +1794,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cols_p = st.columns(3)
             for _i, _oc in enumerate([0, 1, 2]):
                 _dfo = df_p[df_p["outs"] == _oc]
+                _oc_counts = _dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {}
                 with _cols_p[_i]:
-                    st.plotly_chart(utils.zone_heatmap(_dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {},
-                                                       title=f"{_oc} Outs (n={len(_dfo)})"), width="stretch", key=f"p_oc_{_oc}")
+                    if _polar_p:
+                        st.plotly_chart(utils.zone_polar(_oc_counts, title=f"{_oc} Outs", compact=True),
+                                        width="stretch", key=f"p_oc_{_oc}")
+                    else:
+                        st.plotly_chart(utils.zone_heatmap(_oc_counts, title=f"{_oc} Outs (n={len(_dfo)})"),
+                                        width="stretch", key=f"p_oc_{_oc}")
 
             # ── zone by base state ────────────────────────────────────────────────
             st.subheader("Zone by Base State")
@@ -1788,9 +1811,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 ("Runner(s) On", ["001","010","100","011","101","110","111"]),
             ]):
                 _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
+                _obc_counts = _df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {}
                 with _col:
-                    st.plotly_chart(utils.zone_heatmap(_df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {},
-                                                       title=f"{_lbl} (n={len(_df_obc)})"), width="stretch", key=f"p_obc_{_lbl}")
+                    if _polar_p:
+                        st.plotly_chart(utils.zone_polar(_obc_counts, title=_lbl),
+                                        width="stretch", key=f"p_obc_{_lbl}")
+                    else:
+                        st.plotly_chart(utils.zone_heatmap(_obc_counts, title=f"{_lbl} (n={len(_df_obc)})"),
+                                        width="stretch", key=f"p_obc_{_lbl}")
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
@@ -1955,15 +1983,18 @@ with tab_b:
                 _hint_rows_b.append({"Signal": "OBP recent swing",
                                      "lo": _hb_obp_p[0] if _hb_obp_p else None,
                                      "hi": _hb_obp_p[1] if _hb_obp_p else None,
-                                     "Strength": f"{_hb_ss_p:.0f}% signal"})
+                                     "Strength": f"{_hb_ss_p:.0f}% signal",
+                                     "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ",
                                      "lo": _hb_obp_d[0] if _hb_obp_d else None,
                                      "hi": _hb_obp_d[1] if _hb_obp_d else None,
-                                     "Strength": f"{_hb_ss_d:.0f}% signal"})
+                                     "Strength": f"{_hb_ss_d:.0f}% signal",
+                                     "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ²",
                                      "lo": _hb_obp_d2[0] if _hb_obp_d2 else None,
                                      "hi": _hb_obp_d2[1] if _hb_obp_d2 else None,
-                                     "Strength": f"{_hb_ss_d2:.0f}% signal"})
+                                     "Strength": f"{_hb_ss_d2:.0f}% signal",
+                                     "_best_zone_only": True})
 
             _hb_dd_n = 500 // _hb_dd_bkt
             _hb_hz_n = 1000 // _hb_hz_bkt
@@ -2411,8 +2442,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # ── zone distribution ─────────────────────────────────────────────────
             st.divider()
             st.subheader("Swing Zone Distribution (All)")
-            st.plotly_chart(utils.zone_heatmap(df_b["swing_zone"].value_counts().to_dict(),
-                                               title="Swing Zone Frequency"), width="stretch", key="b_zone_all")
+            _zone_polar_b = st.toggle("Polar view", value=False, key="zone_polar_b")
+            _zone_counts_b = df_b["swing_zone"].value_counts().to_dict()
+            if _zone_polar_b:
+                st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
+                                width="stretch", key="b_zone_all")
+            else:
+                st.plotly_chart(utils.zone_heatmap(_zone_counts_b, title="Swing Zone Frequency"),
+                                width="stretch", key="b_zone_all")
 
             # ── first pitch swing tendencies ──────────────────────────────────────
             st.subheader("First Pitch Swing Tendencies")
