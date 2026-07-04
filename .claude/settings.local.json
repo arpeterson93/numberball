@@ -12,7 +12,10 @@
       "Bash(ls -la migrations/)",
       "Bash(git -c core.quotepath=false status --short)",
       "Bash(ls *.sql)",
-      "Bash(find . -maxdepth 2 -name \"*.sql\" -not -path \"./.venv/*\")"
+      "Bash(find . -maxdepth 2 -name \"*.sql\" -not -path \"./.venv/*\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import streamlit; print\\('streamlit', streamlit.__version__\\)\")",
+      "Bash(./.venv/Scripts/pip.exe list *)",
+      "Bash(pip list *)"
     ]
   }
 }

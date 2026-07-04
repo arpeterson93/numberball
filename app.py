@@ -1,4 +1,4 @@
-import json
+from datetime import datetime, timedelta
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -64,33 +64,44 @@ components.html(
     height=0,
 )
 
+import extra_streamlit_components as stx
+
 import auth
 import database as db
 
-_COOKIE_KEY     = "nb_auth"
-_COOKIE_MAX_AGE = 34560000  # 400 days in seconds
+_COOKIE_NAME = "nb_device"   # holds the non-rotating device token
+_COOKIE_DAYS = 400
+
+# CookieManager round-trips cookie values back to Python through a real
+# component. st.context.cookies never saw JS-written cookies in this deployment;
+# this bridge is the one that actually works here.
+cookie_manager = stx.CookieManager(key="auth")
 
 
-def _cookie_write(token: str) -> None:
-    """Persist the device token in a long-lived browser cookie."""
-    components.html(
-        "<script>document.cookie="
-        + json.dumps(
-            f"{_COOKIE_KEY}={token}; max-age={_COOKIE_MAX_AGE}; path=/; SameSite=Strict"
-        )
-        + ";</script>",
-        height=0,
-    )
-
-
-def _cookie_clear() -> None:
-    """Expire the auth cookie immediately."""
-    components.html(
-        "<script>document.cookie="
-        + json.dumps(f"{_COOKIE_KEY}=; max-age=0; path=/; SameSite=Strict")
-        + ";</script>",
-        height=0,
-    )
+def _try_restore_session() -> bool:
+    """Restore a session from the device-token cookie. Returns True on success."""
+    if st.session_state.pop("_logged_out", False):
+        return False
+    token = None
+    try:
+        token = cookie_manager.get(_COOKIE_NAME)
+    except Exception:
+        pass
+    if not token:
+        return False
+    result = auth.restore_device_session(token)
+    if not result:
+        try:
+            cookie_manager.delete(_COOKIE_NAME)
+        except Exception:
+            pass
+        return False
+    user_id, email = result
+    st.session_state.user_id = user_id
+    st.session_state.user_email = email
+    st.session_state.authenticated = True
+    st.session_state["_device_token"] = token
+    return True
 
 
 def _load_preferences() -> None:
@@ -108,54 +119,39 @@ def _load_preferences() -> None:
                 st.session_state["scouting_view"] = "complex"
 
 
-# ── Session restore via cookie (Python-readable on every render) ──────────────
-_dbg = {}
-if not st.session_state.get("authenticated"):
-    _cookie_token = st.context.cookies.get(_COOKIE_KEY, "")
-    _dbg["cookie_keys"] = list(st.context.cookies.keys())
-    _dbg["nb_auth_present"] = bool(_cookie_token)
-    _dbg["nb_auth_len"] = len(_cookie_token)
-    _dbg["nb_auth_prefix"] = _cookie_token[:8]
-    if _cookie_token:
-        _result = auth.restore_device_session(_cookie_token)
-        _dbg["restore_result"] = _result
-        if _result:
-            _uid, _email = _result
-            st.session_state.authenticated  = True
-            st.session_state.user_id        = _uid
-            st.session_state.user_email     = _email
-            st.session_state["_device_token"] = _cookie_token
-
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 if not st.session_state.get("authenticated"):
-    st.title("Numberball")
-    with st.expander("debug"):
-        st.write(_dbg)
-    with st.form("login"):
-        email    = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        remember = st.checkbox("Remember Me", value=True)
-        submitted = st.form_submit_button("Sign In")
-    if submitted:
-        try:
-            user_id, user_email = auth.sign_in(email, password)
-            st.session_state.authenticated  = True
-            st.session_state.user_id        = user_id
-            st.session_state.user_email     = user_email
-            if remember:
-                device_token = auth.create_device_session(user_id, user_email)
-                st.session_state["_device_token"] = device_token
-            st.rerun()
-        except Exception:
-            st.error("Invalid email or password.")
-    st.stop()
-
-# Re-assert the auth cookie on every authenticated render. The device token
-# never rotates, so this write is idempotent. Crucially, no st.rerun() follows
-# it here, so the component actually executes - unlike the login handler, whose
-# write is cancelled by its immediate rerun. This is what makes the cookie land.
-if st.session_state.get("_device_token"):
-    _cookie_write(st.session_state["_device_token"])
+    if not _try_restore_session():
+        # On the very first render the CookieManager iframe hasn't communicated
+        # back yet, so the token appears missing even when a valid cookie exists.
+        # Stop and let the CookieManager trigger its own rerun; on that second
+        # pass we either restore the session or fall through to the login form.
+        if "_cookie_ready" not in st.session_state:
+            st.session_state["_cookie_ready"] = True
+            st.stop()
+        st.title("Numberball")
+        with st.form("login"):
+            email    = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            remember = st.checkbox("Remember Me", value=True)
+            submitted = st.form_submit_button("Sign In")
+        if submitted:
+            try:
+                user_id, user_email = auth.sign_in(email, password)
+                st.session_state.authenticated  = True
+                st.session_state.user_id        = user_id
+                st.session_state.user_email     = user_email
+                if remember:
+                    device_token = auth.create_device_session(user_id, user_email)
+                    st.session_state["_device_token"] = device_token
+                    cookie_manager.set(
+                        _COOKIE_NAME, device_token,
+                        expires_at=datetime.now() + timedelta(days=_COOKIE_DAYS),
+                    )
+                st.rerun()
+            except Exception:
+                st.error("Invalid email or password.")
+        st.stop()
 
 _load_preferences()
 
@@ -164,10 +160,19 @@ with st.sidebar:
     st.caption(f"Signed in as `{_email}`")
     if st.button("Sign Out"):
         _token = st.session_state.get("_device_token")
+        if not _token:
+            try:
+                _token = cookie_manager.get(_COOKIE_NAME)
+            except Exception:
+                _token = None
         if _token:
             auth.revoke_device_session(_token)
-        _cookie_clear()
+        try:
+            cookie_manager.delete(_COOKIE_NAME)
+        except Exception:
+            pass
         st.session_state.clear()
+        st.session_state["_logged_out"] = True
         st.rerun()
 
 pages = [
