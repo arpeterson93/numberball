@@ -8,7 +8,11 @@
       "WebFetch(domain:tangotiger.net)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(.venv/Scripts/python.exe batter_optimizer.py)"
+      "Bash(.venv/Scripts/python.exe batter_optimizer.py)",
+      "Bash(ls -la migrations/)",
+      "Bash(git -c core.quotepath=false status --short)",
+      "Bash(ls *.sql)",
+      "Bash(find . -maxdepth 2 -name \"*.sql\" -not -path \"./.venv/*\")"
     ]
   }
 }

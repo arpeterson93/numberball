@@ -72,7 +72,7 @@ _COOKIE_MAX_AGE = 34560000  # 400 days in seconds
 
 
 def _cookie_write(token: str) -> None:
-    """Persist the refresh token in a long-lived browser cookie."""
+    """Persist the device token in a long-lived browser cookie."""
     components.html(
         "<script>document.cookie="
         + json.dumps(
@@ -112,14 +112,13 @@ def _load_preferences() -> None:
 if not st.session_state.get("authenticated"):
     _cookie_token = st.context.cookies.get(_COOKIE_KEY, "")
     if _cookie_token:
-        _result = auth.refresh_session(_cookie_token)
+        _result = auth.restore_device_session(_cookie_token)
         if _result:
-            _uid, _new_token, _email = _result
+            _uid, _email = _result
             st.session_state.authenticated  = True
             st.session_state.user_id        = _uid
             st.session_state.user_email     = _email
-            st.session_state["_refresh_token"] = _new_token
-            _cookie_write(_new_token)   # rotate token so the cookie stays fresh
+            st.session_state["_device_token"] = _cookie_token
 
 # ── Auth gate ─────────────────────────────────────────────────────────────────
 if not st.session_state.get("authenticated"):
@@ -131,13 +130,14 @@ if not st.session_state.get("authenticated"):
         submitted = st.form_submit_button("Sign In")
     if submitted:
         try:
-            user_id, refresh_token, user_email = auth.sign_in(email, password)
+            user_id, user_email = auth.sign_in(email, password)
             st.session_state.authenticated  = True
             st.session_state.user_id        = user_id
             st.session_state.user_email     = user_email
-            st.session_state["_refresh_token"] = refresh_token
             if remember:
-                _cookie_write(refresh_token)
+                device_token = auth.create_device_session(user_id, user_email)
+                st.session_state["_device_token"] = device_token
+                _cookie_write(device_token)
             st.rerun()
         except Exception:
             st.error("Invalid email or password.")
@@ -149,12 +149,9 @@ with st.sidebar:
     _email = st.session_state.get("user_email", "")
     st.caption(f"Signed in as `{_email}`")
     if st.button("Sign Out"):
-        _token = st.session_state.get("_refresh_token")
+        _token = st.session_state.get("_device_token")
         if _token:
-            try:
-                auth.sign_out(_token)
-            except Exception:
-                pass
+            auth.revoke_device_session(_token)
         _cookie_clear()
         st.session_state.clear()
         st.rerun()
