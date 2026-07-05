@@ -56,15 +56,16 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
         f_games   = ex.submit(db.get_games)
         f_teams   = ex.submit(db.get_mln_teams_for_lookup)
         f_players = ex.submit(db.get_mln_players_for_lookup)
-        f_max_pn  = ex.submit(db.get_max_play_num, "MLN")
-    plays       = f_plays.result()
-    all_games   = f_games.result()
-    mln_teams   = f_teams.result()
-    mln_players = f_players.result()
-    # Incremental sync: only upsert plays past what's already stored. A full
-    # re-upsert (for corrections to already-synced plays) is done from the MLN
-    # buttons on the Sync Data tab, which upsert every play.
-    max_pn      = f_max_pn.result()
+        f_have_pn = ex.submit(db.get_existing_play_nums, "MLN")
+    plays        = f_plays.result()
+    all_games    = f_games.result()
+    mln_teams    = f_teams.result()
+    mln_players  = f_players.result()
+    # Incremental sync: upsert only plays whose play_num isn't already stored.
+    # Membership (not a max) so gaps / out-of-order play numbers can't skip a new
+    # play. A full re-upsert (for corrections to already-synced plays) is done
+    # from the MLN buttons on the Sync Data tab, which upsert every play.
+    existing_pns = f_have_pn.result()
 
     if not plays:
         return 0, ["No plays found in the MLN Plays (Raw) tab."]
@@ -166,8 +167,8 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
     if not rows:
         return 0, diag + errors
     # Trackers (outs, first-pitch flags) were computed over every play above; now
-    # keep only the new plays for writing (play_num past the stored max).
-    rows = [r for r in rows if r["play_num"] > max_pn]
+    # keep only plays not already stored (genuinely new ones).
+    rows = [r for r in rows if r["play_num"] not in existing_pns]
     if not rows:
         return 0, diag + errors
     rows = list({(r["play_num"], r.get("league", "MLN")): r for r in rows}.values())

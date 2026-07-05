@@ -178,18 +178,14 @@ def get_plays_for_team_offense(team_name: str, leagues: list[str] | None = None)
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
-def get_max_play_num(league: str) -> int:
-    """Return the highest play_num stored for a league (0 if none). Drives incremental sync."""
-    rows = (
-        _client().table("plays")
-        .select("play_num")
-        .eq("league", league)
-        .order("play_num", desc=True)
-        .limit(1)
-        .execute()
-        .data
+def get_existing_play_nums(league: str) -> set[int]:
+    """Return the set of play_num values already stored for a league. Drives
+    incremental sync via membership (not a max), so gaps or out-of-order play
+    numbers can't cause a genuinely new play to be silently skipped."""
+    rows = _fetch_all(
+        _client().table("plays").select("play_num").eq("league", league)
     )
-    return rows[0]["play_num"] if rows and rows[0].get("play_num") is not None else 0
+    return {r["play_num"] for r in rows if r.get("play_num") is not None}
 
 
 def bulk_upsert_plays(plays: list[dict]) -> int:
