@@ -64,6 +64,33 @@ components.html(
     height=0,
 )
 
+# ── PWA / home-screen icon ────────────────────────────────────────────────────
+# Streamlit doesn't expose the served <head>, so inject the icon + web-app tags
+# into the parent document (same approach as the overlay above). iOS uses
+# apple-touch-icon + the apple-mobile-web-app-* meta tags; Android/Chrome uses
+# the linked manifest. Icons are served from static/ (enableStaticServing).
+components.html(
+    """<script>
+(function () {
+    var d = window.parent.document;
+    if (d.getElementById('nb-pwa')) return;
+    var head = d.head;
+    function add(tag, attrs) {
+        var el = d.createElement(tag);
+        for (var k in attrs) el.setAttribute(k, attrs[k]);
+        head.appendChild(el);
+    }
+    add('link', {id: 'nb-pwa', rel: 'apple-touch-icon', href: 'app/static/apple-touch-icon.png'});
+    add('meta', {name: 'apple-mobile-web-app-capable', content: 'yes'});
+    add('meta', {name: 'mobile-web-app-capable', content: 'yes'});
+    add('meta', {name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent'});
+    add('meta', {name: 'apple-mobile-web-app-title', content: 'Numberball'});
+    add('link', {rel: 'manifest', href: 'app/static/manifest.json'});
+}());
+</script>""",
+    height=0,
+)
+
 import extra_streamlit_components as stx
 
 import auth

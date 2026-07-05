@@ -48,12 +48,26 @@ def _qs_mln_games() -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
-def _qs_mln_plays() -> tuple[int, list[str]]:
-    plays = utils.read_mln_plays_from_sheet(_MLN_QS_SHEET_ID, tab="Plays (Raw)")
+def _qs_mln_plays(full: bool = False) -> tuple[int, list[str]]:
+    from concurrent.futures import ThreadPoolExecutor
+    # These five reads are independent - fetch them concurrently instead of serially.
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_plays   = ex.submit(utils.read_mln_plays_from_sheet, _MLN_QS_SHEET_ID, tab="Plays (Raw)")
+        f_games   = ex.submit(db.get_games)
+        f_teams   = ex.submit(db.get_mln_teams_for_lookup)
+        f_players = ex.submit(db.get_mln_players_for_lookup)
+        f_max_pn  = ex.submit(db.get_max_play_num, "MLN")
+    plays       = f_plays.result()
+    all_games   = f_games.result()
+    mln_teams   = f_teams.result()
+    mln_players = f_players.result()
+    # Incremental sync: only upsert plays past what's already stored. full=True
+    # (Full Resync) sets the floor to 0 so every play is re-upserted - use that
+    # after correcting an already-synced play.
+    max_pn      = 0 if full else f_max_pn.result()
+
     if not plays:
         return 0, ["No plays found in the MLN Plays (Raw) tab."]
-
-    all_games = db.get_games()
     game_code_to_id = {str(g["game_code"]).strip(): g["id"] for g in all_games if g.get("game_code") and g.get("id")}
     mln_game_codes_in_db = sorted(
         str(g["game_code"]).strip() for g in all_games if g.get("league") == "MLN" and g.get("game_code")
@@ -75,10 +89,7 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
         else []
     )
 
-    mln_teams = db.get_mln_teams_for_lookup()
     team_id_to_full = {t["team_id"]: t["full_team"] for t in mln_teams if t.get("team_id") and t.get("full_team")}
-
-    mln_players = db.get_mln_players_for_lookup()
     sid_to_name = {p["s_id"]: p["name"] for p in mln_players if p.get("s_id") and p.get("name")}
 
     plays_sorted = sorted(plays, key=lambda p: p["play_num"])
@@ -154,6 +165,12 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
 
     if not rows:
         return 0, diag + errors
+    # Trackers (outs, first-pitch flags) were computed over every play above; now
+    # keep only the plays we actually need to write. Incremental keeps new plays;
+    # Full Resync (max_pn=0) keeps them all.
+    rows = [r for r in rows if r["play_num"] > max_pn]
+    if not rows:
+        return 0, diag + errors
     rows = list({(r["play_num"], r.get("league", "MLN")): r for r in rows}.values())
     try:
         n = db.bulk_upsert_mln_plays(rows)
@@ -166,23 +183,37 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
 _ua = st.context.headers.get("user-agent", "").lower()
 _is_mobile = any(k in _ua for k in ("mobile", "android", "iphone", "ipad", "silk"))
 
+def _run_mln_sync(full: bool) -> None:
+    label = "Full resync of MLN Games then Plays..." if full else "Syncing MLN Games then Plays..."
+    with st.spinner(label):
+        _qs_gn, _qs_gerrs = _qs_mln_games()
+        _qs_pn, _qs_perrs = _qs_mln_plays(full=full)
+    _tag = " (full)" if full else ""
+    st.session_state["_sync_msg"] = f"MLN{_tag} - Games: {_qs_gn} · Plays: {_qs_pn}"
+    _qs_all_errs = _qs_gerrs + _qs_perrs
+    if _qs_all_errs:
+        st.session_state["_sync_errors"] = _qs_all_errs
+    # Version-keyed invalidation: bump _data_v (threaded into every play/game
+    # loader) instead of st.cache_data.clear(), which needlessly nuked the
+    # players/teams/CSV caches that a plays sync never touches.
+    st.session_state["_data_v"] = st.session_state.get("_data_v", 0) + 1
+    st.session_state.pop("_auto_fetch_done", None)
+    st.session_state.pop("pred_result_ranges", None)
+    st.rerun()
+
+
 _title_col, _qs_btn_col = st.columns([5, 1], vertical_alignment="bottom")
 with _title_col:
     st.title("Scouting")
 with _qs_btn_col:
-    if st.button("Sync MLN", key="qs_mln_all", use_container_width=True):
-        with st.spinner("Syncing MLN Games then Plays..."):
-            _qs_gn, _qs_gerrs = _qs_mln_games()
-            _qs_pn, _qs_perrs = _qs_mln_plays()
-        st.session_state["_sync_msg"] = f"MLN - Games: {_qs_gn} · Plays: {_qs_pn}"
-        _qs_all_errs = _qs_gerrs + _qs_perrs
-        if _qs_all_errs:
-            st.session_state["_sync_errors"] = _qs_all_errs
-        st.cache_data.clear()
-        st.session_state["_data_v"] = st.session_state.get("_data_v", 0) + 1
-        st.session_state.pop("_auto_fetch_done", None)
-        st.session_state.pop("pred_result_ranges", None)
-        st.rerun()
+    _do_sync = st.button("Sync MLN", key="qs_mln_all", use_container_width=True)
+    _do_full = st.button(
+        "Full Resync", key="qs_mln_full", use_container_width=True,
+        help="Re-upserts every play. Use after correcting an already-synced play; "
+             "the regular Sync only adds new plays.",
+    )
+if _do_sync or _do_full:
+    _run_mln_sync(full=_do_full)
 
 # Seed radio state once from DB-backed preference so index never fights the widget
 if "scouting_view_radio" not in st.session_state:
@@ -228,12 +259,12 @@ def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int =
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...]) -> pd.DataFrame:
+def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
     raw = db.get_plays_for_team_offense(team_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def _load_all_games() -> list:
+def _load_all_games(data_v: int = 0) -> list:
     return db.get_games()
 
 @st.cache_data(ttl=3600)
@@ -260,7 +291,7 @@ def _load_pitcher_stats() -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def _load_game_plays(game_id: int) -> list[dict]:
+def _load_game_plays(game_id: int, data_v: int = 0) -> list[dict]:
     return db.get_plays_for_game(game_id)
 
 @st.cache_data(ttl=3600)
@@ -298,7 +329,7 @@ _leagues_tuple: tuple[str, ...] = tuple(sorted(_sel_leagues))
 
 # ── lightweight metadata (always loaded) ─────────────────────────────────────
 
-all_games_meta = _load_all_games()
+all_games_meta = _load_all_games(st.session_state.get("_data_v", 0))
 _meta_seasons   = sorted({g["season"] for g in all_games_meta if g.get("season")}, reverse=True)
 _meta_def_teams = sorted({t for g in all_games_meta for t in (g.get("home_team") or "", g.get("away_team") or "") if t})
 
@@ -837,7 +868,7 @@ elif pred_mode == "Fetch Live Matchup":
             _fi = utils.game_innings(_fl)
             st.session_state["mgr_away_score"] = int(_mg["away_score"]) if _mg.get("away_score") is not None else 0
             st.session_state["mgr_home_score"] = int(_mg["home_score"]) if _mg.get("home_score") is not None else 0
-            _gplays = _load_game_plays(_mg["id"])
+            _gplays = _load_game_plays(_mg["id"], st.session_state.get("_data_v", 0))
             if _gplays:
                 _lp = sorted(_gplays, key=lambda p: p.get("play_num") or p.get("id") or 0)[-1]
                 _li, _lh = int(_lp.get("inning") or 1), str(_lp.get("half") or "top").lower()
@@ -1724,101 +1755,104 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             # ── zone charts (shared polar toggle) ────────────────────────────────
             st.divider()
-            _polar_p = st.toggle("Polar view", value=False, key="polar_p")
+            @st.fragment
+            def _zone_delta_section_p(df_p, _deltas_p):
+                _polar_p = st.toggle("Polar view", value=True, key="polar_p")
 
-            st.subheader("Zone Distribution (All)")
-            _zone_counts_p = df_p["pitch_zone"].value_counts().to_dict()
-            if _polar_p:
-                st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
-                                width="stretch", key="p_zone_all")
-            else:
-                st.plotly_chart(utils.zone_heatmap(_zone_counts_p, title="Pitch Zone Frequency"),
-                                width="stretch", key="p_zone_all")
-
-            # ── first pitch tendencies ────────────────────────────────────────────
-            st.subheader("First Pitch Tendencies")
-            _fpa = df_p[df_p["is_fp_app"] == True]
-            _fpi = df_p[df_p["is_fp_inn"] == True]
-            col_a_p, col_b_p = st.columns(2)
-            with col_a_p:
-                _fpa_counts = _fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {}
+                st.subheader("Zone Distribution (All)")
+                _zone_counts_p = df_p["pitch_zone"].value_counts().to_dict()
                 if _polar_p:
-                    st.plotly_chart(utils.zone_polar(_fpa_counts, title="First Pitch of Appearance"),
-                                    width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                    st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
+                                    width="stretch", key="p_zone_all")
                 else:
-                    st.plotly_chart(utils.zone_heatmap(_fpa_counts, title=f"First Pitch of Appearance (n={len(_fpa)})"),
-                                    width="stretch", config={"displayModeBar": False}, key="p_fpa")
-            with col_b_p:
-                _fpi_counts = _fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {}
-                if _polar_p:
-                    st.plotly_chart(utils.zone_polar(_fpi_counts, title="First Pitch of Inning"),
-                                    width="stretch", config={"displayModeBar": False}, key="p_fpi")
-                else:
-                    st.plotly_chart(utils.zone_heatmap(_fpi_counts, title=f"First Pitch of Inning (n={len(_fpi)})"),
-                                    width="stretch", config={"displayModeBar": False}, key="p_fpi")
+                    st.plotly_chart(utils.zone_heatmap(_zone_counts_p, title="Pitch Zone Frequency"),
+                                    width="stretch", key="p_zone_all")
 
-            # ── pitch delta distributions ─────────────────────────────────────────
-            st.subheader("Pitch Delta Distributions")
-            st.caption("Left: last pitch of one inning → first of next. Middle: last pitch of one game → first of next. Right: consecutive at-bats within the same game.")
-            _inn_deltas_p  = utils.between_inning_deltas(df_p, value_col="pitch")
-            _game_deltas_p = utils.between_game_deltas(df_p, value_col="pitch")
-            _p_delta_signed = st.toggle("Signed", value=True, key="p_delta_signed",
-                                        help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
-            _bd_c1_p, _bd_c2_p = st.columns(2)
-            with _bd_c1_p:
-                if not _inn_deltas_p.empty:
+                # ── first pitch tendencies ────────────────────────────────────────────
+                st.subheader("First Pitch Tendencies")
+                _fpa = df_p[df_p["is_fp_app"] == True]
+                _fpi = df_p[df_p["is_fp_inn"] == True]
+                col_a_p, col_b_p = st.columns(2)
+                with col_a_p:
+                    _fpa_counts = _fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {}
+                    if _polar_p:
+                        st.plotly_chart(utils.zone_polar(_fpa_counts, title="First Pitch of Appearance"),
+                                        width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                    else:
+                        st.plotly_chart(utils.zone_heatmap(_fpa_counts, title=f"First Pitch of Appearance (n={len(_fpa)})"),
+                                        width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                with col_b_p:
+                    _fpi_counts = _fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {}
+                    if _polar_p:
+                        st.plotly_chart(utils.zone_polar(_fpi_counts, title="First Pitch of Inning"),
+                                        width="stretch", config={"displayModeBar": False}, key="p_fpi")
+                    else:
+                        st.plotly_chart(utils.zone_heatmap(_fpi_counts, title=f"First Pitch of Inning (n={len(_fpi)})"),
+                                        width="stretch", config={"displayModeBar": False}, key="p_fpi")
+
+                # ── zone by out count ─────────────────────────────────────────────────
+                st.subheader("Zone by Out Count")
+                _cols_p = st.columns(3)
+                for _i, _oc in enumerate([0, 1, 2]):
+                    _dfo = df_p[df_p["outs"] == _oc]
+                    _oc_counts = _dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {}
+                    with _cols_p[_i]:
+                        if _polar_p:
+                            st.plotly_chart(utils.zone_polar(_oc_counts, title=f"{_oc} Outs", compact=True),
+                                            width="stretch", key=f"p_oc_{_oc}")
+                        else:
+                            st.plotly_chart(utils.zone_heatmap(_oc_counts, title=f"{_oc} Outs (n={len(_dfo)})"),
+                                            width="stretch", key=f"p_oc_{_oc}")
+
+                # ── zone by base state ────────────────────────────────────────────────
+                st.subheader("Zone by Base State")
+                _col_e_p, _col_r_p = st.columns(2)
+                for _col, (_lbl, _obc_vals) in zip([_col_e_p, _col_r_p], [
+                    ("Empty", ["000"]),
+                    ("Runner(s) On", ["001","010","100","011","101","110","111"]),
+                ]):
+                    _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
+                    _obc_counts = _df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {}
+                    with _col:
+                        if _polar_p:
+                            st.plotly_chart(utils.zone_polar(_obc_counts, title=_lbl),
+                                            width="stretch", key=f"p_obc_{_lbl}")
+                        else:
+                            st.plotly_chart(utils.zone_heatmap(_obc_counts, title=f"{_lbl} (n={len(_df_obc)})"),
+                                            width="stretch", key=f"p_obc_{_lbl}")
+
+                # ── pitch delta distributions ─────────────────────────────────────────
+                st.subheader("Pitch Delta Distributions")
+                st.caption("Left: last pitch of one inning → first of next. Middle: last pitch of one game → first of next. Right: consecutive at-bats within the same game.")
+                _inn_deltas_p  = utils.between_inning_deltas(df_p, value_col="pitch")
+                _game_deltas_p = utils.between_game_deltas(df_p, value_col="pitch")
+                _p_delta_signed = st.toggle("Signed", value=True, key="p_delta_signed",
+                                            help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
+                _bd_c1_p, _bd_c2_p = st.columns(2)
+                with _bd_c1_p:
+                    if not _inn_deltas_p.empty:
+                        st.plotly_chart(
+                            utils.delta_histogram(_inn_deltas_p, title="Between-Inning", signed=_p_delta_signed),
+                            width="stretch", config={"displayModeBar": False}, key="p_inn_delta",
+                        )
+                    else:
+                        st.caption("Not enough between-inning data.")
+                with _bd_c2_p:
+                    if not _game_deltas_p.empty:
+                        st.plotly_chart(
+                            utils.delta_histogram(_game_deltas_p, title="Between-Game", signed=_p_delta_signed),
+                            width="stretch", config={"displayModeBar": False}, key="p_game_delta",
+                        )
+                    else:
+                        st.caption("Not enough between-game data.")
+                if not _deltas_p.empty:
                     st.plotly_chart(
-                        utils.delta_histogram(_inn_deltas_p, title="Between-Inning", signed=_p_delta_signed),
-                        width="stretch", config={"displayModeBar": False}, key="p_inn_delta",
+                        utils.delta_histogram(_deltas_p, title="Previous AB", signed=_p_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="p_delta",
                     )
                 else:
-                    st.caption("Not enough between-inning data.")
-            with _bd_c2_p:
-                if not _game_deltas_p.empty:
-                    st.plotly_chart(
-                        utils.delta_histogram(_game_deltas_p, title="Between-Game", signed=_p_delta_signed),
-                        width="stretch", config={"displayModeBar": False}, key="p_game_delta",
-                    )
-                else:
-                    st.caption("Not enough between-game data.")
-            if not _deltas_p.empty:
-                st.plotly_chart(
-                    utils.delta_histogram(_deltas_p, title="Previous AB", signed=_p_delta_signed),
-                    width="stretch", config={"displayModeBar": False}, key="p_delta",
-                )
-            else:
-                st.caption("Need at least 2 at-bats from the same pitcher.")
-
-            # ── zone by out count ─────────────────────────────────────────────────
-            st.subheader("Zone by Out Count")
-            _cols_p = st.columns(3)
-            for _i, _oc in enumerate([0, 1, 2]):
-                _dfo = df_p[df_p["outs"] == _oc]
-                _oc_counts = _dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {}
-                with _cols_p[_i]:
-                    if _polar_p:
-                        st.plotly_chart(utils.zone_polar(_oc_counts, title=f"{_oc} Outs", compact=True),
-                                        width="stretch", key=f"p_oc_{_oc}")
-                    else:
-                        st.plotly_chart(utils.zone_heatmap(_oc_counts, title=f"{_oc} Outs (n={len(_dfo)})"),
-                                        width="stretch", key=f"p_oc_{_oc}")
-
-            # ── zone by base state ────────────────────────────────────────────────
-            st.subheader("Zone by Base State")
-            _col_e_p, _col_r_p = st.columns(2)
-            for _col, (_lbl, _obc_vals) in zip([_col_e_p, _col_r_p], [
-                ("Empty", ["000"]),
-                ("Runner(s) On", ["001","010","100","011","101","110","111"]),
-            ]):
-                _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
-                _obc_counts = _df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {}
-                with _col:
-                    if _polar_p:
-                        st.plotly_chart(utils.zone_polar(_obc_counts, title=_lbl),
-                                        width="stretch", key=f"p_obc_{_lbl}")
-                    else:
-                        st.plotly_chart(utils.zone_heatmap(_obc_counts, title=f"{_lbl} (n={len(_df_obc)})"),
-                                        width="stretch", key=f"p_obc_{_lbl}")
+                    st.caption("Need at least 2 at-bats from the same pitcher.")
+            _zone_delta_section_p(df_p, _deltas_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
@@ -1882,7 +1916,7 @@ with tab_b:
     if tab_b_batter != "All" and tab_b_scope == "Full Team" and tab_b_team != "All":
         _b_dfs = []
         if _source_key in ("real", "all") and _leagues_tuple:
-            _b_dfs.append(_load_team_offense_plays(tab_b_team, _leagues_tuple))
+            _b_dfs.append(_load_team_offense_plays(tab_b_team, _leagues_tuple, st.session_state.get("_data_v", 0)))
         if _source_key in ("scrimmage", "all") and not _scrimmage_df.empty:
             _b_scrim = _scrimmage_df[_scrimmage_df["off_team"] == tab_b_team] \
                 if "off_team" in _scrimmage_df.columns else pd.DataFrame()
@@ -2441,95 +2475,89 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             # ── zone distribution ─────────────────────────────────────────────────
             st.divider()
-            st.subheader("Swing Zone Distribution (All)")
-            _zone_polar_b = st.toggle("Polar view", value=False, key="zone_polar_b")
-            _zone_counts_b = df_b["swing_zone"].value_counts().to_dict()
-            if _zone_polar_b:
-                st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
-                                width="stretch", key="b_zone_all")
-            else:
-                st.plotly_chart(utils.zone_heatmap(_zone_counts_b, title="Swing Zone Frequency"),
-                                width="stretch", key="b_zone_all")
-
-            # ── first pitch swing tendencies ──────────────────────────────────────
-            st.subheader("First Pitch Swing Tendencies")
-            col_a_b, col_b_b = st.columns(2)
-            with col_a_b:
-                _fpab = df_b[df_b["is_fp_app"] == True]
-                st.plotly_chart(utils.zone_heatmap(_fpab["swing_zone"].value_counts().to_dict() if not _fpab.empty else {},
-                                                   title=f"First Pitch of Appearance (n={len(_fpab)})"),
-                                width="stretch", config={"displayModeBar": False}, key="b_fpa")
-            with col_b_b:
-                _fpib = df_b[df_b["is_fp_inn"] == True]
-                st.plotly_chart(utils.zone_heatmap(_fpib["swing_zone"].value_counts().to_dict() if not _fpib.empty else {},
-                                                   title=f"First Pitch of Inning (n={len(_fpib)})"),
-                                width="stretch", config={"displayModeBar": False}, key="b_fpi")
-
-            # ── swing delta distributions ─────────────────────────────────────────
-            st.subheader("Swing Delta Distributions")
-            st.caption("Left: last swing of one inning → first of next. Middle: last swing of one game → first of next. Right: consecutive at-bats within the same game.")
-            _inn_deltas_b  = utils.between_inning_deltas(df_b, value_col="swing")
-            _game_deltas_b = utils.between_game_deltas(df_b, value_col="swing")
-            _b_delta_signed = st.toggle("Signed", value=True, key="b_delta_signed",
-                                        help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
-            _bd_c1_b, _bd_c2_b = st.columns(2)
-            with _bd_c1_b:
-                if not _inn_deltas_b.empty:
-                    st.plotly_chart(
-                        utils.delta_histogram(_inn_deltas_b, title="Between-Inning", signed=_b_delta_signed),
-                        width="stretch", config={"displayModeBar": False}, key="b_inn_delta",
-                    )
+            @st.fragment
+            def _zone_delta_section_b(df_b, _deltas_b):
+                st.subheader("Swing Zone Distribution (All)")
+                _zone_polar_b = st.toggle("Polar view", value=True, key="zone_polar_b")
+                _zone_counts_b = df_b["swing_zone"].value_counts().to_dict()
+                if _zone_polar_b:
+                    st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
+                                    width="stretch", key="b_zone_all")
                 else:
-                    st.caption("Not enough between-inning data.")
-            with _bd_c2_b:
-                if not _game_deltas_b.empty:
+                    st.plotly_chart(utils.zone_heatmap(_zone_counts_b, title="Swing Zone Frequency"),
+                                    width="stretch", key="b_zone_all")
+
+                # ── first pitch swing tendencies ──────────────────────────────────────
+                st.subheader("First Pitch Swing Tendencies")
+                col_a_b, col_b_b = st.columns(2)
+                with col_a_b:
+                    _fpab = df_b[df_b["is_fp_app"] == True]
+                    st.plotly_chart(utils.zone_heatmap(_fpab["swing_zone"].value_counts().to_dict() if not _fpab.empty else {},
+                                                       title=f"First Pitch of Appearance (n={len(_fpab)})"),
+                                    width="stretch", config={"displayModeBar": False}, key="b_fpa")
+                with col_b_b:
+                    _fpib = df_b[df_b["is_fp_inn"] == True]
+                    st.plotly_chart(utils.zone_heatmap(_fpib["swing_zone"].value_counts().to_dict() if not _fpib.empty else {},
+                                                       title=f"First Pitch of Inning (n={len(_fpib)})"),
+                                    width="stretch", config={"displayModeBar": False}, key="b_fpi")
+
+                # ── zone by out count ─────────────────────────────────────────────────
+                st.subheader("Swing Zone by Out Count")
+                _cols_b = st.columns(3)
+                for _i, _oc in enumerate([0, 1, 2]):
+                    _dfo_b = df_b[df_b["outs"] == _oc]
+                    with _cols_b[_i]:
+                        st.plotly_chart(utils.zone_heatmap(_dfo_b["swing_zone"].value_counts().to_dict() if not _dfo_b.empty else {},
+                                                           title=f"{_oc} Outs (n={len(_dfo_b)})"), width="stretch", key=f"b_oc_{_oc}")
+
+                # ── zone by base state ────────────────────────────────────────────────
+                st.subheader("Swing Zone by Base State")
+                _col_e_b, _col_r_b = st.columns(2)
+                for _col, (_lbl, _obc_vals) in zip([_col_e_b, _col_r_b], [
+                    ("Empty", ["000"]),
+                    ("Runner(s) On", ["001","010","100","011","101","110","111"]),
+                ]):
+                    _df_obc_b = df_b[df_b["obc"].isin(_obc_vals)]
+                    with _col:
+                        st.plotly_chart(utils.zone_heatmap(_df_obc_b["swing_zone"].value_counts().to_dict() if not _df_obc_b.empty else {},
+                                                           title=f"{_lbl} (n={len(_df_obc_b)})"), width="stretch", key=f"b_obc_{_lbl}")
+
+                # ── swing delta distributions ─────────────────────────────────────────
+                st.subheader("Swing Delta Distributions")
+                st.caption("Left: last swing of one inning → first of next. Middle: last swing of one game → first of next. Right: consecutive at-bats within the same game.")
+                _inn_deltas_b  = utils.between_inning_deltas(df_b, value_col="swing")
+                _game_deltas_b = utils.between_game_deltas(df_b, value_col="swing")
+                _b_delta_signed = st.toggle("Signed", value=True, key="b_delta_signed",
+                                            help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
+                _bd_c1_b, _bd_c2_b = st.columns(2)
+                with _bd_c1_b:
+                    if not _inn_deltas_b.empty:
+                        st.plotly_chart(
+                            utils.delta_histogram(_inn_deltas_b, title="Between-Inning", signed=_b_delta_signed),
+                            width="stretch", config={"displayModeBar": False}, key="b_inn_delta",
+                        )
+                    else:
+                        st.caption("Not enough between-inning data.")
+                with _bd_c2_b:
+                    if not _game_deltas_b.empty:
+                        st.plotly_chart(
+                            utils.delta_histogram(_game_deltas_b, title="Between-Game", signed=_b_delta_signed),
+                            width="stretch", config={"displayModeBar": False}, key="b_game_delta",
+                        )
+                    else:
+                        st.caption("Not enough between-game data.")
+                if not _deltas_b.empty:
                     st.plotly_chart(
-                        utils.delta_histogram(_game_deltas_b, title="Between-Game", signed=_b_delta_signed),
-                        width="stretch", config={"displayModeBar": False}, key="b_game_delta",
+                        utils.delta_histogram(_deltas_b, title="Previous AB", signed=_b_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="b_delta",
                     )
+                    _dc1b, _dc2b, _dc3b = st.columns(3)
+                    _dc1b.metric("Avg Δ", f"{_deltas_b.mean():+.1f}")
+                    _dc2b.metric("Avg |Δ|", f"{_deltas_b.abs().mean():.1f}")
+                    _dc3b.metric("n", len(_deltas_b))
                 else:
-                    st.caption("Not enough between-game data.")
-            if not _deltas_b.empty:
-                st.plotly_chart(
-                    utils.delta_histogram(_deltas_b, title="Previous AB", signed=_b_delta_signed),
-                    width="stretch", config={"displayModeBar": False}, key="b_delta",
-                )
-                _dc1b, _dc2b, _dc3b = st.columns(3)
-                _dc1b.metric("Avg Δ", f"{_deltas_b.mean():+.1f}")
-                _dc2b.metric("Avg |Δ|", f"{_deltas_b.abs().mean():.1f}")
-                _dc3b.metric("n", len(_deltas_b))
-            else:
-                st.caption("Need at least 2 at-bats from the same batter.")
-
-            # ── zone by out count ─────────────────────────────────────────────────
-            st.subheader("Swing Zone by Out Count")
-            _cols_b = st.columns(3)
-            for _i, _oc in enumerate([0, 1, 2]):
-                _dfo_b = df_b[df_b["outs"] == _oc]
-                with _cols_b[_i]:
-                    st.plotly_chart(utils.zone_heatmap(_dfo_b["swing_zone"].value_counts().to_dict() if not _dfo_b.empty else {},
-                                                       title=f"{_oc} Outs (n={len(_dfo_b)})"), width="stretch", key=f"b_oc_{_oc}")
-
-            # ── zone by base state ────────────────────────────────────────────────
-            st.subheader("Swing Zone by Base State")
-            _col_e_b, _col_r_b = st.columns(2)
-            for _col, (_lbl, _obc_vals) in zip([_col_e_b, _col_r_b], [
-                ("Empty", ["000"]),
-                ("Runner(s) On", ["001","010","100","011","101","110","111"]),
-            ]):
-                _df_obc_b = df_b[df_b["obc"].isin(_obc_vals)]
-                with _col:
-                    st.plotly_chart(utils.zone_heatmap(_df_obc_b["swing_zone"].value_counts().to_dict() if not _df_obc_b.empty else {},
-                                                       title=f"{_lbl} (n={len(_df_obc_b)})"), width="stretch", key=f"b_obc_{_lbl}")
-
-            # ── zone by result ────────────────────────────────────────────────────
-            st.subheader("Swing Zone by Result")
-            _cols_res = st.columns(3)
-            for _col, (_lbl, _cats) in zip(_cols_res, [("XBH",["XBH"]),("BB/1B",["BB/1B"]),("OUT",["OUT"])]):
-                _df_res = df_b[df_b["res_category"].isin(_cats)]
-                with _col:
-                    st.plotly_chart(utils.zone_heatmap(_df_res["swing_zone"].value_counts().to_dict() if not _df_res.empty else {},
-                                                       title=f"{_lbl} (n={len(_df_res)})"), width="stretch", key=f"b_res_{_lbl}")
+                    st.caption("Need at least 2 at-bats from the same batter.")
+            _zone_delta_section_b(df_b, _deltas_b)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
@@ -2607,7 +2635,7 @@ with tab_g:
         )
         st.subheader(_score_md)
 
-        _game_plays = _load_game_plays(_sel_gid)
+        _game_plays = _load_game_plays(_sel_gid, st.session_state.get("_data_v", 0))
 
         if not _game_plays:
             st.info("No plays found for this game - sync plays first.")

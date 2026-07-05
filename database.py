@@ -9,7 +9,7 @@ import os
 import streamlit as st
 from supabase import create_client, Client
 
-_CHUNK = 500  # max rows per bulk upsert call
+_CHUNK = 1000  # PostgREST's default page cap; matches it to halve round-trips
 
 
 @st.cache_resource
@@ -165,7 +165,6 @@ def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> 
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
-@st.cache_data(ttl=300)
 def get_plays_for_team_offense(team_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
@@ -177,6 +176,20 @@ def get_plays_for_team_offense(team_name: str, leagues: list[str] | None = None)
         q = q.in_("league", leagues)
     raw = _fetch_all(q)
     return [p for p in raw if p.get("game_type") != "scrimmage"]
+
+
+def get_max_play_num(league: str) -> int:
+    """Return the highest play_num stored for a league (0 if none). Drives incremental sync."""
+    rows = (
+        _client().table("plays")
+        .select("play_num")
+        .eq("league", league)
+        .order("play_num", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0]["play_num"] if rows and rows[0].get("play_num") is not None else 0
 
 
 def bulk_upsert_plays(plays: list[dict]) -> int:

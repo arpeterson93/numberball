@@ -7,3 +7,6 @@ toolbarMode = "viewer"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+enableStaticServing = true
