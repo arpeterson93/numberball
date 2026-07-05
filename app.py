@@ -80,7 +80,9 @@ components.html(
         for (var k in attrs) el.setAttribute(k, attrs[k]);
         head.appendChild(el);
     }
-    add('link', {id: 'nb-pwa', rel: 'apple-touch-icon', href: 'app/static/apple-touch-icon.png'});
+    var ICON = 'https://raw.githubusercontent.com/arpeterson93/numberball/main/static/apple-touch-icon.png';
+    add('link', {id: 'nb-pwa', rel: 'apple-touch-icon', sizes: '180x180', href: ICON});
+    add('link', {rel: 'apple-touch-icon-precomposed', href: ICON});
     add('meta', {name: 'apple-mobile-web-app-capable', content: 'yes'});
     add('meta', {name: 'mobile-web-app-capable', content: 'yes'});
     add('meta', {name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent'});
