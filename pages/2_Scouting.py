@@ -48,7 +48,7 @@ def _qs_mln_games() -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
-def _qs_mln_plays(full: bool = False) -> tuple[int, list[str]]:
+def _qs_mln_plays() -> tuple[int, list[str]]:
     from concurrent.futures import ThreadPoolExecutor
     # These five reads are independent - fetch them concurrently instead of serially.
     with ThreadPoolExecutor(max_workers=5) as ex:
@@ -61,10 +61,10 @@ def _qs_mln_plays(full: bool = False) -> tuple[int, list[str]]:
     all_games   = f_games.result()
     mln_teams   = f_teams.result()
     mln_players = f_players.result()
-    # Incremental sync: only upsert plays past what's already stored. full=True
-    # (Full Resync) sets the floor to 0 so every play is re-upserted - use that
-    # after correcting an already-synced play.
-    max_pn      = 0 if full else f_max_pn.result()
+    # Incremental sync: only upsert plays past what's already stored. A full
+    # re-upsert (for corrections to already-synced plays) is done from the MLN
+    # buttons on the Sync Data tab, which upsert every play.
+    max_pn      = f_max_pn.result()
 
     if not plays:
         return 0, ["No plays found in the MLN Plays (Raw) tab."]
@@ -166,8 +166,7 @@ def _qs_mln_plays(full: bool = False) -> tuple[int, list[str]]:
     if not rows:
         return 0, diag + errors
     # Trackers (outs, first-pitch flags) were computed over every play above; now
-    # keep only the plays we actually need to write. Incremental keeps new plays;
-    # Full Resync (max_pn=0) keeps them all.
+    # keep only the new plays for writing (play_num past the stored max).
     rows = [r for r in rows if r["play_num"] > max_pn]
     if not rows:
         return 0, diag + errors
@@ -183,13 +182,11 @@ def _qs_mln_plays(full: bool = False) -> tuple[int, list[str]]:
 _ua = st.context.headers.get("user-agent", "").lower()
 _is_mobile = any(k in _ua for k in ("mobile", "android", "iphone", "ipad", "silk"))
 
-def _run_mln_sync(full: bool) -> None:
-    label = "Full resync of MLN Games then Plays..." if full else "Syncing MLN Games then Plays..."
-    with st.spinner(label):
+def _run_mln_sync() -> None:
+    with st.spinner("Syncing MLN Games then Plays..."):
         _qs_gn, _qs_gerrs = _qs_mln_games()
-        _qs_pn, _qs_perrs = _qs_mln_plays(full=full)
-    _tag = " (full)" if full else ""
-    st.session_state["_sync_msg"] = f"MLN{_tag} - Games: {_qs_gn} · Plays: {_qs_pn}"
+        _qs_pn, _qs_perrs = _qs_mln_plays()
+    st.session_state["_sync_msg"] = f"MLN - Games: {_qs_gn} · Plays: {_qs_pn}"
     _qs_all_errs = _qs_gerrs + _qs_perrs
     if _qs_all_errs:
         st.session_state["_sync_errors"] = _qs_all_errs
@@ -206,14 +203,12 @@ _title_col, _qs_btn_col = st.columns([5, 1], vertical_alignment="bottom")
 with _title_col:
     st.title("Scouting")
 with _qs_btn_col:
-    _do_sync = st.button("Sync MLN", key="qs_mln_all", use_container_width=True)
-    _do_full = st.button(
-        "Full Resync", key="qs_mln_full", use_container_width=True,
-        help="Re-upserts every play. Use after correcting an already-synced play; "
-             "the regular Sync only adds new plays.",
-    )
-if _do_sync or _do_full:
-    _run_mln_sync(full=_do_full)
+    if st.button(
+        "Sync MLN", key="qs_mln_all", use_container_width=True,
+        help="Adds new MLN plays. For a full re-upsert (e.g. after correcting an "
+             "already-synced play), use the MLN buttons on the Sync Data tab.",
+    ):
+        _run_mln_sync()
 
 # Seed radio state once from DB-backed preference so index never fights the widget
 if "scouting_view_radio" not in st.session_state:
