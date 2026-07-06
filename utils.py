@@ -2377,6 +2377,12 @@ def hint_bars_figure(
             b = int(30 - 0 * abs(t))
         return f"rgba({r},{g},{b},0.85)"
 
+    # Scouting-recency stoplight dots, collected per row and drawn as one marker
+    # trace after the loop. Sit in the left gutter, just right of the row label.
+    _STOP_COLORS = {"green": "#2e7d32", "yellow": "#f9a825", "red": "#c62828"}
+    _STOP_DOT_X  = -105
+    _stop_dot_y, _stop_dot_c = [], []
+
     for idx, h in enumerate(hints):
         y   = n - idx - 1
         y0  = y - _bar_half
@@ -2465,6 +2471,12 @@ def hint_bars_figure(
         signal   = h.get("Signal", "")
         strength = h.get("Strength", "")
 
+        # Scouting-recency stoplight: collect a colored dot for the left gutter.
+        _stop_color = _STOP_COLORS.get(h.get("_stoplight"))
+        if _stop_color:
+            _stop_dot_y.append(y)
+            _stop_dot_c.append(_stop_color)
+
         if mobile:
             fig.add_annotation(
                 x=3, y=y1,
@@ -2491,6 +2503,15 @@ def hint_bars_figure(
                     font=dict(size=10, color="rgba(255,255,255,0.92)"),
                     bgcolor="rgba(0,0,0,0)",
                 )
+
+    if _stop_dot_y:
+        fig.add_trace(go.Scatter(
+            x=[_STOP_DOT_X] * len(_stop_dot_y), y=_stop_dot_y,
+            mode="markers",
+            marker=dict(size=11 if mobile else 14, color=_stop_dot_c,
+                        line=dict(color="rgba(255,255,255,0.55)", width=1)),
+            showlegend=False, hoverinfo="skip", cliponaxis=False,
+        ))
 
     # Reference lines and labels in three rows above the 1-1000 tick labels:
     #   Row 1 (16 px above plot): prior_val  - most-recent pitch/swing (yellow)
@@ -2561,7 +2582,7 @@ def hint_bars_figure(
 
     fig.update_layout(
         xaxis=dict(
-            range=[-70, 1070],
+            range=[-120, 1070],
             side="top",
             tickmode="array",
             tickvals=[1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
@@ -3060,6 +3081,347 @@ def delta_next_zone_dist(
     bkt_ids = ((next_pitches.astype(int) - 1) // zone_bucket_size).clip(0, n_bkts - 1)
     c = bkt_ids.value_counts()
     return [int(c.get(i, 0)) for i in range(n_bkts)]
+
+
+# ── Scouting-recency stoplight (anti-scouting indicator) ─────────────────────
+# Per Swing Suggestions indication, measure whether a player's recent pitches
+# confirm or defy what their inception-to-date distributions would have
+# predicted. Each recent pitch is binned by its score = surprisal - entropy, and
+# the stoplight shows the predominant class over the window (vote, not mean, so a
+# lone rare-bucket spike can't hijack the read).
+# Per-pitch cutoffs: score <= confirm_max -> scouting (hit a likely bucket),
+# score >= anti_min -> anti (hit a rare one), otherwise neutral. Asymmetric on
+# purpose (score is right-skewed). Tunable with the inspector, not inline.
+# Set neutral-favored (not balanced thirds): a no-lean window should land on a
+# clear neutral plurality on its own, so green/red only fire on a real lean.
+# Values are asymmetric because score is right-skewed. Tunable with the inspector.
+SCOUT_PP_THRESHOLDS = {"confirm_max": -0.15, "anti_min": +0.20}
+MIN_SCORED = 3  # need this many career eligible events before showing any light
+
+
+def _surprisal_from_probs(p: "np.ndarray", observed: int) -> float:
+    """score = surprisal(observed) - entropy(p). Positive = anti-scouting.
+
+    Worked example (large-n / alpha-negligible limit): p = [0.1, 0.2, 0.2, 0.2,
+    0.3], observed = 0 (the 10% bucket) -> H = 1.557, s = 2.303, score = +0.746.
+    """
+    H = float(-np.sum(p * np.log(p)))
+    s = float(-np.log(p[observed]))
+    return s - H
+
+
+def _surprisal_walk(context_keys, outcome_buckets, k, alpha=1.0):
+    """Walk pitches chronologically, scoring each against its context's ITD
+    distribution using ONLY prior pitches (point-in-time), then updating counts.
+
+    Add-alpha smoothing (alpha=1) is mandatory: raw counts give p_observed = 0
+    and infinite surprisal. A never-seen context is the uniform distribution, so
+    its score is exactly 0 - there was no prediction to confirm or defy. Emits
+    one score (or None for undefined context/outcome) per input row.
+    """
+    counts: dict = {}
+    out: list = []
+    for ctx, ob in zip(context_keys, outcome_buckets):
+        if ctx is None or ob is None:
+            out.append(None)
+            continue
+        arr = counts.get(ctx)
+        if arr is None:
+            arr = np.zeros(k, dtype=float)
+            counts[ctx] = arr
+        total = float(arr.sum())
+        if total == 0.0:
+            # Never-seen context is exactly the uniform distribution: no prior
+            # prediction existed, so the score is exactly 0 (avoid FP noise).
+            out.append(0.0)
+        else:
+            p = (arr + alpha) / (total + alpha * k)
+            out.append(_surprisal_from_probs(p, int(ob)))
+        arr[int(ob)] += 1.0
+    return out
+
+
+_STATE_BY_CLASS = {"scouting": "green", "neutral": "yellow", "anti": "red"}
+
+
+def _classify_pp(score: float) -> str:
+    """Bin one per-pitch score into scouting / neutral / anti."""
+    if score <= SCOUT_PP_THRESHOLDS["confirm_max"]:
+        return "scouting"
+    if score >= SCOUT_PP_THRESHOLDS["anti_min"]:
+        return "anti"
+    return "neutral"
+
+
+def _predominant_state(votes: dict):
+    """Stoplight = the plurality per-pitch class over the window; an exact tie for
+    the top reads yellow. Neutral is a first-class vote, so a no-lean window lands
+    on it naturally (the thresholds are set neutral-favored). Empty -> None."""
+    total = votes["scouting"] + votes["neutral"] + votes["anti"]
+    if total == 0:
+        return None
+    top = max(votes.values())
+    winners = [c for c, v in votes.items() if v == top]
+    if len(winners) != 1:
+        return "yellow"
+    return _STATE_BY_CLASS[winners[0]]
+
+
+def _aggregate_recency(scores: list, window_n: int) -> dict:
+    """Vote the last window_n eligible (non-None) scores into scouting/neutral/
+    anti and take the predominant class. Gated on MIN_SCORED total eligible
+    events across the player's whole history. avg is kept only as a cross-check."""
+    eligible = [s for s in scores if s is not None]
+    n_scored = len(eligible)
+    _empty = {"scouting": 0, "neutral": 0, "anti": 0}
+    if n_scored < MIN_SCORED:
+        return {"avg": None, "n_scored": n_scored, "state": None, "votes": _empty}
+    window = eligible[-window_n:] if window_n and window_n > 0 else eligible
+    votes = {"scouting": 0, "neutral": 0, "anti": 0}
+    for s in window:
+        votes[_classify_pp(s)] += 1
+    return {"avg": float(np.mean(window)), "n_scored": n_scored,
+            "state": _predominant_state(votes), "votes": votes}
+
+
+def _int_or_none(x):
+    """Cast a scalar (possibly NaN) to int, or None when undefined."""
+    if x is None:
+        return None
+    try:
+        if isinstance(x, float) and np.isnan(x):
+            return None
+    except TypeError:
+        return None
+    return int(x)
+
+
+def _recency_frame(df: pd.DataFrame, value_col: str):
+    """Chronological one-row-per-pitch frame for a single player, or None."""
+    if df is None or df.empty or value_col not in df.columns:
+        return None
+    sw = df[df[value_col].notna()].sort_values(["game_id", "id"]).reset_index(drop=True)
+    return sw if len(sw) else None
+
+
+def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int) -> dict:
+    """Build {signal: (context_keys, outcome_buckets, k)} for one player frame.
+
+    Shared by the aggregate stoplight and the per-pitch inspector so the two can
+    never drift. Fixed-bucket conditioning only (ignores the Centered toggle).
+    """
+    n = len(sw)
+    hz_n = max(1, 1000 // hz_bkt)
+    dd_n = max(1, 500 // dd_bkt)
+
+    vals = sw[value_col].astype(int).to_numpy()
+    game = sw["game_id"].to_numpy()
+    same1 = np.zeros(n, dtype=bool)
+    if n > 1:
+        same1[1:] = game[1:] == game[:-1]
+    same2 = np.zeros(n, dtype=bool)
+    if n > 2:
+        same2[2:] = (game[2:] == game[1:-1]) & (game[1:-1] == game[:-2])
+
+    # Zone bucket (hz_bkt-wide) - outcome for the pitch-sequence indications,
+    # mirroring seq2_hint / seq3_hint.
+    zone_bkt = np.clip((vals - 1) // hz_bkt, 0, hz_n - 1).astype(int)
+    # 9-cell ZONES grid (111-unit; final cell 889-1000) - outcome for the
+    # context-zone indications, mirroring best_zone_hint's displayed rows.
+    zone9 = np.clip((vals - 1) // 111, 0, 8).astype(int)
+
+    # |Delta| into each pitch (per game; NaN at each game's first pitch), then
+    # bucketed two ways: variable dd_bkt bins and fixed 100-unit bins.
+    delta_abs = np.full(n, np.nan)
+    if n > 1:
+        raw = vals[1:].astype(float) - vals[:-1].astype(float)
+        raw = np.where(raw > 500, raw - 1000, raw)
+        raw = np.where(raw < -500, raw + 1000, raw)
+        delta_abs[1:] = np.where(same1[1:], np.abs(raw), np.nan)
+    delta_bkt = pd.cut(pd.Series(delta_abs), bins=list(range(0, 501, dd_bkt)),
+                       labels=False, right=True, include_lowest=True).to_numpy()
+    delta100 = pd.cut(pd.Series(delta_abs), bins=_DELTA_HM_BINS,
+                      labels=False, right=True, include_lowest=True).to_numpy()
+
+    # Prior |diff| bucket - context for the diff -> Delta indication.
+    diff_abs = sw["diff"].abs().to_numpy() if "diff" in sw.columns else np.full(n, np.nan)
+    diff_bkt = pd.cut(pd.Series(diff_abs), bins=_DIFF_HM_BINS,
+                      labels=False, right=True, include_lowest=True).to_numpy()
+
+    outs = sw["outs"].to_numpy() if "outs" in sw.columns else np.full(n, np.nan)
+    obc = sw["obc"].to_numpy() if "obc" in sw.columns else np.array([None] * n, dtype=object)
+    fp_app = sw["is_fp_app"].to_numpy() if "is_fp_app" in sw.columns else np.zeros(n, dtype=bool)
+    fp_inn = sw["is_fp_inn"].to_numpy() if "is_fp_inn" in sw.columns else np.zeros(n, dtype=bool)
+
+    zb = [int(z) for z in zone_bkt]
+    zb9 = [int(z) for z in zone9]
+    db = [_int_or_none(delta_bkt[i]) for i in range(n)]
+    d100 = [_int_or_none(delta100[i]) for i in range(n)]
+    fb = [_int_or_none(diff_bkt[i]) for i in range(n)]
+
+    ind: dict = {}
+    # 2-pitch seq: prev zone bucket (same game) -> zone bucket.
+    ind["2-pitch seq"] = (
+        [zb[i - 1] if (i >= 1 and same1[i]) else None for i in range(n)], zb, hz_n)
+    # 3-pitch seq: (zone t-2, t-1), same game -> zone bucket.
+    ind["3-pitch seq"] = (
+        [(zb[i - 2], zb[i - 1]) if (i >= 2 and same2[i]) else None for i in range(n)], zb, hz_n)
+    # 2-Delta seq: prior |Delta| bucket -> |Delta| bucket.
+    ind["2-Δ seq"] = (
+        [db[i - 1] if i >= 1 else None for i in range(n)], db, dd_n)
+    # 3-Delta seq: (|Delta| t-2, t-1) -> |Delta| bucket.
+    ind["3-Δ seq"] = (
+        [(db[i - 2], db[i - 1]) if (i >= 2 and db[i - 2] is not None and db[i - 1] is not None) else None
+         for i in range(n)], db, dd_n)
+    # Prior diff -> Delta: prior |diff| bucket -> |Delta| in fixed 100-unit bins.
+    ind["Prior diff → Δ"] = (
+        [fb[i - 1] if i >= 1 else None for i in range(n)], d100, len(_DELTA_HM_BINS) - 1)
+    # The context-zone indications below use the 9-cell ZONES grid (zb9) as the
+    # outcome, matching their displayed best_zone_hint rows.
+    # Outs: outs value -> zone9 (no sequence, so no game guard).
+    ind["Outs"] = (
+        [_int_or_none(outs[i]) for i in range(n)], zb9, 9)
+    # Base state: empty vs runners-on -> zone9.
+    ind["Base state"] = (
+        [None if (obc[i] is None or (isinstance(obc[i], float) and np.isnan(obc[i])))
+         else ("empty" if str(obc[i]) == "000" else "runners") for i in range(n)], zb9, 9)
+    # First pitch of appearance / inning: constant context over eligible rows.
+    ind["1st pitch appearance"] = (
+        ["fpa" if bool(fp_app[i]) else None for i in range(n)], zb9, 9)
+    ind["1st pitch inning"] = (
+        ["fpi" if bool(fp_inn[i]) else None for i in range(n)], zb9, 9)
+    return ind
+
+
+def scouting_recency_states(
+    df: pd.DataFrame, value_col: str, window_n: int, hz_bkt: int, dd_bkt: int,
+) -> dict:
+    """Per-indication scouting-recency stoplight for one player.
+
+    Wired for the pitcher side first; kept value_col-agnostic (pitch vs swing)
+    so the batter side is a follow-up, not a rewrite. Returns
+    {signal: {"avg": float|None, "n_scored": int, "state": "red"|"yellow"|"green"|None}}
+    for the nine covered indications. Uses fixed-bucket conditioning only - it
+    deliberately ignores the page's Centered toggle, measuring general
+    predictability rather than the exact displayed tooltip.
+    """
+    sw = _recency_frame(df, value_col)
+    if sw is None:
+        return {}
+    ind = _recency_indications(sw, value_col, hz_bkt, dd_bkt)
+    return {sig: _aggregate_recency(_surprisal_walk(ctx, out, k), window_n)
+            for sig, (ctx, out, k) in ind.items()}
+
+
+def _surprisal_walk_detail(context_keys, outcome_buckets, k, alpha=1.0):
+    """Like _surprisal_walk but emits the per-pitch calc (or None) for the
+    inspector: {ctx, obs, p_obs, H, s, score}. Same point-in-time discipline."""
+    counts: dict = {}
+    out: list = []
+    for ctx, ob in zip(context_keys, outcome_buckets):
+        if ctx is None or ob is None:
+            out.append(None)
+            continue
+        arr = counts.get(ctx)
+        if arr is None:
+            arr = np.zeros(k, dtype=float)
+            counts[ctx] = arr
+        total = float(arr.sum())
+        if total == 0.0:
+            p = np.full(k, 1.0 / k)
+            score = 0.0
+        else:
+            p = (arr + alpha) / (total + alpha * k)
+            score = _surprisal_from_probs(p, int(ob))
+        out.append({
+            "ctx": ctx, "obs": int(ob),
+            "p_obs": float(p[int(ob)]),
+            "H": float(-np.sum(p * np.log(p))),
+            "s": float(-np.log(p[int(ob)])),
+            "score": score,
+        })
+        arr[int(ob)] += 1.0
+    return out
+
+
+def scouting_recency_detail(
+    df: pd.DataFrame, value_col: str, signal: str, window_n: int, hz_bkt: int, dd_bkt: int,
+) -> dict:
+    """Per-pitch surprisal trace for one indication (inspector view).
+
+    Returns {rows, scores, n_scored, avg, state, window_n, k} where each row
+    carries game_id/id plus the {ctx, obs, p_obs, H, s, score, in_window} calc.
+    """
+    empty = {"rows": [], "scores": [], "n_scored": 0, "avg": None,
+             "state": None, "window_n": window_n, "k": 0}
+    sw = _recency_frame(df, value_col)
+    if sw is None:
+        return empty
+    ind = _recency_indications(sw, value_col, hz_bkt, dd_bkt)
+    if signal not in ind:
+        return empty
+    ctx, out, k = ind[signal]
+    detail = _surprisal_walk_detail(ctx, out, k)
+    game = sw["game_id"].tolist()
+    pid = sw["id"].tolist()
+    rows = []
+    for i, d in enumerate(detail):
+        if d is None:
+            continue
+        rows.append({"game_id": game[i], "id": pid[i], **d})
+    scores = [r["score"] for r in rows]
+    n_scored = len(scores)
+    lo = max(0, n_scored - window_n) if window_n and window_n > 0 else 0
+    for j, r in enumerate(rows):
+        r["in_window"] = j >= lo
+        r["cls"] = _classify_pp(r["score"])
+    agg = _aggregate_recency(scores, window_n)
+    return {"rows": rows, "scores": scores, "n_scored": n_scored,
+            "avg": agg["avg"], "state": agg["state"], "votes": agg["votes"],
+            "window_n": window_n, "k": k}
+
+
+def scouting_score_histogram(scores, avg=None) -> go.Figure:
+    """Histogram of the recent-window per-pitch scores for one indication, with
+    the three per-pitch classification bands shaded (green = confirming, yellow =
+    neutral, red = anti) and the cutoffs drawn. Tuning aid: you set the cutoffs
+    by watching how the window's pitches fall across the bands."""
+    cm = SCOUT_PP_THRESHOLDS["confirm_max"]
+    am = SCOUT_PP_THRESHOLDS["anti_min"]
+    xs = list(scores) if scores else []
+    lo = min(xs + [cm]) - 0.3
+    hi = max(xs + [am]) + 0.3
+    fig = go.Figure()
+    fig.add_vrect(x0=lo, x1=cm, fillcolor="#2e7d32", opacity=0.12, line_width=0)
+    fig.add_vrect(x0=cm, x1=am, fillcolor="#f9a825", opacity=0.10, line_width=0)
+    fig.add_vrect(x0=am, x1=hi, fillcolor="#c62828", opacity=0.12, line_width=0)
+    if scores:
+        # Explicit uniform bins whose width evenly divides the neutral band, so
+        # confirm_max and anti_min fall exactly on bin edges - no bar straddles a
+        # cutoff line. Bin count adapts to the data spread like nbinsx would.
+        dmin, dmax = min(scores), max(scores)
+        gap = am - cm
+        span = max(dmax - dmin, gap)
+        target = max(6, min(30, len(scores) // 2))
+        w = gap / max(1, round(gap * target / span))
+        start = cm - int(np.ceil((cm - dmin) / w)) * w
+        end = am + int(np.ceil((dmax - am) / w)) * w
+        fig.add_trace(go.Histogram(
+            x=scores, xbins=dict(start=start, end=end, size=w),
+            marker=dict(color="rgba(210,210,210,0.85)")))
+    fig.add_vline(x=cm, line=dict(color="#2e7d32", width=2, dash="dash"),
+                  annotation_text=f"confirm {cm:+.2f}", annotation_position="top left")
+    fig.add_vline(x=am, line=dict(color="#c62828", width=2, dash="dash"),
+                  annotation_text=f"anti {am:+.2f}", annotation_position="top right")
+    if avg is not None:
+        fig.add_vline(x=avg, line=dict(color="rgba(255,255,255,0.7)", width=1, dash="dot"),
+                      annotation_text=f"avg {avg:+.2f}", annotation_position="bottom")
+    fig.update_layout(height=240, margin=dict(l=10, r=10, t=28, b=10),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      showlegend=False, bargap=0.05,
+                      xaxis=dict(range=[lo, hi], title="per-pitch score (recent window)"),
+                      yaxis_title="count")
+    return fig
 
 
 def delta3_next_zone_dist(

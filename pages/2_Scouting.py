@@ -250,6 +250,72 @@ def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...], data_v: int
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
+def _load_pitcher_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
+                             window_n: int, hz_bkt: int, dd_bkt: int) -> dict:
+    df = _load_pitcher_plays(pitcher_name, leagues, data_v)
+    return utils.scouting_recency_states(df, "pitch", window_n, hz_bkt, dd_bkt)
+
+@st.cache_data(ttl=3600)
+def _load_pitcher_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
+                                   signal: str, window_n: int, hz_bkt: int, dd_bkt: int) -> dict:
+    df = _load_pitcher_plays(pitcher_name, leagues, data_v)
+    return utils.scouting_recency_detail(df, "pitch", signal, window_n, hz_bkt, dd_bkt)
+
+_STOPLIGHT_ORDER = ["2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "Prior diff → Δ",
+                    "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
+_STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
+
+@st.fragment
+def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, states, order):
+    """Debug/tuning view: per-indication summary, per-pitch calc drill-down, and
+    a score histogram with the per-pitch classification bands shaded. Reruns in
+    isolation so the indication selectbox does not re-execute the whole page."""
+    def _votes_str(_st):
+        _v = _st.get("votes") or {}
+        return f"{_v.get('scouting', 0)}/{_v.get('neutral', 0)}/{_v.get('anti', 0)}"
+    _summary = [{
+        "Signal": _s,
+        "State": _STOPLIGHT_DOT.get(states.get(_s, {}).get("state")),
+        "s/n/a": _votes_str(states.get(_s, {})),
+        "avg": (round(states[_s]["avg"], 3) if states.get(_s, {}).get("avg") is not None else None),
+        "n": states.get(_s, {}).get("n_scored", 0),
+    } for _s in order]
+    st.dataframe(pd.DataFrame(_summary), hide_index=True, use_container_width=True)
+
+    _avail = [s for s in order if states.get(s, {}).get("n_scored", 0) > 0]
+    if not _avail:
+        st.caption("No scored events yet for any indication.")
+        return
+    _sel = st.selectbox("Indication", _avail, key="insp_signal_p")
+    _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel, window_n, hz_bkt, dd_bkt)
+    _rows = _d["rows"]
+    if not _rows:
+        st.caption("No scored pitches for this indication.")
+        return
+
+    if _d["n_scored"] >= utils.MIN_SCORED:
+        _v = _d["votes"]
+        st.caption(
+            f"last {window_n}:  scouting {_v['scouting']} · neutral {_v['neutral']} · anti {_v['anti']}"
+            f"  ->  {(_d['state'] or 'n/a').upper()}   ·   {_d['n_scored']} career events, "
+            f"k={_d['k']}, avg={_d['avg']:+.3f}"
+        )
+    else:
+        st.caption(f"{_d['n_scored']} career events (< {utils.MIN_SCORED} needed for a light)")
+
+    _tbl = [{
+        "Game": _r["game_id"], "pitch#": _r["id"], "ctx": str(_r["ctx"]),
+        "obs": _r["obs"], "p_obs": round(_r["p_obs"], 3), "H": round(_r["H"], 3),
+        "s": round(_r["s"], 3), "score": round(_r["score"], 3), "cls": _r["cls"],
+        "win": "*" if _r["in_window"] else "",
+    } for _r in reversed(_rows)]
+    st.dataframe(pd.DataFrame(_tbl), hide_index=True, use_container_width=True, height=320)
+
+    _win_scores = [_r["score"] for _r in _rows if _r["in_window"]]
+    st.plotly_chart(utils.scouting_score_histogram(_win_scores, _d["avg"]),
+                    use_container_width=True, config={"displayModeBar": False})
+
+@st.cache_data(ttl=3600)
 def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
     raw = db.get_plays_for_batter(batter_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
@@ -1437,6 +1503,36 @@ with tab_p:
             _seq_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
             _hint_rows_p = _obp_rows_p + _seq_rows_p
 
+            # Scouting-recency stoplight: attach a state to each matching row. The
+            # Outs(...) and Base state (...) Signals are dynamic, so map them to
+            # the engine's canonical keys. OBP rows have no stoplight.
+            _stop_states = {}
+            _insp_order = list(_STOPLIGHT_ORDER)
+            if tab_p_pitcher != "All":
+                _stop_states = _load_pitcher_stoplights(
+                    tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt),
+                )
+                _order_seen = []
+                for _r in _hint_rows_p:
+                    _sig = _r["Signal"]
+                    if _sig.startswith("OBP"):
+                        continue
+                    if _sig.startswith("Outs("):
+                        _key = "Outs"
+                    elif _sig.startswith("Base state ("):
+                        _key = "Base state"
+                    else:
+                        _key = _sig
+                    _st = _stop_states.get(_key)
+                    if _st and _st.get("state"):
+                        _r["_stoplight"] = _st["state"]
+                    if _key in _STOPLIGHT_ORDER and _key not in _order_seen:
+                        _order_seen.append(_key)
+                # Inspector follows the Suggestions order (z-score); any indication
+                # not currently displayed is appended in canonical order.
+                _insp_order = _order_seen + [k for k in _STOPLIGHT_ORDER if k not in _order_seen]
+
             if _hint_rows_p:
                 _tc1, _tc2 = st.columns(2)
                 with _tc1:
@@ -1450,20 +1546,30 @@ with tab_p:
                     if _hp_obr_max:
                         _hp_obr_lo = ((_hp_swing_val - _hp_obr_max - 1) % 1000) + 1
                         _hp_obr_hi = ((_hp_swing_val + _hp_obr_max - 1) % 1000) + 1
-                st.plotly_chart(
-                    utils.hint_bars_figure(
-                        _hint_rows_p,
-                        mode="all" if _hint_all_p else "best",
-                        mobile=_is_mobile,
-                        prior_val=_h_prior_pitch,
-                        prior_val2=_h_prior_pitch2,
-                        swing_val=_hp_swing_val,
-                        obr_lo=_hp_obr_lo,
-                        obr_hi=_hp_obr_hi,
-                    ),
-                    use_container_width=True,
-                    config={"displayModeBar": False},
-                )
+                _sugg_tab, _insp_tab = st.tabs(["Suggestions", "Inspector"])
+                with _sugg_tab:
+                    st.plotly_chart(
+                        utils.hint_bars_figure(
+                            _hint_rows_p,
+                            mode="all" if _hint_all_p else "best",
+                            mobile=_is_mobile,
+                            prior_val=_h_prior_pitch,
+                            prior_val2=_h_prior_pitch2,
+                            swing_val=_hp_swing_val,
+                            obr_lo=_hp_obr_lo,
+                            obr_hi=_hp_obr_hi,
+                        ),
+                        use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
+                with _insp_tab:
+                    if tab_p_pitcher == "All" or not _stop_states:
+                        st.caption("Select a specific pitcher to inspect the scouting-recency calc.")
+                    else:
+                        _stoplight_inspector(
+                            tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), _stop_states, _insp_order,
+                        )
             elif not result_ranges or not _h_recent:
                 st.caption("Fetch a matchup and select a pitcher to see suggestions.")
             else:
