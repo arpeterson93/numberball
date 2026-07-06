@@ -239,13 +239,19 @@ def _sync_players(sheet_id: str) -> tuple[int, list[str]]:
         return 0, [str(e)]
 
 
-def _sync_mln_teams(sheet_id: str, season_override: int | None = None) -> tuple[int, list[str]]:
+def _sync_mln_teams(sheet_id: str, season_override: int | None = None,
+                    force_season: bool = False) -> tuple[int, list[str]]:
     teams = utils.read_mln_teams_from_sheet(sheet_id)
     if not teams:
         return 0, ["No teams found in the MLN Teams tab."]
     _season = season_override or _CURRENT_MLN_SEASON
     for t in teams:
-        t.setdefault("season", _season)
+        # force_season (current Export Tables sync) overrides any season carried
+        # in from the sheet; archive syncs keep the sheet's per-season value.
+        if force_season:
+            t["season"] = _season
+        else:
+            t.setdefault("season", _season)
     deduped = list({t["s_team"]: t for t in teams}.values())
     try:
         n = db.bulk_upsert_mln_teams(deduped)
@@ -524,7 +530,7 @@ _mn1, _mn2, _mn3, _mn4, _mn5 = st.columns(5)
 with _mn1:
     if st.button("MLN Teams", key="mln_teams", use_container_width=True):
         with st.spinner("Reading MLN Teams tab…"):
-            n, errs = _sync_mln_teams(_MLN_SHEET_ID)
+            n, errs = _sync_mln_teams(_MLN_SHEET_ID, force_season=True)
         _sync_done(f"{n} MLN team(s) synced.", errs)
 
 with _mn2:
@@ -548,7 +554,7 @@ with _mn4:
 with _mn5:
     if st.button("Sync MLN All", key="mln_sync_all", type="primary", use_container_width=True):
         with st.spinner("Syncing all MLN tables (Teams → Players → Games → Plays)…"):
-            mt_n,  mt_e  = _sync_mln_teams(_MLN_SHEET_ID)
+            mt_n,  mt_e  = _sync_mln_teams(_MLN_SHEET_ID, force_season=True)
             mp_n,  mp_e  = _sync_mln_players(_MLN_SHEET_ID, tab="Players", season=_CURRENT_MLN_SEASON)
             mg_n,  mg_e  = _sync_mln_games(_MLN_SHEET_ID)
             mpl_n, mpl_e = _sync_mln_plays(_MLN_SHEET_ID, tab="Plays (Raw)", season_override=_CURRENT_MLN_SEASON)

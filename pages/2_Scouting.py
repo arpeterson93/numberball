@@ -251,13 +251,14 @@ def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...], data_v: int
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
-                             window_n: int, hz_bkt: int, dd_bkt: int) -> dict:
+                             window_n: int, hz_bkt: int, dd_bkt: int, sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
     return utils.scouting_recency_states(df, "pitch", window_n, hz_bkt, dd_bkt)
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
-                                   signal: str, window_n: int, hz_bkt: int, dd_bkt: int) -> dict:
+                                   signal: str, window_n: int, hz_bkt: int, dd_bkt: int,
+                                   sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
     return utils.scouting_recency_detail(df, "pitch", signal, window_n, hz_bkt, dd_bkt)
 
@@ -287,29 +288,53 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
         st.caption("No scored events yet for any indication.")
         return
     _sel = st.selectbox("Indication", _avail, key="insp_signal_p")
-    _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel, window_n, hz_bkt, dd_bkt)
+    _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel,
+                                        window_n, hz_bkt, dd_bkt, utils.scouting_cache_sig())
     _rows = _d["rows"]
     if not _rows:
         st.caption("No scored pitches for this indication.")
         return
 
+    _base = 100.0 / _d["k"] if _d["k"] else 0.0
     if _d["n_scored"] >= utils.MIN_SCORED:
         _v = _d["votes"]
         st.caption(
             f"last {window_n}:  scouting {_v['scouting']} · neutral {_v['neutral']} · anti {_v['anti']}"
             f"  ->  {(_d['state'] or 'n/a').upper()}   ·   {_d['n_scored']} career events, "
-            f"k={_d['k']}, avg={_d['avg']:+.3f}"
+            f"random baseline {_base:.0f}% (k={_d['k']})"
         )
     else:
         st.caption(f"{_d['n_scored']} career events (< {utils.MIN_SCORED} needed for a light)")
 
-    _tbl = [{
-        "Game": _r["game_id"], "pitch#": _r["id"], "ctx": str(_r["ctx"]),
-        "obs": _r["obs"], "p_obs": round(_r["p_obs"], 3), "H": round(_r["H"], 3),
-        "s": round(_r["s"], 3), "score": round(_r["score"], 3), "cls": _r["cls"],
-        "win": "*" if _r["in_window"] else "",
-    } for _r in reversed(_rows)]
-    st.dataframe(pd.DataFrame(_tbl), hide_index=True, use_container_width=True, height=320)
+    _CLS_LABEL = {"scouting": "Scouting", "neutral": "Neutral", "anti": "Anti"}
+    _CLS_BG = {"scouting": "rgba(46,125,50,0.35)", "neutral": "rgba(249,168,37,0.28)",
+               "anti": "rgba(198,40,40,0.35)"}
+    _disp, _meta = [], []
+    for _r in reversed(_rows):
+        _disp.append({
+            "Game": _r.get("game"),
+            "Pitch": _r["pitch_val"],
+            "Swing": _r.get("swing_val"),
+            "Diff": _r.get("diff_val"),
+            "Context": _r["ctx_label"],
+            "Observed": _r["obs_label"],
+            "Prob %": _r["p_obs"] * 100,
+            "Score": _r["score"],
+            "Class": _CLS_LABEL.get(_r["cls"], _r["cls"]),
+        })
+        _meta.append((_r["in_window"], _CLS_BG.get(_r["cls"])))
+    _tdf = pd.DataFrame(_disp)
+
+    def _highlight(_df):
+        _styles = pd.DataFrame("", index=_df.index, columns=_df.columns)
+        for _i, (_inw, _bg) in enumerate(_meta):
+            if _inw and _bg:
+                _styles.iloc[_i, :] = f"background-color: {_bg}"
+        return _styles
+
+    st.dataframe(
+        _tdf.style.apply(_highlight, axis=None).format({"Prob %": "{:.1f}", "Score": "{:.2f}"}),
+        hide_index=True, use_container_width=True, height=320)
 
     _win_scores = [_r["score"] for _r in _rows if _r["in_window"]]
     st.plotly_chart(utils.scouting_score_histogram(_win_scores, _d["avg"]),
@@ -1511,7 +1536,7 @@ with tab_p:
             if tab_p_pitcher != "All":
                 _stop_states = _load_pitcher_stoplights(
                     tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt),
+                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), utils.scouting_cache_sig(),
                 )
                 _order_seen = []
                 for _r in _hint_rows_p:

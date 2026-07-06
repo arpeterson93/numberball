@@ -3083,41 +3083,52 @@ def delta_next_zone_dist(
     return [int(c.get(i, 0)) for i in range(n_bkts)]
 
 
-# ── Scouting-recency stoplight (anti-scouting indicator) ─────────────────────
+# ── Scouting-recency stoplight ───────────────────────────────────────────────
 # Per Swing Suggestions indication, measure whether a player's recent pitches
-# confirm or defy what their inception-to-date distributions would have
-# predicted. Each recent pitch is binned by its score = surprisal - entropy, and
-# the stoplight shows the predominant class over the window (vote, not mean, so a
-# lone rare-bucket spike can't hijack the read).
-# Per-pitch cutoffs: score <= confirm_max -> scouting (hit a likely bucket),
-# score >= anti_min -> anti (hit a rare one), otherwise neutral. Asymmetric on
-# purpose (score is right-skewed). Tunable with the inspector, not inline.
-# Set neutral-favored (not balanced thirds): a no-lean window should land on a
-# clear neutral plurality on its own, so green/red only fire on a real lean.
-# Values are asymmetric because score is right-skewed. Tunable with the inspector.
-SCOUT_PP_THRESHOLDS = {"confirm_max": -0.15, "anti_min": +0.20}
+# follow or defy the tendencies in their inception-to-date book. Each pitch is
+# scored ln(k * p_obs): how much likelier than a random (1/k) bucket the one they
+# hit was, using their ITD distribution for p_obs and uniform as the zero
+# reference. score > 0 = they hit a bucket their book favors (following it),
+# < 0 = a disfavored bucket (defying it), 0 = league-random / no tendency. The
+# stoplight is the predominant per-pitch class over the window (a vote, not a
+# mean, so one extreme pitch can't hijack the read).
+# Symmetric cutoffs: score >= scouting_min -> scouting (green), <= anti_max ->
+# anti (red), else neutral (yellow). A flat-book pitcher has no favored buckets,
+# so every score sits near 0 -> neutral. Tunable with the inspector, not inline.
+SCOUT_PP_THRESHOLDS = {"scouting_min": +0.15, "anti_max": -0.15}
 MIN_SCORED = 3  # need this many career eligible events before showing any light
+SCOUT_SCORING_VERSION = 2  # bump when the per-pitch score formula changes
 
 
-def _surprisal_from_probs(p: "np.ndarray", observed: int) -> float:
-    """score = surprisal(observed) - entropy(p). Positive = anti-scouting.
+def scouting_cache_sig() -> tuple:
+    """Cache-key signature for the page's @st.cache_data stoplight loaders. They
+    call into this module, so st.cache_data can't see score-formula or threshold
+    edits on its own - passing this into their args busts the cache when either
+    changes (so tuning is live)."""
+    return (SCOUT_SCORING_VERSION,
+            SCOUT_PP_THRESHOLDS["scouting_min"], SCOUT_PP_THRESHOLDS["anti_max"])
 
-    Worked example (large-n / alpha-negligible limit): p = [0.1, 0.2, 0.2, 0.2,
-    0.3], observed = 0 (the 10% bucket) -> H = 1.557, s = 2.303, score = +0.746.
+
+def _score_from_probs(p: "np.ndarray", observed: int) -> float:
+    """Uniform-referenced score = ln(k * p_obs). > 0 means they hit a bucket
+    their book favors (likelier than a random 1/k bucket) = following scouting;
+    < 0 means a disfavored bucket = defying it; 0 = league-random.
+
+    Worked example: p = [0.1, 0.2, 0.2, 0.2, 0.3], k = 5. Hitting the 30% bucket
+    -> ln(5*0.3) = ln(1.5) = +0.405 (scouting). Hitting the 10% bucket ->
+    ln(5*0.1) = ln(0.5) = -0.693 (anti). The uniform 20% bucket -> ln(1) = 0.
     """
-    H = float(-np.sum(p * np.log(p)))
-    s = float(-np.log(p[observed]))
-    return s - H
+    return float(np.log(len(p) * p[observed]))
 
 
 def _surprisal_walk(context_keys, outcome_buckets, k, alpha=1.0):
     """Walk pitches chronologically, scoring each against its context's ITD
     distribution using ONLY prior pitches (point-in-time), then updating counts.
 
-    Add-alpha smoothing (alpha=1) is mandatory: raw counts give p_observed = 0
-    and infinite surprisal. A never-seen context is the uniform distribution, so
-    its score is exactly 0 - there was no prediction to confirm or defy. Emits
-    one score (or None for undefined context/outcome) per input row.
+    Add-alpha smoothing (alpha=1) keeps p_obs off 0. A never-seen context is the
+    uniform distribution, so its score is exactly 0 - there is no tendency yet to
+    follow or defy. Emits one score (or None for undefined context/outcome) per
+    input row.
     """
     counts: dict = {}
     out: list = []
@@ -3131,12 +3142,11 @@ def _surprisal_walk(context_keys, outcome_buckets, k, alpha=1.0):
             counts[ctx] = arr
         total = float(arr.sum())
         if total == 0.0:
-            # Never-seen context is exactly the uniform distribution: no prior
-            # prediction existed, so the score is exactly 0 (avoid FP noise).
+            # Never-seen context is exactly uniform: no tendency yet, score 0.
             out.append(0.0)
         else:
             p = (arr + alpha) / (total + alpha * k)
-            out.append(_surprisal_from_probs(p, int(ob)))
+            out.append(_score_from_probs(p, int(ob)))
         arr[int(ob)] += 1.0
     return out
 
@@ -3145,10 +3155,10 @@ _STATE_BY_CLASS = {"scouting": "green", "neutral": "yellow", "anti": "red"}
 
 
 def _classify_pp(score: float) -> str:
-    """Bin one per-pitch score into scouting / neutral / anti."""
-    if score <= SCOUT_PP_THRESHOLDS["confirm_max"]:
+    """Bin one per-pitch score into scouting / neutral / anti (green-positive)."""
+    if score >= SCOUT_PP_THRESHOLDS["scouting_min"]:
         return "scouting"
-    if score >= SCOUT_PP_THRESHOLDS["anti_min"]:
+    if score <= SCOUT_PP_THRESHOLDS["anti_max"]:
         return "anti"
     return "neutral"
 
@@ -3332,7 +3342,7 @@ def _surprisal_walk_detail(context_keys, outcome_buckets, k, alpha=1.0):
             score = 0.0
         else:
             p = (arr + alpha) / (total + alpha * k)
-            score = _surprisal_from_probs(p, int(ob))
+            score = _score_from_probs(p, int(ob))
         out.append({
             "ctx": ctx, "obs": int(ob),
             "p_obs": float(p[int(ob)]),
@@ -3342,6 +3352,51 @@ def _surprisal_walk_detail(context_keys, outcome_buckets, k, alpha=1.0):
         })
         arr[int(ob)] += 1.0
     return out
+
+
+def _recency_labelers(signal: str, hz_bkt: int, dd_bkt: int):
+    """Return (context_fmt, outcome_fmt): functions turning a signal's raw bucket
+    indices into human-readable ranges/values for the inspector table."""
+    def zone(b):
+        b = int(b)
+        return f"{b * hz_bkt + 1}-{min((b + 1) * hz_bkt, 1000)}"
+
+    def zone9(b):
+        return ZONES[int(b)][2]
+
+    def delta(b):
+        b = int(b)
+        return f"{b * dd_bkt}-{(b + 1) * dd_bkt}"
+
+    def delta100(b):
+        b = int(b)
+        return f"{b * 100}-{(b + 1) * 100}"
+
+    def diff(b):
+        return _DIFF_HM_LABELS[int(b)]
+
+    def pair(fmt):
+        return lambda c: f"{fmt(c[0])} → {fmt(c[1])}"
+
+    def outs(c):
+        c = int(c)
+        return f"{c} out" if c == 1 else f"{c} outs"
+
+    def base(c):
+        return "Empty" if c == "empty" else "Runners on"
+
+    table = {
+        "2-pitch seq":          (zone, zone),
+        "3-pitch seq":          (pair(zone), zone),
+        "2-Δ seq":              (delta, delta),
+        "3-Δ seq":              (pair(delta), delta),
+        "Prior diff → Δ":       (diff, delta100),
+        "Outs":                 (outs, zone9),
+        "Base state":           (base, zone9),
+        "1st pitch appearance": (lambda c: "1st of PA", zone9),
+        "1st pitch inning":     (lambda c: "1st of inning", zone9),
+    }
+    return table.get(signal, (str, str))
 
 
 def scouting_recency_detail(
@@ -3362,13 +3417,29 @@ def scouting_recency_detail(
         return empty
     ctx, out, k = ind[signal]
     detail = _surprisal_walk_detail(ctx, out, k)
-    game = sw["game_id"].tolist()
-    pid = sw["id"].tolist()
+    gcode = (sw["game_code"] if "game_code" in sw.columns else sw["game_id"]).tolist()
+    pv = sw[value_col].astype(int).tolist()
+    sv = sw["swing"].tolist() if "swing" in sw.columns else [None] * len(sw)
+    dv = sw["diff"].tolist() if "diff" in sw.columns else [None] * len(sw)
+    ctx_fmt, obs_fmt = _recency_labelers(signal, hz_bkt, dd_bkt)
+
+    def _lbl(fmt, v):
+        try:
+            return fmt(v)
+        except Exception:
+            return str(v)
+
+    def _int_or_na(v):
+        return int(v) if pd.notna(v) else None
+
     rows = []
     for i, d in enumerate(detail):
         if d is None:
             continue
-        rows.append({"game_id": game[i], "id": pid[i], **d})
+        rows.append({"game": gcode[i], "pitch_val": pv[i],
+                     "swing_val": _int_or_na(sv[i]), "diff_val": _int_or_na(dv[i]),
+                     "ctx_label": _lbl(ctx_fmt, d["ctx"]),
+                     "obs_label": _lbl(obs_fmt, d["obs"]), **d})
     scores = [r["score"] for r in rows]
     n_scored = len(scores)
     lo = max(0, n_scored - window_n) if window_n and window_n > 0 else 0
@@ -3383,36 +3454,36 @@ def scouting_recency_detail(
 
 def scouting_score_histogram(scores, avg=None) -> go.Figure:
     """Histogram of the recent-window per-pitch scores for one indication, with
-    the three per-pitch classification bands shaded (green = confirming, yellow =
-    neutral, red = anti) and the cutoffs drawn. Tuning aid: you set the cutoffs
-    by watching how the window's pitches fall across the bands."""
-    cm = SCOUT_PP_THRESHOLDS["confirm_max"]
-    am = SCOUT_PP_THRESHOLDS["anti_min"]
+    the three classification bands shaded (red = anti on the left, yellow =
+    neutral, green = scouting on the right) and the cutoffs drawn. Tuning aid: you
+    set the cutoffs by watching how the window's pitches fall across the bands."""
+    an = SCOUT_PP_THRESHOLDS["anti_max"]      # negative cutoff (red on the left)
+    sc = SCOUT_PP_THRESHOLDS["scouting_min"]  # positive cutoff (green on the right)
     xs = list(scores) if scores else []
-    lo = min(xs + [cm]) - 0.3
-    hi = max(xs + [am]) + 0.3
+    lo = min(xs + [an]) - 0.3
+    hi = max(xs + [sc]) + 0.3
     fig = go.Figure()
-    fig.add_vrect(x0=lo, x1=cm, fillcolor="#2e7d32", opacity=0.12, line_width=0)
-    fig.add_vrect(x0=cm, x1=am, fillcolor="#f9a825", opacity=0.10, line_width=0)
-    fig.add_vrect(x0=am, x1=hi, fillcolor="#c62828", opacity=0.12, line_width=0)
+    fig.add_vrect(x0=lo, x1=an, fillcolor="#c62828", opacity=0.12, line_width=0)
+    fig.add_vrect(x0=an, x1=sc, fillcolor="#f9a825", opacity=0.10, line_width=0)
+    fig.add_vrect(x0=sc, x1=hi, fillcolor="#2e7d32", opacity=0.12, line_width=0)
     if scores:
         # Explicit uniform bins whose width evenly divides the neutral band, so
-        # confirm_max and anti_min fall exactly on bin edges - no bar straddles a
-        # cutoff line. Bin count adapts to the data spread like nbinsx would.
+        # both cutoffs fall exactly on bin edges - no bar straddles a cutoff line.
+        # Bin count adapts to the data spread like nbinsx would.
         dmin, dmax = min(scores), max(scores)
-        gap = am - cm
+        gap = sc - an
         span = max(dmax - dmin, gap)
         target = max(6, min(30, len(scores) // 2))
         w = gap / max(1, round(gap * target / span))
-        start = cm - int(np.ceil((cm - dmin) / w)) * w
-        end = am + int(np.ceil((dmax - am) / w)) * w
+        start = an - int(np.ceil((an - dmin) / w)) * w
+        end = sc + int(np.ceil((dmax - sc) / w)) * w
         fig.add_trace(go.Histogram(
             x=scores, xbins=dict(start=start, end=end, size=w),
             marker=dict(color="rgba(210,210,210,0.85)")))
-    fig.add_vline(x=cm, line=dict(color="#2e7d32", width=2, dash="dash"),
-                  annotation_text=f"confirm {cm:+.2f}", annotation_position="top left")
-    fig.add_vline(x=am, line=dict(color="#c62828", width=2, dash="dash"),
-                  annotation_text=f"anti {am:+.2f}", annotation_position="top right")
+    fig.add_vline(x=an, line=dict(color="#c62828", width=2, dash="dash"),
+                  annotation_text=f"anti {an:+.2f}", annotation_position="top left")
+    fig.add_vline(x=sc, line=dict(color="#2e7d32", width=2, dash="dash"),
+                  annotation_text=f"scouting {sc:+.2f}", annotation_position="top right")
     if avg is not None:
         fig.add_vline(x=avg, line=dict(color="rgba(255,255,255,0.7)", width=1, dash="dot"),
                       annotation_text=f"avg {avg:+.2f}", annotation_position="bottom")
