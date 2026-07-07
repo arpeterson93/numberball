@@ -268,17 +268,21 @@ _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
 @st.fragment
 def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, states, order):
-    """Debug/tuning view: per-indication summary, per-pitch calc drill-down, and
-    a score histogram with the per-pitch classification bands shaded. Reruns in
-    isolation so the indication selectbox does not re-execute the whole page."""
+    """Debug/tuning view: per-indication summary, a per-pitch probability trend
+    line, and the per-pitch drill-down table. Reruns in isolation so the
+    indication selectbox does not re-execute the whole page."""
     def _votes_str(_st):
         _v = _st.get("votes") or {}
-        return f"{_v.get('scouting', 0)}/{_v.get('neutral', 0)}/{_v.get('anti', 0)}"
+        return f"{_v.get('scouting', 0)} / {_v.get('neutral', 0)} / {_v.get('anti', 0)}"
+
+    def _vs_base(_st):
+        _r = _st.get("rel")
+        return f"{(_r - 1) * 100:+.0f}%" if _r is not None else None
     _summary = [{
         "Signal": _s,
         "State": _STOPLIGHT_DOT.get(states.get(_s, {}).get("state")),
-        "s/n/a": _votes_str(states.get(_s, {})),
-        "avg": (round(states[_s]["avg"], 3) if states.get(_s, {}).get("avg") is not None else None),
+        "🟢 🟡 🔴": _votes_str(states.get(_s, {})),
+        "Prob vs base": _vs_base(states.get(_s, {})),
         "n": states.get(_s, {}).get("n_scored", 0),
     } for _s in order]
     st.dataframe(pd.DataFrame(_summary), hide_index=True, use_container_width=True)
@@ -305,6 +309,9 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
         )
     else:
         st.caption(f"{_d['n_scored']} career events (< {utils.MIN_SCORED} needed for a light)")
+
+    st.plotly_chart(utils.scouting_recency_linechart(_d),
+                    use_container_width=True, config={"displayModeBar": False})
 
     _CLS_LABEL = {"scouting": "Scouting", "neutral": "Neutral", "anti": "Anti"}
     _CLS_BG = {"scouting": "rgba(46,125,50,0.35)", "neutral": "rgba(249,168,37,0.28)",
@@ -335,10 +342,6 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
     st.dataframe(
         _tdf.style.apply(_highlight, axis=None).format({"Prob %": "{:.1f}", "Score": "{:.2f}"}),
         hide_index=True, use_container_width=True, height=320)
-
-    _win_scores = [_r["score"] for _r in _rows if _r["in_window"]]
-    st.plotly_chart(utils.scouting_score_histogram(_win_scores, _d["avg"]),
-                    use_container_width=True, config={"displayModeBar": False})
 
 @st.cache_data(ttl=3600)
 def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:

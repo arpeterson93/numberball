@@ -2478,9 +2478,11 @@ def hint_bars_figure(
             _stop_dot_c.append(_stop_color)
 
         if mobile:
+            _zs = h.get("_zscore")
+            _sig_txt = f"<b>{signal}</b>  {_zs:.1f}" if _zs is not None else f"<b>{signal}</b>"
             fig.add_annotation(
                 x=3, y=y1,
-                text=f"<b>{signal}</b>",
+                text=_sig_txt,
                 showarrow=False, xanchor="left", yanchor="bottom",
                 font=dict(size=8, color="rgba(255,255,255,0.9)"),
                 bgcolor="rgba(0,0,0,0)",
@@ -3164,33 +3166,45 @@ def _classify_pp(score: float) -> str:
 
 
 def _predominant_state(votes: dict):
-    """Stoplight = the plurality per-pitch class over the window; an exact tie for
-    the top reads yellow. Neutral is a first-class vote, so a no-lean window lands
-    on it naturally (the thresholds are set neutral-favored). Empty -> None."""
+    """Stoplight = the plurality per-pitch class over the window. A directional
+    class tied with neutral at the top still wins (scouting+neutral -> green,
+    anti+neutral -> red); scouting tied with anti is a conflict -> yellow; neutral
+    alone at the top -> yellow. Empty -> None."""
     total = votes["scouting"] + votes["neutral"] + votes["anti"]
     if total == 0:
         return None
     top = max(votes.values())
-    winners = [c for c, v in votes.items() if v == top]
-    if len(winners) != 1:
-        return "yellow"
-    return _STATE_BY_CLASS[winners[0]]
+    winners = {c for c, v in votes.items() if v == top}
+    has_s, has_a = "scouting" in winners, "anti" in winners
+    if has_s and has_a:
+        return "yellow"   # scouting and anti tied at the top -> conflicting signal
+    if has_s:
+        return "green"    # scouting alone, or tied with neutral
+    if has_a:
+        return "red"      # anti alone, or tied with neutral
+    return "yellow"       # neutral is the sole top
 
 
-def _aggregate_recency(scores: list, window_n: int) -> dict:
+def _aggregate_recency(scores: list, window_n: int, k: int) -> dict:
     """Vote the last window_n eligible (non-None) scores into scouting/neutral/
     anti and take the predominant class. Gated on MIN_SCORED total eligible
-    events across the player's whole history. avg is kept only as a cross-check."""
+    events across the player's whole history. Also returns rel = exp(mean score)
+    = the window's geometric-mean observed-bucket probability relative to the 1/k
+    baseline (rel = 1 is at baseline; consistent with the score-based vote so the
+    number and the light never point opposite ways). avg (mean score) is kept as
+    a cross-check."""
     eligible = [s for s in scores if s is not None]
     n_scored = len(eligible)
     _empty = {"scouting": 0, "neutral": 0, "anti": 0}
     if n_scored < MIN_SCORED:
-        return {"avg": None, "n_scored": n_scored, "state": None, "votes": _empty}
+        return {"avg": None, "rel": None, "n_scored": n_scored, "state": None, "votes": _empty}
     window = eligible[-window_n:] if window_n and window_n > 0 else eligible
     votes = {"scouting": 0, "neutral": 0, "anti": 0}
     for s in window:
         votes[_classify_pp(s)] += 1
-    return {"avg": float(np.mean(window)), "n_scored": n_scored,
+    avg = float(np.mean(window))
+    rel = float(np.exp(avg))  # exp(avg score) = geo-mean(p_obs)/(1/k); 1.0 == baseline
+    return {"avg": avg, "rel": rel, "n_scored": n_scored,
             "state": _predominant_state(votes), "votes": votes}
 
 
@@ -3319,7 +3333,7 @@ def scouting_recency_states(
     if sw is None:
         return {}
     ind = _recency_indications(sw, value_col, hz_bkt, dd_bkt)
-    return {sig: _aggregate_recency(_surprisal_walk(ctx, out, k), window_n)
+    return {sig: _aggregate_recency(_surprisal_walk(ctx, out, k), window_n, k)
             for sig, (ctx, out, k) in ind.items()}
 
 
@@ -3446,10 +3460,10 @@ def scouting_recency_detail(
     for j, r in enumerate(rows):
         r["in_window"] = j >= lo
         r["cls"] = _classify_pp(r["score"])
-    agg = _aggregate_recency(scores, window_n)
+    agg = _aggregate_recency(scores, window_n, k)
     return {"rows": rows, "scores": scores, "n_scored": n_scored,
-            "avg": agg["avg"], "state": agg["state"], "votes": agg["votes"],
-            "window_n": window_n, "k": k}
+            "avg": agg["avg"], "rel": agg["rel"], "state": agg["state"],
+            "votes": agg["votes"], "window_n": window_n, "k": k}
 
 
 def scouting_score_histogram(scores, avg=None) -> go.Figure:
@@ -3492,6 +3506,69 @@ def scouting_score_histogram(scores, avg=None) -> go.Figure:
                       showlegend=False, bargap=0.05,
                       xaxis=dict(range=[lo, hi], title="per-pitch score (recent window)"),
                       yaxis_title="count")
+    return fig
+
+
+def scouting_recency_linechart(detail: dict) -> go.Figure:
+    """Per-pitch P(observed bucket) over time for one indication - the trend view.
+
+    y = probability the pitcher's book gave the bucket they actually hit; the
+    green/yellow/red bands are the classification cutoffs converted from score to
+    probability (p = exp(cutoff) / k); the dotted line is the random 1/k baseline;
+    the recent voting window is shaded; a moving average traces the trend. x is
+    chronological (older left). Pannable, y locked."""
+    rows = detail.get("rows", [])
+    k = detail.get("k", 0)
+    window_n = detail.get("window_n", 0) or 0
+    layout = dict(height=280, margin=dict(l=10, r=10, t=20, b=28),
+                  paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                  showlegend=False)
+    fig = go.Figure()
+    if not rows or not k:
+        fig.update_layout(**layout)
+        return fig
+
+    n = len(rows)
+    x = list(range(1, n + 1))
+    prob = [r["p_obs"] * 100.0 for r in rows]
+    base = 100.0 / k
+    green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]) / k * 100.0)
+    red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]) / k * 100.0)
+    ymax = max(max(prob), green_lo) * 1.10
+    ymin = max(0.0, min(min(prob), red_hi) * 0.90)
+
+    fig.add_hrect(y0=green_lo, y1=ymax, fillcolor="#2e7d32", opacity=0.10, line_width=0)
+    fig.add_hrect(y0=red_hi, y1=green_lo, fillcolor="#f9a825", opacity=0.09, line_width=0)
+    fig.add_hrect(y0=ymin, y1=red_hi, fillcolor="#c62828", opacity=0.10, line_width=0)
+    fig.add_hline(y=base, line=dict(color="rgba(255,255,255,0.45)", width=1, dash="dot"))
+    if window_n and n:
+        fig.add_vrect(x0=max(0.5, n - window_n + 0.5), x1=n + 0.5,
+                      fillcolor="rgba(255,255,255,0.06)", line_width=0)
+
+    _cls_c = {"scouting": "#2e7d32", "neutral": "#f9a825", "anti": "#c62828"}
+    colors = [_cls_c.get(r["cls"], "#9e9e9e") for r in rows]
+    cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game")] for r in rows]
+    fig.add_trace(go.Scatter(
+        x=x, y=prob, mode="lines+markers",
+        line=dict(color="rgba(200,200,200,0.45)", width=1),
+        marker=dict(size=6, color=colors),
+        customdata=cd,
+        hovertemplate=("pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
+                       "<br>game %{customdata[3]} · P=%{y:.1f}%<extra></extra>"),
+    ))
+    if n >= 3:
+        ma_win = min(n, max(5, window_n // 2)) if window_n else min(n, 10)
+        ma = pd.Series(prob).rolling(ma_win, min_periods=1).mean().tolist()
+        fig.add_trace(go.Scatter(x=x, y=ma, mode="lines", hoverinfo="skip",
+                                 line=dict(color="rgba(255,255,255,0.85)", width=2)))
+
+    view = max(window_n * 2, 40) if window_n else 40
+    fig.update_layout(
+        dragmode="pan",
+        xaxis=dict(range=[max(0.5, n - view + 0.5), n + 0.5], title="pitch (older → newer)"),
+        yaxis=dict(range=[ymin, ymax], title="P(bucket) %", fixedrange=True),
+        **layout,
+    )
     return fig
 
 
