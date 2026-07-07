@@ -1770,6 +1770,14 @@ def fetch_scenario_ranges(sheet_urls: dict[str, str]) -> dict[str, list | None]:
     return results
 
 
+# Fixed 0-indexed layout of the two swing-range tables on the Gameday tab of the
+# stadium/scrimmage sheets (both column-header rows share one row; name at <col>,
+# low/high at +2/+3). Positional so a deleted "Result" label can't break parsing.
+_RANGE_HEADER_ROW = 14   # sheet row 15: Result / Rng / Low / High labels
+_RANGE_NORMAL_COL = 6    # normal-swing name (col G); low = col 8 (I), high = col 9 (J)
+_RANGE_BUNT_COL   = 11   # bunt name (col L);        low = col 13 (N), high = col 14 (O)
+
+
 def parse_result_ranges_from_sheet(sheet_url: str):
     """Fetch and parse result range tables from a public Google Sheet.
 
@@ -1791,33 +1799,36 @@ def parse_result_ranges_from_sheet(sheet_url: str):
         return pd.read_csv(url, header=None, dtype=str)
 
     def _scan_and_parse(df: pd.DataFrame):
-        def _parse_table(start_row, col):
-            low_col, high_col = col + 2, col + 3
+        # The two range tables sit at a fixed position on the Gameday tab (see
+        # _RANGE_* constants). Read them positionally rather than by header text,
+        # so a deleted "Result" label doesn't break parsing. Gate on the
+        # structural Low/High labels to confirm we're on the range tab (and let a
+        # wrong tab, e.g. a scrimmage's live tab, fall through to the fallback).
+        try:
+            _lo = str(df.iloc[_RANGE_HEADER_ROW, _RANGE_NORMAL_COL + 2]).strip().lower()
+            _hi = str(df.iloc[_RANGE_HEADER_ROW, _RANGE_NORMAL_COL + 3]).strip().lower()
+        except Exception:
+            return None, None, None
+        if _lo != "low" or _hi != "high":
+            return None, None, None
+
+        def _table(col):
             out: list[tuple[str, int, int]] = []
-            for i in range(start_row + 1, len(df)):
+            for i in range(_RANGE_HEADER_ROW + 1, len(df)):
+                if col + 3 >= len(df.columns):
+                    break
                 name = str(df.iloc[i, col]).strip()
                 if not name or name.lower() == "nan":
                     break
                 try:
-                    lo = int(float(str(df.iloc[i, low_col]).strip()))
-                    hi = int(float(str(df.iloc[i, high_col]).strip()))
-                    out.append((name, lo, hi))
+                    lo = int(float(str(df.iloc[i, col + 2]).strip()))
+                    hi = int(float(str(df.iloc[i, col + 3]).strip()))
                 except (ValueError, IndexError):
                     break
+                out.append((name, lo, hi))
             return out or None
 
-        headers: list[tuple[int, int]] = []
-        for i in range(len(df)):
-            for j in range(len(df.columns)):
-                if str(df.iloc[i, j]).strip().lower() == "result":
-                    headers.append((i, j))
-
-        if not headers:
-            return None, None, None
-
-        normal = _parse_table(*headers[0])
-        bunt   = _parse_table(*headers[1]) if len(headers) > 1 else None
-        return normal, bunt, headers
+        return _table(_RANGE_NORMAL_COL), _table(_RANGE_BUNT_COL), None
 
     def _cell(df, r, c):
         try:
@@ -3562,7 +3573,7 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
         fig.add_trace(go.Scatter(x=x, y=ma, mode="lines", hoverinfo="skip",
                                  line=dict(color="rgba(255,255,255,0.85)", width=2)))
 
-    view = max(window_n * 2, 40) if window_n else 40
+    view = 20  # initial x-window width (keeps mobile readable); pan left for history
     fig.update_layout(
         dragmode="pan",
         xaxis=dict(range=[max(0.5, n - view + 0.5), n + 0.5], title="pitch (older → newer)"),

@@ -266,11 +266,12 @@ _STOPLIGHT_ORDER = ["2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "Prior
                     "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
 _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
-@st.fragment
 def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, states, order):
     """Debug/tuning view: per-indication summary, a per-pitch probability trend
-    line, and the per-pitch drill-down table. Reruns in isolation so the
-    indication selectbox does not re-execute the whole page."""
+    line, and the per-pitch drill-down table. Not an @st.fragment on purpose - a
+    fragment nested inside st.tabs breaks tab hiding on rerun (dumps every tab's
+    panel into one list); the selectbox triggers a normal rerun, kept cheap by the
+    cached loaders."""
     def _votes_str(_st):
         _v = _st.get("votes") or {}
         return f"{_v.get('scouting', 0)} / {_v.get('neutral', 0)} / {_v.get('anti', 0)}"
