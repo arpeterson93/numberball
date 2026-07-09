@@ -1712,30 +1712,6 @@ def _diff_to_result(diff: int, ranges: list | None = None) -> str:
     return "?"
 
 
-def get_sheet_name(sheet_url: str) -> str:
-    """Return the Google Sheet title for display, falling back to a short ID."""
-    import re, urllib.request
-    match = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
-    if not match:
-        return sheet_url[-40:]
-    sheet_id = match.group(1)
-    try:
-        req = urllib.request.Request(
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}",
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            html = resp.read(8192).decode("utf-8", errors="ignore")
-        m = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE)
-        if m:
-            title = re.sub(r"\s*[-–]\s*Google Sheets$", "", m.group(1)).strip()
-            if title:
-                return title
-    except Exception:
-        pass
-    return f"Sheet {sheet_id[:12]}…"
-
-
 def fetch_scenario_ranges(sheet_urls: dict[str, str]) -> dict[str, list | None]:
     """Fetch result ranges from multiple scenario sheet URLs in parallel.
 

@@ -416,20 +416,6 @@ def _load_pitcher_stats() -> pd.DataFrame:
 def _load_game_plays(game_id: int, data_v: int = 0) -> list[dict]:
     return db.get_plays_for_game(game_id)
 
-@st.cache_data(ttl=3600)
-def _load_sheet_names(urls: tuple[str, ...]) -> dict[str, str]:
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    result: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(utils.get_sheet_name, url): url for url in urls}
-        for future in as_completed(futures):
-            url = futures[future]
-            try:
-                result[url] = future.result()
-            except Exception:
-                result[url] = url
-    return result
-
 # ── selectors (shown before any data load) ───────────────────────────────────
 
 with st.expander("Data Source & League", expanded=False):
@@ -920,16 +906,30 @@ if pred_mode == "Historical / Manual":
     matchup_label = " vs ".join(p for p in [_pn, _bn] if p and p != "-- Manual --")
 
 elif pred_mode == "Fetch Live Matchup":
-    sheet_urls = list(dict.fromkeys(
-        g["sheet_url"] for g in all_games_meta if g.get("sheet_url")
-    ))
-    _sheet_label_map = _load_sheet_names(tuple(sheet_urls)) if sheet_urls else {}
+    # Only games still in progress (no winning pitcher recorded yet) stay in the dropdown.
+    _open_games = [g for g in all_games_meta if g.get("sheet_url") and not g.get("winning_pitcher")]
+    sheet_urls = list(dict.fromkeys(g["sheet_url"] for g in _open_games))
+    _sheet_label_map = {}
+    for _g in _open_games:
+        _url = _g["sheet_url"]
+        if _url in _sheet_label_map:
+            continue
+        _away = _team_name_to_abbrev.get(_g.get("away_team", ""), _g.get("away_team", "?"))
+        _home = _team_name_to_abbrev.get(_g.get("home_team", ""), _g.get("home_team", "?"))
+        _sheet_label_map[_url] = f"{_away} @ {_home}"
+
+    # A restored last-sheet preference (or a prior selection) may point at a
+    # game that has since finished and dropped out of the open-games list -
+    # clear it so the fallback below (or the selectbox itself) can pick a
+    # valid default instead of Streamlit erroring on an out-of-options value.
+    if sheet_urls and st.session_state.get("pred_sheet_sel") not in sheet_urls:
+        st.session_state.pop("pred_sheet_sel", None)
 
     # Auto-select Portland Pioneers sheet on first visit
     if "pred_sheet_sel" not in st.session_state and sheet_urls:
         _pioneer_url = next(
-            (url for url, name in _sheet_label_map.items()
-             if "por - oregon trail dysentary field" in name.lower()),
+            (g["sheet_url"] for g in _open_games
+             if _team_name_to_abbrev.get(g.get("home_team", ""), "") == "POR"),
             sheet_urls[0],
         )
         st.session_state["pred_sheet_sel"] = _pioneer_url
