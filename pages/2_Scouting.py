@@ -246,7 +246,13 @@ st.divider()
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
-    raw = db.get_plays_for_pitcher(pitcher_name, list(leagues) if leagues else None)
+    # Resolve the (most-recent) name to a player_id and pull the human's full
+    # history by id, so a name change doesn't split their plays. Fall back to
+    # name-based lookup if the player has no id yet (unsynced legacy rows).
+    _pid = _player_dir()["name_to_pid"].get(pitcher_name)
+    _lg = list(leagues) if leagues else None
+    raw = (db.get_plays_for_pitcher_id(_pid, _lg) if _pid is not None
+           else db.get_plays_for_pitcher(pitcher_name, _lg))
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -346,7 +352,10 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
 
 @st.cache_data(ttl=3600)
 def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
-    raw = db.get_plays_for_batter(batter_name, list(leagues) if leagues else None)
+    _pid = _player_dir()["name_to_pid"].get(batter_name)
+    _lg = list(leagues) if leagues else None
+    raw = (db.get_plays_for_batter_id(_pid, _lg) if _pid is not None
+           else db.get_plays_for_batter(batter_name, _lg))
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -366,6 +375,28 @@ def _load_scrimmage_plays() -> pd.DataFrame:
 @st.cache_data(ttl=3600)
 def _load_all_players() -> list:
     return db.get_all_players()
+
+@st.cache_data(ttl=3600)
+def _player_dir() -> dict:
+    """Group player rows by player_id (the shared cross-season/-league human id).
+
+    Returns:
+      name_to_pid  - every name a human has used -> their player_id
+      pid_to_name  - player_id -> most-recent name (highest season)
+      pid_to_row   - player_id -> most-recent full row
+    Rows without a player_id (unsynced legacy) are skipped here; callers fall
+    back to name-based lookups for those.
+    """
+    ordered = sorted(_load_all_players(), key=lambda p: p.get("season") or 0)  # ascending
+    name_to_pid, pid_to_name, pid_to_row = {}, {}, {}
+    for p in ordered:
+        pid, nm = p.get("player_id"), p.get("name")
+        if pid is None or not nm:
+            continue
+        name_to_pid[nm] = pid   # later (more recent) season wins for a shared name
+        pid_to_name[pid] = nm   # most-recent name for the human
+        pid_to_row[pid] = p
+    return {"name_to_pid": name_to_pid, "pid_to_name": pid_to_name, "pid_to_row": pid_to_row}
 
 @st.cache_data(ttl=3600)
 def _load_all_teams_data() -> list:
@@ -433,10 +464,17 @@ _all_players      = _load_all_players()
 # Sort by season ascending so later seasons overwrite earlier ones in the name dict
 _players_by_season   = sorted(_all_players, key=lambda p: p.get("season") or 0)
 _pbyn                = {p["name"]: p for p in _players_by_season if p.get("name")}
-_all_player_names    = sorted({p["name"] for p in _all_players if p.get("name")})
+# Group by the shared player_id so a human appears once, under their most-recent
+# name. name_to_pid maps any name (incl. old ones) -> the human's id.
+_dir                 = _player_dir()
+_name_to_pid         = _dir["name_to_pid"]
+_pid_recent_name     = _dir["pid_to_name"]
+_pid_recent_row      = _dir["pid_to_row"]
+_names_no_pid        = {p["name"] for p in _all_players if p.get("name") and not p.get("player_id")}
+_all_player_names    = sorted(set(_pid_recent_name.values()) | _names_no_pid)
 # Season-aware lookups for historical play import
 _p_by_sid = {p["s_id"]: p for p in _all_players if p.get("s_id")}
-_p_by_pid = {str(p["player_id"]): p for p in _all_players if p.get("player_id")}
+_p_by_pid = {str(pid): row for pid, row in _pid_recent_row.items()}
 
 # Build abbrev -> team_name from DB; latest season overwrites earlier for same abbrev
 _teams_by_season     = sorted(_load_all_teams_data(), key=lambda t: t.get("season") or 0)
@@ -473,7 +511,13 @@ def _players_for_team(team_display: str) -> list[str]:
     if team_display == "All":
         return _all_player_names
     abbrev = _team_name_to_abbrev.get(team_display, team_display)
-    return sorted({p["name"] for p in _all_players if p.get("name") and p.get("team") == abbrev})
+    # One most-recent name per human whose current (most-recent) team is abbrev,
+    # plus any legacy players without a player_id on that team.
+    names = {_pid_recent_name[pid] for pid, row in _pid_recent_row.items()
+             if row.get("team") == abbrev}
+    names |= {p["name"] for p in _all_players
+              if p.get("name") and not p.get("player_id") and p.get("team") == abbrev}
+    return sorted(names)
 
 def _stat(p: dict, key: str, default: int = 3) -> int:
     v = p.get(key)
@@ -485,7 +529,7 @@ def _hand(p: dict) -> str:
 
 _hand_opts   = ["R", "L", "S"]
 _runner_opts = ["Empty"] + list(_all_player_names)
-_pid_to_name = {str(p["player_id"]): p["name"] for p in _all_players if p.get("player_id") and p.get("name")}
+_pid_to_name = {str(pid): nm for pid, nm in _pid_recent_name.items()}
 
 # ── session-state defaults ────────────────────────────────────────────────────
 
@@ -1289,6 +1333,7 @@ with tab_p:
             tab_p_pitcher, _pitcher_stats_df,
             recent_vals=_recent_stats if _recent_stats else None,
             recent_n=_recent_n if _recent_stats else None,
+            player_id=_name_to_pid.get(tab_p_pitcher),
         )
         with st.expander("Behavioral Tendencies", expanded=not _simple_mode):
             if _pct_fig is not None:

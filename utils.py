@@ -1770,51 +1770,55 @@ def fetch_scenario_ranges(sheet_urls: dict[str, str]) -> dict[str, list | None]:
     return results
 
 
-# Fixed 0-indexed layout of the two swing-range tables on the Gameday tab of the
-# stadium/scrimmage sheets (both column-header rows share one row; name at <col>,
-# low/high at +2/+3). Positional so a deleted "Result" label can't break parsing.
-_RANGE_HEADER_ROW = 14   # sheet row 15: Result / Rng / Low / High labels
-_RANGE_NORMAL_COL = 6    # normal-swing name (col G); low = col 8 (I), high = col 9 (J)
-_RANGE_BUNT_COL   = 11   # bunt name (col L);        low = col 13 (N), high = col 14 (O)
+_GAMEPLAY_GID = "533199361"
+_GAMEDAY_GID = "1498066521"
+
+# Fixed 0-indexed layout of the two swing-range tables on the Gameplay tab of the
+# stadium/scrimmage sheets. Positional so a deleted "Result" label can't break
+# parsing. Name column; low/high at +2/+3 (one gap column in between).
+_NORMAL_HEADER_ROW  = 15   # sheet row 16: Low / High labels
+_NORMAL_COL         = 18   # normal-swing name (col S); low = col U, high = col V
+_NORMAL_DATA_START  = 16   # sheet row 17
+_NORMAL_DATA_END    = 33   # sheet row 34
+
+_BUNT_HEADER_ROW    = 24   # sheet row 25: Low / High labels
+_BUNT_COL           = 23   # bunt name (col X); low = col Z, high = col AA
+_BUNT_DATA_START    = 25   # sheet row 26
+_BUNT_DATA_END      = 33   # sheet row 34
 
 
 def parse_result_ranges_from_sheet(sheet_url: str):
     """Fetch and parse result range tables from a public Google Sheet.
 
-    Returns (normal_ranges, bunt_ranges, batter_name, pitcher_name).
+    Returns (normal_ranges, bunt_ranges, batter_name, pitcher_name, swing_type, infield_in).
     bunt_ranges is None if no second Result table is found.
-    Tries the gid-based URL first; if no parseable ranges are found, falls
-    back to the 'Gameday' tab by name (scrimmage sheets store ranges there).
+    Range tables live at fixed positions on the Gameplay tab (gid 533199361);
+    player names live on the Gameday tab (gid 1498066521).
     """
     import re
-    import urllib.parse as _uparse
     sheet_id_match = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
-    gid_match = re.search(r"[?&]gid=(\d+)", sheet_url)
     if not sheet_id_match:
         raise ValueError("Could not parse a Google Sheets ID from the URL.")
     sheet_id = sheet_id_match.group(1)
-    gid = gid_match.group(1) if gid_match else "0"
 
-    def _fetch_raw(url: str) -> pd.DataFrame:
+    def _fetch_raw(gid: str) -> pd.DataFrame:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         return pd.read_csv(url, header=None, dtype=str)
 
     def _scan_and_parse(df: pd.DataFrame):
-        # The two range tables sit at a fixed position on the Gameday tab (see
-        # _RANGE_* constants). Read them positionally rather than by header text,
-        # so a deleted "Result" label doesn't break parsing. Gate on the
-        # structural Low/High labels to confirm we're on the range tab (and let a
-        # wrong tab, e.g. a scrimmage's live tab, fall through to the fallback).
+        # Gate on the structural Low/High labels to confirm we're reading the
+        # range tab (and not a stale/renumbered gid).
         try:
-            _lo = str(df.iloc[_RANGE_HEADER_ROW, _RANGE_NORMAL_COL + 2]).strip().lower()
-            _hi = str(df.iloc[_RANGE_HEADER_ROW, _RANGE_NORMAL_COL + 3]).strip().lower()
+            _lo = str(df.iloc[_NORMAL_HEADER_ROW, _NORMAL_COL + 2]).strip().lower()
+            _hi = str(df.iloc[_NORMAL_HEADER_ROW, _NORMAL_COL + 3]).strip().lower()
         except Exception:
-            return None, None, None
+            return None, None
         if _lo != "low" or _hi != "high":
-            return None, None, None
+            return None, None
 
-        def _table(col):
+        def _table(col, start, end):
             out: list[tuple[str, int, int]] = []
-            for i in range(_RANGE_HEADER_ROW + 1, len(df)):
+            for i in range(start, min(end, len(df) - 1) + 1):
                 if col + 3 >= len(df.columns):
                     break
                 name = str(df.iloc[i, col]).strip()
@@ -1828,7 +1832,10 @@ def parse_result_ranges_from_sheet(sheet_url: str):
                 out.append((name, lo, hi))
             return out or None
 
-        return _table(_RANGE_NORMAL_COL), _table(_RANGE_BUNT_COL), None
+        return (
+            _table(_NORMAL_COL, _NORMAL_DATA_START, _NORMAL_DATA_END),
+            _table(_BUNT_COL, _BUNT_DATA_START, _BUNT_DATA_END),
+        )
 
     def _cell(df, r, c):
         try:
@@ -1837,40 +1844,24 @@ def parse_result_ranges_from_sheet(sheet_url: str):
         except Exception:
             return ""
 
-    # First attempt: gid-based URL
-    gid_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    raw = _fetch_raw(gid_url)
-    normal_ranges, bunt_ranges, result_headers = _scan_and_parse(raw)
-
-    # If no parseable ranges, fall back to Gameday tab by its known gid
-    # (same gid used by parse_gameplay_from_sheet; export URL preserves full column width
-    # so _cell row/col offsets match the live-game path)
-    if not normal_ranges:
-        gameday_url = (
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-            f"/export?format=csv&gid=1498066521"
-        )
-        try:
-            raw = _fetch_raw(gameday_url)
-            normal_ranges, bunt_ranges, result_headers = _scan_and_parse(raw)
-        except Exception:
-            pass
+    gp = _fetch_raw(_GAMEPLAY_GID)
+    normal_ranges, bunt_ranges = _scan_and_parse(gp)
 
     if not normal_ranges:
         raise ValueError("Result table found but no rows could be parsed.")
 
-    batter_name  = _cell(raw, 11, 7)
-    pitcher_name = _cell(raw, 10, 7)
+    batter_name = pitcher_name = ""
+    try:
+        raw_gameday = _fetch_raw(_GAMEDAY_GID)
+        batter_name  = _cell(raw_gameday, 11, 7)
+        pitcher_name = _cell(raw_gameday, 10, 7)
+    except Exception:
+        pass
 
-    # Read swing type and Infield In toggle from Gameplay tab (gid 533199361)
+    # Swing type and Infield In toggle also live on the Gameplay tab.
     swing_type = "Normal Swing"
     infield_in = False
     try:
-        gameplay_url = (
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-            f"/export?format=csv&gid=533199361"
-        )
-        gp = _fetch_raw(gameplay_url)
         _st = str(gp.iloc[1, 28]).strip()
         if _st.lower() not in ("nan", ""):
             swing_type = _st
@@ -5623,6 +5614,7 @@ def read_players_from_sheet(sheet_id: str) -> list[dict]:
             continue
         players.append({
             "player_id":       player_id,
+            "s_id":            f"R_{player_id}",  # stable per-human row key (one RLN row per player)
             "team":            team,
             "gm":              _parse_bool(row["gm"]),
             "name":            name,
@@ -5715,6 +5707,7 @@ def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int
             players.append({
                 "league":           "MLN",
                 "s_id":             s_id,
+                "player_id":        _safe_int(row.get("ID")),  # shared cross-season human id
                 "season":           _safe_int(row.get("Season")),
                 "name":             name,
                 "first_name":       _str(row.get("First Name")),
@@ -5756,6 +5749,7 @@ def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int
         players.append({
             "league":           "MLN",
             "s_id":             s_id,
+            "player_id":        player_id,  # col 0 ID; shared cross-season human id
             "season":           season,
             "name":             name,
             "last_name":        _str(_col(4)[row.name]),
@@ -6013,11 +6007,40 @@ def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figu
 # ── pitcher stats ─────────────────────────────────────────────────────────────
 
 def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
-    """Compute per-pitcher behavioral stats from an enriched plays DataFrame."""
+    """Compute per-pitcher behavioral stats from an enriched plays DataFrame.
+
+    Grouped by pitcher_id (the shared human id) so a pitcher who changed names
+    gets ONE merged row, labeled with their most-recent name. Rows without a
+    pitcher_id fall back to grouping by name."""
     import datetime
-    sw = df[df["swing"].notna()]
+    sw = df[df["swing"].notna()].copy()
+    if sw.empty:
+        return []
+    _pidnum = (pd.to_numeric(sw["pitcher_id"], errors="coerce")
+               if "pitcher_id" in sw.columns else pd.Series(np.nan, index=sw.index))
+    # Rescue: a play with no pitcher_id whose name matches a pitcher that DOES
+    # have an id elsewhere is folded into that id's group (no split row).
+    _name_pid = {}
+    for _nm, _pv in zip(sw["pitcher_name"].astype(str), _pidnum):
+        if pd.notna(_pv):
+            _name_pid[_nm] = int(_pv)
+
+    def _gk(nm, pv):
+        if pd.notna(pv):
+            return f"id:{int(pv)}"
+        if nm in _name_pid:
+            return f"id:{_name_pid[nm]}"
+        return f"nm:{nm}"
+    sw["_grp"] = [_gk(nm, pv) for nm, pv in zip(sw["pitcher_name"].astype(str), _pidnum)]
     rows = []
-    for pitcher, grp in sw.groupby("pitcher_name"):
+    for _gkey, grp in sw.groupby("_grp"):
+        _pids = pd.to_numeric(grp.get("pitcher_id"), errors="coerce").dropna() if "pitcher_id" in grp else pd.Series(dtype=float)
+        player_id = int(_pids.iloc[0]) if not _pids.empty else None
+        # Most-recent name = pitcher_name from the highest-season play in the group.
+        if "season" in grp.columns and grp["season"].notna().any():
+            pitcher = grp.sort_values("season", na_position="first")["pitcher_name"].iloc[-1]
+        else:
+            pitcher = grp["pitcher_name"].iloc[-1]
         deltas   = grp["pitch_circ_delta"].dropna()
         delta2s  = grp["pitch_circ_delta2"].dropna()
         approach = grp["pitch_approach"].dropna()
@@ -6036,6 +6059,7 @@ def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
         wraparound_pct = round(_wrap_crossed / _wrap_eligible * 100, 2) if _wrap_eligible else None
         rows.append({
             "pitcher_name":   pitcher,
+            "player_id":      player_id,
             "ab_count":       len(grp),
             "avg_abs_delta":  round(float(deltas.abs().mean()), 3) if not deltas.empty else None,
             "avg_delta2":     round(float(delta2s.mean()), 3)      if not delta2s.empty else None,
@@ -6087,18 +6111,31 @@ def pitcher_percentile_card(
     stats_df: pd.DataFrame,
     recent_vals: dict | None = None,
     recent_n: int | None = None,
+    player_id: int | None = None,
 ) -> go.Figure | None:
     """
     Compact pill-bar percentile chart.
     Bar = career percentile in the qualified pool (≥100 AB).
     Gold needle = where recent stats (recent_vals) fall in that same pool.
+
+    Matches the pitcher's stats row by player_id when given (robust to the row
+    being stored under a different name than the dropdown's most-recent one),
+    falling back to pitcher_name.
     """
     import math
 
-    if stats_df.empty or pitcher_name not in stats_df["pitcher_name"].values:
+    if stats_df.empty:
         return None
 
-    row = stats_df[stats_df["pitcher_name"] == pitcher_name].iloc[0]
+    row = None
+    if player_id is not None and "player_id" in stats_df.columns:
+        _m = stats_df[stats_df["player_id"] == player_id]
+        if not _m.empty:
+            row = _m.iloc[0]
+    if row is None:
+        if pitcher_name not in stats_df["pitcher_name"].values:
+            return None
+        row = stats_df[stats_df["pitcher_name"] == pitcher_name].iloc[0]
 
     # Only qualified pitchers form the reference pool for percentile ranks
     _MIN_AB = 100
@@ -6307,7 +6344,11 @@ def pitcher_ma_figure(df: pd.DataFrame, metric: str, window: int = 20) -> go.Fig
         raw = raw * 100.0
     else:
         raw = raw.abs()
+    # Rolling mean tolerant of the scattered NaNs in the metric (min_periods=1
+    # keeps the line unbroken), then blank only the first window-1 pitches so it
+    # starts at pitch `window` - partial early averages don't distort the y-range.
     ma = raw.rolling(window=window, min_periods=1).mean()
+    ma.iloc[:window - 1] = np.nan
     overall_avg = raw.mean()
     x = list(range(1, len(ma) + 1))
 

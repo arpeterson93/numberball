@@ -152,11 +152,39 @@ def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+def get_plays_for_pitcher_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
+    """Plays by pitcher_id - ties a human's history together across name changes."""
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("pitcher_id", player_id)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
+
+
 def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
         .select("*, games(season, session_number, home_team, away_team, game_code)")
         .eq("batter_name", batter_name)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
+
+
+def get_plays_for_batter_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
+    """Plays by batter_id - ties a human's history together across name changes."""
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("batter_id", player_id)
         .order("id", desc=False)
     )
     if leagues:
@@ -308,8 +336,11 @@ def get_players(team: str | None = None, pos: str | None = None) -> list[str]:
 
 
 def bulk_upsert_players(players: list[dict]) -> int:
-    """Upsert a list of player dicts keyed on player_id. Returns rows processed."""
-    return _bulk_upsert("players", players, "player_id")
+    """Upsert a list of RLN player dicts keyed on s_id. Returns rows processed.
+
+    Keyed on s_id (not player_id) so player_id can be a shared, non-unique human
+    id across leagues/seasons - RLN rows use s_id 'R_<player_id>'."""
+    return _bulk_upsert("players", players, "s_id")
 
 
 # ------------------------------------------------------------------ pitcher stats
@@ -325,8 +356,24 @@ def get_pitcher_stats() -> list[dict]:
 
 
 def upsert_pitcher_stats(rows: list[dict]) -> int:
-    """Upsert pitcher stats keyed on pitcher_name. Returns rows processed."""
-    return _bulk_upsert("pitcher_stats", rows, "pitcher_name")
+    """Insert pitcher stats rows (call clear_pitcher_stats first for a full
+    replace). Plain insert, not upsert on pitcher_name - two different humans can
+    share a current name, so the name isn't a valid conflict key; identity is
+    player_id and compute produces one row per pitcher."""
+    if not rows:
+        return 0
+    total = 0
+    for i in range(0, len(rows), _CHUNK):
+        _client().table("pitcher_stats").insert(rows[i:i + _CHUNK]).execute()
+        total += len(rows[i:i + _CHUNK])
+    return total
+
+
+def clear_pitcher_stats() -> None:
+    """Delete all pitcher_stats rows. Called before a full recompute so that
+    stale rows under a pitcher's old name don't linger and double-count in the
+    percentile pool."""
+    _client().table("pitcher_stats").delete().gt("id", 0).execute()
 
 
 # ------------------------------------------------------------------ user preferences

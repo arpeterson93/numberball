@@ -720,6 +720,7 @@ if st.button("Refresh Pitcher Stats", key="refresh_pitcher_stats"):
         _combined  = pd.concat(_dfs, ignore_index=True)
         _stat_rows = utils.compute_pitcher_stats(_combined)
         _bar.progress(90, text="Saving to database…")
+        db.clear_pitcher_stats()   # full replace - purge stale old-name rows
         _n = db.upsert_pitcher_stats(_stat_rows)
         db.get_pitcher_stats.clear()
         _bar.progress(100, text="Done.")
