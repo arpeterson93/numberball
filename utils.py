@@ -3072,10 +3072,12 @@ def delta_next_zone_dist(
 # < 0 = a disfavored bucket (defying it), 0 = league-random / no tendency. The
 # stoplight is the predominant per-pitch class over the window (a vote, not a
 # mean, so one extreme pitch can't hijack the read).
-# Symmetric cutoffs: score >= scouting_min -> scouting (green), <= anti_max ->
-# anti (red), else neutral (yellow). A flat-book pitcher has no favored buckets,
-# so every score sits near 0 -> neutral. Tunable with the inspector, not inline.
-SCOUT_PP_THRESHOLDS = {"scouting_min": +0.15, "anti_max": -0.15}
+# Cutoffs: score >= scouting_min -> scouting (green), <= anti_max -> anti
+# (red), else neutral (yellow). A flat-book pitcher has no favored buckets, so
+# every score sits near 0 -> neutral. Tunable with the inspector, not inline.
+# Calibrated from MLN history (pitchers with 200+ BF) so each zone gets ~1/3
+# of all historical pitches; see scripts/calibrate_stoplight_thresholds.py.
+SCOUT_PP_THRESHOLDS = {"scouting_min": +0.11, "anti_max": -0.14}
 MIN_SCORED = 3  # need this many career eligible events before showing any light
 SCOUT_SCORING_VERSION = 2  # bump when the per-pitch score formula changes
 
