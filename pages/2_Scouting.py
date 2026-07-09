@@ -891,10 +891,12 @@ hist_id       = st.session_state.get("pred_hist_loaded_id") if pred_mode == "His
 matchup_label = ""
 _sp = _sb = ""
 
-# Allow up to 6 extra innings beyond regulation so extra-inning games don't crash
-_mgr_max_inning = utils.game_innings(st.session_state.get("mgr_league", "MLN")) + 6
-if st.session_state.get("mgr_inning", 1) > _mgr_max_inning:
-    st.session_state["mgr_inning"] = int(_mgr_max_inning)
+# Extra innings have no real limit - regulation length (utils.game_innings)
+# only matters for win-probability "remaining half innings" math (see
+# utils.remaining_half_innings, which already handles innings beyond
+# regulation on its own). This is just st.number_input's required upper
+# bound, generous enough that no real game will ever actually hit it.
+_mgr_max_inning = 99
 
 if pred_mode == "Historical / Manual":
     _calc_r       = _calc_ranges(bunt=False)
@@ -1000,7 +1002,6 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state[f"pred_calc_{_base_ltr}b_spd"] = int(_rspd)
                 else:
                     st.session_state.pop(f"pred_calc_{_base_ltr}b_spd", None)
-            _fi = utils.game_innings(_fl)
             st.session_state["mgr_away_score"] = int(_mg["away_score"]) if _mg.get("away_score") is not None else 0
             st.session_state["mgr_home_score"] = int(_mg["home_score"]) if _mg.get("home_score") is not None else 0
             _gplays = _load_game_plays(_mg["id"], st.session_state.get("_data_v", 0))
@@ -1014,7 +1015,11 @@ elif pred_mode == "Fetch Live Matchup":
                         st.session_state["mgr_inning"] = _li
                         st.session_state["mgr_half"]   = "Bottom"
                     else:
-                        st.session_state["mgr_inning"] = min(_li + 1, _fi)
+                        # No cap - extra innings have no real limit; only WP's
+                        # "remaining half innings" math cares about regulation
+                        # length, and that's handled separately (see
+                        # utils.remaining_half_innings).
+                        st.session_state["mgr_inning"] = _li + 1
                         st.session_state["mgr_half"]   = "Top"
                 else:
                     st.session_state["mgr_inning"] = _li
