@@ -1367,6 +1367,64 @@ with tab_p:
         else:
             st.warning("No at-bats found for this pitcher with the current filters.")
     else:
+        # Proposed Swing (+ Swing Type) live here (rather than down in Swing
+        # Analyzer, where the rest of that section's controls stay) so both
+        # are set before Swing Suggestions reads them - pred_swing via
+        # st.session_state, active_ranges via the local variable below, which
+        # stays in scope for the OBR overlay and for Swing Analyzer further
+        # down since Python doesn't scope by indentation.
+        active_ranges = result_ranges
+        if result_ranges:
+            if "pred_swing" not in st.session_state:
+                st.session_state["pred_swing"] = 500
+            _ps_col, _st_col = st.columns([2, 1])
+            with _ps_col:
+                st.number_input("Proposed Swing", min_value=1, max_value=1000,
+                                 step=1, key="pred_swing")
+            with _st_col:
+                _swing_type_keys = {
+                    "Normal Swing":     None,
+                    "Bunt":             "pred_bunt_ranges",
+                    "Hit and Run":      "pred_hnr_ranges",
+                    "Infield In":       "pred_ifinfield_ranges",
+                    "HnR & Infield In": "pred_hnr_ifin_ranges",
+                }
+                # Same situational rules as the Hit & Run?/Infield In? checkboxes
+                # in the Range Calculator (outs < 2 + specific runner states),
+                # read from whichever state source matches the current mode -
+                # the live-fetched game state in Fetch Live Matchup, the manual
+                # Range Calculator inputs in Historical/Manual.
+                if pred_mode == "Fetch Live Matchup":
+                    _sv_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
+                    _sv_obc  = st.session_state.get("mgr_sheet_obc") or "000"
+                else:
+                    _sv_outs = int(st.session_state.get("pred_calc_outs", 0) or 0)
+                    _sv_named_obc = (
+                        ("1" if st.session_state.get("pred_calc_3b", "Empty") != "Empty" else "0")
+                        + ("1" if st.session_state.get("pred_calc_2b", "Empty") != "Empty" else "0")
+                        + ("1" if st.session_state.get("pred_calc_1b", "Empty") != "Empty" else "0")
+                    )
+                    _sv_hist_obc = st.session_state.get("pred_calc_hist_obc", "000") or "000"
+                    _sv_obc = "".join(n if n == "1" else h for n, h in zip(_sv_named_obc, _sv_hist_obc))
+                _sv_hnr_ok  = _sv_outs < 2 and _sv_obc in {"001", "010", "011", "101"}
+                _sv_ifin_ok = _sv_outs < 2 and _sv_obc[:1] == "1"
+                _swing_type_valid = {
+                    "Normal Swing":     True,
+                    "Bunt":             True,
+                    "Hit and Run":      _sv_hnr_ok,
+                    "Infield In":       _sv_ifin_ok,
+                    "HnR & Infield In": _sv_hnr_ok and _sv_ifin_ok,
+                }
+                _swing_type_opts = [k for k in _swing_type_keys if _swing_type_valid[k]]
+                if st.session_state.get("swing_type_sel") not in _swing_type_opts:
+                    st.session_state["swing_type_sel"] = "Normal Swing"
+                st.selectbox("Swing Type", _swing_type_opts, key="swing_type_sel")
+            _sv_ranges_key = _swing_type_keys.get(st.session_state.get("swing_type_sel", "Normal Swing"))
+            # Falls back to Normal Swing ranges when the selected scenario's
+            # sheet wasn't fetched (e.g. Historical/Manual mode, or no stadium
+            # sheet configured for this matchup) rather than leaving it empty.
+            active_ranges = (st.session_state.get(_sv_ranges_key) if _sv_ranges_key else None) or result_ranges
+
         # ── swing suggestions panel ───────────────────────────────────────────
         with st.expander("Swing Suggestions", expanded=True):
             _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
@@ -1422,12 +1480,12 @@ with tab_p:
                 _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
                 _h_dvals  = utils.project_from_deltas(_h_recent)
                 _h_d2vals = utils.project_from_delta2s(_h_recent)
-                _h_obp_p  = utils.optimal_swing_range(_h_recent,  result_ranges, "obp", True, _h_wts or None)
-                _h_obp_d  = utils.optimal_swing_range(_h_dvals,   result_ranges, "obp", True, _h_dwts)
-                _h_obp_d2 = utils.optimal_swing_range(_h_d2vals,  result_ranges, "obp", True, _h_d2wts)
-                _h_ss_p   = utils.swing_signal_strength(_h_recent,  result_ranges, "obp", True, _h_wts or None)
-                _h_ss_d   = utils.swing_signal_strength(_h_dvals,   result_ranges, "obp", True, _h_dwts)  if _h_dvals  else 0.0
-                _h_ss_d2  = utils.swing_signal_strength(_h_d2vals,  result_ranges, "obp", True, _h_d2wts) if _h_d2vals else 0.0
+                _h_obp_p  = utils.optimal_swing_range(_h_recent,  active_ranges, "obp", True, _h_wts or None)
+                _h_obp_d  = utils.optimal_swing_range(_h_dvals,   active_ranges, "obp", True, _h_dwts)
+                _h_obp_d2 = utils.optimal_swing_range(_h_d2vals,  active_ranges, "obp", True, _h_d2wts)
+                _h_ss_p   = utils.swing_signal_strength(_h_recent,  active_ranges, "obp", True, _h_wts or None)
+                _h_ss_d   = utils.swing_signal_strength(_h_dvals,   active_ranges, "obp", True, _h_dwts)  if _h_dvals  else 0.0
+                _h_ss_d2  = utils.swing_signal_strength(_h_d2vals,  active_ranges, "obp", True, _h_d2wts) if _h_d2vals else 0.0
                 _hint_rows_p.append({"Signal": "OBP recent pitch",
                                      "lo": _h_obp_p[0] if _h_obp_p else None,
                                      "hi": _h_obp_p[1] if _h_obp_p else None,
@@ -1616,7 +1674,7 @@ with tab_p:
                 _hp_swing_val = int(st.session_state["pred_swing"]) if "pred_swing" in st.session_state and result_ranges else None
                 _hp_obr_lo = _hp_obr_hi = None
                 if _hp_swing_val is not None:
-                    _hp_obr_max = max((hi for _, _lo, hi in result_ranges if _ in utils._OBR), default=0)
+                    _hp_obr_max = max((hi for _, _lo, hi in active_ranges if _ in utils._OBR), default=0)
                     if _hp_obr_max:
                         _hp_obr_lo = ((_hp_swing_val - _hp_obr_max - 1) % 1000) + 1
                         _hp_obr_hi = ((_hp_swing_val + _hp_obr_max - 1) % 1000) + 1
@@ -1761,11 +1819,6 @@ with tab_p:
                     f"State {_prg3/_prg_tot*100:.0f}%"
                 )
 
-            if "pred_swing" not in st.session_state:
-                st.session_state["pred_swing"] = 500
-            proposed_swing = st.number_input("Proposed Swing", min_value=1, max_value=1000,
-                                             step=1, key="pred_swing")
-
             # PA weights for relevance-weighted optimal swing and swing predictor coloring
             _pa_df_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
                         if not df_p_pred.empty else pd.DataFrame())
@@ -1794,8 +1847,8 @@ with tab_p:
             _tick_lbl_p = f"Last {n_pitches} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
                           else f"Last {n_pitches} pitches"
             st.plotly_chart(
-                utils.swing_predictor_chart(_df_tick_p, swing=int(proposed_swing), n=n_pitches,
-                                            result_ranges=result_ranges, tick_label=_tick_lbl_p,
+                utils.swing_predictor_chart(_df_tick_p, swing=int(st.session_state["pred_swing"]), n=n_pitches,
+                                            result_ranges=active_ranges, tick_label=_tick_lbl_p,
                                             tick_weights=_pa_weights_p),
                 width="stretch", key="p_swing_pred",
             )
@@ -1832,9 +1885,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "obp", True, weights=_wts)
-                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, result_ranges, "obp", True, weights=_wts, zone="best")
-                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, result_ranges, "obp", True, weights=_wts, zone="worst")
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "obp", True, weights=_wts)
+                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="best")
+                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="worst")
                         _pk = f"pill_obp_{_i}_p"
                         _opts = {
                             f"↑ {_bv} ({_bs:.3f}) · {_sig_p_obp_tgt:.0f}%": _bv,
@@ -1846,7 +1899,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                             st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                             st.rerun()
                         st.plotly_chart(
-                            utils.optimal_swing_chart(_vals, result_ranges, "obp", True,
+                            utils.optimal_swing_chart(_vals, active_ranges, "obp", True,
                                                       compact=True, weights=_wts),
                             use_container_width=True, key=f"p_opt_obp_{_i}")
             if not _simple_mode:
@@ -1856,9 +1909,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                     unsafe_allow_html=True)
                         if _vals:
-                            _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, result_ranges, "slg", True, weights=_wts)
-                            _sig_p_slg_tgt = utils.swing_signal_strength(_vals, result_ranges, "slg", True, weights=_wts, zone="best")
-                            _sig_p_slg_avd = utils.swing_signal_strength(_vals, result_ranges, "slg", True, weights=_wts, zone="worst")
+                            _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "slg", True, weights=_wts)
+                            _sig_p_slg_tgt = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="best")
+                            _sig_p_slg_avd = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="worst")
                             _pk = f"pill_slg_{_i}_p"
                             _opts = {
                                 f"↑ {_bv} ({_bs:.3f}) · {_sig_p_slg_tgt:.0f}%": _bv,
@@ -1870,7 +1923,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                 st.session_state.setdefault("_pills_rst_p", []).append(_pk)
                                 st.rerun()
                             st.plotly_chart(
-                                utils.optimal_swing_chart(_vals, result_ranges, "slg", True,
+                                utils.optimal_swing_chart(_vals, active_ranges, "slg", True,
                                                           compact=True, weights=_wts),
                                 use_container_width=True, key=f"p_opt_slg_{_i}")
         else:

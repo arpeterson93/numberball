@@ -716,13 +716,23 @@ def _approach_group(g: pd.DataFrame) -> pd.Series:
 
 
 def _wraparound_group(group: pd.Series) -> pd.Series:
-    """1 if pitch crosses the 1000/1 border (850+ ↔ 150-), 0 otherwise, NaN for first."""
+    """1 if pitch crosses the 1000/1 border given a prior pitch in the boundary
+    zone (>=850 or <=150), 0 if it didn't cross despite being eligible, NaN if
+    ineligible (prior pitch not in the boundary zone) or the group's first
+    pitch. Ineligible pitches must be NaN, not 0 - they're excluded from the
+    denominator in the career-level wraparound_pct (see compute_pitcher_stats/
+    compute_recent_pitcher_stats), so the per-pitch column feeding the rolling
+    average in pitcher_ma_figure has to exclude them the same way or the
+    moving-average line reads systematically lower than the career total."""
     vals = group.astype(int).tolist()
     results = [float("nan")]
     for i in range(1, len(vals)):
         prev, curr = vals[i - 1], vals[i]
-        wrapped = (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850)
-        results.append(1.0 if wrapped else 0.0)
+        if prev >= 850 or prev <= 150:
+            wrapped = (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850)
+            results.append(1.0 if wrapped else 0.0)
+        else:
+            results.append(float("nan"))
     return pd.Series(results, index=group.index)
 
 
