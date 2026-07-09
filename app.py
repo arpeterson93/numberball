@@ -13,6 +13,8 @@ st.markdown(
     "<style>"
     "[data-testid='stToolbarActions']{display:none !important;}"
     "[data-testid='stStatusWidget']{display:none !important;}"
+    "[data-testid='stMainBlockContainer']{padding-top:3rem !important;}"
+    "h1{padding-top:0.5rem !important;}"
     "</style>",
     unsafe_allow_html=True,
 )

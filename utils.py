@@ -2580,6 +2580,374 @@ def hint_bars_figure(
     return fig
 
 
+def sequence_matches(
+    df: pd.DataFrame,
+    value_col: str,
+    bucket_size: int,
+    prior_val: int,
+    prior_val2: int | None = None,
+    domain: str = "value",
+) -> dict | None:
+    """Historical 4-point sequence windows centered on prior_val.
+
+    For every point in the player's history whose value (domain="value") or |Δ|
+    (domain="delta") lands within bucket_size // 2 of prior_val and that also has
+    a same-game next value, build a window (p2, p1, v, nxt). The (v, nxt) pair
+    follows seq2_hint's same-game discipline; p1/p2 are retrospective context
+    only and are set to None across a game boundary.
+
+    prior_val2 opts into 3-seq matching: when set, p1 must ALSO land within
+    bucket_size // 2 of prior_val2 (same half-width, same circular/linear rule as
+    prior_val). Since p1 is a same-game shift(1), this implicitly requires a
+    same-game (p1, v, nxt) triple, mirroring seq3_hint's grouped-shift discipline.
+    prior_val2=None leaves the 2-seq behavior unchanged. p2 stays unconstrained.
+
+    Matching is ALWAYS centered on prior_val - domain="value" uses circular
+    distance on 1-1000, domain="delta" uses linear distance on [0, 500].
+
+    Returns {"matches": [...], "n": int} or None if nothing matches. Each match:
+      p2, p1 (int|None context), v (matched value), nxt (next value),
+      season, session, game_code, result (the next pitch's play result).
+
+    Player-agnostic: domain="value" groups by "pitcher_name" if value_col ==
+    "pitch" else "batter_name"; domain="delta" reads the pre-computed
+    "{value_col}_circ_delta" column, which prepare_pitcher_df already guards at
+    each game's first pitch.
+    """
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    gcols = ["game_id", group_col]
+
+    df_s = df[df[value_col].notna()].sort_values(["game_id", "id"]).copy()
+    if df_s.empty:
+        return None
+
+    if domain == "delta":
+        delta_col = f"{value_col}_circ_delta"
+        if delta_col not in df_s.columns:
+            return None
+        df_s["_v"] = df_s[delta_col].abs()
+    else:
+        df_s["_v"] = df_s[value_col].astype(float)
+
+    df_s["_nxt"] = df_s.groupby(gcols)["_v"].shift(-1)
+    df_s["_p1"] = df_s.groupby(gcols)["_v"].shift(1)
+    df_s["_p2"] = df_s.groupby(gcols)["_v"].shift(2)
+    if "result" in df_s.columns:
+        df_s["_nres"] = df_s.groupby(gcols)["result"].shift(-1)
+    else:
+        df_s["_nres"] = None
+
+    half = bucket_size // 2
+    if domain == "delta":
+        dist = (df_s["_v"] - float(prior_val)).abs()
+    else:
+        dist = _circ_dist_vec(df_s["_v"], int(prior_val))
+    mask = (dist <= half) & df_s["_v"].notna() & df_s["_nxt"].notna()
+    if prior_val2 is not None:
+        if domain == "delta":
+            dist1 = (df_s["_p1"] - float(prior_val2)).abs()
+        else:
+            dist1 = _circ_dist_vec(df_s["_p1"], int(prior_val2))
+        mask &= df_s["_p1"].notna() & (dist1 <= half)
+    mt = df_s[mask]
+    if mt.empty:
+        return None
+
+    has_season = "season" in mt.columns
+    has_sess = "session_number" in mt.columns
+    has_gc = "game_code" in mt.columns
+
+    matches = []
+    for _, r in mt.iterrows():
+        _p2, _p1 = r["_p2"], r["_p1"]
+        matches.append({
+            "p2": int(_p2) if pd.notna(_p2) else None,
+            "p1": int(_p1) if pd.notna(_p1) else None,
+            "v": int(r["_v"]),
+            "nxt": int(r["_nxt"]),
+            "season": int(r["season"]) if has_season and pd.notna(r["season"]) else None,
+            "session": int(r["session_number"]) if has_sess and pd.notna(r["session_number"]) else None,
+            "game_code": r["game_code"] if has_gc and pd.notna(r["game_code"]) else None,
+            "result": r["_nres"] if pd.notna(r["_nres"]) else None,
+        })
+    return {"matches": matches, "n": len(matches)}
+
+
+# Fixed trace layout for sequence_viewer_figure. The count never varies with
+# selection state (a selected bin filters *what's in* the level/marker traces,
+# not how many traces exist), so the outcome Bar always lands at this index
+# and the page-side click handler can filter on it.
+SEQ_VIEWER_LEVELS = 6
+SEQ_VIEWER_BAR_TRACE = SEQ_VIEWER_LEVELS + 2  # 6 line levels + markers + current
+
+
+def _seq_bucket(v: int, group_bucket: int, value_domain: bool) -> tuple[int, float]:
+    """Return (bin index, bin center) for a raw value under group_bucket."""
+    if value_domain:
+        n_bins = 1000 // group_bucket
+        idx = min(max((int(v) - 1) // group_bucket, 0), n_bins - 1)
+        center = idx * group_bucket + (group_bucket + 1) / 2.0
+    else:
+        n_bins = 500 // group_bucket
+        idx = min(max(int(v) // group_bucket, 0), n_bins - 1)
+        center = idx * group_bucket + group_bucket / 2.0
+    return idx, center
+
+
+def sequence_viewer_figure(
+    matches: list[dict],
+    current_seq: list[int],
+    y_range: tuple[int, int],
+    y_label: str,
+    group_bucket: int,
+    selected_bin: int | None = None,
+    mode_note: str | None = None,
+    mobile: bool = False,
+) -> go.Figure:
+    """Sequence-match chart: 4-position window on the left, outcome bars on the right.
+
+    matches: list of dicts from sequence_matches (p2, p1, v, nxt + hover metadata).
+    current_seq: up to 3 recent values, right-aligned to x=[0,1,2]; the reference
+                 value sits at x=2 ("Pitch") and the open x=3 slot is the unknown.
+    y_range: fixed y span so geometry does not shift between reruns. y_range[0]
+             selects the domain: 1 -> value (1-1000, circular), 0 -> delta (0-500).
+    group_bucket: width for grouping the historical paths AND for the outcome bins.
+    selected_bin: outcome-bin index to highlight/filter to, or None for no filter.
+
+    Historical paths are grouped by their (p2, p1, v, nxt) bucket signature and
+    drawn through bucket centers, volume-encoded into SEQ_VIEWER_LEVELS quantized
+    line traces (opacity/width scale with group frequency) so the trace count stays
+    small regardless of how many distinct paths exist. The per-match marker trace
+    keeps the raw, honest sample so nothing hides behind the grouping.
+
+    When selected_bin is set, the level/marker traces are scoped to ONLY the
+    matches landing in that bin (not dimmed alongside everything else), and
+    volume levels are recomputed relative to just that subset - so "common vs.
+    rare" stays meaningful for whatever slice is being looked at rather than
+    diluted against the full history. The subtitle still discloses the total
+    n, so sample size is disclosed in text even though it isn't drawn.
+
+    Trace order is fixed (see SEQ_VIEWER_BAR_TRACE): 6 line levels, markers,
+    current, outcome bar (always last). Idle traces carry empty arrays so the
+    layout - and thus the bar's index - never shifts.
+    """
+    n = len(matches)
+    value_domain = int(y_range[0]) == 1
+    n_bins = (1000 // group_bucket) if value_domain else (500 // group_bucket)
+    fig = make_subplots(
+        rows=1, cols=2, shared_yaxes=True,
+        column_widths=[0.85, 0.15], horizontal_spacing=0.02,
+    )
+
+    def _path_verts(centers):
+        _c2, _c1, _cv, _cn = centers
+        _pts = []
+        if _c2 is not None:
+            _pts.append((0, _c2))
+        if _c1 is not None:
+            _pts.append((1, _c1))
+        _pts.append((2, _cv))
+        _pts.append((3, _cn))
+        return _pts
+
+    # nxt bucket index for every match, always over the FULL set - the outcome
+    # bar on the right always shows the whole distribution (it's the menu
+    # being filtered from, not itself filtered).
+    _nxt_idx_all = [_seq_bucket(m["nxt"], group_bucket, value_domain)[0] for m in matches]
+
+    _dim = selected_bin is not None
+    _active = (
+        [m for m, ni in zip(matches, _nxt_idx_all) if ni == selected_bin]
+        if _dim else matches
+    )
+
+    # Bucket the active set once; reuse for grouping and markers.
+    _groups: dict[tuple, dict] = {}
+    for m in _active:
+        _p2 = _seq_bucket(m["p2"], group_bucket, value_domain) if m["p2"] is not None else (None, None)
+        _p1 = _seq_bucket(m["p1"], group_bucket, value_domain) if m["p1"] is not None else (None, None)
+        _v = _seq_bucket(m["v"], group_bucket, value_domain)
+        _nx = _seq_bucket(m["nxt"], group_bucket, value_domain)
+        _key = (_p2[0], _p1[0], _v[0], _nx[0])
+        _g = _groups.get(_key)
+        if _g is None:
+            _groups[_key] = {"count": 1, "centers": (_p2[1], _p1[1], _v[1], _nx[1])}
+        else:
+            _g["count"] += 1
+
+    # Rank-based (not linear-against-max) normalizer: with a long-tail
+    # distribution - a few common paths, many one-off paths, which is the
+    # normal case here - dividing by the single busiest group's count crushes
+    # nearly everything into the bottom level. Ranking by distinct observed
+    # count values instead guarantees the full visual range is used regardless
+    # of how skewed the distribution is; equal counts always render identically.
+    _distinct_counts = sorted({g["count"] for g in _groups.values()})
+    _no_variance = len(_distinct_counts) <= 1
+    _rank = {c: i for i, c in enumerate(_distinct_counts)}
+    _max_rank = max(len(_distinct_counts) - 1, 1)
+    # No variance (every group tied - could be one path repeated N times with
+    # nothing else in the set, or dozens of true one-offs and nothing that
+    # recurs at all) means there's nothing to RANK against, but the shared
+    # count itself still carries information: a tie at count=1 is honestly
+    # unremarkable and should render thin even if it's 100% of what's shown;
+    # a tie at count=8+ is a real recurring pattern and should render bold
+    # even with nothing else to compare it to. Log-anchored against a fixed
+    # reference (not the local max) so this doesn't reintroduce the original
+    # long-tail-collapse problem the rank approach exists to avoid.
+    _no_var_t = min(1.0, math.log(1 + _distinct_counts[0]) / math.log(9)) if _no_variance else 0.0
+
+    # Six quantized volume levels. Colour ramps within a muted blue-gray family
+    # toward saturated steel blue (green/red are reserved for good/bad semantics).
+    _lvl_x = [[] for _ in range(SEQ_VIEWER_LEVELS)]
+    _lvl_y = [[] for _ in range(SEQ_VIEWER_LEVELS)]
+    for _g in _groups.values():
+        _t = _no_var_t if _no_variance else _rank[_g["count"]] / _max_rank
+        _lvl = min(SEQ_VIEWER_LEVELS - 1, int(_t * SEQ_VIEWER_LEVELS))
+        _verts = _path_verts(_g["centers"])
+        for _x, _y in _verts:
+            _lvl_x[_lvl].append(_x)
+            _lvl_y[_lvl].append(_y)
+        _lvl_x[_lvl].append(None)
+        _lvl_y[_lvl].append(None)
+
+    # Widened range (vs. the original 0.15-0.75 alpha / 1.5-6.0px / muted-only
+    # color) so adjacent levels are visibly distinct rather than reading as one
+    # mass of similarly-weighted lines: near-invisible haze at the low end,
+    # bold and saturated at the high end.
+    _legend_level = SEQ_VIEWER_LEVELS // 2  # one representative line in the legend
+    for _l in range(SEQ_VIEWER_LEVELS):
+        _tr = (_l + 1) / SEQ_VIEWER_LEVELS
+        _r = int(150 + (40 - 150) * _tr)
+        _g_ = int(155 + (125 - 155) * _tr)
+        _b = int(160 + (215 - 160) * _tr)
+        _alpha = 0.08 + 0.87 * _tr
+        _width = 0.75 + 6.25 * _tr
+        fig.add_trace(go.Scatter(
+            x=_lvl_x[_l], y=_lvl_y[_l], mode="lines",
+            line=dict(color=f"rgba({_r},{_g_},{_b},{_alpha:.3f})", width=_width),
+            hoverinfo="skip",
+            name="Historical matches" if _l == _legend_level else None,
+            showlegend=_l == _legend_level,
+        ), row=1, col=1)
+
+    # Per-match markers: the raw, honest sample behind the grouped lines,
+    # scoped to the same active set (all matches, or just the selected bin).
+    _mk_x, _mk_y, _mk_cd = [], [], []
+    for m in _active:
+        _pts = []
+        if m["p2"] is not None:
+            _pts.append((0, m["p2"]))
+        if m["p1"] is not None:
+            _pts.append((1, m["p1"]))
+        _pts.append((2, m["v"]))
+        _pts.append((3, m["nxt"]))
+        _cd = [
+            m["season"] if m["season"] is not None else "?",
+            m["session"] if m["session"] is not None else "?",
+            m["game_code"] if m["game_code"] is not None else "?",
+            m["v"], m["nxt"],
+            m["result"] if m["result"] is not None else "?",
+        ]
+        for _x, _y in _pts:
+            _mk_x.append(_x)
+            _mk_y.append(_y)
+            _mk_cd.append(_cd)
+
+    _hover = (
+        "S%{customdata[0]} W%{customdata[1]} · %{customdata[2]}<br>"
+        "Matched %{customdata[3]} → Next %{customdata[4]}<br>"
+        "Result: %{customdata[5]}<extra></extra>"
+    )
+    fig.add_trace(go.Scatter(
+        x=_mk_x, y=_mk_y, mode="markers",
+        marker=dict(size=5, color="rgba(150,160,170,0.55)", opacity=0.25),
+        customdata=_mk_cd, hovertemplate=_hover,
+        showlegend=False, name="Historical markers",
+    ), row=1, col=1)
+
+    # Current line: right-aligned so the reference value lands at x=2 ("Pitch").
+    # Always added (empty when there is no history) to keep the trace count fixed.
+    _seq = list(current_seq)[-3:]
+    _k = len(_seq)
+    _cur_x = [2 - (_k - 1 - i) for i in range(_k)]
+    fig.add_trace(go.Scatter(
+        x=_cur_x, y=_seq, mode="lines+markers",
+        line=dict(color="rgba(255,230,100,0.95)", width=3, dash="dash"),
+        marker=dict(size=8, color="rgba(255,230,100,0.95)"),
+        hoverinfo="skip", name="Current", showlegend=True,
+    ), row=1, col=1)
+
+    # Right panel: outcome distribution. go.Bar (not Histogram) so we can colour
+    # the selected bin per-bar. Bins reuse the nxt indices already computed.
+    _counts = np.bincount(_nxt_idx_all, minlength=n_bins) if _nxt_idx_all else np.zeros(n_bins, dtype=int)
+    _centers, _lo_hi, _bar_colors = [], [], []
+    _accent = "rgba(90,150,210,0.95)"
+    _base = "rgba(150,160,170,0.55)"
+    for _bi in range(n_bins):
+        if value_domain:
+            _lo, _hi = _bi * group_bucket + 1, min((_bi + 1) * group_bucket, 1000)
+            _centers.append(_bi * group_bucket + (group_bucket + 1) / 2.0)
+        else:
+            _lo, _hi = _bi * group_bucket, min((_bi + 1) * group_bucket, 500)
+            _centers.append(_bi * group_bucket + group_bucket / 2.0)
+        _lo_hi.append([_lo, _hi])
+        _bar_colors.append(_accent if _bi == selected_bin else _base)
+    fig.add_trace(go.Bar(
+        x=list(_counts), y=_centers, orientation="h",
+        width=group_bucket * 0.9,
+        marker=dict(color=_bar_colors),
+        customdata=_lo_hi,
+        hovertemplate="%{customdata[0]}-%{customdata[1]}: %{x}<extra></extra>",
+        showlegend=False, name="Outcomes",
+    ), row=1, col=2)
+
+    _height = 300 if mobile else 380
+    fig.update_xaxes(
+        range=[-0.2, 3.2], tickmode="array",
+        tickvals=[0, 1, 2, 3],
+        ticktext=["2nd Previous", "Previous Pitch", "Pitch", "Next Pitch"],
+        tickfont=dict(size=9 if mobile else 10),
+        showgrid=False, zeroline=False, fixedrange=True,
+        row=1, col=1,
+    )
+    fig.update_xaxes(
+        showticklabels=False, showgrid=False, zeroline=False,
+        fixedrange=True, row=1, col=2,
+    )
+    fig.update_yaxes(
+        range=list(y_range), title_text="", showgrid=True,
+        gridcolor="rgba(255,255,255,0.06)", zeroline=False,
+        fixedrange=True, automargin=False, row=1, col=1,
+    )
+    fig.update_yaxes(fixedrange=True, row=1, col=2)
+
+    _sub = f"n={n} historical matches"
+    if mode_note:
+        _sub = f"{_sub} · {mode_note}"
+    if _dim and 0 <= selected_bin < n_bins:
+        _slo, _shi = _lo_hi[selected_bin]
+        _sub = f"{_sub} · filtered to Next {_slo}-{_shi} ({int(_counts[selected_bin])})"
+    fig.update_layout(
+        title=dict(
+            text=f"{y_label}<br><sup>{_sub}</sup>",
+            x=0.5, xanchor="center", font=dict(size=13),
+        ),
+        height=_height,
+        # automargin=False on the left y-axis (above) means this l value is
+        # the real, final left margin, not just a floor Plotly can expand
+        # past - sized to fit a 4-digit "1000" tick label without clipping.
+        margin=dict(l=45, r=10, t=70, b=30),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        dragmode=False,
+        bargap=0.05,
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0,
+                    font=dict(size=9)),
+        modebar=dict(remove=["all"]),
+    )
+    return fig
+
+
 # ── Swing context hint helpers ──────────────────────────────────────────────
 
 def optimal_swing_range(

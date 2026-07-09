@@ -1649,6 +1649,77 @@ with tab_p:
             else:
                 st.caption("Not enough history to generate sequence suggestions.")
 
+        # ── sequence viewer ───────────────────────────────────────────────────
+        st.subheader("Sequence Viewer")
+
+        # 2-seq / 3-seq toggle. Lives outside the fragment: switching modes changes
+        # the match population, which is computed at page level, so it needs a full
+        # rerun. The callback clears both charts' click-filters - a bin selection
+        # from one population must not silently carry into a stricter one.
+        _sv_mode = st.radio(
+            "Match on", ["Last 1 value", "Last 2 values"],
+            horizontal=True, key="sv_seq_mode",
+            on_change=lambda: (st.session_state.pop("sv_pitch_chart", None),
+                               st.session_state.pop("sv_delta_chart", None)),
+        )
+        _sv_use2 = _sv_mode == "Last 2 values"
+        _sv_note = "matched on last 2 values" if _sv_use2 else None
+
+        # Click-to-filter lives in a fragment so a bar click reruns only the chart
+        # and its controls, not the whole 2,500-line page.
+        @st.fragment
+        def _sv_fragment(matches, current_seq, y_range, y_label, group_bucket, wkey, mobile, mode_note):
+            # The chart renders before this run's click event can reach it, so read
+            # the prior run's stored selection to pick the highlighted bin.
+            _sel_bin = None
+            _wstate = st.session_state.get(wkey)
+            if _wstate and _wstate.get("selection", {}).get("points"):
+                _bpts = [p for p in _wstate["selection"]["points"]
+                         if p.get("curve_number") == utils.SEQ_VIEWER_BAR_TRACE]
+                if _bpts:
+                    _pi = _bpts[0].get("point_index", _bpts[0].get("point_number"))
+                    _sel_bin = int(_pi) if _pi is not None else None
+            st.plotly_chart(
+                utils.sequence_viewer_figure(
+                    matches, current_seq=current_seq, y_range=y_range, y_label=y_label,
+                    group_bucket=group_bucket, selected_bin=_sel_bin, mode_note=mode_note,
+                    mobile=mobile,
+                ),
+                use_container_width=True, on_select="rerun", key=wkey,
+                config={"displayModeBar": False},
+            )
+            if _sel_bin is not None:
+                st.button("Clear filter", key=f"{wkey}_clear",
+                          on_click=lambda: st.session_state.pop(wkey, None))
+            st.caption("Click an outcome bar to filter the paths to that next-value bin.")
+
+        _sv_pitch_tab, _sv_delta_tab = st.tabs(["Pitch #", "Delta"])
+        with _sv_pitch_tab:
+            if _h_prior_pitch is None or (_sv_use2 and _h_prior_pitch2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_hz_bkt, _h_prior_pitch,
+                    prior_val2=_h_prior_pitch2 if _sv_use2 else None, domain="value")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_recent[-3:], (1, 1000), "Pitch value",
+                                 st.session_state.get("hz_follow_bucket_p", 200),
+                                 "sv_pitch_chart", _is_mobile, _sv_note)
+        with _sv_delta_tab:
+            if _h_prior_delta is None or (_sv_use2 and _h_prior_delta2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_dd_bkt, _h_prior_delta,
+                    prior_val2=_h_prior_delta2 if _sv_use2 else None, domain="delta")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_delta_hist[-3:], (0, 500), "|Δ|",
+                                 _h_dd_bkt, "sv_delta_chart", _is_mobile, _sv_note)
+
         # ── swing predictor ───────────────────────────────────────────────────
         st.subheader("Swing Analyzer")
         st.caption("Enter a proposed swing to see what each of this pitcher's recent pitches would give.")

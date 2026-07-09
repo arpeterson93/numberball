@@ -15,7 +15,10 @@
       "Bash(find . -maxdepth 2 -name \"*.sql\" -not -path \"./.venv/*\")",
       "Bash(./.venv/Scripts/python.exe -c \"import streamlit; print\\('streamlit', streamlit.__version__\\)\")",
       "Bash(./.venv/Scripts/pip.exe list *)",
-      "Bash(pip list *)"
+      "Bash(pip list *)",
+      "Bash(curl -s -o /dev/null -w \"8501: %{http_code}\\\\n\" --max-time 2 http://localhost:8501)",
+      "Bash(curl -s -o /dev/null -w \"8502: %{http_code}\\\\n\" --max-time 2 http://localhost:8502)",
+      "Skill(dataviz)"
     ]
   }
 }
