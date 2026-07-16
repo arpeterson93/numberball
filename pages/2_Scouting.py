@@ -1372,6 +1372,16 @@ with tab_p:
         else:
             st.warning("No at-bats found for this pitcher with the current filters.")
     else:
+        # A pending pill selection (Optimal Swing "use this swing" pills, set
+        # further down and consumed here) must land in session_state BEFORE
+        # the Proposed Swing widget below instantiates with key="pred_swing" -
+        # Streamlit forbids mutating a widget's session_state key after that
+        # widget has already been instantiated in the same run.
+        if "_pend_swing" in st.session_state:
+            st.session_state["pred_swing"] = st.session_state.pop("_pend_swing")
+        for _pk in st.session_state.pop("_pills_rst_p", []):
+            st.session_state[_pk] = None
+
         # Proposed Swing (+ Swing Type) live here (rather than down in Swing
         # Analyzer, where the rest of that section's controls stay) so both
         # are set before Swing Suggestions reads them - pred_swing via
@@ -1495,26 +1505,23 @@ with tab_p:
                 _h_d2vals = utils.project_from_delta2s(_h_recent)
                 _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True)
                 _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True)
-                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True)
-                _h_ss_p   = utils.swing_signal_strength(_h_recent,  active_ranges, "obp", True, _h_wts or None)
-                _h_ss_d   = utils.swing_signal_strength(_h_dvals,   active_ranges, "obp", True, _h_dwts)  if _h_dvals  else 0.0
-                _h_ss_d2  = utils.swing_signal_strength(_h_d2vals,  active_ranges, "obp", True, _h_d2wts) if _h_d2vals else 0.0
+                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True, paired=True)
                 _hint_rows_p.append({"Signal": "OBP recent pitch",
                                      "lo": _h_obp_p["lo"] if _h_obp_p else None,
                                      "hi": _h_obp_p["hi"] if _h_obp_p else None,
-                                     "Strength": f"{_h_ss_p:.0f}% signal",
+                                     "Strength": _hstr(_h_obp_p["prob"], _h_obp_p["n"], _h_obp_p["n_bkts"]) if _h_obp_p else "",
                                      "_zscore": _h_obp_p["z"] if _h_obp_p else None,
                                      "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ",
                                      "lo": _h_obp_d["lo"] if _h_obp_d else None,
                                      "hi": _h_obp_d["hi"] if _h_obp_d else None,
-                                     "Strength": f"{_h_ss_d:.0f}% signal",
+                                     "Strength": _hstr(_h_obp_d["prob"], _h_obp_d["n"], _h_obp_d["n_bkts"]) if _h_obp_d else "",
                                      "_zscore": _h_obp_d["z"] if _h_obp_d else None,
                                      "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ²",
                                      "lo": _h_obp_d2["lo"] if _h_obp_d2 else None,
                                      "hi": _h_obp_d2["hi"] if _h_obp_d2 else None,
-                                     "Strength": f"{_h_ss_d2:.0f}% signal",
+                                     "Strength": _hstr(_h_obp_d2["prob"], _h_obp_d2["n"], _h_obp_d2["n_bkts"]) if _h_obp_d2 else "",
                                      "_zscore": _h_obp_d2["z"] if _h_obp_d2 else None,
                                      "_best_zone_only": True})
 
@@ -1853,11 +1860,6 @@ with tab_p:
         _lnc_weights_p: list[float] = []
 
         if result_ranges:
-            if "_pend_swing" in st.session_state:
-                st.session_state["pred_swing"] = st.session_state.pop("_pend_swing")
-            for _pk in st.session_state.pop("_pills_rst_p", []):
-                st.session_state[_pk] = None
-
             with st.expander("Relevance Weighting", expanded=not _simple_mode):
                 st.caption("Weight how recent pitches influence the Optimal Swing. At 50 on Recency and Result and 0 on State, weighting is equal for each recent pitch.")
                 _prw1, _prw2, _prw3 = st.columns(3)
@@ -2420,26 +2422,23 @@ with tab_b:
                 _hb_d2vals = utils.project_from_delta2s(_hb_recent)
                 _hb_obp_p  = utils.obp_zone_signal(_hb_recent,  result_ranges, _hb_wts or None, False)
                 _hb_obp_d  = utils.obp_zone_signal(_hb_dvals,   result_ranges, _hb_dwts,        False)
-                _hb_obp_d2 = utils.obp_zone_signal(_hb_d2vals,  result_ranges, _hb_d2wts,       False)
-                _hb_ss_p   = utils.swing_signal_strength(_hb_recent,  result_ranges, "obp", False, _hb_wts or None)
-                _hb_ss_d   = utils.swing_signal_strength(_hb_dvals,   result_ranges, "obp", False, _hb_dwts)  if _hb_dvals  else 0.0
-                _hb_ss_d2  = utils.swing_signal_strength(_hb_d2vals,  result_ranges, "obp", False, _hb_d2wts) if _hb_d2vals else 0.0
+                _hb_obp_d2 = utils.obp_zone_signal(_hb_d2vals,  result_ranges, _hb_d2wts,       False, paired=True)
                 _hint_rows_b.append({"Signal": "OBP recent swing",
                                      "lo": _hb_obp_p["lo"] if _hb_obp_p else None,
                                      "hi": _hb_obp_p["hi"] if _hb_obp_p else None,
-                                     "Strength": f"{_hb_ss_p:.0f}% signal",
+                                     "Strength": _hbstr(_hb_obp_p["prob"], _hb_obp_p["n"], _hb_obp_p["n_bkts"]) if _hb_obp_p else "",
                                      "_zscore": _hb_obp_p["z"] if _hb_obp_p else None,
                                      "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ",
                                      "lo": _hb_obp_d["lo"] if _hb_obp_d else None,
                                      "hi": _hb_obp_d["hi"] if _hb_obp_d else None,
-                                     "Strength": f"{_hb_ss_d:.0f}% signal",
+                                     "Strength": _hbstr(_hb_obp_d["prob"], _hb_obp_d["n"], _hb_obp_d["n_bkts"]) if _hb_obp_d else "",
                                      "_zscore": _hb_obp_d["z"] if _hb_obp_d else None,
                                      "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ²",
                                      "lo": _hb_obp_d2["lo"] if _hb_obp_d2 else None,
                                      "hi": _hb_obp_d2["hi"] if _hb_obp_d2 else None,
-                                     "Strength": f"{_hb_ss_d2:.0f}% signal",
+                                     "Strength": _hbstr(_hb_obp_d2["prob"], _hb_obp_d2["n"], _hb_obp_d2["n_bkts"]) if _hb_obp_d2 else "",
                                      "_zscore": _hb_obp_d2["z"] if _hb_obp_d2 else None,
                                      "_best_zone_only": True})
 

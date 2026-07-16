@@ -2227,6 +2227,7 @@ def obp_zone_signal(
     ranges: list,
     weights: list[float] | None,
     maximize: bool = True,
+    paired: bool = False,
 ) -> dict | None:
     """Best-value zone for an 'OBP recent X' Suggestions row, OBR as a MAX width.
 
@@ -2245,8 +2246,18 @@ def obp_zone_signal(
     best_val (pop) against that same zone, not e.g. raw recent pitches for a
     Δ-projected row - consistent with best_val itself being computed from pop.
 
-    Returns {"lo", "hi", "z", "n"} or None if pop is empty or `ranges` has no
-    OBR-classified result (the max width would be undefined).
+    paired: set True for a project_from_delta2s-style population, where pop is
+    laid out as consecutive (grow, shrink) pairs from the SAME underlying |Δ²|
+    observation. Those two points are a deterministic mirror of one real
+    observation, not independent evidence - counting both as separate trials
+    would double the true sample size and inflate the z-score. Paired mode
+    counts each pair as ONE trial (a hit if EITHER branch lands in the zone),
+    keeping n at the true number of independent historical |Δ²| observations.
+    best_val still searches the full, un-deduped population - both directions
+    are genuinely distinct candidates worth weighing when picking one best swing.
+
+    Returns {"lo", "hi", "z", "n", "prob", "n_bkts"} or None if pop is empty or
+    `ranges` has no OBR-classified result (the max width would be undefined).
     """
     if not pop:
         return None
@@ -2279,12 +2290,25 @@ def obp_zone_signal(
 
     lo = ((best_val - left - 1) % 1000) + 1
     hi = ((best_val + right - 1) % 1000) + 1
-    in_zone = (sum(1 for v in pop if lo <= v <= hi) if lo <= hi
-               else sum(1 for v in pop if v >= lo or v <= hi))
-    n = len(pop)
+
+    def _in_zone(v):
+        return (lo <= v <= hi) if lo <= hi else (v >= lo or v <= hi)
+
+    if paired and len(pop) >= 2:
+        n = len(pop) // 2
+        in_zone = sum(
+            1 for i in range(0, n * 2, 2)
+            if _in_zone(pop[i]) or _in_zone(pop[i + 1])
+        )
+    else:
+        n = len(pop)
+        in_zone = sum(1 for v in pop if _in_zone(v))
+
     width = max(left + right, 1)
-    z = hint_zscore(in_zone / n, n, 1000.0 / width)
-    return {"lo": lo, "hi": hi, "z": z, "n": n}
+    n_bkts = 1000.0 / width
+    prob = in_zone / n
+    z = hint_zscore(prob, n, n_bkts)
+    return {"lo": lo, "hi": hi, "z": z, "n": n, "prob": prob, "n_bkts": n_bkts}
 
 
 def optimal_swing_chart(
@@ -3649,12 +3673,26 @@ def seq3_zone_dist(
 
 
 def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
-    """Binomial Z-score: how many std-devs the observed proportion exceeds uniform 1/n_bkts."""
+    """Laplace-smoothed binomial Z-score: how many std-devs the observed
+    proportion exceeds uniform 1/n_bkts.
+
+    Folds in one pseudo-observation per bucket (alpha=1, the same Dirichlet
+    smoothing convention _surprisal_walk uses elsewhere in this module)
+    before comparing to baseline: p_smoothed = (hits + 1) / (n + n_bkts), with
+    the standard error computed against that same effective sample size
+    (n + n_bkts). A handful of lucky/unlucky trials can no longer read as an
+    extreme z on their own - the n_bkts pseudo-observations dominate the total
+    at small n and pull the estimate toward baseline, then fade out (and the
+    result converges to the plain Wald z-score) as n grows past them.
+    """
     if n <= 0 or n_bkts <= 0:
         return 0.0
-    p0  = 1.0 / n_bkts
-    std = (p0 * (1 - p0) / n) ** 0.5
-    return (prob - p0) / std if std > 0 else 0.0
+    p0 = 1.0 / n_bkts
+    hits = round(prob * n)
+    n_eff = n + n_bkts
+    p_smoothed = (hits + 1) / n_eff
+    std = (p0 * (1 - p0) / n_eff) ** 0.5
+    return (p_smoothed - p0) / std if std > 0 else 0.0
 
 
 def delta_next_zone_dist(
