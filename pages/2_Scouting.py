@@ -257,22 +257,22 @@ def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...], data_v: int
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
-                             window_n: int, hz_bkt: int, dd_bkt: int, sig: tuple) -> dict:
+                             window_n: int, hz_bkt: int, dd_bkt: int, dd2_bkt: int, sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
-    return utils.scouting_recency_states(df, "pitch", window_n, hz_bkt, dd_bkt)
+    return utils.scouting_recency_states(df, "pitch", window_n, hz_bkt, dd_bkt, dd2_bkt)
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
                                    signal: str, window_n: int, hz_bkt: int, dd_bkt: int,
-                                   sig: tuple) -> dict:
+                                   dd2_bkt: int, sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
-    return utils.scouting_recency_detail(df, "pitch", signal, window_n, hz_bkt, dd_bkt)
+    return utils.scouting_recency_detail(df, "pitch", signal, window_n, hz_bkt, dd_bkt, dd2_bkt)
 
-_STOPLIGHT_ORDER = ["2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "Prior diff → Δ",
-                    "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
+_STOPLIGHT_ORDER = ["2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "2-Δ² seq", "3-Δ² seq",
+                    "Prior diff → Δ", "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
 _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
-def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, states, order):
+def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, dd2_bkt, states, order):
     """Debug/tuning view: per-indication summary, a per-pitch probability trend
     line, and the per-pitch drill-down table. Not an @st.fragment on purpose - a
     fragment nested inside st.tabs breaks tab hiding on rerun (dumps every tab's
@@ -300,7 +300,7 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
         return
     _sel = st.selectbox("Indication", _avail, key="insp_signal_p")
     _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel,
-                                        window_n, hz_bkt, dd_bkt, utils.scouting_cache_sig())
+                                        window_n, hz_bkt, dd_bkt, dd2_bkt, utils.scouting_cache_sig())
     _rows = _d["rows"]
     if not _rows:
         st.caption("No scored pitches for this indication.")
@@ -1435,6 +1435,7 @@ with tab_p:
             _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
             _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"
             _h_dd_bkt = st.session_state.get("dd_bucket_p", 100)
+            _h_dd2_bkt = st.session_state.get("dd2_bucket_p", 100)
             _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 200)
 
             _h_recent = (
@@ -1445,6 +1446,10 @@ with tab_p:
                 df_p[df_p["pitch_circ_delta"].notna()].sort_values("id")["pitch_circ_delta"]
                 .abs().astype(int).tolist()
             ) if "pitch_circ_delta" in df_p.columns else []
+            _h_d2sq_hist = (
+                df_p[df_p["pitch_circ_delta2"].notna()].sort_values("id")["pitch_circ_delta2"]
+                .abs().astype(int).tolist()
+            ) if "pitch_circ_delta2" in df_p.columns else []
             _h_diff_hist = (
                 df_p[df_p["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
             ) if "diff" in df_p.columns else []
@@ -1453,6 +1458,8 @@ with tab_p:
             _h_prior_pitch2 = _h_recent[-2]      if len(_h_recent) >= 2 else None
             _h_prior_delta  = _h_delta_hist[-1]  if len(_h_delta_hist) >= 1 else None
             _h_prior_delta2 = _h_delta_hist[-2]  if len(_h_delta_hist) >= 2 else None
+            _h_prior_d2sq   = _h_d2sq_hist[-1]   if len(_h_d2sq_hist)  >= 1 else None
+            _h_prior_d2sq2  = _h_d2sq_hist[-2]   if len(_h_d2sq_hist)  >= 2 else None
             _h_prior_diff   = _h_diff_hist[-1]   if len(_h_diff_hist)  >= 1 else None
 
             def _hstr(prob, n, n_bkts):
@@ -1462,6 +1469,7 @@ with tab_p:
 
             _hint_rows_p = []
             _h_dd_n = 500 // _h_dd_bkt
+            _h_dd2_n = 500 // _h_dd2_bkt
             _h_hz_n = 1000 // _h_hz_bkt
             _hint_centered_p = st.session_state.get("hint_centered_p", True)
 
@@ -1538,6 +1546,36 @@ with tab_p:
                         "_prior_pitch_for_zone": _h_prior_pitch,
                         "_dd_bkt_for_zone": _dd_bkt_z}
 
+            def _delta2_row_p(signal, h_dict, n_bkts):
+                # Compound a predicted |Δ²| bucket into next-pitch arms, mirroring
+                # project_from_delta2s: keep the SIGNED last delta L and form L ± d2.
+                # Needs the prior TWO pitches for L (not the unsigned _h_prior_delta).
+                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
+                if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
+                    _L = utils.circular_signed_delta(_h_prior_pitch2, _h_prior_pitch)
+                    _all_bkts = [(h_dict["d2_lo"], h_dict["d2_hi"])] + h_dict.get("tied_buckets", [])
+                    _merged_d2 = utils.merge_delta_ranges(_all_bkts)
+                    _arms = []
+                    for _d2lo, _d2hi in _merged_d2:
+                        _arms.extend(utils.delta2_to_pitch_ranges(_h_prior_pitch, _L, _d2lo, _d2hi))
+                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
+                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
+                    extra = list(_arms[2:])
+                    return {"Signal": signal,
+                            "lo": r1[0], "hi": r1[1],
+                            "lo2": r2[0], "hi2": r2[1],
+                            "extra_ranges": extra,
+                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                            "_zscore": _zs,
+                            "_d2sq_counts": h_dict.get("all_counts"),
+                            "_last_delta_for_zone": _L,
+                            "_prior_pitch_for_zone": _h_prior_pitch,
+                            "_dd2_bkt_for_zone": h_dict.get("d2_bucket_size", _h_dd2_bkt)}
+                return {"Signal": signal, "lo": None, "hi": None,
+                        "extra_ranges": [],
+                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                        "_zscore": _zs}
+
             if _h_prior_delta is not None:
                 _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
@@ -1547,6 +1585,16 @@ with tab_p:
                 _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
                 if _h:
                     _hint_rows_p.append(_delta_row_p("3-Δ seq", _h, _h_dd_n))
+
+            if _h_prior_d2sq is not None:
+                _h = utils.seq2_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta2_row_p("2-Δ² seq", _h, _h_dd2_n))
+
+            if _h_prior_d2sq is not None and _h_prior_d2sq2 is not None:
+                _h = utils.seq3_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq2, _h_prior_d2sq, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta2_row_p("3-Δ² seq", _h, _h_dd2_n))
 
             if _h_prior_diff is not None:
                 _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
@@ -1648,7 +1696,7 @@ with tab_p:
             if tab_p_pitcher != "All":
                 _stop_states = _load_pitcher_stoplights(
                     tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), utils.scouting_cache_sig(),
+                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), utils.scouting_cache_sig(),
                 )
                 _order_seen = []
                 for _r in _hint_rows_p:
@@ -1705,7 +1753,7 @@ with tab_p:
                     else:
                         _stoplight_inspector(
                             tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), _stop_states, _insp_order,
+                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), _stop_states, _insp_order,
                         )
             elif not result_ranges or not _h_recent:
                 st.caption("Fetch a matchup and select a pitcher to see suggestions.")
@@ -1723,7 +1771,8 @@ with tab_p:
             "Match on", ["Last 1 value", "Last 2 values"],
             horizontal=True, key="sv_seq_mode",
             on_change=lambda: (st.session_state.pop("sv_pitch_chart", None),
-                               st.session_state.pop("sv_delta_chart", None)),
+                               st.session_state.pop("sv_delta_chart", None),
+                               st.session_state.pop("sv_delta2_chart", None)),
         )
         _sv_use2 = _sv_mode == "Last 2 values"
         _sv_note = "matched on last 2 values" if _sv_use2 else None
@@ -1756,7 +1805,7 @@ with tab_p:
                           on_click=lambda: st.session_state.pop(wkey, None))
             st.caption("Click an outcome bar to filter the paths to that next-value bin.")
 
-        _sv_pitch_tab, _sv_delta_tab = st.tabs(["Pitch #", "Delta"])
+        _sv_pitch_tab, _sv_delta_tab, _sv_delta2_tab = st.tabs(["Pitch #", "Delta", "Delta²"])
         with _sv_pitch_tab:
             if _h_prior_pitch is None or (_sv_use2 and _h_prior_pitch2 is None):
                 st.caption("No historical matches for this context.")
@@ -1782,6 +1831,18 @@ with tab_p:
                 else:
                     _sv_fragment(_sv_res["matches"], _h_delta_hist[-3:], (0, 500), "|Δ|",
                                  _h_dd_bkt, "sv_delta_chart", _is_mobile, _sv_note)
+        with _sv_delta2_tab:
+            if _h_prior_d2sq is None or (_sv_use2 and _h_prior_d2sq2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq,
+                    prior_val2=_h_prior_d2sq2 if _sv_use2 else None, domain="delta2")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_d2sq_hist[-3:], (0, 500), "|Δ²|",
+                                 _h_dd2_bkt, "sv_delta2_chart", _is_mobile, _sv_note)
 
         # ── swing predictor ───────────────────────────────────────────────────
         st.subheader("Swing Analyzer")
@@ -2005,6 +2066,47 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             if _third_delta_fig_p:
                 st.plotly_chart(_third_delta_fig_p, width="stretch",
                                 config={"displayModeBar": False}, key="p_delta_third")
+            else:
+                st.caption("Not enough data for this delta sequence.")
+
+            st.divider()
+            st.subheader("Next Pitch Delta² vs Prior Pitch Delta²")
+            st.caption("How does the size of the pitcher's adjustment change from one pitch to the next?")
+            dd2_bucket_p = st.select_slider("Bucket size (Δ²)", options=[25, 50, 100, 125, 250, 500], value=100, key="dd2_bucket_p")
+            st.plotly_chart(
+                utils.next_delta2_vs_prior_delta2_heatmap(df_p, title="Next Pitch Δ² vs Prior Pitch Δ²", value_col="pitch", bucket_size=dd2_bucket_p),
+                width="stretch", config={"displayModeBar": False}, key="p_delta2_delta2_hm",
+            )
+
+            _dd2_p_abs_hist = (
+                df_p[df_p["pitch_circ_delta2"].notna()]
+                .sort_values("id")["pitch_circ_delta2"].abs().astype(int).tolist()
+            )
+            _dd2_p_def_init   = _dd2_p_abs_hist[-2] if len(_dd2_p_abs_hist) >= 2 else 250
+            _dd2_p_def_follow = _dd2_p_abs_hist[-1] if _dd2_p_abs_hist else 250
+            _dd2c1_p, _dd2c2_p = st.columns(2)
+            with _dd2c1_p:
+                _dd2_p_init_val = st.number_input(
+                    "Initial |Δ²|", min_value=0, max_value=500,
+                    value=_dd2_p_def_init, step=1, key=f"dd2_p_init_{tab_p_pitcher}",
+                )
+            with _dd2c2_p:
+                _dd2_p_follow_val = st.number_input(
+                    "Following |Δ²|", min_value=0, max_value=500,
+                    value=_dd2_p_def_follow, step=1, key=f"dd2_p_follow_{tab_p_pitcher}",
+                )
+            _n_bkts2_p = 500 // dd2_bucket_p
+            _dd2_p_ii = min(max(0, (_dd2_p_init_val - 1) // dd2_bucket_p if _dd2_p_init_val > 0 else 0), _n_bkts2_p - 1)
+            _dd2_p_fi = min(max(0, (_dd2_p_follow_val - 1) // dd2_bucket_p if _dd2_p_follow_val > 0 else 0), _n_bkts2_p - 1)
+            _dd2_p_init_lbl   = f"{_dd2_p_ii * dd2_bucket_p}-{(_dd2_p_ii + 1) * dd2_bucket_p}"
+            _dd2_p_follow_lbl = f"{_dd2_p_fi * dd2_bucket_p}-{(_dd2_p_fi + 1) * dd2_bucket_p}"
+            _third_delta2_fig_p = utils.delta2_third_dist(
+                df_p, value_col="pitch", bucket_size=dd2_bucket_p,
+                init_label=_dd2_p_init_lbl, follow_label=_dd2_p_follow_lbl,
+            )
+            if _third_delta2_fig_p:
+                st.plotly_chart(_third_delta2_fig_p, width="stretch",
+                                config={"displayModeBar": False}, key="p_delta2_third")
             else:
                 st.caption("Not enough data for this delta sequence.")
 

@@ -18,7 +18,8 @@
       "Bash(pip list *)",
       "Bash(curl -s -o /dev/null -w \"8501: %{http_code}\\\\n\" --max-time 2 http://localhost:8501)",
       "Bash(curl -s -o /dev/null -w \"8502: %{http_code}\\\\n\" --max-time 2 http://localhost:8502)",
-      "Skill(dataviz)"
+      "Skill(dataviz)",
+      "WebFetch(domain:www.rslashfakebaseball.com)"
     ]
   }
 }
