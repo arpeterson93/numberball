@@ -268,11 +268,27 @@ def _load_pitcher_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], 
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
     return utils.scouting_recency_detail(df, "pitch", signal, window_n, hz_bkt, dd_bkt, dd2_bkt)
 
-_STOPLIGHT_ORDER = ["2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "2-Δ² seq", "3-Δ² seq",
+_OBP_STOPLIGHT_SIGNALS = ["OBP recent pitch", "OBP recent Δ", "OBP recent Δ²"]
+_STOPLIGHT_ORDER = _OBP_STOPLIGHT_SIGNALS + [
+                    "2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "2-Δ² seq", "3-Δ² seq",
                     "Prior diff → Δ", "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
 _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
-def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, dd2_bkt, states, order):
+@st.cache_data(ttl=3600)
+def _load_pitcher_obp_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
+                                 window_n: int, ranges_key: tuple, rel_key: tuple, sig: tuple) -> dict:
+    df = _load_pitcher_plays(pitcher_name, leagues, data_v)
+    return utils.obp_recency_states(df, "pitch", window_n, [list(r) for r in ranges_key], rel_key)
+
+@st.cache_data(ttl=3600)
+def _load_pitcher_obp_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
+                                       signal: str, window_n: int, ranges_key: tuple,
+                                       rel_key: tuple, sig: tuple) -> dict:
+    df = _load_pitcher_plays(pitcher_name, leagues, data_v)
+    return utils.obp_recency_detail(df, "pitch", signal, window_n, [list(r) for r in ranges_key], rel_key)
+
+def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, dd2_bkt,
+                         ranges_key, rel_key, states, order):
     """Debug/tuning view: per-indication summary, a per-pitch probability trend
     line, and the per-pitch drill-down table. Not an @st.fragment on purpose - a
     fragment nested inside st.tabs breaks tab hiding on rerun (dumps every tab's
@@ -299,8 +315,13 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
         st.caption("No scored events yet for any indication.")
         return
     _sel = st.selectbox("Indication", _avail, key="insp_signal_p")
-    _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel,
-                                        window_n, hz_bkt, dd_bkt, dd2_bkt, utils.scouting_cache_sig())
+    _is_obp = _sel in _OBP_STOPLIGHT_SIGNALS
+    if _is_obp:
+        _d = _load_pitcher_obp_stoplight_detail(pitcher_name, leagues, data_v, _sel,
+                                                window_n, ranges_key, rel_key, utils.scouting_cache_sig())
+    else:
+        _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel,
+                                            window_n, hz_bkt, dd_bkt, dd2_bkt, utils.scouting_cache_sig())
     _rows = _d["rows"]
     if not _rows:
         st.caption("No scored pitches for this indication.")
@@ -309,10 +330,15 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
     _base = 100.0 / _d["k"] if _d["k"] else 0.0
     if _d["n_scored"] >= utils.MIN_SCORED:
         _v = _d["votes"]
+        if _is_obp:
+            _tail = ("width-proportional baseline (k varies per step)"
+                     " - measures displacement behavior vs each day's recommended zone")
+        else:
+            _tail = f"random baseline {_base:.0f}% (k={_d['k']})"
         st.caption(
             f"last {window_n}:  scouting {_v['scouting']} · neutral {_v['neutral']} · anti {_v['anti']}"
             f"  ->  {(_d['state'] or 'n/a').upper()}   ·   {_d['n_scored']} career events, "
-            f"random baseline {_base:.0f}% (k={_d['k']})"
+            f"{_tail}"
         )
     else:
         st.caption(f"{_d['n_scored']} career events (< {utils.MIN_SCORED} needed for a light)")
@@ -323,9 +349,10 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
     _CLS_LABEL = {"scouting": "Scouting", "neutral": "Neutral", "anti": "Anti"}
     _CLS_BG = {"scouting": "rgba(46,125,50,0.35)", "neutral": "rgba(249,168,37,0.28)",
                "anti": "rgba(198,40,40,0.35)"}
+    _has_p0 = bool(_rows) and ("p0" in _rows[0])
     _disp, _meta = [], []
     for _r in reversed(_rows):
-        _disp.append({
+        _row = {
             "Game": _r.get("game"),
             "Pitch": _r["pitch_val"],
             "Swing": _r.get("swing_val"),
@@ -333,9 +360,13 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
             "Context": _r["ctx_label"],
             "Observed": _r["obs_label"],
             "Prob %": _r["p_obs"] * 100,
-            "Score": _r["score"],
-            "Class": _CLS_LABEL.get(_r["cls"], _r["cls"]),
-        })
+        }
+        if _has_p0:
+            _row["Base %"] = _r["p0"] * 100
+            _row["Ratio"] = _r["p_obs"] / _r["p0"] if _r["p0"] else 0.0
+        _row["Score"] = _r["score"]
+        _row["Class"] = _CLS_LABEL.get(_r["cls"], _r["cls"])
+        _disp.append(_row)
         _meta.append((_r["in_window"], _CLS_BG.get(_r["cls"])))
     _tdf = pd.DataFrame(_disp)
 
@@ -346,8 +377,11 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
                 _styles.iloc[_i, :] = f"background-color: {_bg}"
         return _styles
 
+    _fmt = {"Prob %": "{:.1f}", "Score": "{:.2f}"}
+    if _has_p0:
+        _fmt.update({"Base %": "{:.1f}", "Ratio": "{:.2f}x"})
     st.dataframe(
-        _tdf.style.apply(_highlight, axis=None).format({"Prob %": "{:.1f}", "Score": "{:.2f}"}),
+        _tdf.style.apply(_highlight, axis=None).format(_fmt),
         hide_index=True, use_container_width=True, height=320)
 
 @st.cache_data(ttl=3600)
@@ -1692,27 +1726,42 @@ with tab_p:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
-            _obp_rows_p = [r for r in _hint_rows_p if r["Signal"].startswith("OBP")]
-            _seq_rows_p = [r for r in _hint_rows_p if not r["Signal"].startswith("OBP")]
-            _seq_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
-            _hint_rows_p = _obp_rows_p + _seq_rows_p
+            # Sort ALL rows by z-score descending - OBP rows are no longer pinned
+            # at top; their z-scores are now on the same statistical footing as
+            # every other indication, so they compete in the same ranking.
+            _hint_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
 
             # Scouting-recency stoplight: attach a state to each matching row. The
             # Outs(...) and Base state (...) Signals are dynamic, so map them to
-            # the engine's canonical keys. OBP rows have no stoplight.
+            # the engine's canonical keys. OBP rows get their own backtest-driven
+            # states (separate loader/cache), merged in below.
             _stop_states = {}
             _insp_order = list(_STOPLIGHT_ORDER)
+            # Keys for the OBP loaders - always defined when a pitcher is selected
+            # so the inspector call below can reference them regardless of gating.
+            _obp_ranges_key = tuple(tuple(r) for r in (active_ranges or []))
+            _obp_rel_key = (
+                st.session_state.get("p_rel_recency", 50),
+                st.session_state.get("p_rel_result", 50),
+                st.session_state.get("p_rel_state", 0),
+                st.session_state.get("p_rel_g1", 20),
+                st.session_state.get("p_rel_g2", 40),
+                st.session_state.get("p_rel_g3", 40),
+                bool(st.session_state.get("p_rel_result_offset", True)),
+            )
             if tab_p_pitcher != "All":
                 _stop_states = _load_pitcher_stoplights(
                     tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
                     int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), utils.scouting_cache_sig(),
                 )
+                if result_ranges:
+                    _stop_states.update(_load_pitcher_obp_stoplights(
+                        tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                        int(n_pitches), _obp_ranges_key, _obp_rel_key, utils.scouting_cache_sig(),
+                    ))
                 _order_seen = []
                 for _r in _hint_rows_p:
                     _sig = _r["Signal"]
-                    if _sig.startswith("OBP"):
-                        continue
                     if _sig.startswith("Outs("):
                         _key = "Outs"
                     elif _sig.startswith("Base state ("):
@@ -1763,7 +1812,8 @@ with tab_p:
                     else:
                         _stoplight_inspector(
                             tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), _stop_states, _insp_order,
+                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt),
+                            _obp_ranges_key, _obp_rel_key, _stop_states, _insp_order,
                         )
             elif not result_ranges or not _h_recent:
                 st.caption("Fetch a matchup and select a pitcher to see suggestions.")
@@ -2288,10 +2338,16 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         # ── raw data ──────────────────────────────────────────────────────────
         with st.expander("Raw Plate Appearance Data"):
             _disp_p = df_p[["season","game_id","inning","outs","obc","pitcher_name","batter_name",
-                             "pitch","swing","diff","result","res_category"]].copy()
+                             "pitch","swing","diff","result","res_category",
+                             "pitch_circ_delta","pitch_circ_delta2_signed","pitch_circ_delta2"]].copy()
             _disp_p["obc"] = _disp_p["obc"].map(utils.obc_display)
+            _disp_p["_delta_abs"] = _disp_p["pitch_circ_delta"].abs()
+            _disp_p = _disp_p[["season","game_id","inning","outs","obc","pitcher_name","batter_name",
+                                "pitch","swing","diff","result","res_category",
+                                "pitch_circ_delta","_delta_abs","pitch_circ_delta2_signed","pitch_circ_delta2"]]
             _disp_p.columns = ["Season","Game","Inn","Outs","Runners","Pitcher","Batter",
-                                "Pitch","Swing","Diff","Result","Category"]
+                                "Pitch","Swing","Diff","Result","Category",
+                                "Δ","|Δ|","Δ²","|Δ²|"]
             _disp_p = _disp_p.iloc[::-1].reset_index(drop=True)
             st.dataframe(_disp_p, use_container_width=True, hide_index=True)
 
@@ -2572,11 +2628,10 @@ with tab_b:
                                          "_zone_bucket_size": 111,
                                          "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
 
-            # Sort non-OBP rows by z-score descending; OBP rows stay pinned at top
-            _obp_rows_b = [r for r in _hint_rows_b if r["Signal"].startswith("OBP")]
-            _seq_rows_b = [r for r in _hint_rows_b if not r["Signal"].startswith("OBP")]
-            _seq_rows_b.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
-            _hint_rows_b = _obp_rows_b + _seq_rows_b
+            # Sort ALL rows by z-score descending - OBP rows are no longer pinned
+            # at top; their z-scores are now on the same statistical footing as
+            # every other indication, so they compete in the same ranking.
+            _hint_rows_b.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
 
             if _hint_rows_b:
                 _tb1, _tb2 = st.columns(2)

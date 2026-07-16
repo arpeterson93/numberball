@@ -981,6 +981,7 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_circ_delta"] = pd.NA
     df["swing_circ_delta"] = pd.NA
     df["pitch_circ_delta2"] = pd.NA
+    df["pitch_circ_delta2_signed"] = pd.NA
     df["pitch_approach"] = pd.NA
     df["pitch_wraparound"] = pd.NA
     if sw.any():
@@ -1000,9 +1001,12 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         # Second derivative and approach - re-read df to pick up pitch_circ_delta
         sw_df2 = df[sw]
         gk_pit2 = (sw_df2["game_id"].astype(str) + "|" + sw_df2["pitcher_name"].fillna(""))
-        df.loc[sw, "pitch_circ_delta2"] = sw_df2.groupby(
+        df.loc[sw, "pitch_circ_delta2_signed"] = sw_df2.groupby(
             gk_pit2, group_keys=False
-        )["pitch_circ_delta"].apply(lambda g: g.abs().diff().abs())
+        )["pitch_circ_delta"].apply(lambda g: g.abs().diff())
+        # Unsigned is just the magnitude of the signed version - positive means
+        # the movement grew (accelerated), negative means it shrank (decelerated).
+        df.loc[sw, "pitch_circ_delta2"] = df.loc[sw, "pitch_circ_delta2_signed"].abs()
         # Use SeriesGroupBy (pitch only) with swing captured via closure to avoid
         # DataFrameGroupBy.apply returning a DataFrame in pandas 2.x
         _sw2_swing = sw_df2["swing"]
@@ -3737,6 +3741,10 @@ def delta_next_zone_dist(
 SCOUT_PP_THRESHOLDS = {"scouting_min": +0.11, "anti_max": -0.14}
 MIN_SCORED = 3  # need this many career eligible events before showing any light
 SCOUT_SCORING_VERSION = 2  # bump when the per-pitch score formula changes
+# OBP-stoplight partition cap: at most this many non-zone ("other") buckets, so
+# k <= 20 - matches the finest existing signal (dd_bkt=25 -> 500/25 = 20),
+# bounds per-step work and the worst-case |score|. See obp_bucket_widths.
+OBP_MAX_OTHER_BUCKETS = 19
 
 
 def scouting_cache_sig() -> tuple:
@@ -3748,16 +3756,25 @@ def scouting_cache_sig() -> tuple:
             SCOUT_PP_THRESHOLDS["scouting_min"], SCOUT_PP_THRESHOLDS["anti_max"])
 
 
-def _score_from_probs(p: "np.ndarray", observed: int) -> float:
-    """Uniform-referenced score = ln(k * p_obs). > 0 means they hit a bucket
-    their book favors (likelier than a random 1/k bucket) = following scouting;
-    < 0 means a disfavored bucket = defying it; 0 = league-random.
+def _score_from_probs(p: "np.ndarray", observed: int, p0=None) -> float:
+    """Baseline-referenced score = ln(p_obs / p0_obs). > 0 means they hit a
+    bucket their book favors (likelier than baseline) = following scouting;
+    < 0 means a disfavored bucket = defying it; 0 = baseline.
 
-    Worked example: p = [0.1, 0.2, 0.2, 0.2, 0.3], k = 5. Hitting the 30% bucket
-    -> ln(5*0.3) = ln(1.5) = +0.405 (scouting). Hitting the 10% bucket ->
-    ln(5*0.1) = ln(0.5) = -0.693 (anti). The uniform 20% bucket -> ln(1) = 0.
+    p0=None is the equal-width case: baseline is a uniform 1/k bucket, so the
+    score reduces to ln(k * p_obs) - bit-identical to the original callers
+    (_surprisal_walk / _surprisal_walk_detail). Pass an explicit p0 array (a
+    per-bucket baseline, e.g. width-proportional shares that need not sum to a
+    uniform 1/k) for the OBP backtest, where buckets have unequal width.
+
+    Worked example (p0=None): p = [0.1, 0.2, 0.2, 0.2, 0.3], k = 5. Hitting the
+    30% bucket -> ln(5*0.3) = ln(1.5) = +0.405 (scouting). Hitting the 10%
+    bucket -> ln(5*0.1) = ln(0.5) = -0.693 (anti). The uniform 20% bucket ->
+    ln(1) = 0.
     """
-    return float(np.log(len(p) * p[observed]))
+    if p0 is None:
+        return float(np.log(len(p) * p[observed]))
+    return float(np.log(p[observed] / p0[observed]))
 
 
 def _surprisal_walk(context_keys, outcome_buckets, k, alpha=1.0):
@@ -4138,6 +4155,378 @@ def scouting_recency_detail(
             "votes": agg["votes"], "window_n": window_n, "k": k}
 
 
+# ── OBP-recency stoplight (pitcher side) ─────────────────────────────────────
+# A categorical bucket-prediction backtest for the three "OBP recent X"
+# Suggestions rows. At each historical pitch we regrow that step's own
+# best-value zone (Stage 1) from the same FFT-convolved score curve
+# obp_zone_signal uses, partition the value circle into the zone plus a handful
+# of equal-ish "other" buckets (obp_bucket_widths), then score which bucket the
+# pitcher actually hit against his point-in-time displacement history:
+# score = ln(p_pred / p0), p0 = the bucket's width share (geometry only, never
+# learned). Evidence is pooled as raw circular displacements from each day's
+# zone center, so a per-step-varying zone width keeps the null unbiased (a
+# uniform-random pitch scores ~0 at every step regardless of the day's shape).
+# The stoplight vote/threshold machinery (_aggregate_recency, SCOUT_PP_THRESHOLDS)
+# is shared with the sequence signals so the page wiring is untouched.
+
+_OBP_SIGNAL_KINDS = {
+    "OBP recent pitch": "pitch",
+    "OBP recent Δ": "delta",
+    "OBP recent Δ²": "delta2",
+}
+
+
+def obp_bucket_widths(W: int) -> "list[int] | None":
+    """Partition the 1000-value circle into a W-wide zone bucket plus a handful
+    of near-equal 'other' buckets that tile the remaining 1000-W values.
+
+    Returns [W, w1, w2, ...] summing to exactly 1000, or None when W is
+    degenerate (>= 1000, no room for an other bucket). n_other is chosen so the
+    other buckets are about as wide as the zone (round-half-up), capped at
+    OBP_MAX_OTHER_BUCKETS. Pure geometry - unit-testable, memoizable per pitcher
+    (only a few distinct W occur). Examples: W=328 -> [328, 336, 336];
+    W=270 -> [270, 244, 243, 243]."""
+    if W >= 1000 or W <= 0:
+        return None
+    remaining = 1000 - W
+    n_other = max(1, int(remaining / W + 0.5))  # round half UP, not banker's round
+    n_other = min(n_other, OBP_MAX_OTHER_BUCKETS, remaining)
+    base, rem = divmod(remaining, n_other)
+    widths = [W] + [base + 1] * rem + [base] * (n_other - rem)
+    assert sum(widths) == 1000, (W, widths)
+    return widths
+
+
+def _obp_weight_factors(sw, n_window: int, rel_params) -> dict:
+    """Precompute per-pitch quantities for the point-in-time relevance weights,
+    once per pitcher/signal-independent - the vectorized equivalent of calling
+    compute_pa_weights per historical step. See _obp_window_weights for the
+    per-step assembly. rel_params = (recency_slider, result_slider, state_slider,
+    g1, g2, g3, result_offset)."""
+    (recency_slider, result_slider, state_slider, g1, g2, g3, result_offset) = rel_params
+    T = len(sw)
+    tr = (recency_slider - 50) / 50.0
+    ts = (result_slider - 50) / 50.0
+    te = state_slider / 100.0
+    g_total = max(g1 + g2 + g3, 1e-9)
+    gn = (g1 / g_total, g2 / g_total, g3 / g_total)
+
+    # Recency weight: pure function of window LENGTH (constant with strict full
+    # windows), so one vector serves every step - mirrors compute_pa_weights.
+    pos = np.linspace(0, 1, n_window) if n_window > 1 else np.array([0.5])
+    recency_vec = np.exp(tr * (2 * pos - 1) * 1.151)
+
+    # Result weight: per-pitch batting quality -> weight. The result_offset
+    # variant is the quality of the PREVIOUS pitch; the window's first element is
+    # forced neutral (q=0.5 -> weight 1.0) in _obp_window_weights, NOT the global
+    # predecessor - matching compute_pa_weights' src_i = i-1, i==0 branch.
+    if "result" in sw.columns:
+        q = sw["result"].map(
+            lambda r: _BATTING_QUALITY.get(str(r) if pd.notna(r) else "", 0.5)
+        ).to_numpy(dtype=float)
+    else:
+        q = np.full(T, 0.5)
+    rw_no_off = np.exp(ts * (2 * q - 1) * 1.151)
+    rw_off_full = np.empty(T)
+    rw_off_full[0] = 1.0  # exp(ts*(2*0.5-1)*1.151) with q=0.5 = exp(0) = 1.0
+    if T > 1:
+        rw_off_full[1:] = rw_no_off[:-1]
+
+    # State weight: 8 obc x 3 outs = 24 states; a 24x24 similarity table gathered
+    # per step. NaN defaults match compute_pa_weights (obc "000", outs 0).
+    has_state = ("obc" in sw.columns and "outs" in sw.columns)
+    if has_state:
+        def _obc_idx(s):
+            s = str(s).zfill(3)
+            return int(s, 2) if len(s) == 3 and set(s) <= {"0", "1"} else 0
+        obc_ser = sw["obc"]
+        obc_idx = obc_ser.where(obc_ser.notna(), "000").map(_obc_idx).to_numpy()
+        outs_int = pd.to_numeric(sw["outs"], errors="coerce").fillna(0).astype(int).clip(0, 2).to_numpy()
+        code = (obc_idx * 3 + outs_int).astype(int)
+        SIM = np.zeros((24, 24))
+        for a in range(24):
+            oa, ta = divmod(a, 3)
+            bits_a = ((oa >> 2) & 1, (oa >> 1) & 1, oa & 1)
+            for b in range(24):
+                ob_, tb = divmod(b, 3)
+                bits_b = ((ob_ >> 2) & 1, (ob_ >> 1) & 1, ob_ & 1)
+                obc_sim = sum(x == y for x, y in zip(bits_a, bits_b)) / 3.0
+                outs_sim = 1.0 - abs(ta - tb) / 2.0
+                SIM[a, b] = 0.5 * obc_sim + 0.5 * outs_sim
+    else:
+        code = np.zeros(T, dtype=int)
+        SIM = np.full((24, 24), 0.5)
+
+    return {"n_window": n_window, "gn": gn, "te": te,
+            "recency_vec": recency_vec, "rw_no_off": rw_no_off,
+            "rw_off_full": rw_off_full, "result_offset": bool(result_offset),
+            "has_state": has_state, "code": code, "SIM": SIM}
+
+
+def _obp_window_weights(factors: dict, t: int) -> "np.ndarray":
+    """Assemble the (n_window,) relevance weight vector for the window ending
+    just before step t (rows [t-n_window : t]), from precomputed factors. The
+    point-in-time 'current' state is that of the pitch at t (known before it is
+    thrown). Mirrors compute_pa_weights' combine + normalize exactly."""
+    n = factors["n_window"]
+    lo = t - n
+    rec = factors["recency_vec"]
+    if factors["result_offset"]:
+        res = factors["rw_off_full"][lo:t].copy()
+        res[0] = 1.0
+    else:
+        res = factors["rw_no_off"][lo:t]
+    if factors["has_state"]:
+        c_t = int(factors["code"][t])
+        sims = factors["SIM"][factors["code"][lo:t], c_t]
+        sta = np.exp(factors["te"] * (2 * sims - 1) * 1.151)
+    else:
+        sta = np.ones(n)
+
+    def _norm01(w):
+        wmin, wmax = w.min(), w.max()
+        if wmax > wmin:
+            return (w - wmin) / (wmax - wmin)
+        return np.full_like(w, 0.5)
+
+    gn1, gn2, gn3 = factors["gn"]
+    combined = gn1 * _norm01(rec) + gn2 * _norm01(res) + gn3 * _norm01(sta)
+    mean_c = combined.mean()
+    if mean_c > 0:
+        combined = combined / mean_c
+    return combined
+
+
+def _pa_weights_point_in_time(sw, t: int, n_window: int, rel_params) -> "np.ndarray":
+    """Thin wrapper (precompute + one step) so the Stage 8 test can assert per-step
+    equality against a real compute_pa_weights call. The walk uses the precompute
+    once and _obp_window_weights per step instead."""
+    return _obp_window_weights(_obp_weight_factors(sw, n_window, rel_params), t)
+
+
+def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
+                     rel_params, alpha: float = 1.0, maximize: bool = True) -> list:
+    """Point-in-time bucket-prediction backtest for one OBP signal. Emits one
+    entry per row of sw - None for ineligible steps, else a dict with keys
+    best_val, zone_lo, zone_hi, W, k, obs, arc_lo, arc_hi, p_obs, p0_obs, score.
+
+    kind in {"pitch", "delta", "delta2"} selects the population the recommendation
+    is built from (raw window / delta-projection / delta2-projection), mirroring
+    the live rows including crossing game boundaries inside the window.
+
+    At each eligible step t (strict full window, rows [t-n_window : t]) the zone is
+    regrown FRESH from that step's own score curve using today's live ranges/kernel
+    (Stage 1), the circle is partitioned by obp_bucket_widths, and the pitch at t is
+    scored ln(p_pred/p0) against the point-in-time displacement histogram. The
+    populations are relevance-weighted (weights shape the recommendation - i.e. the
+    question - not the evidentiary weight of what was actually thrown, so the
+    displacement histogram is updated unweighted: one real trial per pitch)."""
+    T = 0 if sw is None else len(sw)
+    empty = [None] * T
+    if T == 0 or value_col not in sw.columns:
+        return empty
+    obr_max = int(max((hi for result, _lo, hi in ranges if result in _OBR), default=0))
+    if obr_max <= 0 or obr_max >= 1000:
+        return empty
+    min_len = {"pitch": 1, "delta": 2, "delta2": 3}.get(kind)
+    if min_len is None or n_window < min_len or T <= n_window:
+        return empty
+
+    vals = sw[value_col].astype(int).to_numpy()
+
+    # Kernel from today's ranges. Use the SAME full-fft path _scores_via_fft
+    # uses (not rfft): on the flat score plateaus a box kernel produces, the two
+    # transforms differ at machine epsilon and would break the argmax tie one
+    # index apart from the live obp_zone_signal - so the batched fft below must
+    # be bit-identical to the live per-row call for best_val to match.
+    diff_arr = _diff_score_array(ranges, "obp")
+    kernel = np.array([diff_arr[min(d, 1000 - d)] for d in range(1000)])
+    kfft = np.fft.fft(kernel)
+
+    factors = _obp_weight_factors(sw, n_window, rel_params)
+
+    elig = np.arange(n_window, T)
+    n_elig = len(elig)
+
+    # One weight-array row per eligible step, built with the SAME
+    # _build_weight_array the live path feeds _scores_via_fft (including its
+    # normalize-by-weight-total and per-element accumulation order). A box OBR
+    # kernel produces flat-topped score plateaus, so best_val is an argmax tie:
+    # only a bit-identical weight array makes the backtest pick the same plateau
+    # index as the live obp_zone_signal. A single batched fft over the stack is
+    # bit-identical to per-row _scores_via_fft calls, so S matches exactly.
+    Wmat = np.zeros((n_elig, 1000))
+    for r, t in enumerate(elig):
+        w_win = vals[t - n_window:t]
+        wts = _obp_window_weights(factors, t)
+        if kind == "pitch":
+            pop = w_win.tolist()
+            wv = wts.tolist()
+        elif kind == "delta":
+            pop = project_from_deltas(w_win.tolist())
+            wv = wts[1:].tolist()
+        else:  # delta2 - project_from_delta2s emits 2 per delta2; weights x2 to match
+            pop = project_from_delta2s(w_win.tolist())
+            wv = np.repeat(wts[2:], 2).tolist()
+        if not pop or len(wv) != len(pop):
+            continue
+        Wmat[r] = _build_weight_array(pop, wv)
+
+    S = np.real(np.fft.ifft(np.fft.fft(Wmat, axis=1) * kfft[None, :], axis=1))
+
+    # Batched zone regrowth (Stage 1) - mirrors obp_zone_signal's grow loop.
+    rows = np.arange(n_elig)
+    best_idx = S.argmax(axis=1) if maximize else S.argmin(axis=1)
+    best = S[rows, best_idx]
+    worst = S.min(axis=1) if maximize else S.max(axis=1)
+    flat = (best - worst) < 1e-6
+    mid = (best + worst) / 2.0
+    above = (S > mid[:, None]) if maximize else (S < mid[:, None])
+    offs = np.arange(1, obr_max + 1)
+    cols_plus = (best_idx[:, None] + offs[None, :]) % 1000
+    cols_minus = (best_idx[:, None] - offs[None, :]) % 1000
+    ap = above[rows[:, None], cols_plus]
+    am = above[rows[:, None], cols_minus]
+
+    def _runlen(mask):
+        # Leading-True run length per row = first False index, or obr_max if none.
+        has_false = (~mask).any(axis=1)
+        return np.where(has_false, np.argmax(~mask, axis=1), obr_max)
+
+    right_t = np.where(flat, obr_max, _runlen(ap))
+    left_t = np.where(flat, obr_max, _runlen(am))
+    W_arr = left_t + right_t + 1  # true covered count lo..hi inclusive (the +1 form)
+
+    # Sequential displacement scoring - evidence accumulates, so this part is a
+    # Python walk over eligible steps (cheap: k<=20 inner work, ms total).
+    disp_hist = np.zeros(1000)
+    total = 0.0
+    widths_cache: dict = {}
+    out = list(empty)
+    for r, t in enumerate(elig):
+        W = int(W_arr[r])
+        if W not in widths_cache:
+            widths_cache[W] = obp_bucket_widths(W)
+        widths = widths_cache[W]
+        if widths is None:
+            continue  # degenerate partition -> ineligible (no score, no evidence)
+        lt, rt = int(left_t[r]), int(right_t[r])
+        bval = int(best_idx[r]) + 1
+        k_t = len(widths)
+        p0 = np.array(widths, dtype=float) / 1000.0
+
+        # Bucket evidence via a prefix sum over the displacement histogram.
+        # Backward-compat: constant shape -> D == relative-index counts, and with
+        # p0 = 1/k this reduces to _surprisal_walk's (counts+alpha)/(total+alpha*k).
+        P = np.concatenate(([0.0], np.cumsum(disp_hist)))
+        D = np.empty(k_t)
+        d0 = P[rt + 1] - P[0]                       # zone arc [0, rt]
+        if lt > 0:
+            d0 += P[1000] - P[1000 - lt]            # + zone wrap arc [1000-lt, 999]
+        D[0] = d0
+        start = rt + 1
+        for i in range(1, k_t):
+            w = widths[i]
+            D[i] = P[start + w] - P[start]
+            start += w
+        p_pred = (D + alpha * k_t * p0) / (total + alpha * k_t)
+
+        # Observed displacement and its bucket.
+        u = (int(vals[t]) - bval) % 1000
+        if u <= rt or u >= 1000 - lt:
+            ob = 0
+            arc_lo = ((bval - lt - 1) % 1000) + 1
+            arc_hi = ((bval + rt - 1) % 1000) + 1
+        else:
+            offset = u - (rt + 1)
+            cum = 0
+            ob = 1
+            for i in range(1, k_t):
+                if offset < cum + widths[i]:
+                    ob = i
+                    break
+                cum += widths[i]
+            d_lo = rt + 1 + cum
+            d_hi = d_lo + widths[ob] - 1
+            arc_lo = ((bval + d_lo - 1) % 1000) + 1
+            arc_hi = ((bval + d_hi - 1) % 1000) + 1
+
+        score = _score_from_probs(p_pred, ob, p0)
+        zone_lo = ((bval - lt - 1) % 1000) + 1
+        zone_hi = ((bval + rt - 1) % 1000) + 1
+        out[t] = {"best_val": bval, "zone_lo": zone_lo, "zone_hi": zone_hi,
+                  "W": W, "k": k_t, "obs": ob, "arc_lo": arc_lo, "arc_hi": arc_hi,
+                  "p_obs": float(p_pred[ob]), "p0_obs": float(p0[ob]),
+                  "score": float(score)}
+        disp_hist[u] += 1.0
+        total += 1.0
+    return out
+
+
+def obp_recency_states(df: "pd.DataFrame", value_col: str, window_n: int,
+                       ranges, rel_params) -> dict:
+    """Per-signal OBP stoplight for one player. Same return shape as
+    scouting_recency_states so the page merges the two with dict.update."""
+    sw = _recency_frame(df, value_col)
+    if sw is None:
+        return {}
+    out = {}
+    for sig, kind in _OBP_SIGNAL_KINDS.items():
+        walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params)
+        scores = [r["score"] if r else None for r in walk]
+        out[sig] = _aggregate_recency(scores, window_n, 1)  # k unused by _aggregate_recency
+    return out
+
+
+def obp_recency_detail(df: "pd.DataFrame", value_col: str, signal: str,
+                       window_n: int, ranges, rel_params) -> dict:
+    """Per-pitch OBP backtest trace for one signal (inspector view). Same return
+    shape as scouting_recency_detail, with each row additionally carrying p0,
+    ratio (= p_obs/p0 = exp(score)), zone_lo, zone_hi, W. Top-level k is the LAST
+    eligible step's k_t (it varies per step; display-only)."""
+    empty = {"rows": [], "scores": [], "n_scored": 0, "avg": None, "rel": None,
+             "state": None, "votes": {"scouting": 0, "neutral": 0, "anti": 0},
+             "window_n": window_n, "k": 0}
+    sw = _recency_frame(df, value_col)
+    if sw is None or signal not in _OBP_SIGNAL_KINDS:
+        return empty
+    kind = _OBP_SIGNAL_KINDS[signal]
+    walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params)
+    gcode = (sw["game_code"] if "game_code" in sw.columns else sw["game_id"]).tolist()
+    pv = sw[value_col].astype(int).tolist()
+    sv = sw["swing"].tolist() if "swing" in sw.columns else [None] * len(sw)
+    dv = sw["diff"].tolist() if "diff" in sw.columns else [None] * len(sw)
+
+    def _int_or_na(v):
+        return int(v) if pd.notna(v) else None
+
+    rows = []
+    last_k = 0
+    for i, d in enumerate(walk):
+        if d is None:
+            continue
+        last_k = d["k"]
+        obs_label = "in zone" if d["obs"] == 0 else f"out+{d['obs']} ({d['arc_lo']}-{d['arc_hi']})"
+        rows.append({"game": gcode[i], "pitch_val": pv[i],
+                     "swing_val": _int_or_na(sv[i]), "diff_val": _int_or_na(dv[i]),
+                     "ctx_label": f"zone {d['zone_lo']}-{d['zone_hi']} (W={d['W']})",
+                     "obs_label": obs_label, "obs": d["obs"],
+                     "p_obs": d["p_obs"], "p0": d["p0_obs"],
+                     "ratio": float(np.exp(d["score"])),
+                     "zone_lo": d["zone_lo"], "zone_hi": d["zone_hi"], "W": d["W"],
+                     "score": d["score"]})
+    scores = [r["score"] for r in rows]
+    n_scored = len(scores)
+    lo = max(0, n_scored - window_n) if window_n and window_n > 0 else 0
+    for j, r in enumerate(rows):
+        r["in_window"] = j >= lo
+        r["cls"] = _classify_pp(r["score"])
+    agg = _aggregate_recency(scores, window_n, last_k)
+    return {"rows": rows, "scores": scores, "n_scored": n_scored,
+            "avg": agg["avg"], "rel": agg["rel"], "state": agg["state"],
+            "votes": agg["votes"], "window_n": window_n, "k": last_k}
+
+
 def scouting_score_histogram(scores, avg=None) -> go.Figure:
     """Histogram of the recent-window per-pitch scores for one indication, with
     the three classification bands shaded (red = anti on the left, yellow =
@@ -4202,12 +4591,26 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
 
     n = len(rows)
     x = list(range(1, n + 1))
-    prob = [r["p_obs"] * 100.0 for r in rows]
-    base = 100.0 / k
-    green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]) / k * 100.0)
-    red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]) / k * 100.0)
-    ymax = max(max(prob), green_lo) * 1.10
-    ymin = max(0.0, min(min(prob), red_hi) * 0.90)
+    # Auto-select the y unit. OBP-backtest rows carry a per-step baseline p0
+    # (unequal, per-step bucket widths), so a fixed P% axis is meaningless -
+    # plot the ratio p_obs/p0 instead, where the cutoffs and baseline are clean
+    # constants (exp(cutoff), 1.0). Every existing (equal-width) signal has no p0
+    # key and takes the byte-identical P% path below.
+    ratio_mode = bool(rows) and ("p0" in rows[0])
+    if ratio_mode:
+        yv = [(r["p_obs"] / r["p0"]) if r.get("p0") else 1.0 for r in rows]
+        base = 1.0
+        green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]))
+        red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]))
+        y_title = "P(bucket) / baseline"
+    else:
+        yv = [r["p_obs"] * 100.0 for r in rows]
+        base = 100.0 / k
+        green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]) / k * 100.0)
+        red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]) / k * 100.0)
+        y_title = "P(bucket) %"
+    ymax = max(max(yv), green_lo) * 1.10
+    ymin = max(0.0, min(min(yv), red_hi) * 0.90)
 
     fig.add_hrect(y0=green_lo, y1=ymax, fillcolor="#2e7d32", opacity=0.10, line_width=0)
     fig.add_hrect(y0=red_hi, y1=green_lo, fillcolor="#f9a825", opacity=0.09, line_width=0)
@@ -4219,18 +4622,28 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
 
     _cls_c = {"scouting": "#2e7d32", "neutral": "#f9a825", "anti": "#c62828"}
     colors = [_cls_c.get(r["cls"], "#9e9e9e") for r in rows]
-    cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game")] for r in rows]
+    if ratio_mode:
+        cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game"),
+               r["p_obs"] * 100.0, r["p0"] * 100.0, r.get("obs_label", "")] for r in rows]
+        hovertemplate = (
+            "pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
+            "<br>game %{customdata[3]} · %{y:.2f}x"
+            " (P=%{customdata[4]:.1f}% vs base %{customdata[5]:.1f}%)"
+            "<br>%{customdata[6]}<extra></extra>")
+    else:
+        cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game")] for r in rows]
+        hovertemplate = ("pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
+                         "<br>game %{customdata[3]} · P=%{y:.1f}%<extra></extra>")
     fig.add_trace(go.Scatter(
-        x=x, y=prob, mode="lines+markers",
+        x=x, y=yv, mode="lines+markers",
         line=dict(color="rgba(200,200,200,0.45)", width=1),
         marker=dict(size=6, color=colors),
         customdata=cd,
-        hovertemplate=("pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
-                       "<br>game %{customdata[3]} · P=%{y:.1f}%<extra></extra>"),
+        hovertemplate=hovertemplate,
     ))
     if n >= 3:
         ma_win = min(n, max(5, window_n // 2)) if window_n else min(n, 10)
-        ma = pd.Series(prob).rolling(ma_win, min_periods=1).mean().tolist()
+        ma = pd.Series(yv).rolling(ma_win, min_periods=1).mean().tolist()
         fig.add_trace(go.Scatter(x=x, y=ma, mode="lines", hoverinfo="skip",
                                  line=dict(color="rgba(255,255,255,0.85)", width=2)))
 
@@ -4238,7 +4651,7 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
     fig.update_layout(
         dragmode="pan",
         xaxis=dict(range=[max(0.5, n - view + 0.5), n + 0.5], title="pitch (older → newer)"),
-        yaxis=dict(range=[ymin, ymax], title="P(bucket) %", fixedrange=True),
+        yaxis=dict(range=[ymin, ymax], title=y_title, fixedrange=True),
         **layout,
     )
     return fig

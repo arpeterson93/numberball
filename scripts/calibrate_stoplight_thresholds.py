@@ -8,6 +8,15 @@ set to put ~1/3 of historical pitches in each stoplight zone.
 
 Usage:
     python scripts/calibrate_stoplight_thresholds.py [csv_path]
+    python scripts/calibrate_stoplight_thresholds.py [csv_path] --obp
+
+The default (sequence) mode reports the 33rd/67th percentile cut points for the
+eleven sequence indications. --obp mode instead replays the three OBP-recency
+signals through obp_recency_walk with a synthetic OBR band (widths X in
+{50, 100, 150}) and neutral relevance weights, reporting per-signal score
+percentiles, the scouting/neutral/anti shares under the current shared
+thresholds, and the empirical W_t / k_t distributions (the Q-cap evidence for
+OBP_MAX_OTHER_BUCKETS).
 
 csv_path defaults to plays_from_pitchers_200+_bf.csv in the repo root.
 """
@@ -20,7 +29,18 @@ import pandas as pd
 sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import _recency_indications, _surprisal_walk, _classify_pp, SCOUT_PP_THRESHOLDS
+from utils import (_recency_indications, _surprisal_walk, _classify_pp,
+                   SCOUT_PP_THRESHOLDS, OBP_MAX_OTHER_BUCKETS,
+                   _recency_frame, obp_recency_walk)
+
+# OBP-mode settings: synthetic OBR band widths and the recent-window default.
+OBP_BAND_WIDTHS = [50, 100, 150]
+OBP_WINDOW_N = 20
+# Neutral relevance weights (recency 50, result 50, state 0 -> uniform).
+OBP_NEUTRAL_REL = (50, 50, 0, 33, 33, 33, False)
+OBP_SIGNALS = [("OBP recent pitch", "pitch"),
+               ("OBP recent Δ", "delta"),
+               ("OBP recent Δ²", "delta2")]
 
 # Current page defaults for the pitcher-side stoplight (hz_init_bucket_p / dd_bucket_p).
 HZ_BKT = 200
@@ -98,8 +118,74 @@ def report(scores: pd.DataFrame) -> None:
     print(out.to_string())
 
 
+def score_all_obp(df: pd.DataFrame, band: int) -> pd.DataFrame:
+    """Walk every pitcher's career through the three OBP signals for one
+    synthetic OBR band width; return one row per scored pitch with score, W, k."""
+    ranges = [("1B", 0, band)]
+    records = []
+    for pid, sub in df.groupby("pitcher_id"):
+        sw = _recency_frame(sub, "pitch")
+        if sw is None:
+            continue
+        for sig, kind in OBP_SIGNALS:
+            walk = obp_recency_walk(sw, "pitch", kind, OBP_WINDOW_N, ranges, OBP_NEUTRAL_REL)
+            for r in walk:
+                if r is not None:
+                    records.append((pid, sig, float(r["score"]), int(r["W"]), int(r["k"])))
+    return pd.DataFrame(records, columns=["pitcher_id", "indication", "score", "W", "k"])
+
+
+def report_obp(scores: pd.DataFrame, band: int) -> None:
+    cur_min = SCOUT_PP_THRESHOLDS["scouting_min"]
+    cur_max = SCOUT_PP_THRESHOLDS["anti_max"]
+
+    def _row(label: str, grp: pd.DataFrame) -> dict:
+        s = grp["score"]
+        n = len(s)
+        p05, p33, p50, p67, p95 = np.percentile(s, [5, 33.333, 50, 66.667, 95])
+        cur_anti = float((s <= cur_max).mean())
+        cur_scout = float((s >= cur_min).mean())
+        # lights vary across pitchers: fraction of pitcher careers whose plurality
+        # class is not neutral (a rough "the light actually moves" check).
+        def _plurality(sub_s):
+            cls = pd.Series([_classify_pp(v) for v in sub_s])
+            return cls.value_counts().idxmax() if len(cls) else "neutral"
+        per_pid = grp.groupby("pitcher_id")["score"].apply(_plurality)
+        moved = float((per_pid != "neutral").mean()) if len(per_pid) else 0.0
+        return {
+            "indication": label, "n": n,
+            "p5": round(p05, 3), "p33": round(p33, 3), "p50": round(p50, 3),
+            "p67": round(p67, 3), "p95": round(p95, 3),
+            "cur anti/neu/scout %": f"{cur_anti*100:.1f}/{(1-cur_anti-cur_scout)*100:.1f}/{cur_scout*100:.1f}",
+            "pitchers non-neutral %": round(moved * 100, 1),
+        }
+
+    rows = [_row("ALL (pooled)", scores)]
+    for sig, grp in scores.groupby("indication"):
+        rows.append(_row(sig, grp))
+    out = pd.DataFrame(rows).set_index("indication")
+    pd.set_option("display.width", 200)
+    print(f"\n=== OBP mode, OBR band width X={band} (obr_max={band}) ===")
+    print(f"Current thresholds: scouting_min={cur_min}, anti_max={cur_max}\n")
+    print(out.to_string())
+
+    # W_t / k_t distributions - the Q-cap evidence for OBP_MAX_OTHER_BUCKETS.
+    wq = np.percentile(scores["W"], [5, 25, 50, 75, 95, 100]).round(0).astype(int)
+    kq = np.percentile(scores["k"], [5, 25, 50, 75, 95, 100]).round(0).astype(int)
+    k_at_cap = float((scores["k"] >= OBP_MAX_OTHER_BUCKETS + 1).mean()) * 100
+    print(f"\nW_t percentiles [5,25,50,75,95,max]: {list(wq)}")
+    print(f"k_t percentiles [5,25,50,75,95,max]: {list(kq)}  (cap k = {OBP_MAX_OTHER_BUCKETS + 1})")
+    print(f"share of steps at the k cap: {k_at_cap:.2f}%")
+
+
 if __name__ == "__main__":
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else "plays_from_pitchers_200+_bf.csv"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    obp_mode = "--obp" in sys.argv
+    csv_path = args[0] if args else "plays_from_pitchers_200+_bf.csv"
     plays = load_plays(csv_path)
-    scored = score_all(plays)
-    report(scored)
+    if obp_mode:
+        for band in OBP_BAND_WIDTHS:
+            report_obp(score_all_obp(plays, band), band)
+    else:
+        scored = score_all(plays)
+        report(scored)

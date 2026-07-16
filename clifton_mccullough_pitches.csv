@@ -1,0 +1,87 @@
+Season,Game,Inn,Outs,Runners,Pitcher,Batter,Pitch,Swing,Diff,Result,Category,Delta,Delta^2
+13,13210,2,2,Empty,Clifton McCullough,Calvin Briggs,984,745,239,GO,OUT,-88,68
+13,13210,2,1,Empty,Clifton McCullough,Captain Rex,72,555,483,K,300,-156,340
+13,13210,2,0,Empty,Clifton McCullough,Copenhagen Black,228,985,243,PO,OUT,496,269
+13,13210,1,1,1B&2B,Clifton McCullough,Tor Tilla,732,170,438,DP21,300,-227,103
+13,13210,1,0,1B&2B,Clifton McCullough,Cola Spritz,959,670,289,K,OUT,-124,84
+13,13210,1,0,1B,Clifton McCullough,Miikka Jarvinen,83,220,137,1B,BB/1B,40,
+13,13210,1,0,Empty,Clifton McCullough,Mickey Scales,43,178,135,1B,BB/1B,,
+12,2072,4,2,1B,Clifton McCullough,Makesiondon Kelkboom,939,905,34,2BWH,XBH,189,126
+12,2072,4,1,1B,Clifton McCullough,Jihmih Elsher,750,53,303,FC,300,63,390
+12,2072,4,1,2B,Clifton McCullough,Sonar McDeuceski,687,640,47,1BWH,BB/1B,-453,
+12,2072,4,0,2B,Clifton McCullough,Himmy Proton,140,860,280,PO,OUT,,
+12,2057,4,1,2B,Clifton McCullough,Velma Dingkerly,36,67,31,2B,XBH,-274,73
+12,2057,4,1,3B,Clifton McCullough,Salsa Steve,310,350,40,2B,XBH,-347,93
+12,2057,4,0,3B,Clifton McCullough,Kries Von Kriestalhauser,657,111,454,K,300,-440,394
+12,2057,4,0,Empty,Clifton McCullough,Osha Wott,97,131,34,3B,XBH,46,45
+12,2057,3,2,1B&2B,Clifton McCullough,Keyo,51,245,194,FO,OUT,1,285
+12,2057,3,2,1B,Clifton McCullough,NoodleArmBigPowerODoyleetc,50,169,119,1B,BB/1B,-286,246
+12,2057,3,2,Empty,Clifton McCullough,Saul Pewald,336,201,135,BB,BB/1B,-40,379
+12,2057,3,1,Empty,Clifton McCullough,Calvin Ball,376,711,335,GO,300,419,197
+12,2057,3,0,Empty,Clifton McCullough,Tooth Heaven Won,957,271,314,GO,300,222,142
+12,2057,2,2,3B,Clifton McCullough,Velma Dingkerly,735,125,390,GO,300,-80,118
+12,2057,2,0,Loaded,Clifton McCullough,Salsa Steve,815,200,385,DP21,300,-198,132
+12,2057,2,0,1B&2B,Clifton McCullough,Kries Von Kriestalhauser,13,79,66,1B,BB/1B,-66,167
+12,2057,2,0,1B,Clifton McCullough,Osha Wott,79,231,152,BB,BB/1B,233,121
+12,2057,2,0,Empty,Clifton McCullough,Keyo,846,914,68,1B,BB/1B,-354,70
+12,2057,1,2,Empty,Clifton McCullough,NoodleArmBigPowerODoyleetc,200,762,438,K,300,-284,53
+12,2057,1,1,Empty,Clifton McCullough,Saul Pewald,484,899,415,K,300,-337,
+12,2057,1,0,Empty,Clifton McCullough,Calvin Ball,821,411,410,K,300,,
+12,2042,6,2,2B,Clifton McCullough,T.J. Oatman,2,212,210,GO,OUT,-208,
+12,2042,6,2,1B,Clifton McCullough,Ferdinand Fritzwilliam,210,238,28,2BWH,XBH,,
+12,2024,6,2,Empty,Clifton McCullough,Justin Trotter,69,889,180,FO,OUT,340,101
+12,2024,6,1,Empty,Clifton McCullough,Juan Sexton,729,67,338,GO,300,-441,167
+12,2024,6,0,Empty,Clifton McCullough,Donny Dash,170,899,271,GO,OUT,-274,163
+12,2024,6,0,Empty,Clifton McCullough,Zed Underhill,444,444,0,HR,XBH,437,245
+12,2024,5,2,2B,Clifton McCullough,Pel OQuinn,7,287,280,GO,OUT,192,238
+12,2024,5,1,2B,Clifton McCullough,War Hamster,815,511,304,GO,300,-430,58
+12,2024,5,0,1B,Clifton McCullough,Calvin Huff,245,420,175,GORA,OUT,488,298
+12,2024,5,0,Empty,Clifton McCullough,Bace Ventura,757,917,160,BB,BB/1B,190,292
+12,2024,4,1,2B,Clifton McCullough,Anna De Neko,567,787,220,PO,OUT,-482,433
+12,2024,4,0,2B,Clifton McCullough,Justin Trotter,49,434,385,K,300,49,371
+12,2024,4,0,2B,Clifton McCullough,Juan Sexton,0,0,0,bAuto,OUT,420,3
+12,2024,4,0,Empty,Clifton McCullough,Donny Dash,580,502,78,2B,XBH,417,135
+12,2024,3,2,Empty,Clifton McCullough,Zed Underhill,163,666,497,K,300,-282,182
+12,2024,3,1,Empty,Clifton McCullough,Pel OQuinn,445,211,234,PO,OUT,100,72
+12,2024,3,0,Empty,Clifton McCullough,War Hamster,345,900,445,K,300,172,21
+12,2024,2,2,2B,Clifton McCullough,Calvin Huff,173,711,462,K,300,-151,22
+12,2024,2,2,2B,Clifton McCullough,Bace Ventura,324,362,38,2B,XBH,173,5
+12,2024,2,2,Empty,Clifton McCullough,Anna De Neko,151,100,51,2B,XBH,-168,31
+12,2024,2,1,Empty,Clifton McCullough,Justin Trotter,319,623,304,GO,300,137,317
+12,2024,2,0,Empty,Clifton McCullough,Juan Sexton,182,829,353,GO,300,-454,87
+12,2024,1,1,1B&2B,Clifton McCullough,Donny Dash,636,140,496,DP31,300,-367,114
+12,2024,1,1,1B,Clifton McCullough,Zed Underhill,3,842,161,BB,BB/1B,253,110
+12,2024,1,1,Empty,Clifton McCullough,Pel OQuinn,750,639,111,1B,BB/1B,-363,
+12,2024,1,0,Empty,Clifton McCullough,War Hamster,113,387,274,GO,OUT,,
+12,2002,6,1,Empty,Clifton McCullough,Lula Pennant,416,419,3,HR,XBH,-4,350
+12,2002,6,1,1B&3B,Clifton McCullough,Spike Suzuki,420,421,1,HR,XBH,-354,
+12,2002,6,1,2B&3B,Clifton McCullough,Master Cashier,774,892,118,1B,BB/1B,,
+12,1993,4,0,1B,Clifton McCullough,Tooth Heaven Won,232,271,39,2B,XBH,225,245
+12,1993,4,0,Empty,Clifton McCullough,Archie Sybil,7,909,98,1B,BB/1B,-470,171
+12,1993,3,2,Empty,Clifton McCullough,Dutch Boggs,477,923,446,K,300,-299,45
+12,1993,3,1,Empty,Clifton McCullough,Keyo,776,23,247,GO,OUT,344,159
+12,1993,3,0,Empty,Clifton McCullough,NoodleArmBigPowerODoyleetc,432,132,300,GO,300,185,185
+12,1993,2,2,Empty,Clifton McCullough,Justin Time,247,583,336,GO,300,0,268
+12,1993,2,1,Empty,Clifton McCullough,Velma Dingkerly,247,67,180,FO,OUT,-268,40
+12,1993,2,1,1B&3B,Clifton McCullough,Saul Pewald,515,512,3,HR,XBH,-228,190
+12,1993,2,1,2B,Clifton McCullough,Salsa Steve,743,642,101,1B,BB/1B,418,82
+12,1993,2,1,Empty,Clifton McCullough,Tooth Heaven Won,325,271,54,2B,XBH,-500,80
+12,1993,2,0,Empty,Clifton McCullough,Archie Sybil,825,222,397,K,300,-420,125
+12,1993,1,2,Empty,Clifton McCullough,Dutch Boggs,245,440,195,FO,OUT,295,234
+12,1993,1,1,Empty,Clifton McCullough,Keyo,950,622,328,GO,300,61,
+12,1993,1,0,Empty,Clifton McCullough,NoodleArmBigPowerODoyleetc,889,365,476,K,300,,
+12,1968,4,0,2B,Clifton McCullough,Tucker Doubt,535,645,110,1B,BB/1B,20,476
+12,1968,4,0,Empty,Clifton McCullough,Himmy Proton,515,563,48,2B,XBH,496,224
+12,1968,3,2,Empty,Clifton McCullough,Bob Nutting Jr,19,373,354,GO,300,272,48
+12,1968,3,2,1B&3B,Clifton McCullough,Strawberry Jones,747,738,9,HR,XBH,-320,181
+12,1968,3,2,1B,Clifton McCullough,Bucky Sabre III,67,150,83,1BWH,BB/1B,139,188
+12,1968,3,2,Empty,Clifton McCullough,Makesiondon Kelkboom,928,91,163,BB,BB/1B,-327,106
+12,1968,3,1,Empty,Clifton McCullough,Jihmih Elsher,255,999,256,GO,OUT,221,92
+12,1968,3,0,Empty,Clifton McCullough,Man of Steal,34,248,214,FO,OUT,-129,71
+12,1968,2,2,Empty,Clifton McCullough,Tim Thrill,163,778,385,GO,300,-200,180
+12,1968,2,0,1B,Clifton McCullough,Tucker Doubt,363,907,456,DP,300,-20,118
+12,1968,2,0,Empty,Clifton McCullough,Himmy Proton,383,224,159,BB,BB/1B,138,308
+12,1968,1,2,1B,Clifton McCullough,Bob Nutting Jr,245,677,432,K,300,-446,397
+12,1968,1,1,1B,Clifton McCullough,Strawberry Jones,691,427,264,K,OUT,49,2
+12,1968,1,1,Empty,Clifton McCullough,Bucky Sabre III,642,725,83,1B,BB/1B,47,
+12,1968,1,0,Empty,Clifton McCullough,Makesiondon Kelkboom,595,827,232,PO,OUT,,
