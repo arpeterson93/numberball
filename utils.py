@@ -2222,6 +2222,71 @@ def swing_signal_strength(
     return (1.0 - longest_run / n) * 100.0
 
 
+def obp_zone_signal(
+    pop: list[int],
+    ranges: list,
+    weights: list[float] | None,
+    maximize: bool = True,
+) -> dict | None:
+    """Best-value zone for an 'OBP recent X' Suggestions row, OBR as a MAX width.
+
+    Anchors on the same FFT-convolved score curve suggest_swing/swing_signal_strength
+    use, at its argmax (best_val). Rather than always drawing a fixed best_val +/-
+    obr_max band, this grows outward from best_val - independently on each side -
+    while the score stays above the best/worst midpoint (the same threshold
+    swing_signal_strength uses), capped at obr_max steps per side. A sharp, tight
+    peak yields a narrow zone; a flat, undifferentiated region grows all the way
+    out to the OBR cap. Either way the zone can never exceed the OBR width, and
+    the z-score's baseline (n_bkts) is derived from whatever width actually got
+    used - not the OBR cap - so a tight true peak is judged against a harder,
+    more informative baseline instead of being diluted against the max width.
+
+    The z-score is self-referential: it tests the SAME population that produced
+    best_val (pop) against that same zone, not e.g. raw recent pitches for a
+    Δ-projected row - consistent with best_val itself being computed from pop.
+
+    Returns {"lo", "hi", "z", "n"} or None if pop is empty or `ranges` has no
+    OBR-classified result (the max width would be undefined).
+    """
+    if not pop:
+        return None
+    obr_max = max((hi for result, _lo, hi in ranges if result in _OBR), default=0)
+    if obr_max <= 0:
+        return None
+    scores = _scores_via_fft(_build_weight_array(pop, weights), _diff_score_array(ranges, "obp"))
+    best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
+    worst = float(np.min(scores) if maximize else np.max(scores))
+    best = float(np.max(scores) if maximize else np.min(scores))
+    best_val = best_idx + 1
+
+    if (best - worst) < 1e-6:
+        # Flat score curve - no peak shape to shrink toward, fall back to the
+        # full OBR width on both sides (previous fixed-band behavior).
+        left = right = obr_max
+    else:
+        mid = (best + worst) / 2.0
+        above = (scores > mid) if maximize else (scores < mid)
+        left = 0
+        for step in range(1, obr_max + 1):
+            if not above[(best_idx - step) % 1000]:
+                break
+            left = step
+        right = 0
+        for step in range(1, obr_max + 1):
+            if not above[(best_idx + step) % 1000]:
+                break
+            right = step
+
+    lo = ((best_val - left - 1) % 1000) + 1
+    hi = ((best_val + right - 1) % 1000) + 1
+    in_zone = (sum(1 for v in pop if lo <= v <= hi) if lo <= hi
+               else sum(1 for v in pop if v >= lo or v <= hi))
+    n = len(pop)
+    width = max(left + right, 1)
+    z = hint_zscore(in_zone / n, n, 1000.0 / width)
+    return {"lo": lo, "hi": hi, "z": z, "n": n}
+
+
 def optimal_swing_chart(
     recent_opp_vals: list[int],
     result_ranges: list,

@@ -1493,26 +1493,29 @@ with tab_p:
                 _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
                 _h_dvals  = utils.project_from_deltas(_h_recent)
                 _h_d2vals = utils.project_from_delta2s(_h_recent)
-                _h_obp_p  = utils.optimal_swing_range(_h_recent,  active_ranges, "obp", True, _h_wts or None)
-                _h_obp_d  = utils.optimal_swing_range(_h_dvals,   active_ranges, "obp", True, _h_dwts)
-                _h_obp_d2 = utils.optimal_swing_range(_h_d2vals,  active_ranges, "obp", True, _h_d2wts)
+                _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True)
+                _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True)
+                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True)
                 _h_ss_p   = utils.swing_signal_strength(_h_recent,  active_ranges, "obp", True, _h_wts or None)
                 _h_ss_d   = utils.swing_signal_strength(_h_dvals,   active_ranges, "obp", True, _h_dwts)  if _h_dvals  else 0.0
                 _h_ss_d2  = utils.swing_signal_strength(_h_d2vals,  active_ranges, "obp", True, _h_d2wts) if _h_d2vals else 0.0
                 _hint_rows_p.append({"Signal": "OBP recent pitch",
-                                     "lo": _h_obp_p[0] if _h_obp_p else None,
-                                     "hi": _h_obp_p[1] if _h_obp_p else None,
+                                     "lo": _h_obp_p["lo"] if _h_obp_p else None,
+                                     "hi": _h_obp_p["hi"] if _h_obp_p else None,
                                      "Strength": f"{_h_ss_p:.0f}% signal",
+                                     "_zscore": _h_obp_p["z"] if _h_obp_p else None,
                                      "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ",
-                                     "lo": _h_obp_d[0] if _h_obp_d else None,
-                                     "hi": _h_obp_d[1] if _h_obp_d else None,
+                                     "lo": _h_obp_d["lo"] if _h_obp_d else None,
+                                     "hi": _h_obp_d["hi"] if _h_obp_d else None,
                                      "Strength": f"{_h_ss_d:.0f}% signal",
+                                     "_zscore": _h_obp_d["z"] if _h_obp_d else None,
                                      "_best_zone_only": True})
                 _hint_rows_p.append({"Signal": "OBP recent Δ²",
-                                     "lo": _h_obp_d2[0] if _h_obp_d2 else None,
-                                     "hi": _h_obp_d2[1] if _h_obp_d2 else None,
+                                     "lo": _h_obp_d2["lo"] if _h_obp_d2 else None,
+                                     "hi": _h_obp_d2["hi"] if _h_obp_d2 else None,
                                      "Strength": f"{_h_ss_d2:.0f}% signal",
+                                     "_zscore": _h_obp_d2["z"] if _h_obp_d2 else None,
                                      "_best_zone_only": True})
 
             def _delta_row_p(signal, h_dict, n_bkts):
@@ -2415,26 +2418,29 @@ with tab_b:
                 _hb_d2wts = [w for w in _hb_wts[2:] for _ in range(2)] if len(_hb_wts) > 2 else None
                 _hb_dvals  = utils.project_from_deltas(_hb_recent)
                 _hb_d2vals = utils.project_from_delta2s(_hb_recent)
-                _hb_obp_p  = utils.optimal_swing_range(_hb_recent,  result_ranges, "obp", False, _hb_wts or None)
-                _hb_obp_d  = utils.optimal_swing_range(_hb_dvals,   result_ranges, "obp", False, _hb_dwts)
-                _hb_obp_d2 = utils.optimal_swing_range(_hb_d2vals,  result_ranges, "obp", False, _hb_d2wts)
+                _hb_obp_p  = utils.obp_zone_signal(_hb_recent,  result_ranges, _hb_wts or None, False)
+                _hb_obp_d  = utils.obp_zone_signal(_hb_dvals,   result_ranges, _hb_dwts,        False)
+                _hb_obp_d2 = utils.obp_zone_signal(_hb_d2vals,  result_ranges, _hb_d2wts,       False)
                 _hb_ss_p   = utils.swing_signal_strength(_hb_recent,  result_ranges, "obp", False, _hb_wts or None)
                 _hb_ss_d   = utils.swing_signal_strength(_hb_dvals,   result_ranges, "obp", False, _hb_dwts)  if _hb_dvals  else 0.0
                 _hb_ss_d2  = utils.swing_signal_strength(_hb_d2vals,  result_ranges, "obp", False, _hb_d2wts) if _hb_d2vals else 0.0
                 _hint_rows_b.append({"Signal": "OBP recent swing",
-                                     "lo": _hb_obp_p[0] if _hb_obp_p else None,
-                                     "hi": _hb_obp_p[1] if _hb_obp_p else None,
+                                     "lo": _hb_obp_p["lo"] if _hb_obp_p else None,
+                                     "hi": _hb_obp_p["hi"] if _hb_obp_p else None,
                                      "Strength": f"{_hb_ss_p:.0f}% signal",
+                                     "_zscore": _hb_obp_p["z"] if _hb_obp_p else None,
                                      "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ",
-                                     "lo": _hb_obp_d[0] if _hb_obp_d else None,
-                                     "hi": _hb_obp_d[1] if _hb_obp_d else None,
+                                     "lo": _hb_obp_d["lo"] if _hb_obp_d else None,
+                                     "hi": _hb_obp_d["hi"] if _hb_obp_d else None,
                                      "Strength": f"{_hb_ss_d:.0f}% signal",
+                                     "_zscore": _hb_obp_d["z"] if _hb_obp_d else None,
                                      "_best_zone_only": True})
                 _hint_rows_b.append({"Signal": "OBP recent Δ²",
-                                     "lo": _hb_obp_d2[0] if _hb_obp_d2 else None,
-                                     "hi": _hb_obp_d2[1] if _hb_obp_d2 else None,
+                                     "lo": _hb_obp_d2["lo"] if _hb_obp_d2 else None,
+                                     "hi": _hb_obp_d2["hi"] if _hb_obp_d2 else None,
                                      "Strength": f"{_hb_ss_d2:.0f}% signal",
+                                     "_zscore": _hb_obp_d2["z"] if _hb_obp_d2 else None,
                                      "_best_zone_only": True})
 
             _hb_dd_n = 500 // _hb_dd_bkt
