@@ -13,10 +13,9 @@ Usage:
 The default (sequence) mode reports the 33rd/67th percentile cut points for the
 eleven sequence indications. --obp mode instead replays the three OBP-recency
 signals through obp_recency_walk with a synthetic OBR band (widths X in
-{50, 100, 150}) and neutral relevance weights, reporting per-signal score
-percentiles, the scouting/neutral/anti shares under the current shared
-thresholds, and the empirical W_t / k_t distributions (the Q-cap evidence for
-OBP_MAX_OTHER_BUCKETS).
+{50, 100, 150}) and neutral relevance weights, gridded over the real slider bucket
+widths per kind, reporting per-signal-and-width score percentiles and the
+scouting/neutral/anti shares under the current shared thresholds.
 
 csv_path defaults to plays_from_pitchers_200+_bf.csv in the repo root.
 """
@@ -30,8 +29,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import (_recency_indications, _surprisal_walk, _classify_pp,
-                   SCOUT_PP_THRESHOLDS, OBP_MAX_OTHER_BUCKETS,
-                   _recency_frame, obp_recency_walk)
+                   SCOUT_PP_THRESHOLDS, _recency_frame, obp_recency_walk)
 
 # OBP-mode settings: synthetic OBR band widths and the recent-window default.
 OBP_BAND_WIDTHS = [50, 100, 150]
@@ -41,6 +39,8 @@ OBP_NEUTRAL_REL = (50, 50, 0, 33, 33, 33, False)
 OBP_SIGNALS = [("OBP recent pitch", "pitch"),
                ("OBP recent Δ", "delta"),
                ("OBP recent Δ²", "delta2")]
+# Real slider option values per kind (pitch divides 1000, delta/delta2 divide 500).
+OBP_KIND_WIDTHS = {"pitch": [100, 200], "delta": [50, 100], "delta2": [50, 100]}
 
 # Current page defaults for the pitcher-side stoplight (hz_init_bucket_p / dd_bucket_p).
 HZ_BKT = 200
@@ -119,8 +119,9 @@ def report(scores: pd.DataFrame) -> None:
 
 
 def score_all_obp(df: pd.DataFrame, band: int) -> pd.DataFrame:
-    """Walk every pitcher's career through the three OBP signals for one
-    synthetic OBR band width; return one row per scored pitch with score, W, k."""
+    """Walk every pitcher's career through the three OBP signals for one synthetic
+    OBR band width, gridded over the real slider bucket widths per kind; return one
+    row per scored pitch with score and k."""
     ranges = [("1B", 0, band)]
     records = []
     for pid, sub in df.groupby("pitcher_id"):
@@ -128,11 +129,13 @@ def score_all_obp(df: pd.DataFrame, band: int) -> pd.DataFrame:
         if sw is None:
             continue
         for sig, kind in OBP_SIGNALS:
-            walk = obp_recency_walk(sw, "pitch", kind, OBP_WINDOW_N, ranges, OBP_NEUTRAL_REL)
-            for r in walk:
-                if r is not None:
-                    records.append((pid, sig, float(r["score"]), int(r["W"]), int(r["k"])))
-    return pd.DataFrame(records, columns=["pitcher_id", "indication", "score", "W", "k"])
+            for width in OBP_KIND_WIDTHS[kind]:
+                walk = obp_recency_walk(sw, "pitch", kind, OBP_WINDOW_N, ranges,
+                                        OBP_NEUTRAL_REL, width)
+                for r in walk:
+                    if r is not None:
+                        records.append((pid, f"{sig} w={width}", float(r["score"]), int(r["k"])))
+    return pd.DataFrame(records, columns=["pitcher_id", "indication", "score", "k"])
 
 
 def report_obp(scores: pd.DataFrame, band: int) -> None:
@@ -168,14 +171,6 @@ def report_obp(scores: pd.DataFrame, band: int) -> None:
     print(f"\n=== OBP mode, OBR band width X={band} (obr_max={band}) ===")
     print(f"Current thresholds: scouting_min={cur_min}, anti_max={cur_max}\n")
     print(out.to_string())
-
-    # W_t / k_t distributions - the Q-cap evidence for OBP_MAX_OTHER_BUCKETS.
-    wq = np.percentile(scores["W"], [5, 25, 50, 75, 95, 100]).round(0).astype(int)
-    kq = np.percentile(scores["k"], [5, 25, 50, 75, 95, 100]).round(0).astype(int)
-    k_at_cap = float((scores["k"] >= OBP_MAX_OTHER_BUCKETS + 1).mean()) * 100
-    print(f"\nW_t percentiles [5,25,50,75,95,max]: {list(wq)}")
-    print(f"k_t percentiles [5,25,50,75,95,max]: {list(kq)}  (cap k = {OBP_MAX_OTHER_BUCKETS + 1})")
-    print(f"share of steps at the k cap: {k_at_cap:.2f}%")
 
 
 if __name__ == "__main__":

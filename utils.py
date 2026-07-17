@@ -677,6 +677,36 @@ def circular_signed_delta(a: int, b: int) -> int:
     return d
 
 
+def _shift_to_domain(lo, hi, dlo, dhi):
+    """Widen-and-shift the interval [lo, hi] to sit inside [dlo, dhi], preserving
+    its width whenever the domain is wide enough. If it underruns dlo, slide it up
+    to [dlo, dlo + width]; if it overruns dhi, slide it down to [dhi - width, dhi];
+    if it is wider than the whole domain, clamp to [dlo, dhi]. THE single shared
+    implementation of the boundary shift used by both the OBP recommended-bucket
+    builders (obp_bounded_partition) and the Stage 6 centered-match retrofit
+    (_centered_match_interval) - one convention, not several copies."""
+    width = hi - lo
+    if width >= dhi - dlo:
+        return dlo, dhi
+    if lo < dlo:
+        return dlo, dlo + width
+    if hi > dhi:
+        return dhi - width, dhi
+    return lo, hi
+
+
+def _centered_match_interval(center, bucket_size, domain_hi=500):
+    """Inclusive [lo, hi] for a centered distance filter, widened-and-shifted to
+    stay inside [0, domain_hi] rather than truncating at an edge. Preserves the
+    shipped span of 2 * (bucket_size // 2) + 1 integers (half = bucket_size // 2);
+    callers replace the `|v - center| <= half` mask with `series.between(lo, hi)`.
+    When 2 * half >= domain_hi (e.g. a 500-wide bucket) the interval is the whole
+    domain, i.e. unchanged behavior."""
+    half = bucket_size // 2
+    lo, hi = _shift_to_domain(center - half, center + half, 0, domain_hi)
+    return int(lo), int(hi)
+
+
 def _circ_dist_vec(series: pd.Series, ref: int) -> pd.Series:
     """Vectorized circular distance on [1, 1000]. NaN inputs produce NaN output."""
     d = (series.astype(float) - float(ref)).abs()
@@ -2760,16 +2790,20 @@ def sequence_matches(
 
     half = bucket_size // 2
     if domain != "value":
-        dist = (df_s["_v"] - float(prior_val)).abs()
+        # Widen-and-shift the centered match on the bounded 0..500 delta/delta2 axis
+        # (Decision 10) instead of truncating at the edges.
+        _lo, _hi = _centered_match_interval(int(prior_val), bucket_size, 500)
+        mask = df_s["_v"].between(_lo, _hi) & df_s["_v"].notna() & df_s["_nxt"].notna()
     else:
         dist = _circ_dist_vec(df_s["_v"], int(prior_val))
-    mask = (dist <= half) & df_s["_v"].notna() & df_s["_nxt"].notna()
+        mask = (dist <= half) & df_s["_v"].notna() & df_s["_nxt"].notna()
     if prior_val2 is not None:
         if domain != "value":
-            dist1 = (df_s["_p1"] - float(prior_val2)).abs()
+            _lo2, _hi2 = _centered_match_interval(int(prior_val2), bucket_size, 500)
+            mask &= df_s["_p1"].notna() & df_s["_p1"].between(_lo2, _hi2)
         else:
             dist1 = _circ_dist_vec(df_s["_p1"], int(prior_val2))
-        mask &= df_s["_p1"].notna() & (dist1 <= half)
+            mask &= df_s["_p1"].notna() & (dist1 <= half)
     mt = df_s[mask]
     if mt.empty:
         return None
@@ -3293,9 +3327,9 @@ def seq2_delta_hint(
         return None
     df_s["_nb"] = pd.cut(df_s["_nd"].abs().astype(int), bins=bins, labels=False, right=True, include_lowest=True)
     if centered:
-        half = bucket_size // 2
         d_abs = df_s[delta_col].abs()
-        mask = ((d_abs - float(prior_delta_abs)).abs() <= half).fillna(False)
+        _lo, _hi = _centered_match_interval(int(prior_delta_abs), bucket_size, 500)
+        mask = d_abs.between(_lo, _hi)
         col_data = df_s[mask]["_nb"].dropna().astype(int)
     else:
         prior_bkt_idx = min(max(0, (int(prior_delta_abs) - 1) // bucket_size if prior_delta_abs > 0 else 0), n_bkts - 1)
@@ -3347,9 +3381,10 @@ def seq3_delta_hint(
         return None
     df_s["_b3"] = pd.cut(df_s["_d3"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
     if centered:
-        half = bucket_size // 2
-        m1 = ((df_s["_d1"] - float(prior_delta_1)).abs() <= half).fillna(False)
-        m2 = ((df_s["_d2"] - float(prior_delta_2)).abs() <= half).fillna(False)
+        _lo1, _hi1 = _centered_match_interval(int(prior_delta_1), bucket_size, 500)
+        _lo2, _hi2 = _centered_match_interval(int(prior_delta_2), bucket_size, 500)
+        m1 = df_s["_d1"].between(_lo1, _hi1)
+        m2 = df_s["_d2"].between(_lo2, _hi2)
         col_data = df_s[m1 & m2]["_b3"].dropna().astype(int)
     else:
         b1 = min(max(0, (int(prior_delta_1) - 1) // bucket_size if prior_delta_1 > 0 else 0), n_bkts - 1)
@@ -3405,8 +3440,8 @@ def seq2_delta2_hint(
         return None
     df_s["_nb"] = pd.cut(df_s["_nd"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
     if centered:
-        half = bucket_size // 2
-        mask = ((df_s["_d2"] - float(prior_d2sq_abs)).abs() <= half).fillna(False)
+        _lo, _hi = _centered_match_interval(int(prior_d2sq_abs), bucket_size, 500)
+        mask = df_s["_d2"].between(_lo, _hi)
         col_data = df_s[mask]["_nb"].dropna().astype(int)
     else:
         prior_bkt_idx = min(max(0, (int(prior_d2sq_abs) - 1) // bucket_size if prior_d2sq_abs > 0 else 0), n_bkts - 1)
@@ -3462,9 +3497,10 @@ def seq3_delta2_hint(
         return None
     df_s["_b3"] = pd.cut(df_s["_e3"].astype(int), bins=bins, labels=False, right=True, include_lowest=True)
     if centered:
-        half = bucket_size // 2
-        m1 = ((df_s["_e1"] - float(prior_d2sq_1)).abs() <= half).fillna(False)
-        m2 = ((df_s["_e2"] - float(prior_d2sq_2)).abs() <= half).fillna(False)
+        _lo1, _hi1 = _centered_match_interval(int(prior_d2sq_1), bucket_size, 500)
+        _lo2, _hi2 = _centered_match_interval(int(prior_d2sq_2), bucket_size, 500)
+        m1 = df_s["_e1"].between(_lo1, _hi1)
+        m2 = df_s["_e2"].between(_lo2, _hi2)
         col_data = df_s[m1 & m2]["_b3"].dropna().astype(int)
     else:
         b1 = min(max(0, (int(prior_d2sq_1) - 1) // bucket_size if prior_d2sq_1 > 0 else 0), n_bkts - 1)
@@ -3709,8 +3745,8 @@ def delta_next_zone_dist(
         return None
     d = df[delta_col].abs()
     if centered:
-        half = bucket_size // 2
-        mask = ((d - float(prior_delta)).abs() <= half).fillna(False)
+        _lo, _hi = _centered_match_interval(int(prior_delta), bucket_size, 500)
+        mask = d.between(_lo, _hi)
     else:
         prior_bkt = (int(prior_delta) - 1) // bucket_size
         mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
@@ -3741,10 +3777,6 @@ def delta_next_zone_dist(
 SCOUT_PP_THRESHOLDS = {"scouting_min": +0.11, "anti_max": -0.14}
 MIN_SCORED = 3  # need this many career eligible events before showing any light
 SCOUT_SCORING_VERSION = 2  # bump when the per-pitch score formula changes
-# OBP-stoplight partition cap: at most this many non-zone ("other") buckets, so
-# k <= 20 - matches the finest existing signal (dd_bkt=25 -> 500/25 = 20),
-# bounds per-step work and the worst-case |score|. See obp_bucket_widths.
-OBP_MAX_OTHER_BUCKETS = 19
 
 
 def scouting_cache_sig() -> tuple:
@@ -4157,17 +4189,18 @@ def scouting_recency_detail(
 
 # ── OBP-recency stoplight (pitcher side) ─────────────────────────────────────
 # A categorical bucket-prediction backtest for the three "OBP recent X"
-# Suggestions rows. At each historical pitch we regrow that step's own
-# best-value zone (Stage 1) from the same FFT-convolved score curve
-# obp_zone_signal uses, partition the value circle into the zone plus a handful
-# of equal-ish "other" buckets (obp_bucket_widths), then score which bucket the
-# pitcher actually hit against his point-in-time displacement history:
-# score = ln(p_pred / p0), p0 = the bucket's width share (geometry only, never
-# learned). Evidence is pooled as raw circular displacements from each day's
-# zone center, so a per-step-varying zone width keeps the null unbiased (a
-# uniform-random pitch scores ~0 at every step regardless of the day's shape).
-# The stoplight vote/threshold machinery (_aggregate_recency, SCOUT_PP_THRESHOLDS)
-# is shared with the sequence signals so the page wiring is untouched.
+# Suggestions rows. At each historical pitch we recompute that step's own
+# recommended value (best_val) from the same FFT-convolved score curve
+# obp_zone_signal uses, partition the domain into a fixed slider-width
+# recommended bucket plus equal-width neighbors (obp_pitch_partition on the
+# circular value domain, obp_bounded_partition on the 0..500 delta / delta2
+# domains), then score which bucket the pitcher's REAL outcome landed in against
+# his point-in-time outcome history: score = ln(p_pred / p0), p0 = the bucket's
+# integer-count share (geometry only, never learned). Because every bucket is a
+# fixed width, the Pitch signal reduces to plain equal-width categorical scoring
+# (p0 = 1/k) and the chart's 1/k baseline is exact. The stoplight vote/threshold
+# machinery (_aggregate_recency, SCOUT_PP_THRESHOLDS) is shared with the sequence
+# signals so the page wiring is untouched.
 
 _OBP_SIGNAL_KINDS = {
     "OBP recent pitch": "pitch",
@@ -4176,25 +4209,67 @@ _OBP_SIGNAL_KINDS = {
 }
 
 
-def obp_bucket_widths(W: int) -> "list[int] | None":
-    """Partition the 1000-value circle into a W-wide zone bucket plus a handful
-    of near-equal 'other' buckets that tile the remaining 1000-W values.
+def obp_pitch_partition(best_val: int, width: int) -> "list[tuple]":
+    """Partition the 1000-value circle into k = 1000 // width equal-width buckets:
+    the recommended arc centered on best_val (label 0) and the rest tiled ascending
+    out+1 .. out+(k-1). Returns [(lo, hi, label), ...] with 1-indexed inclusive
+    absolute endpoints; a bucket crossing the 1/1000 seam has lo > hi. For even
+    widths the center sits left-of-center by one (start = best_val - width // 2).
+    Every bucket is exactly width wide, so p0 = width / 1000 = 1 / k for all of them
+    - identical to the existing equal-width categorical mechanism."""
+    k = 1000 // width
+    rec_start = ((best_val - width // 2 - 1) % 1000) + 1  # 1-indexed absolute start
+    part = []
+    for i in range(k):
+        s = (rec_start - 1 + i * width) % 1000
+        lo = s + 1
+        hi = ((s + width - 1) % 1000) + 1
+        part.append((lo, hi, i))
+    return part
 
-    Returns [W, w1, w2, ...] summing to exactly 1000, or None when W is
-    degenerate (>= 1000, no room for an other bucket). n_other is chosen so the
-    other buckets are about as wide as the zone (round-half-up), capped at
-    OBP_MAX_OTHER_BUCKETS. Pure geometry - unit-testable, memoizable per pitcher
-    (only a few distinct W occur). Examples: W=328 -> [328, 336, 336];
-    W=270 -> [270, 244, 243, 243]."""
-    if W >= 1000 or W <= 0:
-        return None
-    remaining = 1000 - W
-    n_other = max(1, int(remaining / W + 0.5))  # round half UP, not banker's round
-    n_other = min(n_other, OBP_MAX_OTHER_BUCKETS, remaining)
-    base, rem = divmod(remaining, n_other)
-    widths = [W] + [base + 1] * rem + [base] * (n_other - rem)
-    assert sum(widths) == 1000, (W, widths)
-    return widths
+
+def obp_bounded_partition(center: int, width: int, domain: int = 500) -> "list[tuple]":
+    """Partition the integer domain [0, domain] into width-wide buckets: the
+    recommended bucket centered on center (label 0, widened-and-shifted via
+    _shift_to_domain to hug an edge rather than truncate) plus FULL buckets tiled
+    outward (out-1, out-2, ... below; out+1, out+2, ... above) with at most one
+    leftover bucket per side. Returns [(lo, hi, label), ...] sorted by lo with
+    inclusive integer endpoints. Convention: buckets are half-open [lo, hi) except
+    the single topmost bucket (the one reaching domain), which is closed [lo, domain]
+    and carries the extra integer - so integer counts sum to domain + 1 and every
+    domain integer maps to exactly one bucket. p0[i] = count_i / (domain + 1); a
+    standard bucket's p0 is width / (domain + 1). At most two buckets (the outermost
+    leftover on each side) are non-standard, never an interior one; the recommended
+    bucket is non-standard only when it itself hugs domain (nothing above it)."""
+    rec_lo, rec_hi = _shift_to_domain(center - width // 2,
+                                      center - width // 2 + width, 0, domain)
+    part = [(rec_lo, rec_hi - 1, 0)]  # inclusive; the top-fold is applied last
+
+    # High side: tile [rec_hi, domain) upward in full width steps, one leftover.
+    R_hi = domain - rec_hi
+    n_full_hi = R_hi // width
+    for j in range(1, n_full_hi + 1):
+        lo = rec_hi + (j - 1) * width
+        part.append((lo, lo + width - 1, j))
+    rem_hi = R_hi - n_full_hi * width
+    if rem_hi > 0:
+        lo = rec_hi + n_full_hi * width
+        part.append((lo, lo + rem_hi - 1, n_full_hi + 1))
+
+    # Low side: tile [0, rec_lo) downward in full width steps, one leftover.
+    R_lo = rec_lo
+    n_full_lo = R_lo // width
+    for j in range(1, n_full_lo + 1):
+        hi = rec_lo - (j - 1) * width - 1
+        part.append((hi - width + 1, hi, -j))
+    rem_lo = R_lo - n_full_lo * width
+    if rem_lo > 0:
+        part.append((0, rem_lo - 1, -(n_full_lo + 1)))
+
+    part.sort(key=lambda b: b[0])
+    lo, hi, lab = part[-1]  # fold the domain endpoint into the single topmost bucket
+    part[-1] = (lo, domain, lab)
+    return part
 
 
 def _obp_weight_factors(sw, n_window: int, rel_params) -> dict:
@@ -4305,22 +4380,27 @@ def _pa_weights_point_in_time(sw, t: int, n_window: int, rel_params) -> "np.ndar
 
 
 def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
-                     rel_params, alpha: float = 1.0, maximize: bool = True) -> list:
-    """Point-in-time bucket-prediction backtest for one OBP signal. Emits one
-    entry per row of sw - None for ineligible steps, else a dict with keys
-    best_val, zone_lo, zone_hi, W, k, obs, arc_lo, arc_hi, p_obs, p0_obs, score.
+                     rel_params, bucket_width: int, alpha: float = 1.0,
+                     maximize: bool = True) -> list:
+    """Point-in-time bucket-prediction backtest for one OBP signal. Emits one entry
+    per row of sw - None for ineligible steps, else a dict with keys best_val,
+    implied, rec_lo, rec_hi, bucket_w, k, obs, arc_lo, arc_hi, p_obs, p0_obs, score.
 
     kind in {"pitch", "delta", "delta2"} selects the population the recommendation
-    is built from (raw window / delta-projection / delta2-projection), mirroring
-    the live rows including crossing game boundaries inside the window.
+    is built from (raw window / delta-projection / delta2-projection), mirroring the
+    live rows including crossing game boundaries inside the window. bucket_width is
+    the Decision-1 slider width for this kind (divides 1000 for pitch, 500 otherwise).
 
-    At each eligible step t (strict full window, rows [t-n_window : t]) the zone is
-    regrown FRESH from that step's own score curve using today's live ranges/kernel
-    (Stage 1), the circle is partitioned by obp_bucket_widths, and the pitch at t is
-    scored ln(p_pred/p0) against the point-in-time displacement histogram. The
-    populations are relevance-weighted (weights shape the recommendation - i.e. the
-    question - not the evidentiary weight of what was actually thrown, so the
-    displacement histogram is updated unweighted: one real trial per pitch)."""
+    At each eligible step t (strict full window, rows [t-n_window : t]) the score
+    curve is rebuilt FRESH from that step's own relevance-weighted window using
+    today's live ranges/kernel, the recommended value best_val is picked from the
+    argmax plateau by the Decision-4 nearest-reference tie rule, the domain is
+    partitioned into a fixed slider-width recommended bucket plus equal-width
+    neighbors, and the pitcher's REAL outcome (value / |delta| / |delta2|) is scored
+    ln(p_pred/p0) against a point-in-time histogram of prior real outcomes. Relevance
+    weights shape the recommendation (the question), not the evidentiary weight of
+    what was thrown, so the histogram is updated unweighted - one real trial per
+    outcome, after scoring."""
     T = 0 if sw is None else len(sw)
     empty = [None] * T
     if T == 0 or value_col not in sw.columns:
@@ -4329,32 +4409,47 @@ def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
     if obr_max <= 0 or obr_max >= 1000:
         return empty
     min_len = {"pitch": 1, "delta": 2, "delta2": 3}.get(kind)
-    if min_len is None or n_window < min_len or T <= n_window:
+    if min_len is None or n_window < min_len or T <= n_window or bucket_width <= 0:
         return empty
 
     vals = sw[value_col].astype(int).to_numpy()
+    game = sw["game_id"].to_numpy()
 
-    # Kernel from today's ranges. Use the SAME full-fft path _scores_via_fft
-    # uses (not rfft): on the flat score plateaus a box kernel produces, the two
-    # transforms differ at machine epsilon and would break the argmax tie one
-    # index apart from the live obp_zone_signal - so the batched fft below must
-    # be bit-identical to the live per-row call for best_val to match.
+    # Real per-pitch deltas, recomputed inline (mirrors _recency_indications'
+    # discipline) so the tie-break references and scored outcomes never trust a
+    # precomputed column. same1/same2 guard game boundaries inside the window.
+    same1 = np.zeros(T, dtype=bool)
+    if T > 1:
+        same1[1:] = game[1:] == game[:-1]
+    same2 = np.zeros(T, dtype=bool)
+    if T > 2:
+        same2[2:] = (game[2:] == game[1:-1]) & (game[1:-1] == game[:-2])
+    sd = np.full(T, np.nan)  # signed real delta into each pitch
+    if T > 1:
+        raw = vals[1:].astype(float) - vals[:-1].astype(float)
+        raw = np.where(raw > 500, raw - 1000, raw)
+        raw = np.where(raw < -500, raw + 1000, raw)
+        sd[1:] = np.where(same1[1:], raw, np.nan)
+    abs_d = np.abs(sd)  # real |delta| into each pitch
+    d2 = np.full(T, np.nan)  # real |delta2| into each pitch
+    if T > 2:
+        d2[2:] = np.where(same2[2:], np.abs(abs_d[2:] - abs_d[1:-1]), np.nan)
+
+    # Kernel from today's ranges (the same box _scores_via_fft uses). The v1 need
+    # for a bit-identical transform to match np.argmax's lowest-index tie pick is
+    # gone: Decision 4 picks best_val from the whole plateau by an explicit nearest
+    # rule, which absorbs epsilon-level fft differences by construction.
     diff_arr = _diff_score_array(ranges, "obp")
     kernel = np.array([diff_arr[min(d, 1000 - d)] for d in range(1000)])
     kfft = np.fft.fft(kernel)
 
     factors = _obp_weight_factors(sw, n_window, rel_params)
-
     elig = np.arange(n_window, T)
     n_elig = len(elig)
 
-    # One weight-array row per eligible step, built with the SAME
-    # _build_weight_array the live path feeds _scores_via_fft (including its
-    # normalize-by-weight-total and per-element accumulation order). A box OBR
-    # kernel produces flat-topped score plateaus, so best_val is an argmax tie:
-    # only a bit-identical weight array makes the backtest pick the same plateau
-    # index as the live obp_zone_signal. A single batched fft over the stack is
-    # bit-identical to per-row _scores_via_fft calls, so S matches exactly.
+    # One relevance-weighted weight array per eligible step (same population variants
+    # and _build_weight_array the live path uses), transformed in a single batched
+    # fft - per-row independent, so identical regardless of the stack size.
     Wmat = np.zeros((n_elig, 1000))
     for r, t in enumerate(elig):
         w_win = vals[t - n_window:t]
@@ -4371,119 +4466,122 @@ def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
         if not pop or len(wv) != len(pop):
             continue
         Wmat[r] = _build_weight_array(pop, wv)
-
     S = np.real(np.fft.ifft(np.fft.fft(Wmat, axis=1) * kfft[None, :], axis=1))
 
-    # Batched zone regrowth (Stage 1) - mirrors obp_zone_signal's grow loop.
-    rows = np.arange(n_elig)
-    best_idx = S.argmax(axis=1) if maximize else S.argmin(axis=1)
-    best = S[rows, best_idx]
-    worst = S.min(axis=1) if maximize else S.max(axis=1)
-    flat = (best - worst) < 1e-6
-    mid = (best + worst) / 2.0
-    above = (S > mid[:, None]) if maximize else (S < mid[:, None])
-    offs = np.arange(1, obr_max + 1)
-    cols_plus = (best_idx[:, None] + offs[None, :]) % 1000
-    cols_minus = (best_idx[:, None] - offs[None, :]) % 1000
-    ap = above[rows[:, None], cols_plus]
-    am = above[rows[:, None], cols_minus]
-
-    def _runlen(mask):
-        # Leading-True run length per row = first False index, or obr_max if none.
-        has_false = (~mask).any(axis=1)
-        return np.where(has_false, np.argmax(~mask, axis=1), obr_max)
-
-    right_t = np.where(flat, obr_max, _runlen(ap))
-    left_t = np.where(flat, obr_max, _runlen(am))
-    W_arr = left_t + right_t + 1  # true covered count lo..hi inclusive (the +1 form)
-
-    # Sequential displacement scoring - evidence accumulates, so this part is a
-    # Python walk over eligible steps (cheap: k<=20 inner work, ms total).
-    disp_hist = np.zeros(1000)
+    # One point-in-time histogram of real outcomes over the ABSOLUTE domain (pitch:
+    # values 1..1000 at index 1..1000; delta/delta2: 0..500). Re-bucketed per step.
+    domain = 1000 if kind == "pitch" else 500
+    hist = np.zeros(domain + 1)
     total = 0.0
-    widths_cache: dict = {}
     out = list(empty)
     for r, t in enumerate(elig):
-        W = int(W_arr[r])
-        if W not in widths_cache:
-            widths_cache[W] = obp_bucket_widths(W)
-        widths = widths_cache[W]
-        if widths is None:
-            continue  # degenerate partition -> ineligible (no score, no evidence)
-        lt, rt = int(left_t[r]), int(right_t[r])
-        bval = int(best_idx[r]) + 1
-        k_t = len(widths)
-        p0 = np.array(widths, dtype=float) / 1000.0
+        Srow = S[r]
+        peak = Srow.max() if maximize else Srow.min()
+        tie = (np.flatnonzero(Srow >= peak - 1e-9) if maximize
+               else np.flatnonzero(Srow <= peak + 1e-9))
+        cand = tie + 1  # candidate best_val values (1..1000); tie is ascending
+        prev = int(vals[t - 1])
 
-        # Bucket evidence via a prefix sum over the displacement histogram.
-        # Backward-compat: constant shape -> D == relative-index counts, and with
-        # p0 = 1/k this reduces to _surprisal_walk's (counts+alpha)/(total+alpha*k).
-        P = np.concatenate(([0.0], np.cumsum(disp_hist)))
+        # Decision-4 tie-break: nearest candidate to the kind's reference; when the
+        # reference is undefined (game boundary) fall back to the lowest index.
+        if kind == "pitch":
+            dd = np.abs(cand - prev)
+            metric = np.minimum(dd, 1000 - dd)  # circular distance to vals[t-1]
+            best_val = int(cand[int(np.argmin(metric))])
+        elif kind == "delta":
+            if same1[t - 1]:
+                cd = cand.astype(float) - prev
+                cd = np.where(cd > 500, cd - 1000, np.where(cd < -500, cd + 1000, cd))
+                metric = np.abs(cd - sd[t - 1])
+                best_val = int(cand[int(np.argmin(metric))])
+            else:
+                best_val = int(cand[0])
+        else:  # delta2
+            if same2[t - 1] and not np.isnan(d2[t - 1]):
+                cd = cand.astype(float) - prev
+                cd = np.where(cd > 500, cd - 1000, np.where(cd < -500, cd + 1000, cd))
+                implied_d2c = np.abs(np.abs(cd) - abs(sd[t - 1]))
+                metric = np.abs(implied_d2c - d2[t - 1])
+                best_val = int(cand[int(np.argmin(metric))])
+            else:
+                best_val = int(cand[0])
+
+        # Partition + the real outcome tested against it.
+        if kind == "pitch":
+            part = obp_pitch_partition(best_val, bucket_width)
+            outcome = int(vals[t])
+            implied = None
+        elif kind == "delta":
+            if not same1[t]:
+                continue
+            implied = int(abs(circular_signed_delta(prev, best_val)))
+            part = obp_bounded_partition(implied, bucket_width, 500)
+            outcome = int(abs_d[t])
+        else:  # delta2
+            if not same2[t]:
+                continue
+            implied_delta = circular_signed_delta(prev, best_val)
+            implied = int(abs(abs(implied_delta) - abs(sd[t - 1])))
+            part = obp_bounded_partition(implied, bucket_width, 500)
+            outcome = int(d2[t])
+
+        k_t = len(part)
+        pref = np.concatenate(([0.0], np.cumsum(hist)))  # pref[m] = sum hist[0:m]
         D = np.empty(k_t)
-        d0 = P[rt + 1] - P[0]                       # zone arc [0, rt]
-        if lt > 0:
-            d0 += P[1000] - P[1000 - lt]            # + zone wrap arc [1000-lt, 999]
-        D[0] = d0
-        start = rt + 1
-        for i in range(1, k_t):
-            w = widths[i]
-            D[i] = P[start + w] - P[start]
-            start += w
+        counts = np.empty(k_t)
+        obs_i = 0
+        for i, (lo, hi, _lab) in enumerate(part):
+            if kind == "pitch" and lo > hi:  # seam-wrapping arc
+                D[i] = (pref[domain + 1] - pref[lo]) + (pref[hi + 1] - pref[0])
+                counts[i] = domain - lo + 1 + hi
+                inside = (outcome >= lo) or (outcome <= hi)
+            else:
+                D[i] = pref[hi + 1] - pref[lo]
+                counts[i] = hi - lo + 1
+                inside = lo <= outcome <= hi
+            if inside:
+                obs_i = i
+        p0 = counts / float(domain if kind == "pitch" else domain + 1)
         p_pred = (D + alpha * k_t * p0) / (total + alpha * k_t)
 
-        # Observed displacement and its bucket.
-        u = (int(vals[t]) - bval) % 1000
-        if u <= rt or u >= 1000 - lt:
-            ob = 0
-            arc_lo = ((bval - lt - 1) % 1000) + 1
-            arc_hi = ((bval + rt - 1) % 1000) + 1
-        else:
-            offset = u - (rt + 1)
-            cum = 0
-            ob = 1
-            for i in range(1, k_t):
-                if offset < cum + widths[i]:
-                    ob = i
-                    break
-                cum += widths[i]
-            d_lo = rt + 1 + cum
-            d_hi = d_lo + widths[ob] - 1
-            arc_lo = ((bval + d_lo - 1) % 1000) + 1
-            arc_hi = ((bval + d_hi - 1) % 1000) + 1
-
-        score = _score_from_probs(p_pred, ob, p0)
-        zone_lo = ((bval - lt - 1) % 1000) + 1
-        zone_hi = ((bval + rt - 1) % 1000) + 1
-        out[t] = {"best_val": bval, "zone_lo": zone_lo, "zone_hi": zone_hi,
-                  "W": W, "k": k_t, "obs": ob, "arc_lo": arc_lo, "arc_hi": arc_hi,
-                  "p_obs": float(p_pred[ob]), "p0_obs": float(p0[ob]),
+        lo_o, hi_o, lab_o = part[obs_i]
+        score = _score_from_probs(p_pred, obs_i, p0)
+        rec_lo, rec_hi, _ = next(b for b in part if b[2] == 0)
+        out[t] = {"best_val": best_val, "implied": implied,
+                  "rec_lo": int(rec_lo), "rec_hi": int(rec_hi),
+                  "bucket_w": int(counts[obs_i]), "k": k_t, "obs": int(lab_o),
+                  "arc_lo": int(lo_o), "arc_hi": int(hi_o),
+                  "p_obs": float(p_pred[obs_i]), "p0_obs": float(p0[obs_i]),
                   "score": float(score)}
-        disp_hist[u] += 1.0
+        hist[outcome] += 1.0  # real outcome into the histogram AFTER scoring
         total += 1.0
     return out
 
 
 def obp_recency_states(df: "pd.DataFrame", value_col: str, window_n: int,
-                       ranges, rel_params) -> dict:
+                       ranges, rel_params, bucket_widths: dict) -> dict:
     """Per-signal OBP stoplight for one player. Same return shape as
-    scouting_recency_states so the page merges the two with dict.update."""
+    scouting_recency_states so the page merges the two with dict.update.
+    bucket_widths maps 'pitch'/'delta'/'delta2' -> the Decision-1 slider width."""
     sw = _recency_frame(df, value_col)
     if sw is None:
         return {}
     out = {}
     for sig, kind in _OBP_SIGNAL_KINDS.items():
-        walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params)
+        walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params,
+                                bucket_widths[kind])
         scores = [r["score"] if r else None for r in walk]
         out[sig] = _aggregate_recency(scores, window_n, 1)  # k unused by _aggregate_recency
     return out
 
 
 def obp_recency_detail(df: "pd.DataFrame", value_col: str, signal: str,
-                       window_n: int, ranges, rel_params) -> dict:
+                       window_n: int, ranges, rel_params, bucket_widths: dict) -> dict:
     """Per-pitch OBP backtest trace for one signal (inspector view). Same return
-    shape as scouting_recency_detail, with each row additionally carrying p0,
-    ratio (= p_obs/p0 = exp(score)), zone_lo, zone_hi, W. Top-level k is the LAST
-    eligible step's k_t (it varies per step; display-only)."""
+    shape as scouting_recency_detail, with each row additionally carrying p0 and
+    bucket_w (Decision-9 disclosure). Top-level k is the CONSTANT standard bucket
+    count (domain // width), so the chart's 1/k baseline is the standard-width
+    baseline; per-step edge buckets disclose their true width/base per row."""
     empty = {"rows": [], "scores": [], "n_scored": 0, "avg": None, "rel": None,
              "state": None, "votes": {"scouting": 0, "neutral": 0, "anti": 0},
              "window_n": window_n, "k": 0}
@@ -4491,7 +4589,9 @@ def obp_recency_detail(df: "pd.DataFrame", value_col: str, signal: str,
     if sw is None or signal not in _OBP_SIGNAL_KINDS:
         return empty
     kind = _OBP_SIGNAL_KINDS[signal]
-    walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params)
+    bw = bucket_widths[kind]
+    walk = obp_recency_walk(sw, value_col, kind, window_n, ranges, rel_params, bw)
+    std_k = (1000 // bw) if kind == "pitch" else (500 // bw)
     gcode = (sw["game_code"] if "game_code" in sw.columns else sw["game_id"]).tolist()
     pv = sw[value_col].astype(int).tolist()
     sv = sw["swing"].tolist() if "swing" in sw.columns else [None] * len(sw)
@@ -4501,19 +4601,20 @@ def obp_recency_detail(df: "pd.DataFrame", value_col: str, signal: str,
         return int(v) if pd.notna(v) else None
 
     rows = []
-    last_k = 0
     for i, d in enumerate(walk):
         if d is None:
             continue
-        last_k = d["k"]
-        obs_label = "in zone" if d["obs"] == 0 else f"out+{d['obs']} ({d['arc_lo']}-{d['arc_hi']})"
+        if kind == "pitch":
+            ctx_label = f"rec {d['rec_lo']}-{d['rec_hi']}"
+        else:
+            ctx_label = f"implied {d['implied']} -> rec {d['rec_lo']}-{d['rec_hi']}"
+        obs_label = ("in rec" if d["obs"] == 0
+                     else f"out{d['obs']:+d} ({d['arc_lo']}-{d['arc_hi']})")
         rows.append({"game": gcode[i], "pitch_val": pv[i],
                      "swing_val": _int_or_na(sv[i]), "diff_val": _int_or_na(dv[i]),
-                     "ctx_label": f"zone {d['zone_lo']}-{d['zone_hi']} (W={d['W']})",
-                     "obs_label": obs_label, "obs": d["obs"],
-                     "p_obs": d["p_obs"], "p0": d["p0_obs"],
-                     "ratio": float(np.exp(d["score"])),
-                     "zone_lo": d["zone_lo"], "zone_hi": d["zone_hi"], "W": d["W"],
+                     "ctx_label": ctx_label, "obs_label": obs_label, "obs": d["obs"],
+                     "p_obs": d["p_obs"], "p0": d["p0_obs"], "bucket_w": d["bucket_w"],
+                     "arc_lo": d["arc_lo"], "arc_hi": d["arc_hi"],
                      "score": d["score"]})
     scores = [r["score"] for r in rows]
     n_scored = len(scores)
@@ -4521,10 +4622,10 @@ def obp_recency_detail(df: "pd.DataFrame", value_col: str, signal: str,
     for j, r in enumerate(rows):
         r["in_window"] = j >= lo
         r["cls"] = _classify_pp(r["score"])
-    agg = _aggregate_recency(scores, window_n, last_k)
+    agg = _aggregate_recency(scores, window_n, std_k)
     return {"rows": rows, "scores": scores, "n_scored": n_scored,
             "avg": agg["avg"], "rel": agg["rel"], "state": agg["state"],
-            "votes": agg["votes"], "window_n": window_n, "k": last_k}
+            "votes": agg["votes"], "window_n": window_n, "k": std_k}
 
 
 def scouting_score_histogram(scores, avg=None) -> go.Figure:
@@ -4591,24 +4692,16 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
 
     n = len(rows)
     x = list(range(1, n + 1))
-    # Auto-select the y unit. OBP-backtest rows carry a per-step baseline p0
-    # (unequal, per-step bucket widths), so a fixed P% axis is meaningless -
-    # plot the ratio p_obs/p0 instead, where the cutoffs and baseline are clean
-    # constants (exp(cutoff), 1.0). Every existing (equal-width) signal has no p0
-    # key and takes the byte-identical P% path below.
-    ratio_mode = bool(rows) and ("p0" in rows[0])
-    if ratio_mode:
-        yv = [(r["p_obs"] / r["p0"]) if r.get("p0") else 1.0 for r in rows]
-        base = 1.0
-        green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]))
-        red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]))
-        y_title = "P(bucket) / baseline"
-    else:
-        yv = [r["p_obs"] * 100.0 for r in rows]
-        base = 100.0 / k
-        green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]) / k * 100.0)
-        red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]) / k * 100.0)
-        y_title = "P(bucket) %"
+    # Single P% axis for every signal. k is the standard (equal-width) bucket count,
+    # so the 1/k baseline and the exp(cutoff)/k bands are exact for standard buckets;
+    # the OBP signals' occasional edge buckets have a different true width, disclosed
+    # per-point in the hover (and in the inspector table) rather than by bending the
+    # axis.
+    yv = [r["p_obs"] * 100.0 for r in rows]
+    base = 100.0 / k
+    green_lo = float(np.exp(SCOUT_PP_THRESHOLDS["scouting_min"]) / k * 100.0)
+    red_hi = float(np.exp(SCOUT_PP_THRESHOLDS["anti_max"]) / k * 100.0)
+    y_title = "P(bucket) %"
     ymax = max(max(yv), green_lo) * 1.10
     ymin = max(0.0, min(min(yv), red_hi) * 0.90)
 
@@ -4622,14 +4715,20 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
 
     _cls_c = {"scouting": "#2e7d32", "neutral": "#f9a825", "anti": "#c62828"}
     colors = [_cls_c.get(r["cls"], "#9e9e9e") for r in rows]
-    if ratio_mode:
+    # Display-payload only: OBP-backtest rows carry a per-step baseline p0, so
+    # disclose the observed bucket's true width and base in the hover (Decision 9).
+    # Rows without a p0 key (all eleven existing signals) keep the byte-identical
+    # customdata and hover below.
+    _disclose = bool(rows) and ("p0" in rows[0])
+    if _disclose:
         cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game"),
-               r["p_obs"] * 100.0, r["p0"] * 100.0, r.get("obs_label", "")] for r in rows]
+               r.get("arc_lo"), r.get("arc_hi"), r.get("bucket_w"), r["p0"] * 100.0]
+              for r in rows]
         hovertemplate = (
             "pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
-            "<br>game %{customdata[3]} · %{y:.2f}x"
-            " (P=%{customdata[4]:.1f}% vs base %{customdata[5]:.1f}%)"
-            "<br>%{customdata[6]}<extra></extra>")
+            "<br>game %{customdata[3]} · P=%{y:.1f}%"
+            "<br>bucket %{customdata[4]}-%{customdata[5]} (w=%{customdata[6]})"
+            " · base %{customdata[7]:.1f}%<extra></extra>")
     else:
         cd = [[r["pitch_val"], r.get("swing_val"), r.get("diff_val"), r.get("game")] for r in rows]
         hovertemplate = ("pitch %{customdata[0]} · swing %{customdata[1]} · diff %{customdata[2]}"
@@ -4668,9 +4767,10 @@ def delta3_next_zone_dist(
         return None
     d = df[delta_col].abs()
     if centered:
-        half = bucket_size // 2
-        m_curr = ((d - float(prior_delta_2)).abs() <= half).fillna(False)
-        m_prev = ((d.shift(1) - float(prior_delta_1)).abs() <= half).fillna(False)
+        _lo1, _hi1 = _centered_match_interval(int(prior_delta_1), bucket_size, 500)
+        _lo2, _hi2 = _centered_match_interval(int(prior_delta_2), bucket_size, 500)
+        m_curr = d.between(_lo2, _hi2)
+        m_prev = d.shift(1).between(_lo1, _hi1)
         mask = m_curr & m_prev
     else:
         b1 = (int(prior_delta_1) - 1) // bucket_size
@@ -4762,8 +4862,8 @@ def delta_zone_via_delta_hist(
     sw = df[df[value_col].notna()].sort_values("id")
     d = sw[delta_col].abs()
     if centered:
-        half = bucket_size // 2
-        mask = ((d - float(prior_delta)).abs() <= half).fillna(False)
+        _lo, _hi = _centered_match_interval(int(prior_delta), bucket_size, 500)
+        mask = d.between(_lo, _hi)
     else:
         prior_bkt = (int(prior_delta) - 1) // bucket_size
         mask = ((d - 1) // bucket_size == prior_bkt).fillna(False)
@@ -4786,9 +4886,10 @@ def delta3_zone_via_delta_hist(
     sw = df[df[value_col].notna()].sort_values("id")
     d = sw[delta_col].abs()
     if centered:
-        half = bucket_size // 2
-        m_curr = ((d - float(prior_delta_2)).abs() <= half).fillna(False)
-        m_prev = ((d.shift(1) - float(prior_delta_1)).abs() <= half).fillna(False)
+        _lo1, _hi1 = _centered_match_interval(int(prior_delta_1), bucket_size, 500)
+        _lo2, _hi2 = _centered_match_interval(int(prior_delta_2), bucket_size, 500)
+        m_curr = d.between(_lo2, _hi2)
+        m_prev = d.shift(1).between(_lo1, _hi1)
         mask = m_curr & m_prev
     else:
         b1 = (int(prior_delta_1) - 1) // bucket_size

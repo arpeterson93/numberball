@@ -274,21 +274,28 @@ _STOPLIGHT_ORDER = _OBP_STOPLIGHT_SIGNALS + [
                     "Prior diff → Δ", "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
 _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
+def _obp_widths_dict(widths_key: tuple) -> dict:
+    # widths_key = (hz_follow, dd, dd2) -> per-kind bucket width for obp_recency_*.
+    return {"pitch": int(widths_key[0]), "delta": int(widths_key[1]), "delta2": int(widths_key[2])}
+
 @st.cache_data(ttl=3600)
 def _load_pitcher_obp_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
-                                 window_n: int, ranges_key: tuple, rel_key: tuple, sig: tuple) -> dict:
+                                 window_n: int, ranges_key: tuple, rel_key: tuple,
+                                 widths_key: tuple, sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
-    return utils.obp_recency_states(df, "pitch", window_n, [list(r) for r in ranges_key], rel_key)
+    return utils.obp_recency_states(df, "pitch", window_n, [list(r) for r in ranges_key],
+                                    rel_key, _obp_widths_dict(widths_key))
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_obp_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
                                        signal: str, window_n: int, ranges_key: tuple,
-                                       rel_key: tuple, sig: tuple) -> dict:
+                                       rel_key: tuple, widths_key: tuple, sig: tuple) -> dict:
     df = _load_pitcher_plays(pitcher_name, leagues, data_v)
-    return utils.obp_recency_detail(df, "pitch", signal, window_n, [list(r) for r in ranges_key], rel_key)
+    return utils.obp_recency_detail(df, "pitch", signal, window_n, [list(r) for r in ranges_key],
+                                    rel_key, _obp_widths_dict(widths_key))
 
 def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt, dd2_bkt,
-                         ranges_key, rel_key, states, order):
+                         ranges_key, rel_key, widths_key, states, order):
     """Debug/tuning view: per-indication summary, a per-pitch probability trend
     line, and the per-pitch drill-down table. Not an @st.fragment on purpose - a
     fragment nested inside st.tabs breaks tab hiding on rerun (dumps every tab's
@@ -318,7 +325,8 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
     _is_obp = _sel in _OBP_STOPLIGHT_SIGNALS
     if _is_obp:
         _d = _load_pitcher_obp_stoplight_detail(pitcher_name, leagues, data_v, _sel,
-                                                window_n, ranges_key, rel_key, utils.scouting_cache_sig())
+                                                window_n, ranges_key, rel_key, widths_key,
+                                                utils.scouting_cache_sig())
     else:
         _d = _load_pitcher_stoplight_detail(pitcher_name, leagues, data_v, _sel,
                                             window_n, hz_bkt, dd_bkt, dd2_bkt, utils.scouting_cache_sig())
@@ -331,8 +339,8 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
     if _d["n_scored"] >= utils.MIN_SCORED:
         _v = _d["votes"]
         if _is_obp:
-            _tail = ("width-proportional baseline (k varies per step)"
-                     " - measures displacement behavior vs each day's recommended zone")
+            _tail = (f"standard-width baseline {_base:.0f}% (k={_d['k']}); "
+                     "edge-bucket points show their true base in hover/table")
         else:
             _tail = f"random baseline {_base:.0f}% (k={_d['k']})"
         st.caption(
@@ -1749,6 +1757,12 @@ with tab_p:
                 st.session_state.get("p_rel_g3", 40),
                 bool(st.session_state.get("p_rel_result_offset", True)),
             )
+            # Per-kind slider widths define the OBP signals, so they double as the
+            # cache key: pitch <- following-bucket, delta <- dd, delta2 <- dd2.
+            _obp_widths_key = (
+                int(st.session_state.get("hz_follow_bucket_p", 200)),
+                int(_h_dd_bkt), int(_h_dd2_bkt),
+            )
             if tab_p_pitcher != "All":
                 _stop_states = _load_pitcher_stoplights(
                     tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
@@ -1757,7 +1771,8 @@ with tab_p:
                 if result_ranges:
                     _stop_states.update(_load_pitcher_obp_stoplights(
                         tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                        int(n_pitches), _obp_ranges_key, _obp_rel_key, utils.scouting_cache_sig(),
+                        int(n_pitches), _obp_ranges_key, _obp_rel_key, _obp_widths_key,
+                        utils.scouting_cache_sig(),
                     ))
                 _order_seen = []
                 for _r in _hint_rows_p:
@@ -1813,7 +1828,7 @@ with tab_p:
                         _stoplight_inspector(
                             tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
                             int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt),
-                            _obp_ranges_key, _obp_rel_key, _stop_states, _insp_order,
+                            _obp_ranges_key, _obp_rel_key, _obp_widths_key, _stop_states, _insp_order,
                         )
             elif not result_ranges or not _h_recent:
                 st.caption("Fetch a matchup and select a pitcher to see suggestions.")
