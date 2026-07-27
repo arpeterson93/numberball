@@ -19,7 +19,10 @@
       "Bash(curl -s -o /dev/null -w \"8501: %{http_code}\\\\n\" --max-time 2 http://localhost:8501)",
       "Bash(curl -s -o /dev/null -w \"8502: %{http_code}\\\\n\" --max-time 2 http://localhost:8502)",
       "Skill(dataviz)",
-      "WebFetch(domain:www.rslashfakebaseball.com)"
+      "WebFetch(domain:www.rslashfakebaseball.com)",
+      "Bash(powershell -Command \"Get-Content 'database.py' -TotalCount 60\")",
+      "Bash(powershell -Command \"Select-String -Path 'sync_plays.py' -Pattern 'table\\\\\\(' | Select-Object -First 20\")",
+      "Bash(powershell -Command \"Select-String -Path 'database.py' -Pattern 'def get_plays|table\\\\\\(.play' \")"
     ]
   }
 }
