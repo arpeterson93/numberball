@@ -1253,6 +1253,154 @@ def zone_polar(
     return fig
 
 
+def _freq_bwr_color(count: float, min_c: float, max_c: float, alpha: float = 1.0) -> str:
+    """Blue (least frequent) -> white (mid) -> red (most frequent), matching
+    zone_heatmap's colorscale. Same formula as zone_polar's internal _bwr."""
+    t = (count - min_c) / (max_c - min_c) if max_c > min_c else 0.5
+    if t <= 0.5:
+        s = t * 2
+        rv = int(33 + (247 - 33) * s)
+        gv = int(102 + (247 - 102) * s)
+        bv = int(172 + (247 - 172) * s)
+    else:
+        s = (t - 0.5) * 2
+        rv = int(247 + (214 - 247) * s)
+        gv = int(247 + (96 - 247) * s)
+        bv = int(247 + (77 - 247) * s)
+    return f"rgba({rv},{gv},{bv},{alpha})"
+
+
+def obr_gauge_donut(
+    pitch_values: list[int],
+    obr_lo: int,
+    obr_hi: int,
+    swing_val: int,
+    padding: int = 100,
+    bucket_width: int = 10,
+    title: str = "OBR Pitch Frequency",
+) -> go.Figure:
+    """Speedometer-style partial donut: this pitcher's historical pitch frequency
+    across the active OBR plus a padding zone on each side, at bucket_width
+    granularity - fine enough to see exactly where thrown pitches thin out near
+    the OBR edges, unlike zone_polar's coarse fixed 9-zone full circle.
+
+    Circular over 1-1000. swing_val is always the OBR midpoint by construction
+    (obr_lo/obr_hi come from swing +/- obr_max), so it's drawn at 12 o'clock and
+    the OBR core spans outward symmetrically from there, with a padding-width
+    buffer on each side for edge context. padding is clipped so the total span
+    (OBR + both paddings) never exceeds the full circle.
+    """
+    obr_width = ((obr_hi - obr_lo) % 1000) + 1
+    padding = max(0, min(padding, (1000 - obr_width) // 2))
+
+    def _vals(start: int, width: int) -> list[int]:
+        return [((start - 1 + k) % 1000) + 1 for k in range(width)]
+
+    def _chunks(vals: list[int], w: int) -> list[list[int]]:
+        return [vals[i:i + w] for i in range(0, len(vals), w)] if vals else []
+
+    left_pad_vals  = _vals(((obr_lo - padding - 1) % 1000) + 1, padding) if padding else []
+    core_vals      = _vals(obr_lo, obr_width)
+    right_pad_vals = _vals(((obr_hi - 1) % 1000) + 2, padding) if padding else []
+
+    counts: dict[int, int] = {}
+    for v in pitch_values:
+        v = int(v)
+        counts[v] = counts.get(v, 0) + 1
+
+    segments = (
+        [(c, "pad")  for c in _chunks(left_pad_vals, bucket_width)] +
+        [(c, "core") for c in _chunks(core_vals, bucket_width)] +
+        [(c, "pad")  for c in _chunks(right_pad_vals, bucket_width)]
+    )
+    n = len(segments)
+    fig = go.Figure()
+    total = len(pitch_values)
+    if n == 0:
+        fig.update_layout(title=dict(text=f"{title} (no data)", x=0.5, xanchor="center"), height=340)
+        return fig
+
+    bucket_counts = [sum(counts.get(v, 0) for v in chunk) for chunk, _zone in segments]
+    zones = [z for _c, z in segments]
+    min_c, max_c = min(bucket_counts), max(bucket_counts)
+
+    # Same theta convention as zone_polar (rotation=90, direction=clockwise
+    # below -> theta=0 is 12 o'clock, increasing theta sweeps clockwise). The
+    # gap sits at the bottom (theta=180): bucket 0 starts at 225 deg and
+    # sweeps clockwise through 270/315/0(top)/45/90 up to 135 deg.
+    span = 270.0
+    deg_each = span / n
+    gap_start = 180.0 + (360.0 - span) / 2.0  # 225 when span=270
+    thetas = [(gap_start + (i + 0.5) * deg_each) % 360 for i in range(n)]
+    core_idxs = [i for i, z in enumerate(zones) if z == "core"]
+
+    colors, line_colors, line_widths, hovers = [], [], [], []
+    for (chunk, zone), cnt in zip(segments, bucket_counts):
+        is_core = zone == "core"
+        colors.append(_freq_bwr_color(cnt, min_c, max_c, alpha=1.0 if is_core else 0.5))
+        line_colors.append("rgba(20,20,20,0.85)" if is_core else "rgba(120,120,120,0.45)")
+        line_widths.append(1.4 if is_core else 0.6)
+        lo_v, hi_v = chunk[0], chunk[-1]
+        lbl = f"{lo_v}" if lo_v == hi_v else f"{lo_v}-{hi_v}"
+        pct = f"{cnt / total * 100:.1f}%" if total else "0%"
+        hovers.append(f"{lbl}<br>{cnt} ({pct}){' - OBR' if is_core else ''}")
+
+    fig.add_trace(go.Barpolar(
+        r=[1] * n,
+        theta=thetas,
+        width=[deg_each * 0.92] * n,
+        base=0.3,
+        marker_color=colors,
+        marker_line_color=line_colors,
+        marker_line_width=line_widths,
+        hovertext=hovers,
+        hovertemplate="%{hovertext}<extra></extra>",
+        showlegend=False,
+    ))
+
+    # OBR boundary spokes - dotted green, matching the OBR boundary color used
+    # in swing_predictor_chart / manager_color_bar elsewhere on this page.
+    if core_idxs:
+        b_lo_theta = (gap_start + core_idxs[0] * deg_each) % 360
+        b_hi_theta = (gap_start + (core_idxs[-1] + 1) * deg_each) % 360
+        for th in (b_lo_theta, b_hi_theta):
+            fig.add_trace(go.Scatterpolar(
+                r=[0, 1.32], theta=[th, th], mode="lines",
+                line=dict(color="#1a7d35", width=1.5, dash="dot"),
+                hoverinfo="skip", showlegend=False,
+            ))
+
+    # Swing marker at 12 o'clock - the OBR midpoint by construction. Starts
+    # outside the donut hole so it doesn't run through the center label.
+    fig.add_trace(go.Scatterpolar(
+        r=[0.32, 1.05], theta=[0, 0], mode="lines",
+        line=dict(color="rgba(0,0,0,0.75)", width=2, dash="dash"),
+        hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_annotation(
+        x=0.5, y=0.5, xref="paper", yref="paper",
+        text=f"Swing<br><b>{swing_val}</b>", showarrow=False, align="center",
+        font=dict(size=11), xanchor="center", yanchor="middle",
+    )
+
+    fig.update_layout(
+        title=dict(text=f"{title} (n={total}, OBR {obr_lo}-{obr_hi})", x=0.5, xanchor="center", font=dict(size=13)),
+        polar=dict(
+            angularaxis=dict(direction="clockwise", rotation=90, showticklabels=False,
+                              showgrid=False, linewidth=0, ticks=""),
+            radialaxis=dict(visible=False, range=[0, 1.35], ticks=""),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        height=340,
+        margin=dict(l=20, r=20, t=55, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        dragmode=False,
+    )
+    return fig
+
+
 def delta_histogram(
     deltas: pd.Series,
     title: str = "Pitch Delta Distribution",
@@ -2195,13 +2343,20 @@ def _scores_via_fft(w: "numpy.ndarray", diff_score_arr: "numpy.ndarray") -> "num
     return np.real(np.fft.ifft(np.fft.fft(w) * np.fft.fft(kernel)))
 
 
-def _diff_score_array(result_ranges: list, metric: str) -> "numpy.ndarray":
-    """Precompute a length-501 score array indexed by circular diff value."""
+def _diff_score_array(result_ranges: list, metric: str,
+                       obr_extra: frozenset[str] = frozenset()) -> "numpy.ndarray":
+    """Precompute a length-501 score array indexed by circular diff value.
+
+    obr_extra: additional result names counted as on-base for the "obp" metric,
+    on top of the standard _OBR set - e.g. {"SacF", "DSacF"} when a manager opts
+    to treat sac flies as in-OBR.
+    """
     import numpy as np
+    obr_set = _OBR | obr_extra
     arr = np.zeros(501)
     for d in range(501):
         r = _diff_to_result(d, result_ranges)
-        arr[d] = (1.0 if r in _OBR else 0.0) if metric == "obp" else float(_SLG_WEIGHTS.get(r, 0))
+        arr[d] = (1.0 if r in obr_set else 0.0) if metric == "obp" else float(_SLG_WEIGHTS.get(r, 0))
     return arr
 
 
@@ -2211,6 +2366,7 @@ def suggest_swing(
     metric: str = "obp",
     maximize: bool = True,
     weights: list[float] | None = None,
+    obr_extra: frozenset[str] = frozenset(),
 ) -> tuple[int, float, int, float]:
     """Return (best_val, best_score, counter_val, counter_score) via FFT convolution.
 
@@ -2222,7 +2378,7 @@ def suggest_swing(
         return 500, 0.0, 500, 0.0
     scores = _scores_via_fft(
         _build_weight_array(recent_opp_vals, weights),
-        _diff_score_array(result_ranges, metric),
+        _diff_score_array(result_ranges, metric, obr_extra),
     )
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     counter_idx = int(np.argmin(scores) if maximize else np.argmax(scores))
@@ -2236,6 +2392,7 @@ def swing_signal_strength(
     maximize: bool = True,
     weights: list[float] | None = None,
     zone: str = "best",
+    obr_extra: frozenset[str] = frozenset(),
 ) -> float:
     """Return signal strength 0-100%: how concentrated a score zone is.
 
@@ -2248,7 +2405,7 @@ def swing_signal_strength(
         return 0.0
     scores = _scores_via_fft(
         _build_weight_array(recent_opp_vals, weights),
-        _diff_score_array(result_ranges, metric),
+        _diff_score_array(result_ranges, metric, obr_extra),
     )
     best  = float(np.max(scores) if maximize else np.min(scores))
     worst = float(np.min(scores) if maximize else np.max(scores))
@@ -2277,6 +2434,7 @@ def obp_zone_signal(
     weights: list[float] | None,
     maximize: bool = True,
     paired: bool = False,
+    obr_extra: frozenset[str] = frozenset(),
 ) -> dict | None:
     """Best-value zone for an 'OBP recent X' Suggestions row, OBR as a MAX width.
 
@@ -2310,10 +2468,11 @@ def obp_zone_signal(
     """
     if not pop:
         return None
-    obr_max = max((hi for result, _lo, hi in ranges if result in _OBR), default=0)
+    obr_set = _OBR | obr_extra
+    obr_max = max((hi for result, _lo, hi in ranges if result in obr_set), default=0)
     if obr_max <= 0:
         return None
-    scores = _scores_via_fft(_build_weight_array(pop, weights), _diff_score_array(ranges, "obp"))
+    scores = _scores_via_fft(_build_weight_array(pop, weights), _diff_score_array(ranges, "obp", obr_extra))
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     worst = float(np.min(scores) if maximize else np.max(scores))
     best = float(np.max(scores) if maximize else np.min(scores))
@@ -2368,6 +2527,7 @@ def optimal_swing_chart(
     title: str = "Expected Score by Swing Value",
     compact: bool = False,
     weights: list[float] | None = None,
+    obr_extra: frozenset[str] = frozenset(),
 ) -> go.Figure:
     """1-row gradient heatmap showing expected OBP or SLG for every possible swing value.
 
@@ -2377,7 +2537,7 @@ def optimal_swing_chart(
     import numpy as np
     scores = _scores_via_fft(
         _build_weight_array(recent_opp_vals, weights),
-        _diff_score_array(result_ranges, metric),
+        _diff_score_array(result_ranges, metric, obr_extra),
     )
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     counter_idx = int(np.argmin(scores) if maximize else np.argmax(scores))
@@ -5071,6 +5231,7 @@ def swing_predictor_chart(
     ref_label: str = "Swing",
     ref_color: str = "navy",
     tick_weights: list[float] | None = None,
+    obr_extra: frozenset[str] = frozenset(),
 ) -> go.Figure:
     """Color-coded number line for a proposed reference value, with recent pitch/swing values overlaid.
     value_col: column to pull tick marks from ('pitch' for pitcher page, 'swing' for batter page).
@@ -5210,7 +5371,7 @@ def swing_predictor_chart(
                 ))
 
     # OBR boundary lines - offset clamped so labels stay on-screen at chart edges
-    obr_max = max((hi for result, lo, hi in ranges if result in _OBR), default=0)
+    obr_max = max((hi for result, lo, hi in ranges if result in (_OBR | obr_extra)), default=0)
     if obr_max > 0:
         b_lo = ((swing - obr_max - 1) % 1000) + 1
         b_hi = ((swing + obr_max - 1) % 1000) + 1

@@ -1418,6 +1418,14 @@ with tab_p:
         else:
             st.warning("No at-bats found for this pitcher with the current filters.")
     else:
+        # OBR extension (SacF/DSacF) and the resulting OBR bounds for the current
+        # Proposed Swing - set below once active_ranges is known, but initialized
+        # here so they're always defined for code that runs whether or not
+        # result_ranges is available (e.g. the Zone Distribution section further
+        # down, which stays in scope past the `if result_ranges:` blocks below).
+        _obr_extra_p = frozenset()
+        _obr_lo_p = _obr_hi_p = _pred_swing_val_p = None
+
         # A pending pill selection (Optimal Swing "use this swing" pills, set
         # further down and consumed here) must land in session_state BEFORE
         # the Proposed Swing widget below instantiates with key="pred_swing" -
@@ -1486,6 +1494,50 @@ with tab_p:
             # sheet configured for this matchup) rather than leaving it empty.
             active_ranges = (st.session_state.get(_sv_ranges_key) if _sv_ranges_key else None) or result_ranges
 
+            # SacF/DSacF are outs but run-scoring - optionally fold them into OBR
+            # for scoring/overlay purposes on this page only (utils._OBR itself is
+            # left untouched so nothing else on the site is affected). GORA sits
+            # between BB and DSacF/SacF in the range table, so it's pulled in too
+            # whenever this is on - otherwise the "extended OBR" would have a gap
+            # of true outs (GORA) sitting inside its outer boundary.
+            _obr_sac_present_p = any(r in ("SacF", "DSacF") for r, _lo, _hi in active_ranges)
+            if _obr_sac_present_p:
+                st.toggle(
+                    "Include SacF/DSacF in OBR", key="obr_incl_sac_p", value=False,
+                    help="Sac flies are outs but run-scoring - optionally count them (and GORA, "
+                         "which sits between BB and the sac flies) as on-base for Swing "
+                         "Suggestions, Optimal Swing, and the OBR overlays below.",
+                )
+            _obr_extra_p = frozenset({"SacF", "DSacF", "GORA"}) if st.session_state.get("obr_incl_sac_p") else frozenset()
+
+            # OBR is always symmetric around the swing (+/- obr_max, a constant set
+            # by the active ranges) - so setting one edge fully determines the swing.
+            _obr_max_p = max((hi for r, _lo, hi in active_ranges if r in (utils._OBR | _obr_extra_p)), default=0)
+            _pred_swing_val_p = int(st.session_state.get("pred_swing", 500))
+            if _obr_max_p:
+                _obr_lo_p = ((_pred_swing_val_p - _obr_max_p - 1) % 1000) + 1
+                _obr_hi_p = ((_pred_swing_val_p + _obr_max_p - 1) % 1000) + 1
+
+                with st.expander("Set Proposed Swing via OBR edge"):
+                    st.caption(f"OBR is currently ±{_obr_max_p} around your swing "
+                               f"({_obr_lo_p}-{_obr_hi_p}). Enter one edge to back-solve the swing.")
+                    _edge_c1, _edge_c2, _edge_c3 = st.columns([1, 1, 1])
+                    with _edge_c1:
+                        _edge_side_p = st.radio("Edge", ["Low", "High"], key="obr_edge_side_p", horizontal=True)
+                    with _edge_c2:
+                        _edge_val_p = st.number_input("OBR edge value", min_value=1, max_value=1000,
+                                                       step=1, key="obr_edge_val_p")
+                    with _edge_c3:
+                        st.write("")
+                        st.write("")
+                        if st.button("Apply", key="obr_edge_apply_p"):
+                            if _edge_side_p == "Low":
+                                _new_swing_p = ((int(_edge_val_p) + _obr_max_p - 1) % 1000) + 1
+                            else:
+                                _new_swing_p = ((int(_edge_val_p) - _obr_max_p - 1) % 1000) + 1
+                            st.session_state["_pend_swing"] = _new_swing_p
+                            st.rerun()
+
         # ── swing suggestions panel ───────────────────────────────────────────
         with st.expander("Swing Suggestions", expanded=True):
             _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
@@ -1549,9 +1601,9 @@ with tab_p:
                 _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
                 _h_dvals  = utils.project_from_deltas(_h_recent)
                 _h_d2vals = utils.project_from_delta2s(_h_recent)
-                _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True)
-                _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True)
-                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True, paired=True)
+                _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True, obr_extra=_obr_extra_p)
+                _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True, obr_extra=_obr_extra_p)
+                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True, paired=True, obr_extra=_obr_extra_p)
                 _hint_rows_p.append({"Signal": "OBP recent pitch",
                                      "lo": _h_obp_p["lo"] if _h_obp_p else None,
                                      "hi": _h_obp_p["hi"] if _h_obp_p else None,
@@ -1805,7 +1857,7 @@ with tab_p:
                 _hp_swing_val = int(st.session_state["pred_swing"]) if "pred_swing" in st.session_state and result_ranges else None
                 _hp_obr_lo = _hp_obr_hi = None
                 if _hp_swing_val is not None:
-                    _hp_obr_max = max((hi for _, _lo, hi in active_ranges if _ in utils._OBR), default=0)
+                    _hp_obr_max = max((hi for _, _lo, hi in active_ranges if _ in (utils._OBR | _obr_extra_p)), default=0)
                     if _hp_obr_max:
                         _hp_obr_lo = ((_hp_swing_val - _hp_obr_max - 1) % 1000) + 1
                         _hp_obr_hi = ((_hp_swing_val + _hp_obr_max - 1) % 1000) + 1
@@ -1989,7 +2041,7 @@ with tab_p:
             st.plotly_chart(
                 utils.swing_predictor_chart(_df_tick_p, swing=int(st.session_state["pred_swing"]), n=n_pitches,
                                             result_ranges=active_ranges, tick_label=_tick_lbl_p,
-                                            tick_weights=_pa_weights_p),
+                                            tick_weights=_pa_weights_p, obr_extra=_obr_extra_p),
                 width="stretch", key="p_swing_pred",
             )
 
@@ -2025,9 +2077,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
                                 unsafe_allow_html=True)
                     if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "obp", True, weights=_wts)
-                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="best")
-                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="worst")
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "obp", True, weights=_wts, obr_extra=_obr_extra_p)
+                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="best", obr_extra=_obr_extra_p)
+                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="worst", obr_extra=_obr_extra_p)
                         _pk = f"pill_obp_{_i}_p"
                         _opts = {
                             f"↑ {_bv} ({_bs:.3f}) · {_sig_p_obp_tgt:.0f}%": _bv,
@@ -2040,7 +2092,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                             st.rerun()
                         st.plotly_chart(
                             utils.optimal_swing_chart(_vals, active_ranges, "obp", True,
-                                                      compact=True, weights=_wts),
+                                                      compact=True, weights=_wts, obr_extra=_obr_extra_p),
                             use_container_width=True, key=f"p_opt_obp_{_i}")
             if not _simple_mode:
                 with col_slg_p:
@@ -2237,7 +2289,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # ── zone charts (shared polar toggle) ────────────────────────────────
             st.divider()
             @st.fragment
-            def _zone_delta_section_p(df_p, _deltas_p):
+            def _zone_delta_section_p(df_p, _deltas_p, _obr_lo, _obr_hi, _swing_val):
                 _polar_p = st.toggle("Polar view", value=True, key="polar_p")
 
                 st.subheader("Zone Distribution (All)")
@@ -2248,6 +2300,31 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 else:
                     st.plotly_chart(utils.zone_heatmap(_zone_counts_p, title="Pitch Zone Frequency"),
                                     width="stretch", key="p_zone_all")
+
+                # ── OBR pitch frequency (speedometer) ──────────────────────────────────
+                st.subheader("OBR Pitch Frequency")
+                if _obr_lo is not None and _obr_hi is not None:
+                    _obrg_c1, _obrg_c2 = st.columns(2)
+                    with _obrg_c1:
+                        _obrg_bucket = st.select_slider(
+                            "Pitch bucket size", options=[5, 10, 15, 20, 25, 50], value=10, key="obr_gauge_bucket_p",
+                        )
+                    with _obrg_c2:
+                        _obrg_pad = st.number_input(
+                            "Padding outside OBR", min_value=0, max_value=300, value=100, step=10,
+                            key="obr_gauge_pad_p",
+                        )
+                    _obrg_vals_p = df_p[df_p["pitch"].notna()]["pitch"].astype(int).tolist()
+                    st.plotly_chart(
+                        utils.obr_gauge_donut(
+                            _obrg_vals_p, _obr_lo, _obr_hi, _swing_val,
+                            padding=int(_obrg_pad), bucket_width=int(_obrg_bucket),
+                        ),
+                        width="stretch", key="p_obr_gauge",
+                    )
+                else:
+                    st.caption("Set a Proposed Swing above (with result ranges loaded) to see this pitcher's "
+                               "pitch frequency across the active OBR.")
 
                 # ── first pitch tendencies ────────────────────────────────────────────
                 st.subheader("First Pitch Tendencies")
@@ -2333,7 +2410,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     )
                 else:
                     st.caption("Need at least 2 at-bats from the same pitcher.")
-            _zone_delta_section_p(df_p, _deltas_p)
+            _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
