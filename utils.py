@@ -779,6 +779,36 @@ def _wraparound_group(group: pd.Series) -> pd.Series:
     return pd.Series(results, index=group.index)
 
 
+def _dd_group(group: pd.Series) -> pd.Series:
+    """1 if this pitch lands within a circular 50-value window of the
+    immediately prior pitch (a 'Double Down'), 0 if not, NaN for the group's
+    first pitch (no prior pitch to compare against)."""
+    vals = group.astype(int).tolist()
+    results = [float("nan")]
+    for i in range(1, len(vals)):
+        results.append(1.0 if circular_diff(vals[i], vals[i - 1]) <= 50 else 0.0)
+    return pd.Series(results, index=group.index)
+
+
+def _td_group(group: pd.Series) -> pd.Series:
+    """1 if this pitch AND the one before it both land within a circular
+    50-value window anchored on the pitch two spots back (a 'Triple Down'),
+    0 if not, NaN if fewer than two prior pitches exist in this pitcher's
+    sequence. Anchored on the first pitch of the triple - not a drifting
+    chain - so a Triple Down always contains a Double Down (pitch two vs.
+    pitch one) but the reverse isn't required. Unconditional: every eligible
+    3-pitch window counts toward the denominator, regardless of whether the
+    first pair happened to be a DD - TD% is "how often does 3-in-a-row
+    happen," not a continuation rate off an existing DD."""
+    vals = group.astype(int).tolist()
+    results = [float("nan")] * min(2, len(vals))
+    for i in range(2, len(vals)):
+        anchor = vals[i - 2]
+        results.append(1.0 if circular_diff(vals[i - 1], anchor) <= 50
+                        and circular_diff(vals[i], anchor) <= 50 else 0.0)
+    return pd.Series(results, index=group.index)
+
+
 _XBH  = {"HR", "3B", "2BWH", "2B"}
 _BB1B = {"1BWH2", "1BWH", "1B", "IF1B", "BB"}
 _OBR  = _XBH | _BB1B
@@ -1027,6 +1057,8 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_circ_delta2_signed"] = pd.NA
     df["pitch_approach"] = pd.NA
     df["pitch_wraparound"] = pd.NA
+    df["pitch_dd"] = pd.NA
+    df["pitch_td"] = pd.NA
     if sw.any():
         sw_df = df[sw]
         gk_pit = (sw_df["game_id"].astype(str) + "|" + sw_df["pitcher_name"].fillna(""))
@@ -1041,6 +1073,12 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[sw, "pitch_wraparound"] = sw_df.groupby(
             gk_pit, group_keys=False
         )["pitch"].apply(_wraparound_group)
+        df.loc[sw, "pitch_dd"] = sw_df.groupby(
+            gk_pit, group_keys=False
+        )["pitch"].apply(_dd_group)
+        df.loc[sw, "pitch_td"] = sw_df.groupby(
+            gk_pit, group_keys=False
+        )["pitch"].apply(_td_group)
         # Second derivative and approach - re-read df to pick up pitch_circ_delta
         sw_df2 = df[sw]
         gk_pit2 = (sw_df2["game_id"].astype(str) + "|" + sw_df2["pitcher_name"].fillna(""))
@@ -7665,6 +7703,33 @@ def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figu
 
 # ── pitcher stats ─────────────────────────────────────────────────────────────
 
+def _wrap_dd_td_counts(pitches: list[int]) -> tuple[int, int, int, int, int, int]:
+    """Single pass over one game's ordered pitch sequence for a pitcher, returning
+    (wrap_eligible, wrap_hit, dd_eligible, dd_hit, td_eligible, td_hit).
+
+    Wraparound eligibility requires the prior pitch be in the boundary zone
+    (>=850 or <=150). DD/TD are always eligible once enough prior pitches
+    exist (1 for DD, 2 for TD) - TD is unconditional over every eligible
+    3-pitch window, not a continuation rate off an existing DD - see
+    _dd_group/_td_group for the same logic applied per-pitch in enrich_df."""
+    we = wc = de = dh = te = th = 0
+    for i in range(1, len(pitches)):
+        prev, curr = pitches[i - 1], pitches[i]
+        if prev >= 850 or prev <= 150:
+            we += 1
+            if (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850):
+                wc += 1
+        de += 1
+        if circular_diff(curr, prev) <= 50:
+            dh += 1
+        if i >= 2:
+            anchor = pitches[i - 2]
+            te += 1
+            if circular_diff(prev, anchor) <= 50 and circular_diff(curr, anchor) <= 50:
+                th += 1
+    return we, wc, de, dh, te, th
+
+
 def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
     """Compute per-pitcher behavioral stats from an enriched plays DataFrame.
 
@@ -7705,17 +7770,18 @@ def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
         approach = grp["pitch_approach"].dropna()
         # Wraparound %: of pitches where the previous pitch was in the boundary zone
         # (>=850 or <=150), how often did they actually cross to the other side?
-        _wrap_eligible = 0
-        _wrap_crossed  = 0
+        # DD %/TD %: of eligible consecutive pitches, how often did they land within
+        # a circular 50-value window (see _wrap_dd_td_counts).
+        _wrap_eligible = _wrap_crossed = _dd_eligible = _dd_hit = _td_eligible = _td_hit = 0
         for _, game_grp in grp.groupby("game_id"):
             pitches = game_grp.sort_values("id")["pitch"].astype(int).tolist()
-            for i in range(1, len(pitches)):
-                prev, curr = pitches[i - 1], pitches[i]
-                if prev >= 850 or prev <= 150:
-                    _wrap_eligible += 1
-                    if (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850):
-                        _wrap_crossed += 1
+            we, wc, de, dh, te, th = _wrap_dd_td_counts(pitches)
+            _wrap_eligible += we; _wrap_crossed += wc
+            _dd_eligible   += de; _dd_hit        += dh
+            _td_eligible   += te; _td_hit        += th
         wraparound_pct = round(_wrap_crossed / _wrap_eligible * 100, 2) if _wrap_eligible else None
+        dd_pct = round(_dd_hit / _dd_eligible * 100, 2) if _dd_eligible else None
+        td_pct = round(_td_hit / _td_eligible * 100, 2) if _td_eligible else None
         rows.append({
             "pitcher_name":   pitcher,
             "player_id":      player_id,
@@ -7725,6 +7791,8 @@ def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
             "shadow_pct":     round(float(approach.mean() * 100), 2) if not approach.empty else None,
             "meme_rate":      round(float(grp["is_meme_pitch"].mean() * 100), 2),
             "wraparound_pct": wraparound_pct,
+            "dd_pct":         dd_pct,
+            "td_pct":         td_pct,
             "updated_at":     datetime.datetime.utcnow().isoformat(),
         })
     return rows
@@ -7738,21 +7806,21 @@ def compute_recent_pitcher_stats(df: pd.DataFrame) -> dict:
     deltas   = sw["pitch_circ_delta"].dropna()
     delta2s  = sw["pitch_circ_delta2"].dropna()
     approach = sw["pitch_approach"].dropna()
-    _we, _wc = 0, 0
+    _we = _wc = _de = _dh = _te = _th = 0
     for _, g in sw.groupby("game_id"):
         pitches = g.sort_values("id")["pitch"].astype(int).tolist()
-        for i in range(1, len(pitches)):
-            prev, curr = pitches[i - 1], pitches[i]
-            if prev >= 850 or prev <= 150:
-                _we += 1
-                if (prev >= 850 and curr <= 150) or (prev <= 150 and curr >= 850):
-                    _wc += 1
+        we, wc, de, dh, te, th = _wrap_dd_td_counts(pitches)
+        _we += we; _wc += wc
+        _de += de; _dh += dh
+        _te += te; _th += th
     return {
         "avg_abs_delta":  float(deltas.abs().mean())   if not deltas.empty  else None,
         "avg_delta2":     float(delta2s.mean())        if not delta2s.empty else None,
         "shadow_pct":     float(approach.mean() * 100) if not approach.empty else None,
         "meme_rate":      float(sw["is_meme_pitch"].mean() * 100),
         "wraparound_pct": (_wc / _we * 100)            if _we else None,
+        "dd_pct":         (_dh / _de * 100)            if _de else None,
+        "td_pct":         (_th / _te * 100)            if _te else None,
     }
 
 
@@ -7762,6 +7830,8 @@ _PERCENTILE_STATS = [
     ("Shadow %",     "shadow_pct",     lambda v: f"{v:.1f}%"),
     ("Wraparound %", "wraparound_pct", lambda v: f"{v:.1f}%"),
     ("Meme Rate",    "meme_rate",      lambda v: f"{v:.1f}%"),
+    ("DD%", "dd_pct",       lambda v: f"{v:.1f}%"),
+    ("TD%", "td_pct",       lambda v: f"{v:.1f}%"),
 ]
 
 
@@ -7986,6 +8056,8 @@ _MA_METRICS: dict[str, dict] = {
     "shadow_pct":     {"label": "Shadow %",      "col": "pitch_approach",    "scale": "pct",   "y_range": [0, 100], "y_title": "Shadow %"},
     "wraparound_pct": {"label": "Wraparound %",  "col": "pitch_wraparound",  "scale": "pct",   "y_range": None, "y_title": "Wraparound %"},
     "meme_rate":      {"label": "Meme Rate %",   "col": "is_meme_pitch",     "scale": "pct",   "y_range": None, "y_title": "Meme Rate %"},
+    "dd_pct":         {"label": "DD%", "col": "pitch_dd",          "scale": "pct",   "y_range": None, "y_title": "DD%"},
+    "td_pct":         {"label": "TD%", "col": "pitch_td",          "scale": "pct",   "y_range": None, "y_title": "TD%"},
 }
 
 
