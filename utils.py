@@ -733,6 +733,19 @@ def _circ_delta_group(group: pd.Series) -> pd.Series:
     return pd.Series(deltas, index=group.index)
 
 
+def _wrap_delta2(diff: pd.Series) -> pd.Series:
+    """Wrap a raw difference between two signed deltas into (-500, 500],
+    mirroring circular_signed_delta but vectorized for a pandas Series. A
+    signed delta already lives on a width-1000 range, so the difference of two
+    of them wraps the same way a raw position difference does - without the
+    wrap, two deltas that are nearly identical in real terms but happen to sit
+    on opposite sides of the +/-500 seam (e.g. +498 and -497) would look like a
+    ~1000-point swing instead of the ~5-point swing they actually are."""
+    d = diff.where(diff <= 500, diff - 1000)
+    d = d.where(d >= -500, d + 1000)
+    return d
+
+
 def _approach_group(g: pd.DataFrame) -> pd.Series:
     """1 if pitcher moved closer to prev batter's swing, 0 if further, NaN for first pitch."""
     pitches = g["pitch"].astype(int).tolist()
@@ -1033,9 +1046,9 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         gk_pit2 = (sw_df2["game_id"].astype(str) + "|" + sw_df2["pitcher_name"].fillna(""))
         df.loc[sw, "pitch_circ_delta2_signed"] = sw_df2.groupby(
             gk_pit2, group_keys=False
-        )["pitch_circ_delta"].apply(lambda g: g.abs().diff())
-        # Unsigned is just the magnitude of the signed version - positive means
-        # the movement grew (accelerated), negative means it shrank (decelerated).
+        )["pitch_circ_delta"].apply(lambda g: _wrap_delta2(g.diff()))
+        # |Δ²| is the magnitude of the wrapped signed second difference - see
+        # `_wrap_delta2`.
         df.loc[sw, "pitch_circ_delta2"] = df.loc[sw, "pitch_circ_delta2_signed"].abs()
         # Use SeriesGroupBy (pitch only) with swing captured via closure to avoid
         # DataFrameGroupBy.apply returning a DataFrame in pandas 2.x
@@ -2051,13 +2064,15 @@ def project_from_deltas(recent_vals: list[int]) -> list[int]:
 def project_from_delta2s(recent_vals: list[int]) -> list[int]:
     """Project pitch values using delta² patterns, branching both +/- for each delta².
 
-    For each recent delta², produces two projections: one where the last delta grows
-    by that amount and one where it shrinks, covering both acceleration and deceleration.
+    Each delta² is the magnitude of the wrapped signed difference between two
+    consecutive signed deltas. For each recent delta², produces two projections: one
+    where the last delta grows by that amount and one where it shrinks, covering both
+    acceleration and deceleration.
     """
     if len(recent_vals) < 3:
         return []
     deltas  = [circular_signed_delta(recent_vals[i - 1], recent_vals[i]) for i in range(1, len(recent_vals))]
-    delta2s = [abs(abs(deltas[i]) - abs(deltas[i - 1])) for i in range(1, len(deltas))]
+    delta2s = [abs(circular_signed_delta(deltas[i - 1], deltas[i])) for i in range(1, len(deltas))]
     last_val   = recent_vals[-1]
     last_delta = deltas[-1]
     result = []
@@ -2443,6 +2458,52 @@ def optimal_swing_chart(
 
 # ── Swing suggestion bars figure ────────────────────────────────────────────
 
+def _merge_pitch_arcs(arcs: list[tuple[int | None, int | None]]) -> list[tuple[int, int]]:
+    """Merge a Suggestions row's green-zone pitch arcs into the smallest set of
+    non-touching, non-overlapping arcs on the 1-1000 wheel.
+
+    Each input arc is (lo, hi); lo > hi means it wraps the 1/1000 seam (mirrors
+    _colored_zone's convention). Uses a 1000-slot circular occupancy mask
+    rather than analytic interval math so wrapping falls out by construction -
+    once two or more arcs paint over the same or adjacent pitches, they render
+    (and label) as one continuous zone instead of several abutting rectangles
+    with a visible seam and duplicate boundary labels between them.
+    """
+    occ = [False] * 1000
+    seen_any = False
+    for lo, hi in arcs:
+        if lo is None or hi is None:
+            continue
+        seen_any = True
+        if lo <= hi:
+            for v in range(lo, hi + 1):
+                occ[v - 1] = True
+        else:
+            for v in range(lo, 1001):
+                occ[v - 1] = True
+            for v in range(1, hi + 1):
+                occ[v - 1] = True
+    if not seen_any:
+        return []
+    if all(occ):
+        return [(1, 1000)]
+
+    start = next(i for i in range(1000) if not occ[i])
+    order = [(start + i) % 1000 for i in range(1000)]
+    runs, run_start, prev_idx = [], None, None
+    for idx in order:
+        if occ[idx]:
+            if run_start is None:
+                run_start = idx
+        elif run_start is not None:
+            runs.append((run_start, prev_idx))
+            run_start = None
+        prev_idx = idx
+    if run_start is not None:
+        runs.append((run_start, prev_idx))
+    return [(r0 + 1, r1 + 1) for r0, r1 in runs]
+
+
 def hint_bars_figure(
     hints: list[dict],
     mode: str = "best",
@@ -2568,32 +2629,63 @@ def hint_bars_figure(
                                       y0=y0, y1=y1,
                                       fillcolor=color, line=dict(width=0))
         else:
-            def _bound(x, label, anchor):
+            def _bound_line(x):
                 fig.add_shape(type="line", x0=x, x1=x, y0=y0, y1=y1,
                               line=dict(color="rgba(255,255,255,0.85)", width=1.5))
+
+            def _bound_label(x, text, anchor):
                 fig.add_annotation(
-                    x=x, y=y, text=f"<b>{label}</b>",
+                    x=x, y=y, text=f"<b>{text}</b>",
                     showarrow=False,
                     xanchor=anchor, yanchor="middle",
                     font=dict(size=9, color="rgba(255,255,255,0.95)"),
                     bgcolor="rgba(0,0,0,0)",
                 )
 
-            _colored_zone(lo, hi, _GREEN)
-            _colored_zone(lo2, hi2, _GREEN2)
-            for _er_lo, _er_hi in h.get("extra_ranges", []):
-                _colored_zone(_er_lo, _er_hi, _GREEN)
+            # Contiguous/overlapping arms (e.g. a "grow" arc butting up against a
+            # "shrink" arc) merge into one zone here, so they paint as a single
+            # rectangle with no seam and label only their true outer edges.
+            _all_ranges = [(lo, hi), (lo2, hi2)] + list(h.get("extra_ranges", []))
+            _merged = _merge_pitch_arcs(_all_ranges)
 
-            if lo is not None and hi is not None:
-                _bound(lo, lo, "right")
-                _bound(hi, hi, "left")
-            if lo2 is not None and hi2 is not None:
-                _bound(lo2, lo2, "right")
-                _bound(hi2, hi2, "left")
-            for _er_lo, _er_hi in h.get("extra_ranges", []):
-                if _er_lo is not None and _er_hi is not None:
-                    _bound(_er_lo, _er_lo, "right")
-                    _bound(_er_hi, _er_hi, "left")
+            for m_lo, m_hi in _merged:
+                _colored_zone(m_lo, m_hi, _GREEN)
+
+            _bounds = []
+            for m_lo, m_hi in _merged:
+                _bound_line(m_lo)
+                _bound_line(m_hi)
+                _bounds.append((m_lo, "right"))
+                _bounds.append((m_hi, "left"))
+            _bounds.sort(key=lambda b: b[0])
+
+            # Two DIFFERENT zones can still sit close enough that their outward-
+            # facing labels collide in the gap between them (one zone's "hi"
+            # label pushes right, the next zone's "lo" label pushes left, into
+            # the same few pixels). Cluster boundary values within
+            # _LABEL_MIN_GAP of each other and show one combined "lo-hi" label
+            # centered in the gap instead of two overlapping ones; the
+            # individual boundary lines are still drawn at their exact spots.
+            _LABEL_MIN_GAP = 20
+            _clusters = []
+            for val, anchor in _bounds:
+                if _clusters and val - _clusters[-1][-1][0] <= _LABEL_MIN_GAP:
+                    _clusters[-1].append((val, anchor))
+                else:
+                    _clusters.append([(val, anchor)])
+
+            for cluster in _clusters:
+                if len(cluster) == 1:
+                    _v, _a = cluster[0]
+                    _bound_label(_v, _v, _a)
+                else:
+                    _lo_c, _hi_c = cluster[0][0], cluster[-1][0]
+                    fig.add_annotation(
+                        x=(_lo_c + _hi_c) / 2, y=y, text=f"<b>{_lo_c}–{_hi_c}</b>",
+                        showarrow=False, xanchor="center", yanchor="middle",
+                        font=dict(size=9, color="rgba(255,255,255,0.95)"),
+                        bgcolor="rgba(0,0,0,0)",
+                    )
 
         signal   = h.get("Signal", "")
         strength = h.get("Strength", "")
@@ -3946,24 +4038,29 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
 
     # |Delta| into each pitch (per game; NaN at each game's first pitch), then
     # bucketed two ways: variable dd_bkt bins and fixed 100-unit bins.
-    delta_abs = np.full(n, np.nan)
+    delta_signed = np.full(n, np.nan)
     if n > 1:
         raw = vals[1:].astype(float) - vals[:-1].astype(float)
         raw = np.where(raw > 500, raw - 1000, raw)
         raw = np.where(raw < -500, raw + 1000, raw)
-        delta_abs[1:] = np.where(same1[1:], np.abs(raw), np.nan)
+        delta_signed[1:] = np.where(same1[1:], raw, np.nan)
+    delta_abs = np.abs(delta_signed)
     delta_bkt = pd.cut(pd.Series(delta_abs), bins=list(range(0, 501, dd_bkt)),
                        labels=False, right=True, include_lowest=True).to_numpy()
     delta100 = pd.cut(pd.Series(delta_abs), bins=_DELTA_HM_BINS,
                       labels=False, right=True, include_lowest=True).to_numpy()
 
-    # |Delta^2| into each pitch: the unsigned change in |Delta| from one adjustment to
-    # the next. NaN at each game's first two pitches. The same2 guard is required (not
-    # optional): at a game's 2nd pitch delta_abs[i] and delta_abs[i-1] are both non-NaN
+    # |Delta^2| into each pitch: the magnitude of the wrapped signed difference
+    # between two consecutive signed deltas (see _wrap_delta2). NaN at each
+    # game's first two pitches. The same2 guard is required (not optional): at a
+    # game's 2nd pitch delta_signed[i] and delta_signed[i-1] are both non-NaN
     # but belong to different games, so a bare diff would cross the game boundary.
-    d2sq_abs = np.full(n, np.nan)
+    d2sq_raw = np.full(n, np.nan)
     if n > 2:
-        d2sq_abs[2:] = np.where(same2[2:], np.abs(delta_abs[2:] - delta_abs[1:-1]), np.nan)
+        d2sq_raw[2:] = np.where(same2[2:], delta_signed[2:] - delta_signed[1:-1], np.nan)
+    d2sq_raw = np.where(d2sq_raw > 500, d2sq_raw - 1000, d2sq_raw)
+    d2sq_raw = np.where(d2sq_raw < -500, d2sq_raw + 1000, d2sq_raw)
+    d2sq_abs = np.abs(d2sq_raw)
     d2sq_bkt = pd.cut(pd.Series(d2sq_abs), bins=list(range(0, 501, dd2_bkt)),
                       labels=False, right=True, include_lowest=True).to_numpy()
 
@@ -4431,9 +4528,13 @@ def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
         raw = np.where(raw < -500, raw + 1000, raw)
         sd[1:] = np.where(same1[1:], raw, np.nan)
     abs_d = np.abs(sd)  # real |delta| into each pitch
-    d2 = np.full(T, np.nan)  # real |delta2| into each pitch
+    d2 = np.full(T, np.nan)  # real |delta2| into each pitch: magnitude of the
+    # wrapped signed difference between two consecutive signed deltas.
     if T > 2:
-        d2[2:] = np.where(same2[2:], np.abs(abs_d[2:] - abs_d[1:-1]), np.nan)
+        d2raw = np.where(same2[2:], sd[2:] - sd[1:-1], np.nan)
+        d2raw = np.where(d2raw > 500, d2raw - 1000, d2raw)
+        d2raw = np.where(d2raw < -500, d2raw + 1000, d2raw)
+        d2[2:] = np.abs(d2raw)
 
     # Kernel from today's ranges (the same box _scores_via_fft uses). The v1 need
     # for a bit-identical transform to match np.argmax's lowest-index tie pick is
@@ -4500,7 +4601,9 @@ def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
             if same2[t - 1] and not np.isnan(d2[t - 1]):
                 cd = cand.astype(float) - prev
                 cd = np.where(cd > 500, cd - 1000, np.where(cd < -500, cd + 1000, cd))
-                implied_d2c = np.abs(np.abs(cd) - abs(sd[t - 1]))
+                cd2 = cd - sd[t - 1]
+                cd2 = np.where(cd2 > 500, cd2 - 1000, np.where(cd2 < -500, cd2 + 1000, cd2))
+                implied_d2c = np.abs(cd2)
                 metric = np.abs(implied_d2c - d2[t - 1])
                 best_val = int(cand[int(np.argmin(metric))])
             else:
@@ -4521,7 +4624,7 @@ def obp_recency_walk(sw, value_col: str, kind: str, n_window: int, ranges,
             if not same2[t]:
                 continue
             implied_delta = circular_signed_delta(prev, best_val)
-            implied = int(abs(abs(implied_delta) - abs(sd[t - 1])))
+            implied = int(abs(circular_signed_delta(int(sd[t - 1]), int(implied_delta))))
             part = obp_bounded_partition(implied, bucket_width, 500)
             outcome = int(d2[t])
 
@@ -6272,10 +6375,11 @@ def _fresh_delta2_frame(df: pd.DataFrame, value_col: str = "pitch"):
     """Two-stage fresh recompute of |Δ²| for a filtered frame slice.
 
     Mirrors enrich_df's discipline (utils.py:1000-1005): stage 1 recomputes the signed
-    circular delta per game+pitcher (NaN at each game's first pitch); stage 2 takes the
-    abs-diff-of-abs of that (NaN at each game's first two pitches, since diff of a
-    leading-NaN series leaves the first two positions NaN). Because the groupby is per
-    game+pitcher, no extra game-boundary guard is needed.
+    circular delta per game+pitcher (NaN at each game's first pitch); stage 2 differences
+    those signed deltas, wraps the result into (-500, 500] via `_wrap_delta2`, and takes
+    the magnitude (NaN at each game's first two pitches, since diff of a leading-NaN
+    series leaves the first two positions NaN). Because the groupby is per game+pitcher,
+    no extra game-boundary guard is needed.
 
     Returns (df_sw, group_col) where df_sw has a "_d2" column holding |Δ²|, or None when
     fewer than 3 usable value rows remain (a Δ² needs at least 3 same-game pitches).
@@ -6291,7 +6395,7 @@ def _fresh_delta2_frame(df: pd.DataFrame, value_col: str = "pitch"):
     )[value_col].apply(_circ_delta_group)
     df_sw["_d2"] = df_sw.groupby(
         ["game_id", group_col], group_keys=False
-    )[delta_col].apply(lambda g: g.abs().diff().abs())
+    )[delta_col].apply(lambda g: _wrap_delta2(g.diff()).abs())
     if df_sw["_d2"].notna().sum() < 1:
         return None
     return df_sw, group_col
@@ -7716,8 +7820,8 @@ def pitcher_percentile_card(
 
 
 _MA_METRICS: dict[str, dict] = {
-    "avg_delta":      {"label": "Avg |Delta|",   "col": "pitch_circ_delta",  "scale": "abs",   "y_range": [0, 500], "y_title": "Delta"},
-    "avg_delta2":     {"label": "Avg |Delta^2|", "col": "pitch_circ_delta2", "scale": "abs",   "y_range": [0, 500], "y_title": "Delta^2"},
+    "avg_delta":      {"label": "Avg |Δ|",   "col": "pitch_circ_delta",  "scale": "abs",   "y_range": [0, 500], "y_title": "Δ"},
+    "avg_delta2":     {"label": "Avg |Δ²|",  "col": "pitch_circ_delta2", "scale": "abs",   "y_range": [0, 500], "y_title": "Δ²"},
     "shadow_pct":     {"label": "Shadow %",      "col": "pitch_approach",    "scale": "pct",   "y_range": [0, 100], "y_title": "Shadow %"},
     "wraparound_pct": {"label": "Wraparound %",  "col": "pitch_wraparound",  "scale": "pct",   "y_range": None, "y_title": "Wraparound %"},
     "meme_rate":      {"label": "Meme Rate %",   "col": "is_meme_pitch",     "scale": "pct",   "y_range": None, "y_title": "Meme Rate %"},

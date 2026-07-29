@@ -2,6 +2,7 @@
   const SEASONS = __SEASONS_JSON__;
   const PLAYERS = __PLAYERS_JSON__;
   const TEAM_TOTALS = __TEAM_TOTALS_JSON__;
+  const LEAGUE_CAREER = __LEAGUE_CAREER_JSON__;
 
   // status colors (fixed across light/dark, matching the design system's status palette)
   const COLOR_NEW = "#0ca30c";        // good: arrived this season
@@ -71,6 +72,7 @@
   let viewMode = "season"; // "season" | "team" | "player" | "league"
   let tenureMetric = "league"; // "league" (experience anywhere) | "franchise" (experience with this team)
   let movementTier = "rookie"; // "rookie" | "developing" | "vet" -- which tier the League movement chart shows
+  let careerScope = "all"; // "all" | "active" | "retired_hiatus" -- which players the career distributions cover
   let seasonIdx = SEASONS.length - 1; // default to most recent season
   let sortField = "median"; // "median" | "pa" | "bf" | "ret" | "alpha"
   let sortDir = "desc"; // "desc" | "asc"
@@ -170,6 +172,9 @@
   const tierControls = document.getElementById("tierControls");
   const tierToggle = document.getElementById("tierToggle");
   const tierRookieBtn = tierToggle.querySelector('[data-tier="rookie"]');
+  const careerScopeRow = document.getElementById("careerScopeRow");
+  const careerScopeToggle = document.getElementById("careerScopeToggle");
+  const careerScopeCount = document.getElementById("careerScopeCount");
   function refreshTierRookieLabel() { tierRookieBtn.textContent = tierZeroLabel(); }
   [...metricToggle.children].forEach(btn => {
     btn.addEventListener("click", () => {
@@ -196,6 +201,18 @@
     });
   });
 
+  // ---------- career scope toggle (which players the career distributions cover) ----------
+  [...careerScopeToggle.children].forEach(btn => {
+    btn.addEventListener("click", () => {
+      careerScope = btn.dataset.scope;
+      [...careerScopeToggle.children].forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", b === btn ? "true" : "false");
+      });
+      renderAll();
+    });
+  });
+
   // ---------- view toggle ----------
   const viewToggle = document.getElementById("viewToggle");
   const seasonTabs = document.getElementById("seasonTabs");
@@ -213,6 +230,9 @@
   const chartLegend = document.getElementById("chartLegend");
   const movementSection = document.getElementById("movementSection");
   const movementLegend = document.getElementById("movementLegend");
+  const careerLengthSection = document.getElementById("careerLengthSection");
+  const franchiseCountSection = document.getElementById("franchiseCountSection");
+  const stintLengthSection = document.getElementById("stintLengthSection");
   const simplifyToggleRow = document.getElementById("simplifyToggleRow");
   const chartHeading = document.getElementById("chartHeading");
   const chartNote = document.getElementById("chartNote");
@@ -295,6 +315,10 @@
     filterRow.style.display = "block";
     simplifyToggleRow.style.display = isLeague ? "none" : "flex";
     movementSection.style.display = isLeague ? "block" : "none";
+    careerScopeRow.style.display = isLeague ? "flex" : "none";
+    careerLengthSection.style.display = isLeague ? "block" : "none";
+    franchiseCountSection.style.display = isLeague ? "block" : "none";
+    stintLengthSection.style.display = isLeague ? "block" : "none";
     updateLegend();
 
     if (isPlayer) {
@@ -1051,6 +1075,144 @@
     drawBar(totalCx, tierOutcomeCounts(SEASONS), "TOTAL", true);
   }
 
+  // ---------- League career distributions: career length + franchise count + stint length ----------
+  const careerLengthSvg = document.getElementById("careerLengthChart");
+  const careerLengthScroll = careerLengthSvg.parentElement;
+  const franchiseCountSvg = document.getElementById("franchiseCountChart");
+  const franchiseCountScroll = franchiseCountSvg.parentElement;
+  const stintLengthSvg = document.getElementById("stintLengthChart");
+  const stintLengthScroll = stintLengthSvg.parentElement;
+  const histChartH = 220;
+
+  function renderHistogramChart(targetSvg, scrollEl, dist, meanVal, medianVal, xLabel, yLabel, tooltipFn) {
+    targetSvg.innerHTML = "";
+    if (!dist.length) {
+      const t = el("text", { x: 20, y: 30, "text-anchor": "start", class: "tick-label" });
+      t.textContent = "No players in this scope.";
+      targetSvg.appendChild(t);
+      return;
+    }
+    const m = { top: 34, right: 20, bottom: 50, left: 60 };
+    const containerW = scrollEl.clientWidth || 720;
+    const n = dist.length;
+    const bandW = Math.max(36, (containerW - m.left - m.right) / n);
+    const plotW = bandW * n;
+    const totalW = m.left + plotW + m.right;
+    const plotH = histChartH - m.top - m.bottom;
+    targetSvg.setAttribute("viewBox", `0 0 ${totalW} ${histChartH}`);
+    targetSvg.setAttribute("preserveAspectRatio", "none");
+
+    const maxCount = Math.max(...dist.map(d => d.count), 1);
+    const totalN = dist.reduce((a, d) => a + d.count, 0);
+    // scale bars against 1.25x the real max, so even the tallest bar leaves headroom inside the
+    // plot for its own %-label - keeps every %-label safely below the mean/median labels, which
+    // live in the fixed margin above the plot, regardless of which bar the mean/median line hits
+    const yMaxScale = maxCount * 1.25;
+    function y(v) { return m.top + plotH - (v / yMaxScale) * plotH; }
+
+    const step = maxCount > 400 ? 100 : maxCount > 150 ? 50 : maxCount > 40 ? 20 : 10;
+    for (let v = 0; v <= maxCount; v += step) {
+      const yy = y(v);
+      targetSvg.appendChild(el("line", { x1: m.left, x2: m.left + plotW, y1: yy, y2: yy, class: "grid-line" }));
+      const t = el("text", { x: m.left - 10, y: yy + 4, "text-anchor": "end", class: "tick-label" });
+      t.textContent = v;
+      targetSvg.appendChild(t);
+    }
+    targetSvg.appendChild(el("line", { x1: m.left, x2: m.left, y1: m.top, y2: m.top + plotH, class: "axis-line" }));
+    targetSvg.appendChild(el("line", { x1: m.left, x2: m.left + plotW, y1: m.top + plotH, y2: m.top + plotH, class: "axis-line" }));
+
+    const barW = Math.max(14, bandW * 0.55);
+    dist.forEach((d, i) => {
+      const cx = m.left + i * bandW + bandW / 2;
+      const h = (d.count / yMaxScale) * plotH;
+      const barTopY = m.top + plotH - h;
+      const rect = el("rect", { x: cx - barW / 2, y: barTopY, width: barW, height: Math.max(1, h), class: "hist-bar" });
+      rect.addEventListener("mousemove", (e) => showTip(tooltipFn(d, totalN), e.clientX, e.clientY));
+      rect.addEventListener("mouseleave", hideTip);
+      targetSvg.appendChild(rect);
+      const pctText = (d.count / totalN * 100).toFixed(1) + "%";
+      const pctW = pctText.length * 6.4 + 4; // rough width estimate - masks a mean/median line crossing behind the label
+      const pctBg = el("rect", { x: cx - pctW / 2, y: barTopY - 17, width: pctW, height: 13, rx: 2, class: "hist-bar-pct-bg" });
+      targetSvg.appendChild(pctBg);
+      const pctLbl = el("text", { x: cx, y: barTopY - 6, "text-anchor": "middle", class: "hist-bar-pct" });
+      pctLbl.textContent = pctText;
+      targetSvg.appendChild(pctLbl);
+      const lbl = el("text", { x: cx, y: m.top + plotH + 18, "text-anchor": "middle", class: "team-label" });
+      lbl.textContent = d.value;
+      targetSvg.appendChild(lbl);
+    });
+
+    // mean/median reference lines - positioned continuously across the bar bands by value,
+    // labels stacked at different heights above the plot so close values don't collide
+    const firstVal = dist[0].value;
+    function xForValue(v) { return m.left + (v - firstVal) * bandW + bandW / 2; }
+
+    const meanX = xForValue(meanVal);
+    targetSvg.appendChild(el("line", { x1: meanX, x2: meanX, y1: m.top, y2: m.top + plotH, class: "ref-line-mean" }));
+    const meanLbl = el("text", { x: meanX, y: m.top - 20, "text-anchor": "middle", class: "ref-label-mean" });
+    meanLbl.textContent = "Mean " + meanVal;
+    targetSvg.appendChild(meanLbl);
+
+    const medianX = xForValue(medianVal);
+    targetSvg.appendChild(el("line", { x1: medianX, x2: medianX, y1: m.top, y2: m.top + plotH, class: "ref-line-median" }));
+    const medianLbl = el("text", { x: medianX, y: m.top - 8, "text-anchor": "middle", class: "ref-label-median" });
+    medianLbl.textContent = "Median " + medianVal;
+    targetSvg.appendChild(medianLbl);
+
+    // axis titles
+    const xTitle = el("text", { x: m.left + plotW / 2, y: m.top + plotH + 36, "text-anchor": "middle", class: "axis-title" });
+    xTitle.textContent = xLabel;
+    targetSvg.appendChild(xTitle);
+
+    const yTitleX = 12;
+    const yTitleY = m.top + plotH / 2;
+    const yTitle = el("text", {
+      x: yTitleX, y: yTitleY, "text-anchor": "middle", class: "axis-title",
+      transform: `rotate(-90 ${yTitleX} ${yTitleY})`,
+    });
+    yTitle.textContent = yLabel;
+    targetSvg.appendChild(yTitle);
+  }
+
+  function renderCareerLengthChart() {
+    const block = LEAGUE_CAREER[careerScope];
+    renderHistogramChart(
+      careerLengthSvg, careerLengthScroll,
+      block.career_length_dist, block.career_length_mean, block.career_length_median,
+      "Career Length (seasons)", "Count",
+      (d, total) => `<div class="tt-title">${d.value} season${d.value === 1 ? "" : "s"}</div>` +
+        `<div class="tt-row">${d.count} players (${(d.count / total * 100).toFixed(0)}%)</div>`
+    );
+  }
+
+  function renderFranchiseCountChart() {
+    const block = LEAGUE_CAREER[careerScope];
+    renderHistogramChart(
+      franchiseCountSvg, franchiseCountScroll,
+      block.franchise_count_dist, block.franchise_count_mean, block.franchise_count_median,
+      "# Franchises", "Count",
+      (d, total) => `<div class="tt-title">${d.value} franchise${d.value === 1 ? "" : "s"}</div>` +
+        `<div class="tt-row">${d.count} players (${(d.count / total * 100).toFixed(0)}%)</div>`
+    );
+  }
+
+  function renderStintLengthChart() {
+    const block = LEAGUE_CAREER[careerScope];
+    renderHistogramChart(
+      stintLengthSvg, stintLengthScroll,
+      block.stint_length_dist, block.stint_length_mean, block.stint_length_median,
+      "Stint Length (seasons)", "Count",
+      (d, total) => `<div class="tt-title">${d.value}-season stint${d.value === 1 ? "" : "s"}</div>` +
+        `<div class="tt-row">${d.count} stints (${(d.count / total * 100).toFixed(0)}%)</div>`
+    );
+  }
+
+  function updateCareerScopeCount() {
+    const block = LEAGUE_CAREER[careerScope];
+    const label = careerScope === "all" ? "players" : careerScope === "active" ? "active players" : "retired/hiatus players";
+    careerScopeCount.textContent = block.player_count + " " + label;
+  }
+
   // ---------- League drilldown: arrivals/departures/retirees per season ----------
   function renderLeagueDrilldown(query) {
     teamGrid.innerHTML = "";
@@ -1228,7 +1390,14 @@
 
   function redrawChart() {
     if (viewMode === "player" && !selectedPlayerId) return;
-    if (viewMode === "league") { renderLeagueCompositionChart(); renderLeagueMovementChart(); return; }
+    if (viewMode === "league") {
+      renderLeagueCompositionChart();
+      renderLeagueMovementChart();
+      renderCareerLengthChart();
+      renderFranchiseCountChart();
+      renderStintLengthChart();
+      return;
+    }
     renderChart(currentColumns);
   }
 
@@ -1244,6 +1413,10 @@
       renderKpis([]);
       renderLeagueCompositionChart();
       renderLeagueMovementChart();
+      updateCareerScopeCount();
+      renderCareerLengthChart();
+      renderFranchiseCountChart();
+      renderStintLengthChart();
       renderLeagueDrilldown(searchBox.value);
       return;
     }
@@ -1290,6 +1463,18 @@
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(redrawChart, 100);
     }).observe(movementChartScroll);
+    new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(redrawChart, 100);
+    }).observe(careerLengthScroll);
+    new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(redrawChart, 100);
+    }).observe(franchiseCountScroll);
+    new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(redrawChart, 100);
+    }).observe(stintLengthScroll);
   }
 
   refreshTierRookieLabel();

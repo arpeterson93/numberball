@@ -29,9 +29,11 @@ def main():
     seasons_json = json.dumps(data["seasons"], separators=(",", ":"))
     players_json = json.dumps(data["players"], separators=(",", ":"))
     team_totals_json = json.dumps(data["team_totals"], separators=(",", ":"))
+    league_career_json = json.dumps(data["league_career"], separators=(",", ":"))
     script = script.replace("__SEASONS_JSON__", seasons_json)
     script = script.replace("__PLAYERS_JSON__", players_json)
     script = script.replace("__TEAM_TOTALS_JSON__", team_totals_json)
+    script = script.replace("__LEAGUE_CAREER_JSON__", league_career_json)
 
     pattern = re.compile(r"<script>.*?</script>", re.DOTALL)
     new_html, n = pattern.subn(lambda m: "<script>\n" + script + "\n</script>", html, count=1)

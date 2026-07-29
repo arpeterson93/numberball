@@ -10,6 +10,7 @@ import math
 import os
 import pandas as pd
 import json
+from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(HERE, "data")
@@ -131,6 +132,23 @@ plays["id"] = plays["id"].astype(int)
 
 LAST_SEASON = int(plays["season"].max())
 
+# The active (last) season is only a few games in - many players haven't logged a play yet, so
+# plays-derived data alone would wrongly look incomplete for them. Roster status (players_rows:
+# Active/Captain, real team) fills that gap for the season still in progress.
+abbrev_to_franchise_last = {season_abbrev(name, LAST_SEASON): name for name in FRANCHISE_SEASON_ABBREV}
+roster_last = players[
+    (players["league"] == "MLN")
+    & (players["season_int"] == LAST_SEASON)
+    & (players["status"].isin(["Active", "Captain"]))
+    & (players["team"] != "FA")
+].copy()
+roster_last["franchise"] = roster_last["team"].map(abbrev_to_franchise_last)
+roster_last = roster_last.dropna(subset=["franchise"])
+roster_last_by_team = {
+    key: set(g["player_id"])
+    for key, g in roster_last.groupby("franchise")
+}
+
 pitch_side = plays[["pitcher_id", "def_team", "season"]].rename(
     columns={"pitcher_id": "player_id", "def_team": "team"}
 )
@@ -141,6 +159,17 @@ appearances = pd.concat([pitch_side, bat_side], ignore_index=True)
 appearances = appearances.dropna(subset=["player_id", "team"])
 appearances = appearances[appearances["player_id"] != "0"]  # sentinel/placeholder id, not a real player
 appearances = appearances.drop_duplicates(subset=["player_id", "team", "season"])
+
+# career-facing stats (franchise tenure, career franchise count, stint lengths) also need this
+# season's roster fallback so a player's brand-new, not-yet-played team still counts - kept as a
+# SEPARATE copy so appearances/season_sets/team_season_players (which drive leaving/retention
+# stats sitewide) stay exactly plays-based, unchanged from today's behavior
+_roster_last_rows = pd.DataFrame(
+    [{"player_id": pid, "team": team_name, "season": LAST_SEASON}
+     for team_name, pid_set in roster_last_by_team.items() for pid in pid_set]
+)
+appearances_with_current_roster = pd.concat([appearances, _roster_last_rows], ignore_index=True)
+appearances_with_current_roster = appearances_with_current_roster.drop_duplicates(subset=["player_id", "team", "season"])
 
 # first play id (lower id = earlier in time) a player has for a given team/season -
 # used to order multi-team seasons (trades) chronologically instead of alphabetically
@@ -231,7 +260,9 @@ def tenure_entering(player_id, season):
 # distinct seasons played per (player_id, team) - for franchise-specific tenure. Stints don't need
 # to be contiguous: 2 years, a 3-year gap, then back = still 2 prior seasons with that franchise.
 # Keyed by team NAME (not the season abbrev), so this is correct across rebrands automatically.
-franchise_season_sets = appearances.groupby(["player_id", "team"])["season"].apply(lambda s: sorted(set(s))).to_dict()
+# Uses the roster-fallback-augmented appearances so a player's brand-new, not-yet-played team
+# this season still counts.
+franchise_season_sets = appearances_with_current_roster.groupby(["player_id", "team"])["season"].apply(lambda s: sorted(set(s))).to_dict()
 
 
 def franchise_tenure_entering(player_id, team_name, season):
@@ -247,6 +278,15 @@ workload = pd.merge(pa_counts, bf_counts, on=["player_id", "team", "season"], ho
 workload["pa"] = workload["pa"].fillna(0).astype(int)
 workload["bf"] = workload["bf"].fillna(0).astype(int)
 workload = workload[workload["player_id"] != "0"]  # sentinel/placeholder id, not a real player
+
+# same active-season roster fallback as appearances_with_current_roster - a player just signed to
+# a team this season who hasn't recorded a PA/BF yet should still show up in their By Player trace
+_roster_last_workload_rows = pd.DataFrame(
+    [{"player_id": pid, "team": team_name, "season": LAST_SEASON, "pa": 0, "bf": 0}
+     for team_name, pid_set in roster_last_by_team.items() for pid in pid_set]
+)
+workload = pd.concat([workload, _roster_last_workload_rows], ignore_index=True)
+workload = workload.drop_duplicates(subset=["player_id", "team", "season"], keep="first")
 
 player_history = {}
 for pid, g in workload.groupby("player_id"):
@@ -283,22 +323,8 @@ team_season_players = {
     for key, g in appearances.groupby(["team", "season"])
 }
 
-# The active (last) season is only a few games in - many pitchers haven't logged a
-# play yet, so plays-derived team membership would wrongly look empty/incomplete. For the
-# active season only, use the roster (players_rows: Active/Captain, real team) instead.
-abbrev_to_franchise_last = {season_abbrev(name, LAST_SEASON): name for name in FRANCHISE_SEASON_ABBREV}
-roster_last = players[
-    (players["league"] == "MLN")
-    & (players["season_int"] == LAST_SEASON)
-    & (players["status"].isin(["Active", "Captain"]))
-    & (players["team"] != "FA")
-].copy()
-roster_last["franchise"] = roster_last["team"].map(abbrev_to_franchise_last)
-roster_last = roster_last.dropna(subset=["franchise"])
-roster_last_by_team = {
-    key: set(g["player_id"])
-    for key, g in roster_last.groupby("franchise")
-}
+# roster_last_by_team (computed above, alongside appearances) fills in the active season's
+# not-yet-played rosters
 for team_name, pid_set in roster_last_by_team.items():
     team_season_players[(team_name, LAST_SEASON)] = pid_set
 
@@ -558,9 +584,83 @@ for team_name in team_names_all:
         },
     }
 
+# ---------- career-wide distributions for the League tab (all / active / retired-hiatus) ----------
+# "active" = logged a play this (current) season, or currently rostered Active/Captain on a real team
+active_via_plays = set(appearances[appearances["season"] == LAST_SEASON]["player_id"])
+active_via_roster = set()
+for _pid_set in roster_last_by_team.values():
+    active_via_roster |= _pid_set
+active_player_ids = active_via_plays | active_via_roster
+
+# "retired/hiatus" = not active, and their most recent known roster status says so
+latest_status_by_pid = {}
+for _row in players_mln.sort_values("season_int").itertuples():
+    latest_status_by_pid[_row.player_id] = _row.status  # later rows overwrite -> ends up latest
+retired_hiatus_player_ids = {
+    pid for pid, status in latest_status_by_pid.items()
+    if status in ("Retired", "Hiatus", "Banned", "GM Only") and pid not in active_player_ids
+}
+
+# per-player raw values, computed once, then filtered per scope below
+franchise_count_by_pid = appearances_with_current_roster.groupby("player_id")["team"].apply(lambda t: len(set(t))).to_dict()
+career_length_by_pid = appearances_with_current_roster.groupby("player_id")["season"].apply(lambda s: len(set(s))).to_dict()
+
+# stint lengths: for each (player, franchise), split their seasons into contiguous runs -
+# a non-contiguous return to the same franchise starts a new stint rather than extending the old one
+stint_lengths_by_pid = {}
+for (_pid, _team), _seasons in franchise_season_sets.items():
+    if not _seasons:
+        continue
+    lengths = []
+    prev = _seasons[0]
+    length = 1
+    for s in _seasons[1:]:
+        if s == prev + 1:
+            length += 1
+        else:
+            lengths.append(length)
+            length = 1
+        prev = s
+    lengths.append(length)
+    stint_lengths_by_pid.setdefault(_pid, []).extend(lengths)
+
+
+def _dist_and_stats(values):
+    dist = [{"value": v, "count": c} for v, c in sorted(Counter(values).items())]
+    mean = round(sum(values) / len(values), 2) if values else 0
+    return dist, mean, pooled_median(values)
+
+
+def _build_career_block(pid_filter):
+    fc_vals = [v for pid, v in franchise_count_by_pid.items() if pid_filter is None or pid in pid_filter]
+    cl_vals = [v for pid, v in career_length_by_pid.items() if pid_filter is None or pid in pid_filter]
+    sl_vals = [
+        length for pid, lengths in stint_lengths_by_pid.items()
+        if pid_filter is None or pid in pid_filter for length in lengths
+    ]
+    fc_dist, fc_mean, fc_median = _dist_and_stats(fc_vals)
+    cl_dist, cl_mean, cl_median = _dist_and_stats(cl_vals)
+    sl_dist, sl_mean, sl_median = _dist_and_stats(sl_vals)
+    return {
+        "player_count": len(fc_vals),
+        "franchise_count_dist": fc_dist, "franchise_count_mean": fc_mean, "franchise_count_median": fc_median,
+        "career_length_dist": cl_dist, "career_length_mean": cl_mean, "career_length_median": cl_median,
+        "stint_length_dist": sl_dist, "stint_length_mean": sl_mean, "stint_length_median": sl_median,
+    }
+
+
+league_career = {
+    "all": _build_career_block(None),
+    "active": _build_career_block(active_player_ids),
+    "retired_hiatus": _build_career_block(retired_hiatus_player_ids),
+}
+
 with open(OUT_PATH, "w", encoding="utf-8") as f:
     json.dump(
-        {"seasons": all_seasons_out, "players": player_history, "team_totals": team_totals},
+        {
+            "seasons": all_seasons_out, "players": player_history, "team_totals": team_totals,
+            "league_career": league_career,
+        },
         f, separators=(",", ":"),
     )
 

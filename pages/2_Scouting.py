@@ -449,8 +449,12 @@ def _load_run_lookup(_v: int = 3) -> dict:
     # (result, before_obc, outs) -> (runs, new_obc, nout_after)
     return utils.load_run_lookup_from_csv("import_BRC.csv")
 
-@st.cache_data(ttl=3600)
 def _load_pitcher_stats() -> pd.DataFrame:
+    # db.get_pitcher_stats() is already cached (database.py) and its cache is
+    # what "Refresh Pitcher Stats" busts - a second cache layer here would just
+    # keep serving a stale snapshot after a refresh, since this function has no
+    # way to be cleared from the Games page. Building the DataFrame is cheap,
+    # so leave it uncached.
     rows = db.get_pitcher_stats()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
