@@ -215,6 +215,12 @@
     return '<div class="state-stack">' + svg + '<div class="outs-dots">' + dots + "</div></div>";
   }
 
+  function scoringLine(m) {
+    var names = m.scoring_names || [];
+    if (!names.length) return "";
+    return '<div class="scoring-line">Scoring: ' + escapeHtml(names.join(", ")) + "</div>";
+  }
+
   function diffPill(m) {
     if (m.diff === 0) return '<span class="diff-pill zero">0 Diff</span>';
     if (m.diff === 500) return '<span class="diff-pill five">500 Diff</span>';
@@ -245,6 +251,7 @@
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
         "</div>" +
+        scoringLine(m) +
         '<div class="meta-line">' + wpFragment(m) + levText + "</div>" +
         '<div class="why-line">' + why + "</div>" +
       "</div>" +

@@ -133,6 +133,42 @@ def _sign(n: int) -> int:
     return (n > 0) - (n < 0)
 
 
+def _safe_player_id(raw) -> int | None:
+    """Parse a scored2/scored3/scored4-style cell into a player id, or None.
+
+    These cells use the same '0'/'-'/blank sentinels as on_first/on_second/
+    on_third for "nobody".
+    """
+    s = str(raw or "").strip()
+    if not s or s in ("0", "-"):
+        return None
+    try:
+        return int(float(s))
+    except ValueError:
+        return None
+
+
+def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
+    """Names of runners who scored on this play, in the order they'd have
+    crossed the plate: 3rd, then 2nd, then 1st.
+
+    The batter's own run is never listed here even if the sheet ever put
+    their id in one of these cells (a solo/grand-slam HR's batter is implied
+    by the result and the card's headline name already showing them) - the
+    scored2/scored3/scored4 cells map to the runner who started the play on
+    1st/2nd/3rd respectively, per the sheet's naming.
+    """
+    seen: set[int] = set()
+    names: list[str] = []
+    for key in ("scored4", "scored3", "scored2"):  # 3rd, 2nd, 1st
+        pid = _safe_player_id(play.get(key))
+        if pid is None or pid == batter_id or pid in seen:
+            continue
+        seen.add(pid)
+        names.append(_player_view(ref, pid)["name"])
+    return names
+
+
 def _parse_timestamp(raw: str | None) -> str | None:
     """Parse the sheet's 'M/D/YYYY H:MM[:SS]' timestamps into an ISO string.
 
@@ -437,6 +473,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
     featured_wp_after = None if wp_after is None else ((1.0 - wp_after) if flip else wp_after)
 
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
+    scoring_names = _scoring_names(ref, play, feat["batter"]["id"])
 
     # Anything derivable from a small closed set (team names, sub-league,
     # result labels, tag labels, base-diamond SVG) lives in meta.json instead of
@@ -460,6 +497,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "result_category": _result_category(result),
         "diff": play.get("diff"),
         "runs": state["runs"],
+        "scoring_names": scoring_names,
 
         "batter_name": feat["batter"]["name"],
         "batter_id": feat["batter"]["id"],
