@@ -121,6 +121,7 @@ RESULT_LABELS = {
 # dict is the one place to change both.
 TAG_LABELS = {
     "high_leverage": "High leverage",
+    "wpa": "WPA",
     "risp": "RISP",
     "run_scored": "Run scored",
     "lead_change": "Lead change",
@@ -427,9 +428,10 @@ def moment_tags(state: dict) -> list[str]:
     obc_before = state["obc_before"]
     tags: list[str] = []
 
-    if ((leverage is not None and leverage >= LEVERAGE_THRESHOLD)
-            or (wpa is not None and abs(wpa) >= WPA_THRESHOLD)):
+    if leverage is not None and leverage >= LEVERAGE_THRESHOLD:
         tags.append("high_leverage")
+    if wpa is not None and abs(wpa) >= WPA_THRESHOLD:
+        tags.append("wpa")
     if obc_before[0] == "1" or obc_before[1] == "1":
         tags.append("risp")
     if state["runs"] > 0:
