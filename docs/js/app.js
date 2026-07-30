@@ -259,7 +259,27 @@
     "</div>";
   }
 
+  /* Drives the phone-only "Filters (N active)" bar. Every chip and field
+     counts on its own, tag chips included, so the number matches what a user
+     would count if they expanded the panel. */
+  function activeFilterCount() {
+    var n = 0;
+    if (filters.result) n += 1;
+    if (filters.league) n += 1;
+    if (filters.rookiesOnly) n += 1;
+    if (filters.favoritesOnly) n += 1;
+    if (filters.team) n += 1;
+    if (filters.player) n += 1;
+    return n + filters.tags.size;
+  }
+
+  function updateFilterSummary() {
+    var n = activeFilterCount();
+    $("filters-toggle-label").textContent = n ? "Filters (" + n + " active)" : "Filters";
+  }
+
   function render() {
+    updateFilterSummary();
     if (loadingPlays) {
       $("moments").innerHTML = "";
       $("empty-state").hidden = false;
@@ -348,6 +368,14 @@
   }
 
   function wireControls() {
+    // Phone-only disclosure. CSS force-shows the panel above 600px, so the
+    // class this leaves behind cannot strand a desktop user with it shut.
+    $("filters-toggle").addEventListener("click", function () {
+      var collapsed = $("filters-card").classList.toggle("collapsed");
+      this.setAttribute("aria-expanded", String(!collapsed));
+      this.querySelector(".caret").textContent = collapsed ? "▾" : "▴";
+    });
+
     $("session-select").addEventListener("change", function (e) {
       filters.session = e.target.value === "" ? null : Number(e.target.value);
       renderMaybeLoading();

@@ -19,7 +19,16 @@
   </div>
   <div id="refresh-status" class="refresh-status"></div>
 
-  <div class="filters-card">
+  <!-- .controls exists so the phone breakpoint can sit the collapsed filters
+       bar and the sort chips on one line; above 600px it is a plain block. -->
+  <div class="controls">
+  <div class="filters-card collapsed" id="filters-card">
+    <button type="button" class="filters-toggle" id="filters-toggle"
+            aria-expanded="false" aria-controls="filters-body">
+      <span id="filters-toggle-label">Filters</span>
+      <span class="caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="filters-body" id="filters-body">
     <div class="filter-row">
       <div class="filter-group">
         <label class="group-label">Result</label>
@@ -71,14 +80,16 @@
         <button type="button" class="link-btn" id="reset-btn">↻ Reset filters</button>
       </div>
     </div>
+    </div>
   </div>
 
   <div class="sort-bar">
     <div class="sort-chip-row" id="sort-chips">
-      <button type="button" class="chip active" data-sort="chrono">Chronological ↓</button>
+      <button type="button" class="chip active" data-sort="chrono"><span class="lbl-long">Chronological ↓</span><span class="lbl-short">Time ↓</span></button>
       <button type="button" class="chip" data-sort="wpa">WPA</button>
-      <button type="button" class="chip" data-sort="leverage">Leverage</button>
+      <button type="button" class="chip" data-sort="leverage"><span class="lbl-long">Leverage</span><span class="lbl-short">Lev</span></button>
     </div>
+  </div>
   </div>
 
   <div id="moments"></div>

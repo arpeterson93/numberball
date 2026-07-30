@@ -148,6 +148,34 @@ Tag chips are visually distinct - pill-shaped, navy when active, with a leading
 checkmark - so it is not a surprise that they stack instead of excluding each
 other the way Result does.
 
+### Small screens
+
+Two breakpoints: `900px` (tablet/narrow laptop) and `600px` (phone).
+
+Below 600px the filters card collapses to a single bar reading
+`Filters (N active) ▾`, with the sort chips sitting beside it so sorting stays
+reachable without expanding anything. Tapping the bar expands all three filter
+rows in place. The collapse is phone-only and cannot strand a desktop user:
+a `@media (min-width: 601px)` rule force-shows the panel regardless of the
+`collapsed` class JS last left on the card, so widening the window always
+reveals it.
+
+Chip groups wrap onto as many lines as they need rather than scrolling
+horizontally - a scrollable chip row hides options users have no way to know
+are there, which matters most for the eight tag chips.
+
+The scorebug shrinks rather than stacking: below 600px `.moment-right` stays a
+single ~140px horizontal strip on its own line beneath `.moment-left`, with the
+diamond, outs circles, score block, and inning indicator all one size step down.
+The leverage bar leaves the flex flow and becomes an absolutely positioned left
+edge, which is what keeps it spanning the full card height once the contents
+wrap. That absolute treatment starts at the 900px breakpoint - the same one that
+enables wrapping - since a wrapped card would otherwise strand the bar alone on
+the first line.
+
+The title row wraps at 600px: heading and session selector on the first line,
+last-updated and Refresh on the second.
+
 ### Scorebug state
 
 The right side of a card shows the base diamond with two outs circles beneath it,
