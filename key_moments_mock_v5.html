@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Key Moments Mockup v5</title>
+<style>
+  :root{
+    --navy: #0f2238;
+    --navy-2: #16233a;
+    --red: #c8102e;
+    --red-dark: #a10d26;
+    --blue: #1550a1;
+    --bg: #eef1f4;
+    --card: #ffffff;
+    --border: #e0e4e9;
+    --text: #1a1d24;
+    --muted: #6b7280;
+    --green: #1e7d32;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+    color:var(--text);
+  }
+  .page{max-width:1180px;margin:0 auto;padding:24px 20px 60px;}
+
+  .season-header{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;}
+  .season-header .s1{font-size:26px;font-weight:800;letter-spacing:0.5px;}
+  .season-header .s2{font-size:26px;font-weight:400;color:var(--muted);}
+
+  .tabs{display:flex;gap:28px;border-bottom:1px solid var(--border);margin-bottom:26px;flex-wrap:wrap;}
+  .tab{padding:10px 2px 12px;font-size:14px;font-weight:600;color:var(--muted);position:relative;white-space:nowrap;}
+  .tab.active{color:var(--text);}
+  .tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--red);}
+  .tab.new-badge::before{
+    content:"NEW";position:absolute;top:-4px;right:-28px;
+    background:var(--red);color:#fff;font-size:9px;font-weight:800;
+    padding:2px 5px;border-radius:3px;letter-spacing:0.5px;
+  }
+
+  .title-row{margin-bottom:18px;}
+  .title-row h1{font-size:28px;margin:0;letter-spacing:0.5px;}
+  .title-row h1 .accent{color:var(--muted);font-weight:400;}
+
+  /* ---- Filters ---- */
+  .filters-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px 20px;margin-bottom:22px;}
+  .filters-grid{display:grid;grid-template-columns: 1.2fr 1.3fr 0.8fr 1fr 1fr;gap:22px;align-items:start;}
+  .filter-group label.group-label{
+    display:block;font-size:11px;font-weight:800;color:var(--muted);
+    letter-spacing:0.6px;margin-bottom:8px;text-transform:uppercase;
+  }
+  .chip-row{display:flex;flex-wrap:nowrap;gap:8px;}
+  .chip{padding:7px 13px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:#fff;color:var(--text);white-space:nowrap;}
+  .chip.active{background:var(--red);border-color:var(--red);color:#fff;}
+  select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:#fff;}
+  .checkbox-row{display:flex;align-items:center;gap:7px;font-size:12.5px;margin-top:6px;color:var(--text);}
+  .checkbox-row input{accent-color:var(--red);}
+  .filters-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
+  .count-text{font-weight:700;font-size:13.5px;}
+  .reset-link{font-size:13px;color:var(--muted);font-weight:600;}
+
+  /* ---- Sort bar ---- */
+  .sort-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:0 2px;}
+  .sort-bar .label{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:0.5px;}
+  .sort-chip-row{display:flex;gap:8px;}
+
+  /* ---- Moment row ---- */
+  .moment{
+    background:var(--card);border:1px solid var(--border);border-radius:8px;
+    margin-bottom:10px;padding:14px 18px 14px 0;
+    display:flex;align-items:stretch;gap:18px;overflow:hidden;
+  }
+  .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
+  .lev-bar.high{background:var(--red);}
+  .lev-bar.low{background:var(--blue);}
+  .lev-bar.neutral{background:#fff;border-right:1px solid var(--border);}
+
+  .moment-left{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;}
+  .timestamp{font-size:11.5px;color:var(--muted);font-weight:600;}
+  .play-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .player-name{font-size:15px;font-weight:800;color:var(--text);}
+
+  .result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0.3px;white-space:nowrap;}
+  .result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:#b9d0f0;background:#eef4fd;}
+  .result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:#f0b8c0;background:#fdeef0;}
+
+  .meta-line{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);}
+  .wpa-pos{color:var(--green);font-weight:700;}
+  .wpa-neg{color:var(--red-dark);font-weight:700;}
+
+  /* ---- Scorebug (right side) ---- */
+  .moment-right{display:flex;align-items:center;gap:16px;flex-shrink:0;}
+  .inning-indicator{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:22px;}
+  .tri{width:0;height:0;}
+  .tri.up{border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:8px solid var(--text);}
+  .tri.down{border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--text);}
+  .inning-num{font-size:12px;font-weight:800;color:var(--text);}
+
+  .score-block{display:flex;flex-direction:column;gap:2px;min-width:70px;}
+  .score-block .row{display:flex;justify-content:space-between;font-size:13.5px;font-weight:700;}
+  .score-block .row .abbr{color:var(--muted);font-weight:800;}
+  .score-block .row .val{color:var(--text);font-weight:800;}
+  .score-block .row.batting .abbr, .score-block .row.batting .val{color:var(--text);}
+
+  .base-diamond.on{fill:var(--blue);stroke:var(--blue);}
+  .base-diamond.off{fill:#fff;stroke:#c7ccd3;}
+
+  @media (max-width: 900px){
+    .filters-grid{grid-template-columns: 1fr 1fr;}
+    .moment{flex-wrap:wrap;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="season-header">
+    <span class="s1">SESSION 13</span><span class="s2">LIVE</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab">Scores &amp; Standings</div>
+    <div class="tab active new-badge">Key Moments</div>
+    <div class="tab">Schedule</div>
+    <div class="tab">Rosters</div>
+    <div class="tab">League Leaders</div>
+    <div class="tab">Player Stats</div>
+    <div class="tab">Free Agents</div>
+  </div>
+
+  <div class="title-row">
+    <h1>KEY MOMENTS <span class="accent">Session 13</span></h1>
+  </div>
+
+  <div class="filters-card">
+    <div class="filters-grid">
+      <div class="filter-group">
+        <label class="group-label">Result</label>
+        <div class="chip-row">
+          <div class="chip active">Hitting</div>
+          <div class="chip">Pitching</div>
+          <div class="chip">HR</div>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">League</label>
+        <div class="chip-row">
+          <div class="chip active">MLN</div>
+          <div class="chip">Galactic</div>
+          <div class="chip">Liberty</div>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Team</label>
+        <select><option>All teams</option></select>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Player</label>
+        <input type="text" placeholder="Player name">
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Draft Class</label>
+        <select><option>All classes</option></select>
+        <div class="checkbox-row"><input type="checkbox"> Rookies only</div>
+      </div>
+    </div>
+    <div class="filters-footer">
+      <div class="count-text">37 key moments</div>
+      <div class="reset-link">↻ Reset filters</div>
+    </div>
+  </div>
+
+  <div class="sort-bar">
+    <div class="label">SORT</div>
+    <div class="sort-chip-row">
+      <div class="chip active">Chronological ↓</div>
+      <div class="chip">WPA</div>
+      <div class="chip">Leverage</div>
+    </div>
+  </div>
+
+  <!-- Row 1: Strikeout, runner on 1st only -->
+  <div class="moment">
+    <div class="lev-bar low"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 9, 11:20 AM PT</div>
+      <div class="play-line">
+        <span class="player-name">Thomas Thompson III</span>
+        <span class="result-pill defense">Strikeout</span>
+      </div>
+      <div class="meta-line">
+        <span>HMH win probability <span class="wpa-pos">61% (+4.2)</span></span>
+        <span>Leverage 1.1</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri down"></div>
+        <div class="inning-num">4</div>
+      </div>
+      <div class="score-block">
+        <div class="row"><span class="abbr">REK</span><span class="val">2</span></div>
+        <div class="row batting"><span class="abbr">HMH</span><span class="val">6</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond off" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond on" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Row 2: Walk-off HR, bases clear after scoring -->
+  <div class="moment">
+    <div class="lev-bar high"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 8, 8:41 PM PT</div>
+      <div class="play-line">
+        <span class="player-name">Conor Sexton</span>
+        <span class="result-pill offense">Home Run</span>
+      </div>
+      <div class="meta-line">
+        <span>RC win probability <span class="wpa-pos">100% (+48.2)</span></span>
+        <span>Leverage 6.1</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri down"></div>
+        <div class="inning-num">9</div>
+      </div>
+      <div class="score-block">
+        <div class="row"><span class="abbr">MIA</span><span class="val">4</span></div>
+        <div class="row batting"><span class="abbr">RC</span><span class="val">6</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond off" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond off" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Row 3: Triple, batter ends on 3rd, 0 Diff -->
+  <div class="moment">
+    <div class="lev-bar neutral"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 8, 4:58 PM PT</div>
+      <div class="play-line">
+        <span class="player-name">Alex Yaxley</span>
+        <span class="result-pill offense">Triple</span>
+        <span class="diff-pill zero">0 Diff</span>
+      </div>
+      <div class="meta-line">
+        <span>SMD win probability <span class="wpa-pos">74% (+11.8)</span></span>
+        <span>Leverage 2.2</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri up"></div>
+        <div class="inning-num">7</div>
+      </div>
+      <div class="score-block">
+        <div class="row batting"><span class="abbr">SMD</span><span class="val">6</span></div>
+        <div class="row"><span class="abbr">ASS</span><span class="val">3</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond off" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond on" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Row 4: Double Play, bases cleared, 500 Diff -->
+  <div class="moment">
+    <div class="lev-bar high"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 6, 7:03 PM PT</div>
+      <div class="play-line">
+        <span class="player-name">Rich Driver</span>
+        <span class="result-pill defense">Double Play</span>
+        <span class="diff-pill five">500 Diff</span>
+      </div>
+      <div class="meta-line">
+        <span>SUN win probability <span class="wpa-neg">20% (-10.3)</span></span>
+        <span>2 outs</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri up"></div>
+        <div class="inning-num">3</div>
+      </div>
+      <div class="score-block">
+        <div class="row batting"><span class="abbr">SUN</span><span class="val">2</span></div>
+        <div class="row"><span class="abbr">HFX</span><span class="val">3</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond off" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond off" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Row 5: Solo HR, bases empty -->
+  <div class="moment">
+    <div class="lev-bar high"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 6, 6:15 PM PT</div>
+      <div class="play-line">
+        <span class="player-name">Guy Gilwater</span>
+        <span class="result-pill offense">Home Run</span>
+      </div>
+      <div class="meta-line">
+        <span>GRZ win probability <span class="wpa-pos">91% (+22.6)</span></span>
+        <span>Leverage 2.8</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri up"></div>
+        <div class="inning-num">8</div>
+      </div>
+      <div class="score-block">
+        <div class="row batting"><span class="abbr">GRZ</span><span class="val">10</span></div>
+        <div class="row"><span class="abbr">BBEG</span><span class="val">4</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond off" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond off" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Row 6: Double, batter ends on 2nd -->
+  <div class="moment">
+    <div class="lev-bar high"></div>
+    <div class="moment-left">
+      <div class="timestamp">Jul 6, 5:42 PM PT</div>
+      <div class="play-line">
+        <span class="player-name">Bob McGuire</span>
+        <span class="result-pill offense">Double</span>
+      </div>
+      <div class="meta-line">
+        <span>ACP win probability <span class="wpa-pos">82% (+15.1)</span></span>
+        <span>Leverage 3.4</span>
+      </div>
+    </div>
+    <div class="moment-right">
+      <div class="inning-indicator">
+        <div class="tri down"></div>
+        <div class="inning-num">5</div>
+      </div>
+      <div class="score-block">
+        <div class="row"><span class="abbr">POR</span><span class="val">1</span></div>
+        <div class="row batting"><span class="abbr">ACP</span><span class="val">3</span></div>
+      </div>
+      <svg width="30" height="30" viewBox="0 0 30 30">
+        <rect class="base-diamond on" x="10" y="2" width="10" height="10" rx="1.5" transform="rotate(45 15 7)"/>
+        <rect class="base-diamond off" x="18" y="10" width="10" height="10" rx="1.5" transform="rotate(45 23 15)"/>
+        <rect class="base-diamond off" x="2" y="10" width="10" height="10" rx="1.5" transform="rotate(45 7 15)"/>
+      </svg>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

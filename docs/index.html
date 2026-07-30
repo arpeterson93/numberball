@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MLN Key Moments</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="title-row">
+    <h1>KEY MOMENTS <span class="accent" id="scope-label">Loading</span></h1>
+  </div>
+
+  <div class="filters-card">
+    <div class="filters-grid">
+      <div class="filter-group">
+        <label class="group-label">Session</label>
+        <select id="session-select"><option>Loading</option></select>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Result</label>
+        <div class="chip-row" id="result-chips">
+          <button type="button" class="chip" data-result="hitting">Hitting</button>
+          <button type="button" class="chip" data-result="pitching">Pitching</button>
+          <button type="button" class="chip" data-result="hr">HR</button>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">League</label>
+        <div class="chip-row" id="league-chips">
+          <button type="button" class="chip active" data-league="">MLN</button>
+          <button type="button" class="chip" data-league="GL">Galactic</button>
+          <button type="button" class="chip" data-league="LL">Liberty</button>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Team</label>
+        <select id="team-select"><option value="">All teams</option></select>
+      </div>
+      <div class="filter-group">
+        <label class="group-label">Player</label>
+        <input type="text" id="player-input" placeholder="Player name">
+        <div class="checkbox-row"><input type="checkbox" id="rookies-only"> Rookies only</div>
+        <div class="checkbox-row"><input type="checkbox" id="favorites-only"> Favorites only</div>
+      </div>
+    </div>
+    <div class="filters-footer">
+      <div class="count-text" id="count-text">0 key moments</div>
+      <div class="footer-actions">
+        <button type="button" class="link-btn" id="favorites-btn">☆ Favorites</button>
+        <button type="button" class="link-btn" id="reset-btn">↻ Reset filters</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sort-bar">
+    <div class="label">SORT</div>
+    <div class="sort-chip-row" id="sort-chips">
+      <button type="button" class="chip active" data-sort="chrono">Chronological ↓</button>
+      <button type="button" class="chip" data-sort="wpa">WPA</button>
+      <button type="button" class="chip" data-sort="leverage">Leverage</button>
+    </div>
+  </div>
+
+  <div id="moments"></div>
+  <div id="empty-state" class="empty-state" hidden>No moments match these filters.</div>
+
+  <div class="page-footer">
+    <span id="built-at">Data as of -</span>
+    <button type="button" class="refresh-btn" id="refresh-btn">Refresh now</button>
+    <span id="refresh-status" class="refresh-status"></span>
+  </div>
+
+</div>
+
+<!-- Favorites panel -->
+<div class="modal" id="fav-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <strong>Favorites</strong>
+      <button type="button" class="link-btn" id="fav-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-note" id="fav-note">
+        No password, no account - this just remembers the name you type on this device
+        and keeps a starred-player list under it. Anyone typing the same name sees the same list.
+      </p>
+      <div class="name-row">
+        <input type="text" id="fav-name" placeholder="Your display name">
+        <button type="button" class="chip active" id="fav-save-name">Use this name</button>
+      </div>
+      <input type="text" id="fav-search" placeholder="Search players" disabled>
+      <div id="fav-list" class="fav-list"></div>
+      <div id="fav-status" class="fav-status"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="js/config.js"></script>
+<script src="js/favorites.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
