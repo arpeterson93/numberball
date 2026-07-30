@@ -123,6 +123,21 @@
     return !!(fav && id && fav.has(id));
   }
 
+  var rookieIds = null;
+
+  function isRookie(m) {
+    if (!rookieIds) {
+      rookieIds = new Set();
+      (data.players || []).forEach(function (p) {
+        if (p.rookie) rookieIds.add(p.id);
+      });
+    }
+    // Same reasoning as isFavorited above - only featured_id/counterpart_id
+    // are ever shown on a card, so those are the only two who can make a
+    // play a "rookie" moment.
+    return rookieIds.has(m.featured_id) || rookieIds.has(m.counterpart_id);
+  }
+
   /* The "Key Moments" toggle swaps the pool rather than narrowing it - off
      means every play of the active session(s), not just the curated feed.
      Every other filter (including Favorites) then narrows whichever pool is
@@ -169,7 +184,7 @@
       var hay = [m.featured_name, m.counterpart_name].join(" ").toLowerCase();
       if (hay.indexOf(needle) === -1) return false;
     }
-    if (filters.rookiesOnly && !m.rookie) return false;
+    if (filters.rookiesOnly && !isRookie(m)) return false;
     if (filters.tags.size) {
       // OR within the tag group, AND against everything else.
       var hit = (m.tags || []).some(function (t) { return filters.tags.has(t); });
