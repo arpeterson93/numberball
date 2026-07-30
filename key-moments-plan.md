@@ -557,3 +557,113 @@ set two different ways depending on whether Favorites is active:
 8. Enable GitHub Pages, do an end-to-end smoke test from a phone/incognito
    window (to catch anything that accidentally depended on Alex's own
    browser state).
+9. Mobile/small-screen responsiveness pass - see section 10. Do this after
+   stage 4's desktop UI is solid, not before - a moving target is harder
+   to make responsive than a finished one.
+
+---
+
+## 10. Mobile / small-screen responsiveness (addendum)
+
+Added after initial testing surfaced two concrete problems on a phone
+against the mockup's current CSS: filter chip rows run off the right edge
+of the screen instead of wrapping, and play/moment rows become very tall.
+
+### 10a. Root causes in the existing mockup CSS
+
+1. `.chip-row{display:flex;flex-wrap:nowrap;gap:8px;}` - `nowrap` is
+   exactly why chip groups (Result, League, and now Rookies/Favorites/the
+   8 tag chips from this plan's later additions) overflow horizontally on
+   a narrow screen instead of wrapping to a second line.
+2. `.filters-grid{grid-template-columns: 1.2fr 1.3fr 0.8fr 1fr 1fr;}` only
+   collapses to `1fr 1fr` at `@media (max-width: 900px)` - still two
+   columns, still cramped on a ~390px phone, and doesn't account for this
+   plan's new 3-row filters-card structure (section 6a) at all.
+3. `.moment{display:flex;...}` only gets `flex-wrap:wrap` at the same
+   900px breakpoint - `.moment-left` and `.moment-right` then each become
+   full-width blocks stacked vertically, and `.moment-right`'s own
+   children (inning indicator, score block, base diamond, outs
+   indicator/badge) keep their desktop sizing, so the stacked block is
+   both full-width and tall. This compounds with the new outs-indicator
+   and `FINAL`/`END INNING` badge states (section 6d) adding still more
+   content to that same right-hand cluster.
+
+### 10b. Breakpoints
+
+Add a phone breakpoint alongside the existing `900px` one:
+
+- `@media (max-width: 900px)` - tablet/narrow-laptop: keep the existing
+  `.filters-grid` collapse for this range.
+- `@media (max-width: 600px)` - phone: the changes below apply.
+
+### 10c. Filters card: collapsed by default on phone
+
+Alex's call: below 600px, the entire filters card (all 3 rows from section
+6a) collapses into a single compact bar by default, rather than always
+showing everything expanded.
+
+- Bar reads something like `Filters (2 active) ▾` (count reflects
+  however many chips/fields are currently non-default), plus the existing
+  Sort control alongside it so sorting stays reachable without expanding
+  anything.
+- Tapping the bar expands the full filter panel (all 3 rows, chips
+  wrapping per 10d) in place, pushing the moments list down; tapping again
+  collapses it back. A simple `<details>`/`<summary>`-style disclosure (or
+  the JS equivalent) is enough - no modal/bottom-sheet needed.
+- Above 600px, the filters card always renders expanded exactly as
+  designed in section 6a - the collapse behavior is phone-only.
+- Rationale: most phone visitors are browsing the feed, not filtering -
+  this keeps the first screen mostly moments, not chips.
+
+### 10d. Chip wrapping (inside the expanded panel)
+
+Once expanded, `.chip-row` switches to `flex-wrap: wrap` below 600px, not
+horizontal scroll - a scrollable chip row hides options users won't know
+are there, which is a real discoverability problem for something like the
+8 tag chips. Each chip group wraps independently onto as many lines as it
+needs; group labels (`Result`, `League`, etc.) stay above their own chip
+row same as desktop.
+
+### 10e. Compact scorebug strip for `.moment-right`
+
+Below 600px, `.moment-right`'s children shrink rather than stack:
+
+- Base diamond SVG and outs-circle pair (or the `FINAL`/`END INNING`
+  badge, section 6d) render at a smaller fixed size.
+- Score block font size drops one step; team abbreviations already stay
+  3-4 chars so width doesn't grow further.
+- Inning indicator (triangle + number) shrinks correspondingly.
+- Target: the whole `.moment-right` cluster stays a **single horizontal
+  row** at phone widths (aim for roughly 140-160px wide), sitting below
+  `.moment-left` as a second line within the card - not wrapping into
+  multiple internal lines the way the mockup's current 900px breakpoint
+  causes. This is the main fix for "rows become quite tall."
+- `.moment-left`'s own content (timestamp, player name + result/diff
+  pills, win-probability + leverage meta line) should already wrap
+  reasonably via its existing `flex-wrap:wrap` on `.play-line`/`.meta-line`
+  - verify pill text doesn't force horizontal overflow at 360-390px widths
+  (the narrowest common phones), shrinking pill font-size/padding slightly
+  if it does.
+
+### 10f. Title row
+
+Below 600px, the title row (`KEY MOMENTS` heading + session `<select>` +
+last-updated timestamp + Refresh button, section 6a item 2) wraps to two
+lines: heading + session selector on the first line, timestamp + Refresh
+button on a second line beneath - avoids the refresh control getting
+squeezed or overflowing next to the heading.
+
+### 10g. Validation checklist
+
+Test against real device widths, not just the media-query breakpoints:
+360px and 390px (common Android/iPhone), 428px (larger iPhone), 768px
+(iPad portrait). For each:
+
+- No horizontal scroll on `<body>` anywhere on the page (chips, moment
+  rows, title row all included).
+- A single moment row's total height stays reasonable (rough target:
+  well under the mockup's current wrapped-and-stacked result at narrow
+  widths).
+- The collapsed filters bar and its expand/collapse both work with touch
+  (not just mouse hover states, which don't exist on phones - watch for
+  any chip/hover-only affordance carried over from the desktop design).
