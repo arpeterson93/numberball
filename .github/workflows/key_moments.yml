@@ -1,19 +1,39 @@
 name: Build Key Moments
 
+# Deploys straight to GitHub Pages via the native Actions flow
+# (upload-pages-artifact + deploy-pages) instead of committing generated
+# data to git: the build runs fresh in this throwaway workspace and is
+# published directly, so main's history never gets bot commits and there's
+# nothing for a human commit to conflict with (see key-moments-plan.md).
+#
+# Requires repo Settings -> Pages -> Build and deployment -> Source set to
+# "GitHub Actions" (one-time manual step, not something this file can do).
+#
 # The schedule is a best-effort backstop only - GitHub delays or drops cron
 # triggers on low-activity repos. The page's "Refresh now" button fires a
-# workflow_dispatch through an Apps Script proxy for an instant rebuild.
+# workflow_dispatch through an Apps Script proxy for an instant rebuild. The
+# push trigger keeps code changes deploying promptly instead of waiting for
+# the next scheduled data-only refresh.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'key_moments_build.py'
+      - 'requirements.txt'
+      - '.github/workflows/key_moments.yml'
   schedule:
     - cron: '17,47 * * * *'   # twice an hour
   workflow_dispatch:
 
-concurrency:
-  group: key-moments
-  cancel-in-progress: false
-
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -34,26 +54,25 @@ jobs:
 
       # No credentials needed: the MLN sheet is read through the public
       # gviz CSV endpoint, same as utils.read_mln_*_from_sheet already does.
+      # Output lands in docs/data/ in this workspace only - never committed.
       - name: Build key moments JSON
         run: python -u key_moments_build.py
 
-      # meta.json's built_at changes on every run, so committing it
-      # unconditionally would mean a commit every half hour. Scheduled runs only
-      # publish when the feed itself changed; manual runs (the page's "Refresh
-      # now" button) always publish, so built_at advances and the page's poll
-      # can tell the rebuild finished.
-      - name: Commit refreshed data
-        env:
-          ALWAYS_PUBLISH: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A docs/data
-          if git diff --cached --quiet -- docs/data ':!docs/data/meta.json' \
-             && [ "$ALWAYS_PUBLISH" != "true" ]; then
-            echo "No change to the feed - skipping commit."
-            git reset
-          else
-            git commit -m "Refresh key moments"
-            git push
-          fi
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

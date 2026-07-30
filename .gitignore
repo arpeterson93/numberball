@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 .env
 roster_maturity/data/
+
+# Key Moments feed data: built fresh by the Actions Pages deploy (see
+# .github/workflows/key_moments.yml), never committed.
+docs/data/*.json
