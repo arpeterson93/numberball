@@ -228,6 +228,21 @@ def _result_category(result: str) -> str:
     return "other"
 
 
+def _effective_category(result: str, runs: int) -> str:
+    """Category used for both the result pill/Hitting-Pitching filter and
+    who's featured on the card.
+
+    A run-scoring out (a sacrifice fly, a productive groundout, etc.) is
+    credited to the batter like a real hitting play - the pitcher isn't the
+    story when the batting team just scored. Caught stealing keeps its
+    normal category even if some other runner happens to score on the same
+    play, since the catcher/runner matchup is still what that play is about.
+    """
+    if runs > 0 and result not in CAUGHT_STEALING_CODES:
+        return "hitting"
+    return _result_category(result)
+
+
 # ── reference data ────────────────────────────────────────────────────────────
 
 def load_reference(sheet_id: str) -> dict:
@@ -471,10 +486,10 @@ def _featured(ref: dict, state: dict, off: dict, deff: dict) -> dict:
     elif result in CAUGHT_STEALING_CODES:
         player, side = (catcher if catcher["id"] else pitcher), "fielding"
         counterpart = runner
-    elif _result_category(result) == "hitting":
+    elif _effective_category(result, state["runs"]) == "hitting":
         player, side = batter, "batting"
         counterpart = pitcher
-    elif _result_category(result) == "pitching":
+    elif _effective_category(result, state["runs"]) == "pitching":
         player, side = pitcher, "fielding"
         counterpart = batter
     else:
@@ -525,7 +540,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "obc_after": state["obc_after"],
 
         "result": result,
-        "result_category": _result_category(result),
+        "result_category": _effective_category(result, state["runs"]),
         "diff": play.get("diff"),
         "runs": state["runs"],
         "scoring_names": scoring_names,
