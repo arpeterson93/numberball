@@ -191,9 +191,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   /* 10f: heading + session on line 1, timestamp + refresh on line 2. */
   .title-row{gap:10px;}
   .title-row h1{font-size:22px;}
-  .session-select{min-width:118px;}
+  .session-select{min-width:118px;margin-left:auto;}
   .title-actions{flex:1 1 100%;margin-left:0;width:auto;}
-  .built-at{flex:1;}
+  .built-at{flex:1;text-align:right;}
 
   /* 10c: collapsed filters bar and the sort chips share one line. */
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:16px;}

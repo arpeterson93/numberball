@@ -229,7 +229,10 @@
   function scoringLine(m) {
     var names = m.scoring_names || [];
     if (!names.length) return "";
-    return '<div class="scoring-line">Scoring: ' + escapeHtml(names.join(", ")) + "</div>";
+    var text = names.length === 1
+      ? names[0] + " scores"
+      : names.join(", ") + " score";
+    return '<div class="scoring-line">' + escapeHtml(text) + "</div>";
   }
 
   function diffPill(m) {

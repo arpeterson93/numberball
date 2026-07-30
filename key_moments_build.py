@@ -149,8 +149,9 @@ def _safe_player_id(raw) -> int | None:
 
 
 def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
-    """Names of runners who scored on this play, in the order they'd have
-    crossed the plate: 3rd, then 2nd, then 1st.
+    """Last names of runners who scored on this play, in the order they'd
+    have crossed the plate: 3rd, then 2nd, then 1st. The page renders these
+    as "X scores" (one) or "X, Y, Z score" (more than one).
 
     The batter's own run is never listed here even if the sheet ever put
     their id in one of these cells (a solo/grand-slam HR's batter is implied
@@ -165,7 +166,7 @@ def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
         if pid is None or pid == batter_id or pid in seen:
             continue
         seen.add(pid)
-        names.append(_player_view(ref, pid)["name"])
+        names.append(_player_view(ref, pid)["last_name"])
     return names
 
 
@@ -252,14 +253,16 @@ def _team_view(ref: dict, key: str | None) -> dict:
 
 def _player_view(ref: dict, player_id: int | None) -> dict:
     if not player_id:
-        return {"id": None, "name": "", "rookie": False, "team": ""}
+        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": ""}
     p = ref["player_by_id"].get(player_id)
     if not p:
         # Traded, released, or otherwise off the current roster tab.
-        return {"id": player_id, "name": f"Player {player_id}", "rookie": False, "team": ""}
+        return {"id": player_id, "name": f"Player {player_id}", "last_name": f"Player {player_id}",
+                "rookie": False, "team": ""}
     return {
         "id": player_id,
         "name": p.get("name") or f"Player {player_id}",
+        "last_name": p.get("last_name") or p.get("name") or f"Player {player_id}",
         "rookie": bool(p.get("is_rookie")),
         "team": p.get("team") or "",
     }
