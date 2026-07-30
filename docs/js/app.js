@@ -562,7 +562,7 @@
     }
     var startedAt = data.meta.built_at || "";
     btn.disabled = true;
-    status.textContent = "Requesting a rebuild...";
+    status.textContent = "Refreshing...";
 
     fetch(url + "?action=trigger_refresh")
       .then(function (r) { return r.json(); })
@@ -573,7 +573,7 @@
           btn.disabled = false;
           return;
         }
-        status.textContent = "Rebuilding - the Action run plus the Pages deploy takes a minute or two.";
+        status.textContent = "Fetching the latest plays - usually done within a couple minutes.";
         pollForRebuild(startedAt, Date.now() + 180000);
       });
   }
