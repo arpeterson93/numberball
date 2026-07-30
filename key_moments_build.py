@@ -435,7 +435,10 @@ def moment_tags(state: dict) -> list[str]:
 
 
 def _featured(ref: dict, state: dict, off: dict, deff: dict) -> dict:
-    """Which player the card headlines, and which side of the play they are on."""
+    """Which player the card headlines, which side of the play they're on,
+    and their counterpart on the other side of the play (shown smaller on
+    the card so a favorited player never goes unacknowledged just because
+    they weren't the featured one - e.g. the runner on a caught stealing)."""
     play = state["play"]
     result = play.get("result") or ""
     batter = _player_view(ref, play.get("batter_id"))
@@ -445,18 +448,24 @@ def _featured(ref: dict, state: dict, off: dict, deff: dict) -> dict:
 
     if result in STEAL_SUCCESS_CODES and runner["id"]:
         player, side = runner, "batting"
+        counterpart = catcher if catcher["id"] else pitcher
     elif result in CAUGHT_STEALING_CODES:
         player, side = (catcher if catcher["id"] else pitcher), "fielding"
+        counterpart = runner
     elif _result_category(result) == "hitting":
         player, side = batter, "batting"
+        counterpart = pitcher
     elif _result_category(result) == "pitching":
         player, side = pitcher, "fielding"
+        counterpart = batter
     else:
         player, side = batter, "batting"
+        counterpart = pitcher
 
     team = off if side == "batting" else deff
     return {"player": player, "side": side, "team": team,
-            "batter": batter, "pitcher": pitcher, "runner": runner}
+            "batter": batter, "pitcher": pitcher, "runner": runner,
+            "counterpart": counterpart}
 
 
 def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> dict:
@@ -515,6 +524,12 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "featured_team_abbr": feat["team"]["abbrev"],
         "featured_wp_after": None if featured_wp_after is None else round(featured_wp_after, 4),
         "featured_wpa": None if featured_wpa is None else round(featured_wpa, 4),
+
+        # Shown smaller on the card, still linked - the other side of the
+        # matchup (pitcher for a hitting result, batter for a pitching
+        # result, runner<->catcher for steals/caught stealing).
+        "counterpart_name": feat["counterpart"]["name"],
+        "counterpart_id": feat["counterpart"]["id"],
 
         "off_team_abbr": off["abbrev"],
         "def_team_abbr": deff["abbrev"],

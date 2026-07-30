@@ -110,8 +110,16 @@
     var fav = window.KMFavorites;
     if (!fav) return false;
     // featured_id covers the runner on a steal, where neither batter nor
-    // pitcher is the player who actually did the thing.
-    return fav.has(m.batter_id) || fav.has(m.pitcher_id) || fav.has(m.featured_id);
+    // pitcher is the player who actually did the thing. counterpart_id
+    // covers whoever's shown smaller on the card (e.g. the runner on a
+    // caught stealing, where the catcher is featured) - a favorited player
+    // should match Favorites even when they weren't the headline.
+    return fav.has(m.batter_id) || fav.has(m.pitcher_id) || fav.has(m.featured_id) || fav.has(m.counterpart_id);
+  }
+
+  function isFavoritedId(id) {
+    var fav = window.KMFavorites;
+    return !!(fav && id && fav.has(id));
   }
 
   /* The "Key Moments" toggle swaps the pool rather than narrowing it - off
@@ -254,6 +262,14 @@
       return '<span class="why-tag">' + escapeHtml(labels[t] || t) + "</span>";
     }).join("");
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
+    var counterpart = (m.counterpart_id && m.counterpart_id !== m.featured_id)
+      ? '<span class="counterpart">vs ' +
+        (isFavoritedId(m.counterpart_id)
+          ? '<span class="counterpart-fav" title="On your favorites list">★</span> '
+          : "") +
+        '<a class="counterpart-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.counterpart_id) +
+        '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.counterpart_name) + "</a></span>"
+      : "";
     var gameLink = m.game_code
       ? '<a class="game-link" href="' + GAME_LINK_BASE + encodeURIComponent(m.game_code) +
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
@@ -270,6 +286,7 @@
             ? '<a class="player-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.featured_id) +
               '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.featured_name) + "</a>"
             : '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>") +
+          counterpart +
           '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +

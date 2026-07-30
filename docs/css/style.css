@@ -101,6 +101,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .star-btn{background:none;border:none;padding:0 2px;font-size:15px;line-height:1;color:#c7ccd3;}
 .star-btn.on{color:var(--gold);}
 
+.counterpart{font-size:12.5px;color:var(--muted);}
+.counterpart-name{color:var(--muted);text-decoration:none;}
+.counterpart-name:hover{text-decoration:underline;}
+.counterpart-fav{color:var(--gold);}
+
 .result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0.3px;white-space:nowrap;}
 .result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:#b9d0f0;background:#eef4fd;}
 .result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:#f0b8c0;background:#fdeef0;}
