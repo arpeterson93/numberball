@@ -62,9 +62,10 @@
         <label class="group-label">Team</label>
         <select id="team-select"><option value="">All teams</option></select>
       </div>
-      <div class="filter-group">
+      <div class="filter-group player-search-group">
         <label class="group-label">Player</label>
-        <input type="text" id="player-input" placeholder="Player name">
+        <input type="text" id="player-input" placeholder="Player name" autocomplete="off">
+        <div id="player-suggest" class="player-suggest" hidden></div>
       </div>
     </div>
 

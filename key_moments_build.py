@@ -121,15 +121,15 @@ RESULT_LABELS = {
 # dict is the one place to change both.
 TAG_LABELS = {
     "high_leverage": "High leverage",
+    "risp": "RISP",
     "run_scored": "Run scored",
     "lead_change": "Lead change",
-    "risp": "RISP",
     "bases_loaded": "Loaded bases",
     "steal": "Steal",
-    "zero_diff": "0 Diff",
-    "five_hundred_diff": "500 Diff",
     "double_play": "Double Play",
     "triple_play": "Triple Play",
+    "zero_diff": "0 Diff",
+    "five_hundred_diff": "500 Diff",
 }
 
 # RISP is filterable but does not, by itself, make a play a key moment - a
@@ -430,24 +430,24 @@ def moment_tags(state: dict) -> list[str]:
     if ((leverage is not None and leverage >= LEVERAGE_THRESHOLD)
             or (wpa is not None and abs(wpa) >= WPA_THRESHOLD)):
         tags.append("high_leverage")
+    if obc_before[0] == "1" or obc_before[1] == "1":
+        tags.append("risp")
     if state["runs"] > 0:
         tags.append("run_scored")
     if _sign(state["lead_before"]) != _sign(state["lead_after"]):
         tags.append("lead_change")
-    if obc_before[0] == "1" or obc_before[1] == "1":
-        tags.append("risp")
     if state["obc_after"] == "111":
         tags.append("bases_loaded")
     if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
         tags.append("steal")
-    if diff == 0:
-        tags.append("zero_diff")
-    if diff == 500:
-        tags.append("five_hundred_diff")
     if result in DOUBLE_PLAY_CODES:
         tags.append("double_play")
     if result in TRIPLE_PLAY_CODES:
         tags.append("triple_play")
+    if diff == 0:
+        tags.append("zero_diff")
+    if diff == 500:
+        tags.append("five_hundred_diff")
     return tags
 
 

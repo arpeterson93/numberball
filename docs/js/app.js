@@ -34,7 +34,8 @@
     rookiesOnly: false,
     favoritesOnly: false,
     team: "",
-    player: "",
+    player: "",         // free-text substring, used only when playerId is null
+    playerId: null,     // set by picking a row from the suggestion dropdown
     tags: new Set(),    // multi-select, OR'd together
     sort: "chrono",
   };
@@ -153,7 +154,14 @@
       if (off !== filters.league && def !== filters.league) return false;
     }
     if (filters.team && m.off_team_abbr !== filters.team && m.def_team_abbr !== filters.team) return false;
-    if (filters.player) {
+    if (filters.playerId) {
+      // Picked from the suggestion dropdown - match this exact person only,
+      // wherever they show up (including as the counterpart, e.g. the
+      // catcher on a steal attempt, who has no id field of their own).
+      var pid = filters.playerId;
+      if (m.batter_id !== pid && m.pitcher_id !== pid && m.runner_id !== pid &&
+          m.featured_id !== pid && m.counterpart_id !== pid) return false;
+    } else if (filters.player) {
       var needle = filters.player.toLowerCase();
       var hay = [m.batter_name, m.pitcher_name, m.runner_name, m.featured_name]
         .join(" ").toLowerCase();
@@ -416,6 +424,32 @@
     }
   }
 
+  var PLAYER_SUGGEST_LIMIT = 8;
+
+  function renderPlayerSuggest(query) {
+    var box = $("player-suggest");
+    var needle = query.trim().toLowerCase();
+    if (!needle) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    var matches = (data.players || []).filter(function (p) {
+      return p.name && p.name.toLowerCase().indexOf(needle) !== -1;
+    }).slice(0, PLAYER_SUGGEST_LIMIT);
+    if (!matches.length) {
+      box.innerHTML = '<div class="player-suggest-empty">No players match.</div>';
+      box.hidden = false;
+      return;
+    }
+    box.innerHTML = matches.map(function (p) {
+      return '<div class="player-suggest-row" data-player-id="' + p.id +
+        '" data-player-name="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) +
+        '<span class="team">' + escapeHtml(p.team || "") + "</span></div>";
+    }).join("");
+    box.hidden = false;
+  }
+
   function populateTagChips() {
     var labels = data.meta.tag_labels || {};
     $("tag-chips").innerHTML = Object.keys(labels).map(function (slug) {
@@ -512,11 +546,38 @@
     var playerTimer;
     $("player-input").addEventListener("input", function (e) {
       var v = e.target.value;
+      filters.playerId = null;   // typing again invalidates a previous exact pick
+      renderPlayerSuggest(v);
       window.clearTimeout(playerTimer);
       playerTimer = window.setTimeout(function () {
         filters.player = v.trim();
         render();
       }, 150);
+    });
+
+    $("player-input").addEventListener("focus", function (e) {
+      if (e.target.value.trim()) renderPlayerSuggest(e.target.value);
+    });
+
+    $("player-input").addEventListener("blur", function () {
+      // Delayed so a click on a suggestion row (below) still lands first.
+      window.setTimeout(function () { $("player-suggest").hidden = true; }, 120);
+    });
+
+    // mousedown, not click - fires before the input's blur, so the pick
+    // registers instead of the dropdown closing first.
+    $("player-suggest").addEventListener("mousedown", function (e) {
+      var row = e.target.closest(".player-suggest-row");
+      if (!row) return;
+      e.preventDefault();
+      var id = Number(row.getAttribute("data-player-id"));
+      var name = row.getAttribute("data-player-name");
+      filters.playerId = id;
+      filters.player = name;
+      $("player-input").value = name;
+      $("player-suggest").hidden = true;
+      window.clearTimeout(playerTimer);
+      render();
     });
 
     $("reset-btn").addEventListener("click", function () {
@@ -527,7 +588,9 @@
       filters.favoritesOnly = false;
       filters.team = "";
       filters.player = "";
+      filters.playerId = null;
       filters.tags.clear();
+      $("player-suggest").hidden = true;
       Array.prototype.forEach.call(
         document.querySelectorAll("#result-chips .chip, #tag-chips .chip"),
         function (c) { c.classList.remove("active"); }

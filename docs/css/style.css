@@ -49,6 +49,18 @@ button{font-family:inherit;cursor:pointer;}
 .filter-row{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:16px;}
 .filter-row:last-of-type{margin-bottom:0;}
 .fields-row .filter-group{flex:1;min-width:200px;max-width:320px;}
+.player-search-group{position:relative;}
+.player-suggest{
+  position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;
+  background:var(--card);border:1px solid var(--border);border-radius:6px;
+  max-height:260px;overflow-y:auto;box-shadow:0 4px 14px rgba(0,0,0,0.12);
+}
+.player-suggest-row{
+  display:flex;align-items:center;gap:10px;padding:7px 12px;font-size:13px;cursor:pointer;
+}
+.player-suggest-row:hover, .player-suggest-row.active{background:#f3f5f8;}
+.player-suggest-row .team{color:var(--muted);font-size:11.5px;margin-left:auto;}
+.player-suggest-empty{padding:8px 12px;font-size:12.5px;color:var(--muted);}
 .filter-group.wide{flex:1 1 100%;}
 .filter-group label.group-label{
   display:block;font-size:11px;font-weight:800;color:var(--muted);
