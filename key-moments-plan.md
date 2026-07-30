@@ -427,26 +427,40 @@ load time becomes a problem.
   checkmark vs. dot) so users aren't surprised when tag chips don't
   exclude each other the way Result's do.
 
-### 6c. Default view vs. Favorites (all plays, not just key moments)
+### 6c. "Key Moments" toggle - all plays, not just key moments (revised)
 
-The build script now emits **every play for the session, not only the ones
+The build script emits **every play for the session, not only the ones
 tagged as key moments** (section 3a step 6 / section 5 schema both updated
 accordingly) - this costs almost nothing extra, since the build script
 already walks every play in order to compute WPA/leverage before it can
-even decide which ones qualify as key moments. The frontend uses that full
-set two different ways depending on whether Favorites is active:
+even decide which ones qualify as key moments.
 
-- **Default** (Favorites off): pool = plays where `is_key_moment == true`.
-  This is what renders on page load, matching the original mockup's scope
-  and the `"N key moments"` footer count text.
-- **Favorites on**: pool = plays where the batter or pitcher is in the
-  user's favorites list, **regardless of `is_key_moment`** - i.e. Favorites
-  drops the key-moment restriction entirely rather than adding to it, so a
-  favorited player's full plate-appearance history for the session is
-  visible, not just their key moments. Footer count text switches to
-  `"N plays"` in this mode to signal the broader scope.
-- Result / League / Rookies / Team / Player filters still apply as AND
-  conditions on top of whichever pool is active.
+Superseding the original design (which tied "all plays" to the Favorites
+chip specifically): the pool switch is its own toggle chip, **"Key
+Moments," active by default**, living alongside Rookies/Favorites in the
+toggle-chip group (section 6a item 5 / 6b) - not a radio group member,
+just another independent boolean, except its default is on rather than off.
+Every other filter, Favorites included, is a plain AND condition on top of
+whichever pool is active:
+
+- **Key Moments on** (default): pool = `key_moments.json`'s season-wide
+  feed, filtered to the active session. Footer reads `"N key moments"`.
+- **Key Moments off**: pool = every play of the active session(s), lazily
+  fetched from `plays_NN.json` the first time it's needed (same lazy-load
+  mechanism, just triggered by this toggle instead of Favorites). Footer
+  reads `"N plays"`.
+- **Favorites**, when on, narrows whichever pool is active to plays where
+  the batter/pitcher/featured player is on the user's list - it no longer
+  changes *which* pool is loaded by itself. Concretely: to browse one
+  favorited player's entire session (not just their key moments), turn Key
+  Moments off *and* Favorites on - two independent toggles rather than one
+  chip doing both jobs. This is a deliberate simplification over the
+  original one-chip-does-both design: Favorites answers "whose plays,"
+  Key Moments answers "how many of them," and conflating the two meant
+  Favorites couldn't be combined with anything else that also wanted the
+  full play pool.
+- Result / League / Rookies / Team / Player / tag filters still apply as
+  AND conditions on top of whichever pool is active, exactly as before.
 - Data volume: a full session's plays (low hundreds) is still trivially
   small for a static JSON fetch and client-side `.filter()`; no pagination
   or lazy-loading needed at this scale. Revisit only if a full-season file

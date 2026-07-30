@@ -78,10 +78,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 /* ---- Moment row ---- */
 .moment{
+  position:relative;
   background:var(--card);border:1px solid var(--border);border-radius:8px;
   margin-bottom:10px;padding:14px 18px 14px 0;
   display:flex;align-items:stretch;gap:18px;overflow:hidden;
 }
+.game-link{
+  position:absolute;top:8px;right:10px;
+  font-size:12px;color:var(--muted);text-decoration:none;line-height:1;
+}
+.game-link:hover{color:var(--blue);}
 .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
 .lev-bar.high{background:var(--red);}
 .lev-bar.low{background:var(--blue);}
@@ -90,7 +96,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .moment-left{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;}
 .timestamp{font-size:11.5px;color:var(--muted);font-weight:600;}
 .play-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-.player-name{font-size:15px;font-weight:800;color:var(--text);}
+.player-name{font-size:15px;font-weight:800;color:var(--text);text-decoration:none;}
+.player-name:hover{text-decoration:underline;}
 .star-btn{background:none;border:none;padding:0 2px;font-size:15px;line-height:1;color:#c7ccd3;}
 .star-btn.on{color:var(--gold);}
 

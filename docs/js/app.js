@@ -3,15 +3,22 @@
  * Loads the JSON written by key_moments_build.py, then does every filter and
  * sort client-side. No server round-trip per interaction.
  *
- * Two pools, per plan section 6c:
- *   Favorites off - key moments only (key_moments.json, loaded on boot)
- *   Favorites on  - every play involving a favorited player, key moment or not
- *                   (plays_NN.json, fetched lazily the first time it is needed)
+ * Two pools, chosen by the "Key Moments" toggle (default on), independent of
+ * every other filter including Favorites:
+ *   Key Moments on  - key moments only (key_moments.json, loaded on boot)
+ *   Key Moments off - every play of the active session(s), key moment or not
+ *                     (plays_NN.json, fetched lazily the first time it's needed)
+ * Favorites, Rookies, Result, League, Team, Player and the tag chips are all
+ * plain AND filters on top of whichever pool is active - so "Favorites only"
+ * with "Key Moments" switched off is how you browse one player's full game,
+ * not just their key moments.
  */
 (function () {
   "use strict";
 
   var LOW_LEVERAGE = 0.5;
+  var GAME_LINK_BASE = "https://www.mln-reference.com/live/";
+  var PLAYER_LINK_BASE = "https://www.mln-reference.com/player/";
 
   var data = {
     moments: [],        // key moments, whole season
@@ -24,6 +31,7 @@
     session: null,      // number, or null for the whole season
     result: "",         // "" | "hitting" | "pitching" | "hr"  (radio, "" = all)
     league: "",         // "" (all MLN) | "GL" | "LL"
+    keyMomentsOnly: true,  // pool switch - on = curated feed, off = every play
     rookiesOnly: false,
     favoritesOnly: false,
     team: "",
@@ -106,10 +114,12 @@
     return fav.has(m.batter_id) || fav.has(m.pitcher_id) || fav.has(m.featured_id);
   }
 
-  /* Favorites mode swaps the pool rather than narrowing it: a favorited
-     player's whole session shows up, not only their key moments. */
+  /* The "Key Moments" toggle swaps the pool rather than narrowing it - off
+     means every play of the active session(s), not just the curated feed.
+     Every other filter (including Favorites) then narrows whichever pool is
+     active, in matches() below. */
   function pool() {
-    if (!filters.favoritesOnly) {
+    if (filters.keyMomentsOnly) {
       return data.moments.filter(function (m) {
         return filters.session === null || m.session_number === filters.session;
       });
@@ -119,10 +129,11 @@
       var loaded = data.playsBySession[s];
       if (loaded) rows = rows.concat(loaded);
     });
-    return rows.filter(isFavorited);
+    return rows;
   }
 
   function matches(m) {
+    if (filters.favoritesOnly && !isFavorited(m)) return false;
     if (filters.result === "hr") {
       if (m.result !== "HR") return false;
     } else if (filters.result && m.result_category !== filters.result) {
@@ -240,13 +251,22 @@
       return '<span class="why-tag">' + escapeHtml(labels[t] || t) + "</span>";
     }).join("");
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
+    var gameLink = m.game_code
+      ? '<a class="game-link" href="' + GAME_LINK_BASE + encodeURIComponent(m.game_code) +
+        '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
+        'aria-label="View this game on MLN Reference">↗</a>'
+      : "";
 
     return '<div class="moment">' +
+      gameLink +
       '<div class="lev-bar ' + levClass(m.leverage) + '"></div>' +
       '<div class="moment-left">' +
         '<div class="timestamp">' + escapeHtml(formatMomentTime(m.timestamp)) + "</div>" +
         '<div class="play-line">' + star +
-          '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>" +
+          (m.featured_id
+            ? '<a class="player-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.featured_id) +
+              '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.featured_name) + "</a>"
+            : '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>") +
           '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
@@ -271,6 +291,7 @@
      would count if they expanded the panel. */
   function activeFilterCount() {
     var n = 0;
+    if (!filters.keyMomentsOnly) n += 1;   // off is the non-default state
     if (filters.result) n += 1;
     if (filters.league) n += 1;
     if (filters.rookiesOnly) n += 1;
@@ -296,12 +317,16 @@
     var rows = sorted(pool().filter(matches));
     $("moments").innerHTML = rows.map(card).join("");
     $("empty-state").hidden = rows.length > 0;
-    $("empty-state").textContent = filters.favoritesOnly
-      ? "No plays from your favorites match these filters."
-      : "No key moments match these filters.";
-    var noun = filters.favoritesOnly
-      ? (rows.length === 1 ? " play" : " plays")
-      : (rows.length === 1 ? " key moment" : " key moments");
+    $("empty-state").textContent = filters.keyMomentsOnly
+      ? (filters.favoritesOnly
+          ? "No key moments from your favorites match these filters."
+          : "No key moments match these filters.")
+      : (filters.favoritesOnly
+          ? "No plays from your favorites match these filters."
+          : "No plays match these filters.");
+    var noun = filters.keyMomentsOnly
+      ? (rows.length === 1 ? " key moment" : " key moments")
+      : (rows.length === 1 ? " play" : " plays");
     $("count-text").textContent = rows.length + noun;
   }
 
@@ -325,7 +350,7 @@
   }
 
   function renderMaybeLoading() {
-    if (filters.favoritesOnly) {
+    if (!filters.keyMomentsOnly) {
       ensurePlaysLoaded().then(render);
     } else {
       render();
@@ -412,19 +437,24 @@
       render();
     });
 
-    // Rookies and Favorites are independent booleans that AND with everything.
+    // Key Moments is the pool switch (default on); Rookies and Favorites are
+    // independent booleans that AND with everything, including each other.
     $("toggle-chips").addEventListener("click", function (e) {
       var chip = e.target.closest(".chip");
       if (!chip) return;
       var which = chip.getAttribute("data-toggle");
-      if (which === "rookies") {
+      if (which === "keymoments") {
+        filters.keyMomentsOnly = !filters.keyMomentsOnly;
+        chip.classList.toggle("active", filters.keyMomentsOnly);
+        renderMaybeLoading();
+      } else if (which === "rookies") {
         filters.rookiesOnly = !filters.rookiesOnly;
         chip.classList.toggle("active", filters.rookiesOnly);
         render();
       } else {
         filters.favoritesOnly = !filters.favoritesOnly;
         chip.classList.toggle("active", filters.favoritesOnly);
-        renderMaybeLoading();
+        render();
       }
     });
 
@@ -467,21 +497,26 @@
     $("reset-btn").addEventListener("click", function () {
       filters.result = "";
       filters.league = "";
+      filters.keyMomentsOnly = true;
       filters.rookiesOnly = false;
       filters.favoritesOnly = false;
       filters.team = "";
       filters.player = "";
       filters.tags.clear();
       Array.prototype.forEach.call(
-        document.querySelectorAll("#result-chips .chip, #toggle-chips .chip, #tag-chips .chip"),
+        document.querySelectorAll("#result-chips .chip, #tag-chips .chip"),
         function (c) { c.classList.remove("active"); }
       );
+      // Key Moments defaults active, unlike Rookies/Favorites - not a blanket clear.
+      Array.prototype.forEach.call(document.querySelectorAll("#toggle-chips .chip"), function (c) {
+        c.classList.toggle("active", c.getAttribute("data-toggle") === "keymoments");
+      });
       Array.prototype.forEach.call(document.querySelectorAll("#league-chips .chip"), function (c) {
         c.classList.toggle("active", c.getAttribute("data-league") === "");
       });
       $("team-select").value = "";
       $("player-input").value = "";
-      render();
+      renderMaybeLoading();
     });
 
     $("moments").addEventListener("click", function (e) {
