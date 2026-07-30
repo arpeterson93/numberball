@@ -4,9 +4,15 @@ Reads the MLN public Google Sheet directly (no Supabase round-trip), replays
 every game play-by-play, computes win probability added and leverage with the
 existing utils.py machinery, applies the key-moment tag rules, and writes:
 
-    docs/data/key_moments.json   one entry per qualifying play
+    docs/data/key_moments.json   season-wide feed of plays where is_key_moment
+    docs/data/plays_<NN>.json    every play of session NN (favorites mode)
     docs/data/players.json       roster lookup for the favorites picker
-    docs/data/meta.json          build timestamp, season, session list
+    docs/data/meta.json          build timestamp, session list, shared lookups
+
+Every play is scored and tagged; the split into two files is only about payload
+size and git churn. key_moments.json is what the page loads on boot. The
+per-session play files are fetched lazily, and only the in-progress session's
+file changes from one build to the next, so finished sessions stop churning.
 
 Run from the repo root (utils.py loads win_probability_table.csv and friends
 relative to the working directory):
@@ -107,17 +113,17 @@ RESULT_LABELS = {
     "pAuto": "Auto (Pitcher)",
 }
 
-# Human-readable labels for the inclusion rules, shown as "why is this here" chips.
+# The complete, closed set of tag slugs. The page renders one filter chip per
+# entry, in this order, so adding a rule means adding it here too.
 TAG_LABELS = {
-    "diff_0": "0 Diff",
-    "diff_500": "500 Diff",
+    "zero_diff": "0 Diff",
+    "five_hundred_diff": "500 Diff",
     "steal": "Steal",
-    "k_risp_inning_end": "K to strand RISP",
-    "rbi_hit": "RBI hit",
+    "strikeout_risp_inning_end": "Inning-ending K w/ RISP",
+    "run_scoring_hit": "Run-scoring hit",
     "bases_loaded": "Bases loaded",
     "lead_change": "Lead change",
     "high_leverage": "High leverage",
-    "big_wpa": "Big swing",
 }
 
 
@@ -247,8 +253,28 @@ def _runs_on_play(play: dict, nxt: dict | None, game: dict | None) -> int:
 
 
 def _game_is_final(game: dict | None) -> bool:
+    """Has this game actually finished?
+
+    The Games tab's end_time and last_play both track live and keep updating
+    while a game is in progress, so neither can stand in for completion -
+    win_team is the field that only appears once the game is over.
+    """
     return bool(game and game.get("win_team") and game.get("away_score") is not None
                 and game.get("home_score") is not None)
+
+
+def _is_final_play(play: dict, game: dict | None, is_last_in_data: bool) -> bool:
+    """Is this play the last out of a completed game?
+
+    Cross-checked against the Games tab's last_play so that a plays feed lagging
+    behind the games feed cannot promote a mid-game play to the final out.
+    """
+    if not is_last_in_data or not _game_is_final(game):
+        return False
+    recorded_last = str(game.get("last_play") or "").strip()
+    if recorded_last:
+        return recorded_last == str(play["play_num"])
+    return True
 
 
 def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
@@ -291,7 +317,7 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
         remaining = utils.remaining_half_innings(inning, half, MLN_INNINGS)
         wp_before = utils.get_win_probability_interpolated(remaining, outs_before, obc_before, lead_before)
 
-        ended = is_last and _game_is_final(game)
+        ended = _is_final_play(play, game, is_last)
         if ended:
             final_bat = (game["home_score"] if batting_is_home else game["away_score"]) or 0
             final_fld = (game["away_score"] if batting_is_home else game["home_score"]) or 0
@@ -337,7 +363,10 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
 # ── tagging ───────────────────────────────────────────────────────────────────
 
 def moment_tags(state: dict) -> list[str]:
-    """Inclusion rules - any hit makes the play a key moment."""
+    """Inclusion rules - any one firing makes the play a key moment.
+
+    Returned slugs are exactly the keys of TAG_LABELS, in that order.
+    """
     play = state["play"]
     result = play.get("result") or ""
     diff = play.get("diff")
@@ -347,23 +376,22 @@ def moment_tags(state: dict) -> list[str]:
     tags: list[str] = []
 
     if diff == 0:
-        tags.append("diff_0")
+        tags.append("zero_diff")
     if diff == 500:
-        tags.append("diff_500")
+        tags.append("five_hundred_diff")
     if result in STEAL_SUCCESS_CODES:
         tags.append("steal")
     if result == "K" and state["outs_after"] == 3 and (obc_before[0] == "1" or obc_before[1] == "1"):
-        tags.append("k_risp_inning_end")
+        tags.append("strikeout_risp_inning_end")
     if result in HIT_CODES and state["runs"] > 0:
-        tags.append("rbi_hit")
+        tags.append("run_scoring_hit")
     if state["obc_after"] == "111":
         tags.append("bases_loaded")
     if _sign(state["lead_before"]) != _sign(state["lead_after"]):
         tags.append("lead_change")
-    if leverage is not None and leverage >= LEVERAGE_THRESHOLD:
+    if ((leverage is not None and leverage >= LEVERAGE_THRESHOLD)
+            or (wpa is not None and abs(wpa) >= WPA_THRESHOLD)):
         tags.append("high_leverage")
-    if wpa is not None and abs(wpa) >= WPA_THRESHOLD:
-        tags.append("big_wpa")
     return tags
 
 
@@ -408,17 +436,18 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
     featured_wpa = None if wpa is None else (-wpa if flip else wpa)
     featured_wp_after = None if wp_after is None else ((1.0 - wp_after) if flip else wp_after)
 
-    sub_leagues = sorted({s for s in (off["sub_league"], deff["sub_league"]) if s})
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
 
+    # Anything derivable from a small closed set (team names, sub-league,
+    # result labels, tag labels, base-diamond SVG) lives in meta.json instead of
+    # being repeated on every play - the feed carries every play now, so the
+    # per-row cost of a redundant field is paid thousands of times.
     return {
         "moment_id": str(play["play_num"]),
         "play_num": play["play_num"],
         "game_code": game_code,
-        "season": CURRENT_SEASON,
         "session_number": session_number,
         "timestamp": _parse_timestamp(play.get("timestamp")),
-        "timestamp_raw": play.get("timestamp"),
 
         "inning": state["inning"],
         "half": state["half"],
@@ -426,10 +455,8 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "outs_after": state["outs_after"],
         "obc_before": state["obc_before"],
         "obc_after": state["obc_after"],
-        "bases_svg": _diamond_svg(state["obc_after"]),
 
         "result": result,
-        "result_label": RESULT_LABELS.get(result, result),
         "result_category": _result_category(result),
         "diff": play.get("diff"),
         "runs": state["runs"],
@@ -448,9 +475,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "featured_wp_after": None if featured_wp_after is None else round(featured_wp_after, 4),
         "featured_wpa": None if featured_wpa is None else round(featured_wpa, 4),
 
-        "off_team": off["full"],
         "off_team_abbr": off["abbrev"],
-        "def_team": deff["full"],
         "def_team_abbr": deff["abbrev"],
         "away_team_abbr": _team_view(ref, play.get("away"))["abbrev"],
         "home_team_abbr": _team_view(ref, play.get("home"))["abbrev"],
@@ -463,16 +488,18 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "wpa": None if wpa is None else round(wpa, 4),
         "leverage": None if state["leverage"] is None else round(state["leverage"], 2),
 
-        "sub_leagues": sub_leagues,
         "rookie": feat["player"]["rookie"],
+        "is_key_moment": bool(tags),
         "tags": tags,
-        "tag_labels": [TAG_LABELS.get(t, t) for t in tags],
+        "is_half_inning_final": state["outs_after"] == 3,
+        "is_game_final": state["game_ended"],
     }
 
 
 # ── build ─────────────────────────────────────────────────────────────────────
 
 def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
+    """Return (all plays scored and tagged, roster, meta)."""
     ref = load_reference(sheet_id)
 
     games = utils.read_mln_games_from_sheet(sheet_id)
@@ -490,17 +517,16 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         p["diff"] = utils.circular_diff(int(pitch), int(swing)) if pitch is not None and swing is not None else None
         by_game.setdefault(p["game_code"], []).append(p)
 
-    moments: list[dict] = []
-    scanned = 0
+    # Every play is scored and tagged; is_key_moment records which ones qualify.
+    # The walk has to happen anyway to get WPA, so keeping the non-qualifying
+    # rows costs nothing and is what the favorites view browses.
+    rows: list[dict] = []
     for game_code in sorted(by_game):
         game = game_by_code.get(game_code)
         for state in replay_game(by_game[game_code], game):
-            scanned += 1
-            tags = moment_tags(state)
-            if tags:
-                moments.append(build_moment(ref, state, game, tags))
+            rows.append(build_moment(ref, state, game, moment_tags(state)))
 
-    moments.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
+    rows.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
 
     roster = sorted(
         (
@@ -516,18 +542,31 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         key=lambda p: p["name"].lower(),
     )
 
-    sessions = sorted({m["session_number"] for m in moments if m["session_number"]}, reverse=True)
+    sessions = sorted({m["session_number"] for m in rows if m["session_number"]}, reverse=True)
+    teams_seen = sorted({a for m in rows for a in (m["off_team_abbr"], m["def_team_abbr"]) if a})
     meta = {
         "built_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "sheet_id": sheet_id,
         "season": CURRENT_SEASON,
         "sessions": sessions,
-        "plays_scanned": scanned,
-        "moment_count": len(moments),
+        "plays_scanned": len(rows),
+        "moment_count": sum(1 for m in rows if m["is_key_moment"]),
         "leverage_threshold": LEVERAGE_THRESHOLD,
         "wpa_threshold": WPA_THRESHOLD,
+
+        # Shared lookups, so no play row has to repeat them.
+        "teams": {
+            abbr: {
+                "name": ref["team_by_abbrev"].get(abbr, {}).get("full_team") or abbr,
+                "sub_league": ref["team_by_abbrev"].get(abbr, {}).get("sub_league") or "",
+            }
+            for abbr in teams_seen
+        },
+        "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows})},
+        "tag_labels": dict(TAG_LABELS),
+        "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
     }
-    return moments, roster, meta
+    return rows, roster, meta
 
 
 def _write(path: str, payload) -> None:
@@ -536,13 +575,22 @@ def _write(path: str, payload) -> None:
         fh.write("\n")
 
 
+def _prune_stale_session_files(sessions: list[int]) -> None:
+    """Drop plays_NN.json files for sessions that no longer exist in the feed."""
+    keep = {f"plays_{s:02d}.json" for s in sessions}
+    for name in os.listdir(OUT_DIR):
+        if name.startswith("plays_") and name.endswith(".json") and name not in keep:
+            os.remove(os.path.join(OUT_DIR, name))
+
+
 def main() -> None:
     try:
-        moments, roster, meta = build()
+        rows, roster, meta = build()
     except Exception as exc:
         print(f"FATAL: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    moments = [m for m in rows if m["is_key_moment"]]
     if not moments:
         print("FATAL: no key moments produced - refusing to publish an empty feed.", file=sys.stderr)
         sys.exit(1)
@@ -551,24 +599,31 @@ def main() -> None:
     _write(os.path.join(OUT_DIR, "key_moments.json"), moments)
     _write(os.path.join(OUT_DIR, "players.json"), roster)
     _write(os.path.join(OUT_DIR, "meta.json"), meta)
+    for session in meta["sessions"]:
+        session_rows = [m for m in rows if m["session_number"] == session]
+        _write(os.path.join(OUT_DIR, f"plays_{session:02d}.json"), session_rows)
+    _prune_stale_session_files(meta["sessions"])
 
     counts: dict[str, int] = {}
-    for m in moments:
+    per_session: dict[int, list[int]] = {}
+    for m in rows:
         for t in m["tags"]:
             counts[t] = counts.get(t, 0) + 1
-    per_session: dict[int, int] = {}
-    for m in moments:
         if m["session_number"]:
-            per_session[m["session_number"]] = per_session.get(m["session_number"], 0) + 1
+            tally = per_session.setdefault(m["session_number"], [0, 0])
+            tally[0] += 1
+            tally[1] += 1 if m["is_key_moment"] else 0
 
     print(f"Scanned {meta['plays_scanned']} plays -> {len(moments)} key moments "
           f"across sessions {meta['sessions']}")
     print(f"  thresholds: leverage >= {LEVERAGE_THRESHOLD}, |wpa| >= {WPA_THRESHOLD}")
     for session in sorted(per_session, reverse=True):
-        print(f"  session {session:02d}: {per_session[session]} moments")
-    for tag in sorted(counts, key=lambda t: -counts[t]):
-        print(f"  tag {tag:<20} {counts[tag]}")
-    print(f"Wrote {OUT_DIR}/key_moments.json, players.json, meta.json")
+        plays_n, moments_n = per_session[session]
+        print(f"  session {session:02d}: {moments_n} moments / {plays_n} plays")
+    for tag in TAG_LABELS:
+        print(f"  tag {tag:<28} {counts.get(tag, 0)}")
+    print(f"Wrote {OUT_DIR}/key_moments.json, players.json, meta.json, "
+          f"plays_NN.json x{len(meta['sessions'])}")
 
 
 if __name__ == "__main__":

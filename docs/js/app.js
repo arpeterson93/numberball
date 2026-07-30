@@ -2,24 +2,37 @@
  *
  * Loads the JSON written by key_moments_build.py, then does every filter and
  * sort client-side. No server round-trip per interaction.
+ *
+ * Two pools, per plan section 6c:
+ *   Favorites off - key moments only (key_moments.json, loaded on boot)
+ *   Favorites on  - every play involving a favorited player, key moment or not
+ *                   (plays_NN.json, fetched lazily the first time it is needed)
  */
 (function () {
   "use strict";
 
   var LOW_LEVERAGE = 0.5;
 
-  var data = { moments: [], players: [], meta: {} };
+  var data = {
+    moments: [],        // key moments, whole season
+    players: [],
+    meta: {},
+    playsBySession: {}, // session number -> every play of that session
+  };
+
   var filters = {
-    session: null,        // number, or null for the whole season
-    results: new Set(),   // "hitting" / "pitching"
-    hrOnly: false,
-    league: "",           // "" | "GL" | "LL"
-    team: "",
-    player: "",
+    session: null,      // number, or null for the whole season
+    result: "",         // "" | "hitting" | "pitching" | "hr"  (radio, "" = all)
+    league: "",         // "" (all MLN) | "GL" | "LL"
     rookiesOnly: false,
     favoritesOnly: false,
+    team: "",
+    player: "",
+    tags: new Set(),    // multi-select, OR'd together
     sort: "chrono",
   };
+
+  var loadingPlays = false;
 
   // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,18 +55,19 @@
     });
   }
 
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-  function formatMomentTime(iso, raw) {
-    if (!iso) return raw || "";
+  function formatMomentTime(iso) {
+    if (!iso) return "";
     var d = new Date(iso);
-    if (isNaN(d.getTime())) return raw || "";
+    if (isNaN(d.getTime())) return iso;
     var h = d.getHours();
     var ampm = h >= 12 ? "PM" : "AM";
     h = h % 12 || 12;
-    var mins = String(d.getMinutes()).padStart(2, "0");
-    return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + h + ":" + mins + " " + ampm;
+    return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + h + ":" + pad2(d.getMinutes()) + " " + ampm;
   }
 
   function formatBuiltAt(iso) {
@@ -66,7 +80,7 @@
     else if (mins < 60) ago = mins + " min ago";
     else if (mins < 1440) ago = Math.round(mins / 60) + " hr ago";
     else ago = Math.round(mins / 1440) + " day(s) ago";
-    return "Data as of " + formatMomentTime(iso, iso) + " (" + ago + ")";
+    return "Updated " + ago;
   }
 
   function toast(msg) {
@@ -77,13 +91,49 @@
     el._timer = window.setTimeout(function () { el.hidden = true; }, 3500);
   }
 
-  // ── filtering / sorting ─────────────────────────────────────────────────────
+  function activeSessions() {
+    if (filters.session !== null) return [filters.session];
+    return (data.meta.sessions || []).slice();
+  }
+
+  // ── pools and filtering ─────────────────────────────────────────────────────
+
+  function isFavorited(m) {
+    var fav = window.KMFavorites;
+    if (!fav) return false;
+    // featured_id covers the runner on a steal, where neither batter nor
+    // pitcher is the player who actually did the thing.
+    return fav.has(m.batter_id) || fav.has(m.pitcher_id) || fav.has(m.featured_id);
+  }
+
+  /* Favorites mode swaps the pool rather than narrowing it: a favorited
+     player's whole session shows up, not only their key moments. */
+  function pool() {
+    if (!filters.favoritesOnly) {
+      return data.moments.filter(function (m) {
+        return filters.session === null || m.session_number === filters.session;
+      });
+    }
+    var rows = [];
+    activeSessions().forEach(function (s) {
+      var loaded = data.playsBySession[s];
+      if (loaded) rows = rows.concat(loaded);
+    });
+    return rows.filter(isFavorited);
+  }
 
   function matches(m) {
-    if (filters.session !== null && m.session_number !== filters.session) return false;
-    if (filters.hrOnly && m.result !== "HR") return false;
-    if (filters.results.size && !filters.results.has(m.result_category)) return false;
-    if (filters.league && (m.sub_leagues || []).indexOf(filters.league) === -1) return false;
+    if (filters.result === "hr") {
+      if (m.result !== "HR") return false;
+    } else if (filters.result && m.result_category !== filters.result) {
+      return false;
+    }
+    if (filters.league) {
+      var teams = data.meta.teams || {};
+      var off = (teams[m.off_team_abbr] || {}).sub_league;
+      var def = (teams[m.def_team_abbr] || {}).sub_league;
+      if (off !== filters.league && def !== filters.league) return false;
+    }
     if (filters.team && m.off_team_abbr !== filters.team && m.def_team_abbr !== filters.team) return false;
     if (filters.player) {
       var needle = filters.player.toLowerCase();
@@ -92,10 +142,10 @@
       if (hay.indexOf(needle) === -1) return false;
     }
     if (filters.rookiesOnly && !m.rookie) return false;
-    if (filters.favoritesOnly) {
-      var fav = window.KMFavorites;
-      if (!fav) return false;
-      if (!fav.has(m.batter_id) && !fav.has(m.pitcher_id) && !fav.has(m.runner_id)) return false;
+    if (filters.tags.size) {
+      // OR within the tag group, AND against everything else.
+      var hit = (m.tags || []).some(function (t) { return filters.tags.has(t); });
+      if (!hit) return false;
     }
     return true;
   }
@@ -148,6 +198,23 @@
       "</div>";
   }
 
+  /* Game-final wins over half-inning-final: the last out of a game is both,
+     and FINAL is the more informative badge. */
+  function stateStack(m) {
+    if (m.is_game_final) {
+      return '<div class="state-stack"><div class="state-badge final">FINAL</div></div>';
+    }
+    if (m.is_half_inning_final) {
+      return '<div class="state-stack"><div class="state-badge">END INNING</div></div>';
+    }
+    var svg = (data.meta.bases_svg || {})[m.obc_after] || "";
+    // outs_after is 0, 1 or 2 here - a 3rd out always routes to a badge above.
+    var dots = [0, 1].map(function (i) {
+      return '<span class="dot' + (i < m.outs_after ? " on" : "") + '"></span>';
+    }).join("");
+    return '<div class="state-stack">' + svg + '<div class="outs-dots">' + dots + "</div></div>";
+  }
+
   function diffPill(m) {
     if (m.diff === 0) return '<span class="diff-pill zero">0 Diff</span>';
     if (m.diff === 500) return '<span class="diff-pill five">500 Diff</span>';
@@ -155,27 +222,27 @@
   }
 
   function card(m) {
+    var labels = data.meta.tag_labels || {};
     var isFav = window.KMFavorites && m.featured_id && window.KMFavorites.has(m.featured_id);
     var star = m.featured_id
       ? '<button type="button" class="star-btn ' + (isFav ? "on" : "") +
         '" data-fav-id="' + m.featured_id + '" title="Favorite this player">' +
         (isFav ? "★" : "☆") + "</button>"
       : "";
-    var levText = m.leverage != null
-      ? "<span>Leverage " + m.leverage.toFixed(1) + "</span>"
-      : "<span>" + m.outs_after + " out" + (m.outs_after === 1 ? "" : "s") + "</span>";
-    var why = (m.tag_labels || []).map(function (t) {
-      return '<span class="why-tag">' + escapeHtml(t) + "</span>";
+    var levText = m.leverage != null ? "<span>Leverage " + m.leverage.toFixed(1) + "</span>" : "";
+    var why = (m.tags || []).map(function (t) {
+      return '<span class="why-tag">' + escapeHtml(labels[t] || t) + "</span>";
     }).join("");
+    var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
 
     return '<div class="moment">' +
       '<div class="lev-bar ' + levClass(m.leverage) + '"></div>' +
       '<div class="moment-left">' +
-        '<div class="timestamp">' + escapeHtml(formatMomentTime(m.timestamp, m.timestamp_raw)) + "</div>" +
+        '<div class="timestamp">' + escapeHtml(formatMomentTime(m.timestamp)) + "</div>" +
         '<div class="play-line">' + star +
           '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>" +
           '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
-            escapeHtml(m.result_label) + "</span>" +
+            escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
         "</div>" +
         '<div class="meta-line">' + wpFragment(m) + levText + "</div>" +
@@ -187,19 +254,55 @@
           '<div class="inning-num">' + m.inning + "</div>" +
         "</div>" +
         scoreBlock(m) +
-        m.bases_svg +
+        stateStack(m) +
       "</div>" +
     "</div>";
   }
 
   function render() {
-    var rows = sorted(data.moments.filter(matches));
+    if (loadingPlays) {
+      $("moments").innerHTML = "";
+      $("empty-state").hidden = false;
+      $("empty-state").textContent = "Loading plays...";
+      return;
+    }
+    var rows = sorted(pool().filter(matches));
     $("moments").innerHTML = rows.map(card).join("");
     $("empty-state").hidden = rows.length > 0;
-    $("count-text").textContent = rows.length + (rows.length === 1 ? " key moment" : " key moments");
-    $("scope-label").textContent = filters.session === null
-      ? "Season " + (data.meta.season || "")
-      : "Session " + String(filters.session).padStart(2, "0");
+    $("empty-state").textContent = filters.favoritesOnly
+      ? "No plays from your favorites match these filters."
+      : "No key moments match these filters.";
+    var noun = filters.favoritesOnly
+      ? (rows.length === 1 ? " play" : " plays")
+      : (rows.length === 1 ? " key moment" : " key moments");
+    $("count-text").textContent = rows.length + noun;
+  }
+
+  // ── lazy play loading ───────────────────────────────────────────────────────
+
+  function ensurePlaysLoaded() {
+    var needed = activeSessions().filter(function (s) { return !data.playsBySession[s]; });
+    if (!needed.length) return Promise.resolve();
+    loadingPlays = true;
+    render();
+    return Promise.all(needed.map(function (s) {
+      return getJSON("data/plays_" + pad2(s) + ".json").then(function (rows) {
+        data.playsBySession[s] = rows;
+      });
+    })).then(function () {
+      loadingPlays = false;
+    }).catch(function () {
+      loadingPlays = false;
+      toast("Could not load the full play list.");
+    });
+  }
+
+  function renderMaybeLoading() {
+    if (filters.favoritesOnly) {
+      ensurePlaysLoaded().then(render);
+    } else {
+      render();
+    }
   }
 
   // ── controls ────────────────────────────────────────────────────────────────
@@ -207,14 +310,13 @@
   function populateSessionSelect(keepSelection) {
     var sel = $("session-select");
     var sessions = data.meta.sessions || [];
+    // Plain integer - never "Session 03".
     sel.innerHTML = '<option value="">Full season</option>' +
       sessions.map(function (s) {
-        return '<option value="' + s + '">Session ' + String(s).padStart(2, "0") + "</option>";
+        return '<option value="' + s + '">Session ' + parseInt(s, 10) + "</option>";
       }).join("");
-    if (keepSelection && sessions.indexOf(filters.session) !== -1) {
-      sel.value = String(filters.session);
-    } else if (keepSelection && filters.session === null) {
-      sel.value = "";
+    if (keepSelection && (filters.session === null || sessions.indexOf(filters.session) !== -1)) {
+      sel.value = filters.session === null ? "" : String(filters.session);
     } else if (sessions.length) {
       filters.session = sessions[0];
       sel.value = String(sessions[0]);
@@ -222,47 +324,49 @@
   }
 
   function populateTeamSelect() {
-    var previous = $("team-select").value;
-    var byAbbr = {};
-    data.moments.forEach(function (m) {
-      if (m.off_team_abbr) byAbbr[m.off_team_abbr] = m.off_team || m.off_team_abbr;
-      if (m.def_team_abbr) byAbbr[m.def_team_abbr] = m.def_team || m.def_team_abbr;
-    });
-    var abbrs = Object.keys(byAbbr).sort(function (a, b) {
-      return byAbbr[a].localeCompare(byAbbr[b]);
+    var teams = data.meta.teams || {};
+    var abbrs = Object.keys(teams).sort(function (a, b) {
+      return (teams[a].name || a).localeCompare(teams[b].name || b);
     });
     $("team-select").innerHTML = '<option value="">All teams</option>' +
       abbrs.map(function (a) {
-        return '<option value="' + escapeHtml(a) + '">' + escapeHtml(byAbbr[a]) + "</option>";
+        return '<option value="' + escapeHtml(a) + '">' + escapeHtml(teams[a].name || a) + "</option>";
       }).join("");
-    if (previous && abbrs.indexOf(previous) !== -1) {
-      $("team-select").value = previous;
+    if (filters.team && abbrs.indexOf(filters.team) !== -1) {
+      $("team-select").value = filters.team;
     } else {
       filters.team = "";
     }
   }
 
+  function populateTagChips() {
+    var labels = data.meta.tag_labels || {};
+    $("tag-chips").innerHTML = Object.keys(labels).map(function (slug) {
+      return '<button type="button" class="chip multi" data-tag="' + escapeHtml(slug) + '">' +
+        escapeHtml(labels[slug]) + "</button>";
+    }).join("");
+  }
+
   function wireControls() {
     $("session-select").addEventListener("change", function (e) {
       filters.session = e.target.value === "" ? null : Number(e.target.value);
-      render();
+      renderMaybeLoading();
     });
 
+    // Result is a radio group that can also be fully off: clicking the active
+    // chip clears it back to "all categories".
     $("result-chips").addEventListener("click", function (e) {
       var chip = e.target.closest(".chip");
       if (!chip) return;
       var kind = chip.getAttribute("data-result");
-      if (kind === "hr") {
-        filters.hrOnly = !filters.hrOnly;
-      } else if (filters.results.has(kind)) {
-        filters.results.delete(kind);
-      } else {
-        filters.results.add(kind);
-      }
-      chip.classList.toggle("active");
+      filters.result = (filters.result === kind) ? "" : kind;
+      Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (c) {
+        c.classList.toggle("active", c.getAttribute("data-result") === filters.result);
+      });
       render();
     });
 
+    // League always has exactly one chip active; MLN is the neutral default.
     $("league-chips").addEventListener("click", function (e) {
       var chip = e.target.closest(".chip");
       if (!chip) return;
@@ -270,6 +374,33 @@
       Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (c) {
         c.classList.toggle("active", c === chip);
       });
+      render();
+    });
+
+    // Rookies and Favorites are independent booleans that AND with everything.
+    $("toggle-chips").addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip) return;
+      var which = chip.getAttribute("data-toggle");
+      if (which === "rookies") {
+        filters.rookiesOnly = !filters.rookiesOnly;
+        chip.classList.toggle("active", filters.rookiesOnly);
+        render();
+      } else {
+        filters.favoritesOnly = !filters.favoritesOnly;
+        chip.classList.toggle("active", filters.favoritesOnly);
+        renderMaybeLoading();
+      }
+    });
+
+    // Tag chips multi-select and OR together.
+    $("tag-chips").addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip) return;
+      var slug = chip.getAttribute("data-tag");
+      if (filters.tags.has(slug)) filters.tags.delete(slug);
+      else filters.tags.add(slug);
+      chip.classList.toggle("active", filters.tags.has(slug));
       render();
     });
 
@@ -298,34 +429,23 @@
       }, 150);
     });
 
-    $("rookies-only").addEventListener("change", function (e) {
-      filters.rookiesOnly = e.target.checked;
-      render();
-    });
-
-    $("favorites-only").addEventListener("change", function (e) {
-      filters.favoritesOnly = e.target.checked;
-      render();
-    });
-
     $("reset-btn").addEventListener("click", function () {
-      filters.results.clear();
-      filters.hrOnly = false;
+      filters.result = "";
       filters.league = "";
-      filters.team = "";
-      filters.player = "";
       filters.rookiesOnly = false;
       filters.favoritesOnly = false;
-      Array.prototype.forEach.call(document.querySelectorAll("#result-chips .chip"), function (c) {
-        c.classList.remove("active");
-      });
+      filters.team = "";
+      filters.player = "";
+      filters.tags.clear();
+      Array.prototype.forEach.call(
+        document.querySelectorAll("#result-chips .chip, #toggle-chips .chip, #tag-chips .chip"),
+        function (c) { c.classList.remove("active"); }
+      );
       Array.prototype.forEach.call(document.querySelectorAll("#league-chips .chip"), function (c) {
         c.classList.toggle("active", c.getAttribute("data-league") === "");
       });
       $("team-select").value = "";
       $("player-input").value = "";
-      $("rookies-only").checked = false;
-      $("favorites-only").checked = false;
       render();
     });
 
@@ -347,10 +467,15 @@
     ]).then(function (res) {
       data.moments = res[0];
       data.meta = res[1];
+      data.playsBySession = {};   // stale once the feed moves
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
       populateSessionSelect(true);
       populateTeamSelect();
-      render();
+      populateTagChips();
+      Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
+        c.classList.toggle("active", filters.tags.has(c.getAttribute("data-tag")));
+      });
+      renderMaybeLoading();
     });
   }
 
@@ -424,15 +549,16 @@
       data.players = res[1];
       data.meta = res[2];
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      populateSessionSelect();
+      populateSessionSelect(false);
       populateTeamSelect();
+      populateTagChips();
       render();
       window.KMFavorites.init(data.players, function () {
-        render();
+        renderMaybeLoading();
         window.KMFavorites.refreshList();
       });
     }).catch(function (err) {
-      $("scope-label").textContent = "";
+      $("built-at").textContent = "";
       $("empty-state").hidden = false;
       $("empty-state").textContent = "Could not load the key moments feed (" + err.message + ").";
     });

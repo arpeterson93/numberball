@@ -10,15 +10,17 @@
 <div class="page">
 
   <div class="title-row">
-    <h1>KEY MOMENTS <span class="accent" id="scope-label">Loading</span></h1>
+    <h1>KEY MOMENTS</h1>
+    <select id="session-select" class="session-select" aria-label="Session"></select>
+    <div class="title-actions">
+      <span id="built-at" class="built-at">Loading</span>
+      <button type="button" class="refresh-btn" id="refresh-btn">Refresh now</button>
+    </div>
   </div>
+  <div id="refresh-status" class="refresh-status"></div>
 
   <div class="filters-card">
-    <div class="filters-grid">
-      <div class="filter-group">
-        <label class="group-label">Session</label>
-        <select id="session-select"><option>Loading</option></select>
-      </div>
+    <div class="filter-row">
       <div class="filter-group">
         <label class="group-label">Result</label>
         <div class="chip-row" id="result-chips">
@@ -36,27 +38,42 @@
         </div>
       </div>
       <div class="filter-group">
+        <label class="group-label">Show</label>
+        <div class="chip-row" id="toggle-chips">
+          <button type="button" class="chip toggle" data-toggle="rookies">Rookies</button>
+          <button type="button" class="chip toggle" data-toggle="favorites">Favorites</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-row fields-row">
+      <div class="filter-group">
         <label class="group-label">Team</label>
         <select id="team-select"><option value="">All teams</option></select>
       </div>
       <div class="filter-group">
         <label class="group-label">Player</label>
         <input type="text" id="player-input" placeholder="Player name">
-        <div class="checkbox-row"><input type="checkbox" id="rookies-only"> Rookies only</div>
-        <div class="checkbox-row"><input type="checkbox" id="favorites-only"> Favorites only</div>
       </div>
     </div>
+
+    <div class="filter-row">
+      <div class="filter-group wide">
+        <label class="group-label">Tags <span class="group-hint">any selected tag matches</span></label>
+        <div class="chip-row wrap" id="tag-chips"></div>
+      </div>
+    </div>
+
     <div class="filters-footer">
       <div class="count-text" id="count-text">0 key moments</div>
       <div class="footer-actions">
-        <button type="button" class="link-btn" id="favorites-btn">☆ Favorites</button>
+        <button type="button" class="link-btn" id="favorites-btn">☆ Manage favorites</button>
         <button type="button" class="link-btn" id="reset-btn">↻ Reset filters</button>
       </div>
     </div>
   </div>
 
   <div class="sort-bar">
-    <div class="label">SORT</div>
     <div class="sort-chip-row" id="sort-chips">
       <button type="button" class="chip active" data-sort="chrono">Chronological ↓</button>
       <button type="button" class="chip" data-sort="wpa">WPA</button>
@@ -65,13 +82,7 @@
   </div>
 
   <div id="moments"></div>
-  <div id="empty-state" class="empty-state" hidden>No moments match these filters.</div>
-
-  <div class="page-footer">
-    <span id="built-at">Data as of -</span>
-    <button type="button" class="refresh-btn" id="refresh-btn">Refresh now</button>
-    <span id="refresh-status" class="refresh-status"></span>
-  </div>
+  <div id="empty-state" class="empty-state" hidden>No plays match these filters.</div>
 
 </div>
 

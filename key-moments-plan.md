@@ -197,9 +197,15 @@ Run by GitHub Actions (or locally), not the Streamlit app. Steps:
    - `leverage = utils.compute_leverage(result_ranges, remaining, outs_before, obc_before, batting_lead_before)`
    - `lead_before` / `lead_after` for the batting team, to detect lead
      changes per Open Question 5.
-6. Apply the key-moment tag rules (section 5) to decide inclusion and to
-   populate a `tags: []` array per moment (drives the Result/HR filter chips
-   and any future "why is this here" UI).
+6. Apply the key-moment tag rules (section 4) to populate `tags: []` and
+   `is_key_moment` per play.
+   Also compute two presentation flags per play (section 6d):
+   - `is_half_inning_final = (outs_after == 3)`
+   - `is_game_final` = this play is the last play (`play_num`) recorded for
+     its `game_id`, cross-checked against the game's `end_time`/`last_play`
+     field already present in the Games sheet/table (`_GAMES_TABLE_COLS` in
+     `sync_plays.py`) so an in-progress game's most-recent play isn't
+     mistaken for a true final out.
 7. Write `docs/data/key_moments.json` (see section 6 for schema) plus a
    small `docs/data/meta.json` with `{ "built_at": <ISO8601>, "sheet_id":
    ..., "season": ..., "sessions": [...] }` so the page can show a "data as
@@ -256,27 +262,22 @@ Action run is slow.
 
 ## 4. Key-moment tagging rules
 
-A play is included in the feed if **any** of these hold (OR, not AND):
+`is_key_moment = true` if **any** of these hold (OR, not AND). Each rule has
+a stable `tags[]` slug - a play can carry multiple tags at once (e.g. a
+walk-off HR is both `lead_change` and `high_leverage`). These 8 slugs are
+the complete, closed set used for the tag filter chips in section 6e - no
+other tag values exist.
 
-- `diff == 0` ("0 Diff")
-- `diff == 500` ("500 Diff")
-- `result in {"SB","SB2","SB3","SB4"}` (successful steal)
-- Inning-ending strikeout with a runner in scoring position:
-  `result == "K" and outs_after == 3 and (obc_before[0]=="1" or obc_before[1]=="1")`
-- Any hit that scores at least one run: `result in HIT_CODES and runs_scored_this_play > 0`
-  (`runs_scored_this_play` derived from the `scored2/scored3/scored4` columns
-  already on the raw play row per `migrate_plays.sql`, or from the
-  before/after score delta)
-- Bases loaded reached: `obc_after == "111"` (loading the bases is the
-  moment, not merely being loaded already)
-- Lead change (tie counts as a lead change either direction):
-  `sign(lead_before) != sign(lead_after)` where lead is the batting team's
-  perspective
-- `leverage >= LEVERAGE_THRESHOLD` or `abs(wpa) >= WPA_THRESHOLD`, with
-  **`LEVERAGE_THRESHOLD = 1.5`, `WPA_THRESHOLD = 0.10`** (10 percentage
-  points) as the starting placeholders - tune against real per-session
-  volume in implementation stage 3 (section 9), targeting something near
-  the mockup's 37-moments-per-session ballpark
+| `tags[]` slug | Rule |
+|---|---|
+| `zero_diff` | `diff == 0` ("0 Diff" pill) |
+| `five_hundred_diff` | `diff == 500` ("500 Diff" pill) |
+| `steal` | `result in {"SB","SB2","SB3","SB4"}` (successful steal only, not `CS*`) |
+| `strikeout_risp_inning_end` | `result == "K" and outs_after == 3 and (obc_before[0]=="1" or obc_before[1]=="1")` |
+| `run_scoring_hit` | `result in HIT_CODES and runs_scored_this_play > 0` (`runs_scored_this_play` derived from the `scored2/scored3/scored4` columns already on the raw play row per `migrate_plays.sql`, or from the before/after score delta) |
+| `bases_loaded` | `obc_after == "111"` (loading the bases is the moment, not merely already being loaded) |
+| `lead_change` | `sign(lead_before) != sign(lead_after)` where lead is the batting team's perspective - a play into or out of a tie counts |
+| `high_leverage` | `leverage >= LEVERAGE_THRESHOLD` or `abs(wpa) >= WPA_THRESHOLD`, with **`LEVERAGE_THRESHOLD = 1.5`, `WPA_THRESHOLD = 0.10`** (10 percentage points) as starting placeholders - tune against real per-session volume in implementation stage 3 (section 9), targeting something near the mockup's 37-moments-per-session ballpark |
 
 Filter chips (independent of the inclusion rule, applied client-side or at
 build time - implementer's call, but client-side is cheaper since it avoids
@@ -338,7 +339,10 @@ client-side sort over the already-computed fields, no build-time work.
   "leverage": 1.1,
   "sub_league": "GL",
   "rookie": false,
-  "tags": ["strikeout_risp_inning_end"]   // which inclusion rule(s) fired
+  "is_key_moment": true,             // true if tags is non-empty (section 4)
+  "tags": ["strikeout_risp_inning_end"],   // 0+ of the 8 slugs in section 4's table
+  "is_half_inning_final": false,     // outs_after == 3 (this play ended the half-inning)
+  "is_game_final": false             // this is the last play of the game (section 3a step 6)
 }
 ```
 
@@ -360,26 +364,129 @@ load time becomes a problem.
 
 ## 6. Frontend (`docs/index.html`, adapted from `key_moments_mock_v5.html`)
 
+### 6a. Layout changes from the mockup
+
 1. Delete: the `Scores & Standings / Key Moments / Schedule / Rosters /
    League Leaders / Player Stats / Free Agents` tab bar, the `SESSION 13
    LIVE` season header, and the `Draft Class` dropdown + its filter-group
-   wrapper. Keep the `Rookies only` checkbox.
-2. Add: a session-number `<select>` (populated from `meta.json.sessions`,
-   defaulting to the most recent), a "Favorites only" toggle next to the
-   existing filter chips, and a "Refresh now" button with a last-updated
-   timestamp (`meta.json.built_at`, humanized) near the filters footer.
-3. Wire the existing static markup to real data: `.moment` rows generated
-   from `key_moments.json` entries instead of being hand-written; `.lev-bar`
-   class (`high`/`low`/`neutral`) driven by the `leverage` value against the
-   same thresholds used for inclusion; base diamond SVG driven by
-   `obc_after` (port `utils.bases_diamond_svg`'s geometry/logic to JS, or
-   keep it server-rendered per-moment at build time and embed the SVG string
+   wrapper.
+2. **Title row**: `KEY MOMENTS` heading plus a session `<select>` styled
+   inline with it (populated from `meta.json.sessions`, defaulting to the
+   most recent), rendered as `Session 3` - **plain integer, no zero-padding**
+   (if `session_number` arrives as a zero-padded string from the sheet,
+   `parseInt`/strip the leading zero at render time; never display `Session
+   03`). Right-aligned in the same row: a humanized last-updated timestamp
+   (`meta.json.built_at`) and the "Refresh now" button (section 3c).
+3. **Filters card, row 1 (chips only)**: `Result` chip group
+   (Hitting/Pitching/HR), `League` chip group (MLN/Galactic/Liberty),
+   `Rookies` chip, `Favorites` chip - see 6b for click behavior differences
+   between these groups.
+4. **Filters card, row 2 (fields only)**: `Team` `<select>` and the `Player`
+   text search, left where the old row's Team/Player slots were but now on
+   their own line beneath the chip row.
+5. **Filters card, row 3 (tag chips)**: all 8 `tags[]` slugs from section 4
+   as always-visible, multi-select toggle chips (e.g. "0 Diff", "500 Diff",
+   "Steal", "Inning-ending K w/ RISP", "Run-scoring hit", "Bases loaded",
+   "Lead change", "High leverage") - see 6b for why this group behaves
+   differently from row 1's chips.
+6. **Filters footer**: unchanged - count text (`"N key moments"` /
+   `"N plays"` depending on the active mode, see 6c) and the reset-filters
+   link.
+7. **Sort bar**: drop the `"SORT"` label text entirely; keep just the three
+   sort chips (Chronological / WPA / Leverage). This group was always
+   effectively single-select (a feed only has one sort order at a time), so
+   no behavior change, just the label removal.
+
+### 6b. Chip group click behavior
+
+- **Result** and **Rookies**/**Favorites** are independent of each other -
+  Rookies and Favorites each toggle on/off on their own and AND together
+  with whatever else is active; they are not part of the Result radio group
+  despite sitting in the same visual row.
+- **Result** (Hitting/Pitching/HR) is a true radio group: clicking a chip
+  activates it and deactivates the other two. Clicking the **already-active**
+  chip deactivates it, returning to the group's default state - **no chip
+  active = no Result filter applied (all categories shown)**. This differs
+  from the original mockup, where "Hitting" started pre-selected; the real
+  default state is nothing selected.
+- **League** (MLN/Galactic/Liberty) is also a radio group, but always has
+  exactly one chip active - `MLN` is both a real choice and the group's
+  neutral default (all MLN sub-leagues), so there's no separate "none
+  active" state to design for here, unlike Result.
+- **Rookies** / **Favorites** are simple independent toggle chips (visually
+  matching the other chips for consistency, but behaviorally just
+  checkboxes) - each fires its own boolean AND condition.
+- **Tag chips** (row 3, section 6a item 5) are a third distinct behavior:
+  **multi-select, OR'd together** - checking "Steal" and "Bases loaded"
+  shows plays with *either* tag, not only plays with both, since a play's
+  `tags[]` is not mutually exclusive the way Result/League are. The whole
+  tag-chip group then ANDs with everything else active on the page (Result,
+  League, Rookies, Favorites, Team, Player). Net: three different chip
+  behaviors coexist on one page (radio / independent-toggle /
+  multi-select-OR) - worth a subtle visual distinction (e.g. a small
+  checkmark vs. dot) so users aren't surprised when tag chips don't
+  exclude each other the way Result's do.
+
+### 6c. Default view vs. Favorites (all plays, not just key moments)
+
+The build script now emits **every play for the session, not only the ones
+tagged as key moments** (section 3a step 6 / section 5 schema both updated
+accordingly) - this costs almost nothing extra, since the build script
+already walks every play in order to compute WPA/leverage before it can
+even decide which ones qualify as key moments. The frontend uses that full
+set two different ways depending on whether Favorites is active:
+
+- **Default** (Favorites off): pool = plays where `is_key_moment == true`.
+  This is what renders on page load, matching the original mockup's scope
+  and the `"N key moments"` footer count text.
+- **Favorites on**: pool = plays where the batter or pitcher is in the
+  user's favorites list, **regardless of `is_key_moment`** - i.e. Favorites
+  drops the key-moment restriction entirely rather than adding to it, so a
+  favorited player's full plate-appearance history for the session is
+  visible, not just their key moments. Footer count text switches to
+  `"N plays"` in this mode to signal the broader scope.
+- Result / League / Rookies / Team / Player filters still apply as AND
+  conditions on top of whichever pool is active.
+- Data volume: a full session's plays (low hundreds) is still trivially
+  small for a static JSON fetch and client-side `.filter()`; no pagination
+  or lazy-loading needed at this scale. Revisit only if a full-season file
+  (section 5's "one file, split later if needed" note) turns out slow to
+  load on mobile.
+
+### 6d. Data wiring
+
+1. `.moment` rows generated from `key_moments.json` entries instead of
+   being hand-written; `.lev-bar` class (`high`/`low`/`neutral`) driven by
+   the `leverage` value against the same thresholds used for
+   `is_key_moment` tagging; base diamond SVG driven by `obc_after` (port
+   `utils.bases_diamond_svg`'s geometry/logic to JS, or keep it
+   server-rendered per-moment at build time and embed the SVG string
    directly in the JSON - the latter avoids duplicating the geometry logic
    in two languages and is recommended).
-4. All filtering/sorting is client-side over the loaded JSON (no server
+2. **Outs indicator**: beneath the base diamond SVG in `.moment-right`, add
+   2 small circles filled left-to-right per **`outs_after`** (consistent
+   with the diamond and score block already showing post-play state, not
+   pre-play). This is also why the meta-line's 2nd text item can just
+   always show Leverage (previous section's decision) - outs now has its
+   own dedicated visual, no need to duplicate it as text.
+3. **Half-inning-final / game-final states** override the normal diamond +
+   outs-circle pair entirely (check `is_game_final` first, since the last
+   play of a game is also its final out and should never show the
+   half-inning badge instead):
+   - `is_game_final == true` -> both the base diamond and the outs circles
+     are replaced by a single **`FINAL`** badge.
+   - else if `is_half_inning_final == true` (this play recorded the 3rd
+     out, game continues) -> both are replaced by a single **`END INNING`**
+     badge.
+   - otherwise -> normal base diamond + outs circles as described above.
+   This also means the 2-outs-circle design never actually needs to
+   represent a 3rd out visually (unlike the earlier draft of this section)
+   - `outs_after == 3` always routes through one of the two badge states
+     instead.
+2. All filtering/sorting is client-side over the loaded JSON (no server
    round-trip per interaction) - straightforward array `.filter()`/`.sort()`
    plus a re-render, no framework needed given the page's size.
-5. No build tooling (webpack/etc.) - plain HTML/CSS/JS in `docs/`, matching
+3. No build tooling (webpack/etc.) - plain HTML/CSS/JS in `docs/`, matching
    `irrigation_planner/docs/`'s approach, deployed as-is by GitHub Pages.
 
 ---
