@@ -109,12 +109,13 @@
   function isFavorited(m) {
     var fav = window.KMFavorites;
     if (!fav) return false;
-    // featured_id covers the runner on a steal, where neither batter nor
-    // pitcher is the player who actually did the thing. counterpart_id
-    // covers whoever's shown smaller on the card (e.g. the runner on a
-    // caught stealing, where the catcher is featured) - a favorited player
-    // should match Favorites even when they weren't the headline.
-    return fav.has(m.batter_id) || fav.has(m.pitcher_id) || fav.has(m.featured_id) || fav.has(m.counterpart_id);
+    // Only featured_id and counterpart_id are ever actually shown/starred
+    // on a card. batter_id/pitcher_id are NOT the same thing on a steal or
+    // caught stealing (they're just whoever happened to be at the plate/on
+    // the mound during that steal attempt, not the runner or catcher the
+    // card displays) - matching on them made Favorites+Steal surface plays
+    // where neither visible name was actually a favorite.
+    return fav.has(m.featured_id) || fav.has(m.counterpart_id);
   }
 
   function isFavoritedId(id) {
@@ -155,16 +156,17 @@
     }
     if (filters.team && m.off_team_abbr !== filters.team && m.def_team_abbr !== filters.team) return false;
     if (filters.playerId) {
-      // Picked from the suggestion dropdown - match this exact person only,
-      // wherever they show up (including as the counterpart, e.g. the
-      // catcher on a steal attempt, who has no id field of their own).
+      // Picked from the suggestion dropdown - match only the two people a
+      // card can actually show (featured + counterpart). batter_id/
+      // pitcher_id/runner_id are NOT the same thing on a steal or caught
+      // stealing (just whoever was at the plate/on the mound during that
+      // attempt, not the runner or catcher displayed) - matching on those
+      // would surface plays where the picked player is nowhere on the card.
       var pid = filters.playerId;
-      if (m.batter_id !== pid && m.pitcher_id !== pid && m.runner_id !== pid &&
-          m.featured_id !== pid && m.counterpart_id !== pid) return false;
+      if (m.featured_id !== pid && m.counterpart_id !== pid) return false;
     } else if (filters.player) {
       var needle = filters.player.toLowerCase();
-      var hay = [m.batter_name, m.pitcher_name, m.runner_name, m.featured_name]
-        .join(" ").toLowerCase();
+      var hay = [m.featured_name, m.counterpart_name].join(" ").toLowerCase();
       if (hay.indexOf(needle) === -1) return false;
     }
     if (filters.rookiesOnly && !m.rookie) return false;
