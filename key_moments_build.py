@@ -119,9 +119,9 @@ TAG_LABELS = {
     "zero_diff": "0 Diff",
     "five_hundred_diff": "500 Diff",
     "steal": "Steal",
-    "strikeout_risp_inning_end": "Inning-ending K w/ RISP",
-    "run_scoring_hit": "Run-scoring hit",
-    "bases_loaded": "Bases loaded",
+    "risp": "RISP",
+    "run_scored": "Run scored",
+    "bases_loaded": "Loaded bases",
     "lead_change": "Lead change",
     "high_leverage": "High leverage",
 }
@@ -418,12 +418,12 @@ def moment_tags(state: dict) -> list[str]:
         tags.append("zero_diff")
     if diff == 500:
         tags.append("five_hundred_diff")
-    if result in STEAL_SUCCESS_CODES:
+    if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
         tags.append("steal")
-    if result == "K" and state["outs_after"] == 3 and (obc_before[0] == "1" or obc_before[1] == "1"):
-        tags.append("strikeout_risp_inning_end")
-    if result in HIT_CODES and state["runs"] > 0:
-        tags.append("run_scoring_hit")
+    if obc_before[0] == "1" or obc_before[1] == "1":
+        tags.append("risp")
+    if state["runs"] > 0:
+        tags.append("run_scored")
     if state["obc_after"] == "111":
         tags.append("bases_loaded")
     if _sign(state["lead_before"]) != _sign(state["lead_after"]):

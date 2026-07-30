@@ -272,10 +272,10 @@ other tag values exist.
 |---|---|
 | `zero_diff` | `diff == 0` ("0 Diff" pill) |
 | `five_hundred_diff` | `diff == 500` ("500 Diff" pill) |
-| `steal` | `result in {"SB","SB2","SB3","SB4"}` (successful steal only, not `CS*`) |
-| `strikeout_risp_inning_end` | `result == "K" and outs_after == 3 and (obc_before[0]=="1" or obc_before[1]=="1")` |
-| `run_scoring_hit` | `result in HIT_CODES and runs_scored_this_play > 0` (`runs_scored_this_play` derived from the `scored2/scored3/scored4` columns already on the raw play row per `migrate_plays.sql`, or from the before/after score delta) |
-| `bases_loaded` | `obc_after == "111"` (loading the bases is the moment, not merely already being loaded) |
+| `steal` | `result in {"SB","SB2","SB3","SB4","CS","CS2","CS3","CS4"}` - both successful and caught steal attempts (revised: originally `SB*` only) |
+| `risp` | `obc_before[0]=="1" or obc_before[1]=="1"` - a runner in scoring position before the play, independent of result or inning-ending (revised: originally strikeout-and-inning-ending-specific) |
+| `run_scored` | `runs_scored_this_play > 0` for any result, not just hits (revised: originally `result in HIT_CODES` only) - `runs_scored_this_play` derived from the `scored2/scored3/scored4` columns already on the raw play row per `migrate_plays.sql`, or from the before/after score delta |
+| `bases_loaded` | `obc_after == "111"` (loading the bases is the moment, not merely already being loaded) - label reads "Loaded bases" |
 | `lead_change` | `sign(lead_before) != sign(lead_after)` where lead is the batting team's perspective - a play into or out of a tie counts |
 | `high_leverage` | `leverage >= LEVERAGE_THRESHOLD` or `abs(wpa) >= WPA_THRESHOLD`, with **`LEVERAGE_THRESHOLD = 1.5`, `WPA_THRESHOLD = 0.10`** (10 percentage points) as starting placeholders - tune against real per-session volume in implementation stage 3 (section 9), targeting something near the mockup's 37-moments-per-session ballpark |
 
@@ -340,7 +340,7 @@ client-side sort over the already-computed fields, no build-time work.
   "sub_league": "GL",
   "rookie": false,
   "is_key_moment": true,             // true if tags is non-empty (section 4)
-  "tags": ["strikeout_risp_inning_end"],   // 0+ of the 8 slugs in section 4's table
+  "tags": ["risp"],   // 0+ of the 8 slugs in section 4's table
   "is_half_inning_final": false,     // outs_after == 3 (this play ended the half-inning)
   "is_game_final": false             // this is the last play of the game (section 3a step 6)
 }
