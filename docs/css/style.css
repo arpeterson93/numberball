@@ -89,8 +89,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 .game-link:hover{color:var(--blue);}
 .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
-.lev-bar.high{background:var(--red);}
-.lev-bar.low{background:var(--blue);}
 .lev-bar.neutral{background:#fff;border-right:1px solid var(--border);}
 
 .moment-left{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;}
@@ -117,6 +115,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wpa-neg{color:var(--red-dark);font-weight:700;}
 .why-line{display:flex;gap:6px;flex-wrap:wrap;}
 .why-tag{font-size:10.5px;font-weight:700;color:var(--muted);background:#f3f5f8;border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:0.3px;}
+/* Phone-only duplicate (10c/6d note) - hidden until the phone breakpoint
+   swaps which copy is visible. */
+.why-line-bottom{display:none;}
 
 /* ---- Scorebug (right side) ---- */
 .moment-right{display:flex;align-items:center;gap:16px;flex-shrink:0;}
@@ -230,6 +231,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .result-pill, .diff-pill{font-size:10.5px;padding:3px 8px;}
   .meta-line{gap:10px;font-size:12px;}
   .why-tag{font-size:10px;padding:2px 6px;}
+
+  /* The counterpart ("vs X") drops to its own line so the result/diff
+     pills have the line to themselves instead of wrapping mid-pill. */
+  .counterpart{order:2;flex-basis:100%;margin-top:2px;}
+
+  /* Tags move to the bottom of the whole card, below the scorebug, instead
+     of sitting under meta-line - the two copies in the markup swap which
+     one is visible. */
+  .moment-left > .why-line{display:none;}
+  .why-line-bottom{display:flex;flex-basis:100%;margin-top:10px;}
 
   .inning-indicator{min-width:18px;}
   .tri.up{border-left-width:5px;border-right-width:5px;border-bottom-width:7px;}

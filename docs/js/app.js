@@ -16,7 +16,6 @@
 (function () {
   "use strict";
 
-  var LOW_LEVERAGE = 0.5;
   var GAME_LINK_BASE = "https://www.mln-reference.com/live/";
   var PLAYER_LINK_BASE = "https://www.mln-reference.com/player/";
 
@@ -187,12 +186,10 @@
 
   // ── rendering ───────────────────────────────────────────────────────────────
 
-  function levClass(leverage) {
-    if (leverage == null) return "neutral";
-    var high = data.meta.leverage_threshold || 2.0;
-    if (leverage >= high) return "high";
-    if (leverage <= LOW_LEVERAGE) return "low";
-    return "neutral";
+  function teamColor(abbr) {
+    var hex = ((data.meta.teams || {})[abbr] || {}).primary_hex || "";
+    if (hex && hex.charAt(0) !== "#") hex = "#" + hex;
+    return hex;
   }
 
   function wpFragment(m) {
@@ -273,12 +270,15 @@
     var gameLink = m.game_code
       ? '<a class="game-link" href="' + GAME_LINK_BASE + encodeURIComponent(m.game_code) +
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
-        'aria-label="View this game on MLN Reference">↗</a>'
+        'aria-label="View this game on MLN Reference">↗︎</a>'
       : "";
+
+    var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
       gameLink +
-      '<div class="lev-bar ' + levClass(m.leverage) + '"></div>' +
+      '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
+        (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
         '<div class="timestamp">' + escapeHtml(formatMomentTime(m.timestamp)) + "</div>" +
         '<div class="play-line">' + star +
@@ -286,10 +286,10 @@
             ? '<a class="player-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.featured_id) +
               '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.featured_name) + "</a>"
             : '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>") +
-          counterpart +
           '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
+          counterpart +
         "</div>" +
         scoringLine(m) +
         '<div class="meta-line">' + wpFragment(m) + levText + "</div>" +
@@ -303,6 +303,10 @@
         scoreBlock(m) +
         stateStack(m) +
       "</div>" +
+      /* Phone-only: the tags/why-line repeat here so they can sit below the
+         scorebug instead of under meta-line - CSS shows only one copy at a
+         time depending on breakpoint (see style.css). */
+      '<div class="why-line why-line-bottom">' + why + "</div>" +
     "</div>";
   }
 
@@ -328,6 +332,7 @@
 
   function render() {
     updateFilterSummary();
+    $("page-title").textContent = filters.keyMomentsOnly ? "KEY MOMENTS" : "ALL PLAYS";
     if (loadingPlays) {
       $("moments").innerHTML = "";
       $("empty-state").hidden = false;

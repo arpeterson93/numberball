@@ -62,6 +62,8 @@ SAC_CODES = {"SacF", "DSacF", "SacB"}
 
 STEAL_SUCCESS_CODES = {"SB", "SB2", "SB3", "SB4"}
 CAUGHT_STEALING_CODES = {"CS", "CS2", "CS3", "CS4"}
+DOUBLE_PLAY_CODES = {"DP", "DP21", "DP31", "DPH1", "DPRun", "LODP"}
+TRIPLE_PLAY_CODES = {"TP", "LOTP"}
 
 RESULT_LABELS = {
     "1B": "Single",
@@ -114,17 +116,26 @@ RESULT_LABELS = {
 }
 
 # The complete, closed set of tag slugs. The page renders one filter chip per
-# entry, in this order, so adding a rule means adding it here too.
+# entry, in this order, and a card's own tag pills render in this same order
+# (moment_tags() below appends in exactly this sequence) - reordering this
+# dict is the one place to change both.
 TAG_LABELS = {
+    "high_leverage": "High leverage",
+    "run_scored": "Run scored",
+    "lead_change": "Lead change",
+    "risp": "RISP",
+    "bases_loaded": "Loaded bases",
+    "steal": "Steal",
     "zero_diff": "0 Diff",
     "five_hundred_diff": "500 Diff",
-    "steal": "Steal",
-    "risp": "RISP",
-    "run_scored": "Run scored",
-    "bases_loaded": "Loaded bases",
-    "lead_change": "Lead change",
-    "high_leverage": "High leverage",
+    "double_play": "Double Play",
+    "triple_play": "Triple Play",
 }
+
+# RISP is filterable but does not, by itself, make a play a key moment - a
+# RISP play still needs leverage/WPA (or one of the other real triggers) to
+# qualify. Every other tag in TAG_LABELS is a real inclusion trigger.
+FILTER_ONLY_TAGS = {"risp"}
 
 
 # ── small helpers ─────────────────────────────────────────────────────────────
@@ -402,9 +413,11 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
 # ── tagging ───────────────────────────────────────────────────────────────────
 
 def moment_tags(state: dict) -> list[str]:
-    """Inclusion rules - any one firing makes the play a key moment.
+    """Tag rules, checked and appended in TAG_LABELS order (that order is
+    what both the filter chips and each card's own tag pills render in).
 
-    Returned slugs are exactly the keys of TAG_LABELS, in that order.
+    Every tag except `risp` (see FILTER_ONLY_TAGS) also functions as an
+    inclusion rule - any one of those firing makes the play a key moment.
     """
     play = state["play"]
     result = play.get("result") or ""
@@ -414,23 +427,27 @@ def moment_tags(state: dict) -> list[str]:
     obc_before = state["obc_before"]
     tags: list[str] = []
 
+    if ((leverage is not None and leverage >= LEVERAGE_THRESHOLD)
+            or (wpa is not None and abs(wpa) >= WPA_THRESHOLD)):
+        tags.append("high_leverage")
+    if state["runs"] > 0:
+        tags.append("run_scored")
+    if _sign(state["lead_before"]) != _sign(state["lead_after"]):
+        tags.append("lead_change")
+    if obc_before[0] == "1" or obc_before[1] == "1":
+        tags.append("risp")
+    if state["obc_after"] == "111":
+        tags.append("bases_loaded")
+    if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
+        tags.append("steal")
     if diff == 0:
         tags.append("zero_diff")
     if diff == 500:
         tags.append("five_hundred_diff")
-    if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
-        tags.append("steal")
-    if obc_before[0] == "1" or obc_before[1] == "1":
-        tags.append("risp")
-    if state["runs"] > 0:
-        tags.append("run_scored")
-    if state["obc_after"] == "111":
-        tags.append("bases_loaded")
-    if _sign(state["lead_before"]) != _sign(state["lead_after"]):
-        tags.append("lead_change")
-    if ((leverage is not None and leverage >= LEVERAGE_THRESHOLD)
-            or (wpa is not None and abs(wpa) >= WPA_THRESHOLD)):
-        tags.append("high_leverage")
+    if result in DOUBLE_PLAY_CODES:
+        tags.append("double_play")
+    if result in TRIPLE_PLAY_CODES:
+        tags.append("triple_play")
     return tags
 
 
@@ -545,7 +562,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "leverage": None if state["leverage"] is None else round(state["leverage"], 2),
 
         "rookie": feat["player"]["rookie"],
-        "is_key_moment": bool(tags),
+        "is_key_moment": any(t not in FILTER_ONLY_TAGS for t in tags),
         "tags": tags,
         "is_half_inning_final": state["outs_after"] == 3,
         "is_game_final": state["game_ended"],
@@ -615,6 +632,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
             abbr: {
                 "name": ref["team_by_abbrev"].get(abbr, {}).get("full_team") or abbr,
                 "sub_league": ref["team_by_abbrev"].get(abbr, {}).get("sub_league") or "",
+                "primary_hex": ref["team_by_abbrev"].get(abbr, {}).get("primary_hex") or "",
             }
             for abbr in teams_seen
         },

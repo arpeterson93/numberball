@@ -4,13 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MLN Key Moments</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div class="page">
 
   <div class="title-row">
-    <h1>KEY MOMENTS</h1>
+    <h1 id="page-title">KEY MOMENTS</h1>
     <select id="session-select" class="session-select" aria-label="Session"></select>
     <div class="title-actions">
       <span id="built-at" class="built-at">Loading</span>
@@ -86,7 +87,7 @@
 
   <div class="sort-bar">
     <div class="sort-chip-row" id="sort-chips">
-      <button type="button" class="chip active" data-sort="chrono"><span class="lbl-long">Chronological ↓</span><span class="lbl-short">Time ↓</span></button>
+      <button type="button" class="chip active" data-sort="chrono">Time ↓</button>
       <button type="button" class="chip" data-sort="wpa">WPA</button>
       <button type="button" class="chip" data-sort="leverage"><span class="lbl-long">Leverage</span><span class="lbl-short">Lev</span></button>
     </div>
