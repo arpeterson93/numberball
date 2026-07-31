@@ -364,14 +364,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .sb-score{font-size:13px;}
   .sb-lev{font-size:9px;padding:2px 6px;}
 
-  /* Heading alone on line 1; session selector + both icon buttons share line
-     2 as one right-justified cluster (updated from the old two-line "session
-     on line 1, refresh on line 2" split - the icon-only Refresh button and
-     the built-at timestamp moving down to the scoreboard header freed up
-     enough room for all three controls to sit together). */
-  .title-row{gap:10px;}
-  .title-row h1{font-size:14px;letter-spacing:normal;}
-  .title-actions{flex:1 1 100%;margin-left:0;width:auto;justify-content:flex-end;}
+  /* Title + session selector + both icon buttons all share one line -
+     title-actions keeps the base rule's margin-left:auto (no longer
+     overridden to a forced full-width second line), which is what pushes
+     the selector/icons to the right end of the same row the heading is on.
+     Shrinking the heading and the selector is what leaves enough room. */
+  .title-row{gap:8px;flex-wrap:nowrap;}
+  .title-row h1{font-size:16px;letter-spacing:normal;white-space:nowrap;}
+  .title-actions{gap:6px;}
+  .session-select{min-width:0;width:auto;padding:5px 7px;font-size:12px;}
 
   /* 10c: collapsed filters bar and the sort chips share one line. */
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:16px;}
