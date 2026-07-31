@@ -697,8 +697,18 @@ def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, 
 
 def _scoreboard(rows: list[dict], session: int) -> list[dict]:
     """One tile per game in the given session, from each game's latest play -
-    the replay already carries current score/inning/outs/bases/leverage, so
-    "live" state falls out of the existing per-play computation for free.
+    the replay already carries current score/inning/outs/bases, so "live"
+    state falls out of the existing per-play computation for free.
+
+    Leverage is the exception: it is NOT carried over from the latest play's
+    own `leverage` field, because that value is the leverage of the plate
+    appearance that JUST HAPPENED (computed pre-play, from the state before
+    that play resolved). What the tile should show is the leverage of the
+    plate appearance coming up next - i.e. leverage recomputed from the state
+    AFTER the latest play, using the same inning/half/outs/bases advance
+    already done below for display. This matters most right after a play that
+    ended a half-inning, where the pre-play leverage belongs to a half-inning
+    that is already over.
 
     Finished games sink to the end (leverage forced to 0, since a completed
     game has no "how tense is this right now" to show) rather than being
@@ -739,6 +749,18 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
             outs_after = 0
             obc_after = "000"
 
+        # Leverage for the plate appearance following the latest play - see
+        # the docstring above. Uses the same (possibly half-inning-advanced)
+        # inning/half/outs/bases as the tile's own display state, and the
+        # batting team implied by that (possibly flipped) half, with the
+        # score already reflecting the latest play's result.
+        next_batting_is_home = (half == "bottom")
+        lead_now = ((m["home_score"] - m["away_score"]) if next_batting_is_home
+                    else (m["away_score"] - m["home_score"]))
+        remaining_now = utils.remaining_half_innings(inning, half, MLN_INNINGS)
+        leverage_now = (0 if is_final else
+                       (utils.compute_leverage(utils.RESULT_RANGES, remaining_now, outs_after, obc_after, lead_now) or 0))
+
         games.append({
             "game_code": m["game_code"],
             "away_team_abbr": m["away_team_abbr"],
@@ -751,7 +773,7 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
             "obc_after": obc_after,
             "is_half_inning_final": False,
             "is_game_final": is_final,
-            "leverage": 0 if is_final else (m["leverage"] or 0),
+            "leverage": round(leverage_now, 2),
             "away_win_prob": None if away_wp is None else round(away_wp, 4),
             "home_win_prob": None if home_wp is None else round(home_wp, 4),
         })
