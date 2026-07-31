@@ -370,7 +370,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      the built-at timestamp moving down to the scoreboard header freed up
      enough room for all three controls to sit together). */
   .title-row{gap:10px;}
-  .title-row h1{font-size:17px;}
+  .title-row h1{font-size:14px;letter-spacing:normal;}
   .title-actions{flex:1 1 100%;margin-left:0;width:auto;justify-content:flex-end;}
 
   /* 10c: collapsed filters bar and the sort chips share one line. */
