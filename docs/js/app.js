@@ -420,14 +420,10 @@
 
   // ── scoreboard ──────────────────────────────────────────────────────────────
 
-  /* Leverage tiers relative to the same threshold the build script uses to
-     tag "high_leverage" moments, so "hot" here means the same thing it means
-     everywhere else on the page. */
+  var SCOREBOARD_HOT_LEVERAGE = 1.5;
+
   function leverageClass(lev) {
-    var hot = data.meta.leverage_threshold || 2.0;
-    if (lev >= hot) return " hot";
-    if (lev >= hot / 2) return " warm";
-    return "";
+    return lev >= SCOREBOARD_HOT_LEVERAGE ? " hot" : "";
   }
 
   /* One tile per game in the selected session, sorted server-side by

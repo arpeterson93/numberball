@@ -73,7 +73,9 @@ button{font-family:inherit;cursor:pointer;}
    row - it's a label on the bar, not a separate piece of the tile, and this
    way a finished game (no badge) just shows the bar with nothing reserved
    above it. */
-.sb-foot{position:relative;margin-top:2px;}
+/* margin-top reserves real space for the absolutely-positioned badge below,
+   rather than letting it float over whatever sb-body happens to end with. */
+.sb-foot{position:relative;margin-top:20px;}
 .wp-bar{display:flex;height:4px;border-radius:3px;overflow:hidden;background:var(--border);}
 .wp-seg{height:100%;}
 .sb-lev{
@@ -81,7 +83,6 @@ button{font-family:inherit;cursor:pointer;}
   font-size:10px;font-weight:800;color:var(--muted);white-space:nowrap;
   background:#f3f5f8;border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
 }
-.sb-lev.warm{color:#8a5a00;background:#fff2d6;border-color:#f0d38a;}
 .sb-lev.hot{color:var(--red-dark);background:#fdeef0;border-color:#f0b8c0;}
 
 /* ---- Filters ---- */

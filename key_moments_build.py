@@ -666,6 +666,34 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
     return rows, roster, meta
 
 
+def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, away_score: int) -> bool:
+    """Same three end-of-game conditions as utils.compute_game_wp_series's
+    win-probability-graph logic, reused here so the scoreboard can call a
+    game final the moment it's mathematically decided rather than waiting on
+    the Games tab's Win column to catch up:
+
+    1. Top of the last inning ends with the home team leading - the bottom
+       half is never played.
+    2. The home team takes the lead at any point during the bottom half -
+       walk-off, ends immediately regardless of outs.
+    3. The bottom half ends (3 outs) with the score not tied.
+
+    All three only apply from the last scheduled inning on (MLN_INNINGS),
+    which also covers extra innings since every half-inning past regulation
+    still qualifies.
+    """
+    if inning < MLN_INNINGS:
+        return False
+    is_home = half == "bottom"
+    if not is_home and outs_after >= 3 and home_score > away_score:
+        return True
+    if is_home and home_score > away_score:
+        return True
+    if is_home and outs_after >= 3 and home_score != away_score:
+        return True
+    return False
+
+
 def _scoreboard(rows: list[dict], session: int) -> list[dict]:
     """One tile per game in the given session, from each game's latest play -
     the replay already carries current score/inning/outs/bases/leverage, so
@@ -692,19 +720,37 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
             home_wp, away_wp = wp_after, 1.0 - wp_after
         else:
             away_wp, home_wp = wp_after, 1.0 - wp_after
+
+        is_final = m["is_game_final"] or _is_walkoff_final(
+            m["inning"], m["half"], m["outs_after"], m["home_score"], m["away_score"]
+        )
+        inning, half, outs_after, obc_after = m["inning"], m["half"], m["outs_after"], m["obc_after"]
+        # The latest play ended its half-inning but the game isn't over -
+        # show the next half-inning's empty starting state (no runners, no
+        # outs) instead of a dead-end "half over" badge. Top -> bottom of the
+        # same inning; bottom -> top of the next one.
+        if not is_final and outs_after >= 3:
+            if half == "top":
+                half = "bottom"
+            else:
+                half = "top"
+                inning += 1
+            outs_after = 0
+            obc_after = "000"
+
         games.append({
             "game_code": m["game_code"],
             "away_team_abbr": m["away_team_abbr"],
             "home_team_abbr": m["home_team_abbr"],
             "away_score": m["away_score"],
             "home_score": m["home_score"],
-            "inning": m["inning"],
-            "half": m["half"],
-            "outs_after": m["outs_after"],
-            "obc_after": m["obc_after"],
-            "is_half_inning_final": m["is_half_inning_final"],
-            "is_game_final": m["is_game_final"],
-            "leverage": 0 if m["is_game_final"] else (m["leverage"] or 0),
+            "inning": inning,
+            "half": half,
+            "outs_after": outs_after,
+            "obc_after": obc_after,
+            "is_half_inning_final": False,
+            "is_game_final": is_final,
+            "leverage": 0 if is_final else (m["leverage"] or 0),
             "away_win_prob": None if away_wp is None else round(away_wp, 4),
             "home_win_prob": None if home_wp is None else round(home_wp, 4),
         })
