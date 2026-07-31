@@ -543,17 +543,19 @@
      (filters.session === null) since there's no single slate to show. */
   function renderScoreboard() {
     var el = $("scoreboard");
+    var label = $("scoreboard-label");
     var games = filters.session === null
       ? []
       : ((data.meta.games || {})[String(filters.session)] || []);
     if (!games.length) {
       el.hidden = true;
       el.innerHTML = "";
+      label.textContent = "";
       return;
     }
     el.hidden = false;
-    el.innerHTML = '<div class="scoreboard-head">Scoreboard</div>' +
-      '<div class="scoreboard-row">' + games.map(scoreboardCard).join("") + "</div>";
+    label.textContent = "Scoreboard";
+    el.innerHTML = '<div class="scoreboard-row">' + games.map(scoreboardCard).join("") + "</div>";
     applyScoreboardColumns();
   }
 

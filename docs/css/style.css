@@ -74,38 +74,53 @@ button{font-family:inherit;cursor:pointer;}
 .page{max-width:1180px;margin:0 auto;padding:24px 20px 60px;}
 
 /* ---- Title row ---- */
-.title-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:4px;}
+.title-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
 .title-row h1{font-size:28px;margin:0;letter-spacing:0.5px;}
 .session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
 }
-.title-actions{margin-left:auto;display:flex;align-items:center;gap:12px;}
-.built-at{font-size:12px;color:var(--muted);}
-.refresh-btn{padding:7px 14px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:var(--card);color:var(--text);}
-.refresh-btn:disabled{opacity:0.55;cursor:default;}
+/* Session selector + the two icon buttons travel together as one cluster -
+   on phone this whole group wraps to its own line below the title (see the
+   600px block), which is what keeps all three on one line instead of the
+   selector splitting off with the title the way it used to. */
+.title-actions{margin-left:auto;display:flex;align-items:center;gap:10px;}
 
-/* Icon-only, borderless, muted - a page-level preference that should sit
-   quietly next to the timestamp rather than compete with Refresh. The two
-   icons both live in the markup; CSS picks whichever matches the theme so
+/* Icon-only, borderless, muted buttons - Refresh now matches the theme
+   toggle's treatment instead of looking like a separate bordered button, so
+   the two read as one family of small header controls. Both icons in
+   .theme-toggle ship in the markup; CSS picks whichever matches the theme so
    there is no JS icon swap to keep in sync. */
-.theme-toggle{
+.icon-btn{
   display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
   width:28px;height:28px;padding:0;border:none;background:none;border-radius:6px;
   color:var(--muted);line-height:0;
 }
-.theme-toggle svg{width:15px;height:15px;display:block;}
+.icon-btn svg{width:15px;height:15px;display:block;}
+.icon-btn:disabled{opacity:0.45;cursor:default;}
+@media (hover: hover){
+  .icon-btn:hover:not(:disabled){color:var(--text);background:var(--tint);}
+}
 .theme-toggle .icon-sun{display:none;}
 :root[data-theme="dark"] .theme-toggle .icon-moon{display:none;}
 :root[data-theme="dark"] .theme-toggle .icon-sun{display:block;}
-@media (hover: hover){
-  .theme-toggle:hover{color:var(--text);background:var(--tint);}
-}
-.refresh-status{font-size:12px;color:var(--muted);text-align:right;min-height:16px;margin-bottom:12px;}
+
+/* Reserves no space at all when empty (the common case) - only takes a line
+   once app.js actually puts a message in it. */
+.refresh-status{font-size:12px;color:var(--muted);text-align:right;}
+.refresh-status:not(:empty){margin-bottom:10px;}
 
 /* ---- Scoreboard ---- */
+/* Sits above #scoreboard so "Updated X min ago" always has somewhere to
+   live, even when the scoreboard itself is hidden (e.g. "Full season") - see
+   the markup comment in index.html. When the "Scoreboard" label is present
+   (app.js sets its text only while games are showing) it sits on the left of
+   this same line; built-at's margin-left:auto keeps it right-justified
+   either way. */
+.section-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;}
+.built-at{font-size:12px;color:var(--muted);margin-left:auto;}
 .scoreboard{margin-bottom:22px;}
-.scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;margin-bottom:8px;}
 /* Column count is set inline by applyScoreboardColumns() (app.js) so every
    row ends up as close to equal-count as possible - a plain wrapping flex
    row would rather overfill earlier rows (e.g. 6-then-2 for 8 tiles) than
@@ -326,8 +341,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 /* ---- Tablet / narrow laptop ---- */
 @media (max-width: 900px){
-  .title-actions{margin-left:0;width:100%;}
-  .refresh-status{text-align:left;}
   .filter-row{gap:18px;}
   .chip-row{flex-wrap:wrap;}
   /* Once the card can wrap, the leverage bar has to leave the flex flow or it
@@ -351,12 +364,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .sb-score{font-size:13px;}
   .sb-lev{font-size:9px;padding:2px 6px;}
 
-  /* 10f: heading + session on line 1, timestamp + refresh on line 2. */
+  /* Heading alone on line 1; session selector + both icon buttons share line
+     2 as one right-justified cluster (updated from the old two-line "session
+     on line 1, refresh on line 2" split - the icon-only Refresh button and
+     the built-at timestamp moving down to the scoreboard header freed up
+     enough room for all three controls to sit together). */
   .title-row{gap:10px;}
   .title-row h1{font-size:22px;}
-  .session-select{min-width:118px;margin-left:auto;}
-  .title-actions{flex:1 1 100%;margin-left:0;width:auto;}
-  .built-at{flex:1;text-align:right;}
+  .title-actions{flex:1 1 100%;margin-left:0;width:auto;justify-content:flex-end;}
 
   /* 10c: collapsed filters bar and the sort chips share one line. */
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:16px;}

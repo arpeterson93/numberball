@@ -16,13 +16,20 @@
 
   <div class="title-row">
     <h1 id="page-title">KEY MOMENTS</h1>
-    <select id="session-select" class="session-select" aria-label="Session"></select>
     <div class="title-actions">
-      <span id="built-at" class="built-at">Loading</span>
-      <button type="button" class="refresh-btn" id="refresh-btn">Refresh now</button>
+      <select id="session-select" class="session-select" aria-label="Session"></select>
+      <!-- Icon-only, borderless, muted - matches .theme-toggle's treatment so
+           the two controls read as one family. -->
+      <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </button>
       <!-- Both icons ship in the markup; CSS shows the one matching data-theme.
            theme.js only keeps the label in sync. -->
-      <button type="button" class="theme-toggle" id="theme-toggle" title="Switch to dark mode" aria-label="Switch to dark mode">
+      <button type="button" class="icon-btn theme-toggle" id="theme-toggle" title="Switch to dark mode" aria-label="Switch to dark mode">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
         </svg>
@@ -35,6 +42,15 @@
   </div>
   <div id="refresh-status" class="refresh-status"></div>
 
+  <!-- Always visible (built-at has somewhere to live even when the
+       scoreboard itself is hidden, e.g. "Full season"); the "Scoreboard"
+       label is only shown by app.js's renderScoreboard() when there are
+       games to display, so built-at ends up sharing its line when present
+       and standing alone, right-justified, when it's not. -->
+  <div class="section-head" id="scoreboard-head-row">
+    <span id="scoreboard-label" class="scoreboard-head"></span>
+    <span id="built-at" class="built-at">Loading</span>
+  </div>
   <div id="scoreboard" class="scoreboard" hidden></div>
 
   <!-- .controls exists so the phone breakpoint can sit the collapsed filters
