@@ -39,6 +39,7 @@
     tags: new Set(),    // multi-select, OR'd together
     sort: "chrono",
     selectedGame: null, // game_code, set by clicking a scoreboard tile - display only, not a real filter
+    side: "all",        // "all" | "for" | "against" - see sideVerdicts() below
   };
 
   var loadingPlays = false;
@@ -126,17 +127,85 @@
 
   var rookieIds = null;
 
-  function isRookie(m) {
+  function isRookieId(id) {
     if (!rookieIds) {
       rookieIds = new Set();
       (data.players || []).forEach(function (p) {
         if (p.rookie) rookieIds.add(p.id);
       });
     }
+    return rookieIds.has(id);
+  }
+
+  function isRookie(m) {
     // Same reasoning as isFavorited above - only featured_id/counterpart_id
     // are ever shown on a card, so those are the only two who can make a
     // play a "rookie" moment.
-    return rookieIds.has(m.featured_id) || rookieIds.has(m.counterpart_id);
+    return isRookieId(m.featured_id) || isRookieId(m.counterpart_id);
+  }
+
+  /* Whichever team isn't the featured player's team - always the other one
+     of off/def, since a play's two teams are never the same team. */
+  function counterpartTeamAbbr(m) {
+    return m.off_team_abbr === m.featured_team_abbr ? m.def_team_abbr : m.off_team_abbr;
+  }
+
+  function sideVerdict(featuredMatch, counterpartMatch) {
+    if (featuredMatch && counterpartMatch) return "both";
+    if (featuredMatch) return "featured";
+    if (counterpartMatch) return "counterpart";
+    return null;
+  }
+
+  /* One verdict per currently-active side-sensitive filter (Team, Player,
+     League, Rookies, Favorites) for this play: "featured", "counterpart",
+     "both" (the criterion is independently true on both sides - e.g. a
+     rookie-vs-rookie matchup), or null (shouldn't happen - by the time this
+     runs, m has already passed every one of these as a plain AND filter in
+     matches(), so each active one here is already known to match somewhere).
+     Empty array means no side-sensitive filter is active, which is exactly
+     when the For/Against chips are disabled in the UI. */
+  function sideVerdicts(m) {
+    var out = [];
+    if (filters.team) {
+      out.push(sideVerdict(m.featured_team_abbr === filters.team, counterpartTeamAbbr(m) === filters.team));
+    }
+    if (filters.playerId) {
+      out.push(sideVerdict(m.featured_id === filters.playerId, m.counterpart_id === filters.playerId));
+    } else if (filters.player) {
+      var needle = filters.player.toLowerCase();
+      out.push(sideVerdict(
+        (m.featured_name || "").toLowerCase().indexOf(needle) !== -1,
+        (m.counterpart_name || "").toLowerCase().indexOf(needle) !== -1
+      ));
+    }
+    if (filters.league) {
+      var teams = data.meta.teams || {};
+      var featLeague = (teams[m.featured_team_abbr] || {}).sub_league;
+      var cpLeague = (teams[counterpartTeamAbbr(m)] || {}).sub_league;
+      out.push(sideVerdict(featLeague === filters.league, cpLeague === filters.league));
+    }
+    if (filters.rookiesOnly) {
+      out.push(sideVerdict(isRookieId(m.featured_id), isRookieId(m.counterpart_id)));
+    }
+    if (filters.favoritesOnly) {
+      out.push(sideVerdict(isFavoritedId(m.featured_id), isFavoritedId(m.counterpart_id)));
+    }
+    return out;
+  }
+
+  /* For/Against requires every currently-active side-sensitive filter to
+     agree on the same side (a "both" verdict always counts as agreeing,
+     since a two-sided play - e.g. two favorited players in the same play -
+     is relevant no matter which way you're looking at it). A play where
+     active filters point at different sides shows under neither For nor
+     Against, only under All - see the conversation that settled this. */
+  function sideMatches(m) {
+    if (filters.side === "all") return true;
+    var verdicts = sideVerdicts(m);
+    if (!verdicts.length) return true;   // no side-sensitive filter active
+    var wanted = filters.side === "for" ? "featured" : "counterpart";
+    return verdicts.every(function (v) { return v === wanted || v === "both"; });
   }
 
   /* The "Key Moments" toggle swaps the pool rather than narrowing it - off
@@ -191,6 +260,7 @@
       var hit = (m.tags || []).some(function (t) { return filters.tags.has(t); });
       if (!hit) return false;
     }
+    if (!sideMatches(m)) return false;
     return true;
   }
 
@@ -308,16 +378,12 @@
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
         'aria-label="View this game on MLN Reference">↗︎</a>'
       : "";
-    var cornerLogo = teamLogoImg(m.featured_team_abbr, "team-logo-corner-img");
     var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
     var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
-      '<div class="corner-actions">' +
-        (cornerLogo ? '<span class="team-logo-corner">' + cornerLogo + '</span>' : "") +
-        gameLink +
-      "</div>" +
+      '<div class="corner-actions">' + gameLink + "</div>" +
       '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
         (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
@@ -354,12 +420,28 @@
 
   // ── scoreboard ──────────────────────────────────────────────────────────────
 
-  /* Latest session's games, one tile each, sorted server-side by leverage
-     (finished games forced to the back - see key_moments_build.py). Reuses
-     stateStack()'s diamond/outs/FINAL badge since a scoreboard game object
-     carries the same half/inning/outs_after/obc_after/is_game_final shape as
-     a moment. Independent of every play filter below it - clicking a tile
-     only ever touches the Team filter (see wireControls). */
+  /* Leverage tiers relative to the same threshold the build script uses to
+     tag "high_leverage" moments, so "hot" here means the same thing it means
+     everywhere else on the page. */
+  function leverageClass(lev) {
+    var hot = data.meta.leverage_threshold || 2.0;
+    if (lev >= hot) return " hot";
+    if (lev >= hot / 2) return " warm";
+    return "";
+  }
+
+  /* One tile per game in the selected session, sorted server-side by
+     leverage (finished games forced to the back - see key_moments_build.py).
+     Reuses stateStack()'s diamond/outs/FINAL badge since a scoreboard game
+     object carries the same half/inning/outs_after/obc_after/is_game_final
+     shape as a moment. Independent of every play filter below it - clicking
+     a tile only ever touches the Team filter (see wireControls).
+
+     The leverage badge sits in its own reserved header row rather than
+     floating absolutely over the score column - the old absolute layout
+     only cleared the score at the narrow tile width it was tuned against and
+     started overlapping once tiles got wider from the column-balancing pass
+     below. */
   function scoreboardCard(g) {
     var awayBatting = g.half === "top";
     var awayPct = g.away_win_prob != null ? Math.round(g.away_win_prob * 100) : 50;
@@ -367,36 +449,40 @@
     var awayHex = teamColor(g.away_team_abbr) || "#9aa4b2";
     var homeHex = teamColor(g.home_team_abbr) || "#c7ccd3";
     var levBadge = g.is_game_final ? "" :
-      '<span class="sb-lev">Lev ' + g.leverage.toFixed(1) + "</span>";
+      '<span class="sb-lev' + leverageClass(g.leverage) + '">Lev ' + g.leverage.toFixed(1) + "</span>";
     var selected = filters.selectedGame === g.game_code ? " selected" : "";
 
     return '<button type="button" class="scoreboard-tile' + selected +
       '" data-game="' + escapeHtml(g.game_code) +
       '" data-away="' + escapeHtml(g.away_team_abbr) +
       '" data-home="' + escapeHtml(g.home_team_abbr) + '">' +
-      levBadge +
-      '<div class="sb-teams">' +
-        '<div class="sb-row' + (awayBatting ? " batting" : "") + '">' +
-          teamLogoImg(g.away_team_abbr, "sb-logo") +
-          '<span class="sb-abbr">' + escapeHtml(g.away_team_abbr) + "</span>" +
-          '<span class="sb-score">' + g.away_score + "</span>" +
+      '<div class="sb-body">' +
+        '<div class="sb-teams">' +
+          '<div class="sb-row' + (awayBatting ? " batting" : "") + '">' +
+            teamLogoImg(g.away_team_abbr, "sb-logo") +
+            '<span class="sb-abbr">' + escapeHtml(g.away_team_abbr) + "</span>" +
+            '<span class="sb-score">' + g.away_score + "</span>" +
+          "</div>" +
+          '<div class="sb-row' + (!awayBatting ? " batting" : "") + '">' +
+            teamLogoImg(g.home_team_abbr, "sb-logo") +
+            '<span class="sb-abbr">' + escapeHtml(g.home_team_abbr) + "</span>" +
+            '<span class="sb-score">' + g.home_score + "</span>" +
+          "</div>" +
         "</div>" +
-        '<div class="sb-row' + (!awayBatting ? " batting" : "") + '">' +
-          teamLogoImg(g.home_team_abbr, "sb-logo") +
-          '<span class="sb-abbr">' + escapeHtml(g.home_team_abbr) + "</span>" +
-          '<span class="sb-score">' + g.home_score + "</span>" +
+        '<div class="sb-state">' +
+          '<div class="inning-indicator">' +
+            '<div class="tri ' + (g.half === "top" ? "up" : "down") + '"></div>' +
+            '<div class="inning-num">' + g.inning + "</div>" +
+          "</div>" +
+          stateStack(g) +
         "</div>" +
       "</div>" +
-      '<div class="sb-state">' +
-        '<div class="inning-indicator">' +
-          '<div class="tri ' + (g.half === "top" ? "up" : "down") + '"></div>' +
-          '<div class="inning-num">' + g.inning + "</div>" +
+      '<div class="sb-foot">' +
+        '<div class="wp-bar">' +
+          '<div class="wp-seg" style="width:' + awayPct + '%;background:' + awayHex + '"></div>' +
+          '<div class="wp-seg" style="width:' + homePct + '%;background:' + homeHex + '"></div>' +
         "</div>" +
-        stateStack(g) +
-      "</div>" +
-      '<div class="wp-bar">' +
-        '<div class="wp-seg" style="width:' + awayPct + '%;background:' + awayHex + '"></div>' +
-        '<div class="wp-seg" style="width:' + homePct + '%;background:' + homeHex + '"></div>' +
+        levBadge +
       "</div>" +
     "</button>";
   }
@@ -408,9 +494,49 @@
     });
   }
 
+  var SCOREBOARD_TILE_MIN = 176;
+  var SCOREBOARD_GAP = 10;
+  var SCOREBOARD_MOBILE_MAX_COLS = 2;
+  var SCOREBOARD_MOBILE_BREAKPOINT = 600;
+
+  /* Balances the grid so a row never has noticeably more tiles than the
+     next - e.g. 8 tiles at a natural fit of 6-per-row becomes two rows of 4
+     instead of 6-then-2. maxCols is however many tiles the row can fit at
+     the tile's minimum width (or a hard cap of 2 on phones); rows is the
+     fewest rows that fit within that cap, and cols redistributes the tiles
+     evenly across exactly that many rows. */
+  function applyScoreboardColumns() {
+    var row = document.querySelector("#scoreboard .scoreboard-row");
+    if (!row) return;
+    var n = row.children.length;
+    if (!n) return;
+    var maxCols;
+    if (window.innerWidth <= SCOREBOARD_MOBILE_BREAKPOINT) {
+      maxCols = SCOREBOARD_MOBILE_MAX_COLS;
+    } else {
+      maxCols = Math.max(1, Math.floor((row.clientWidth + SCOREBOARD_GAP) / (SCOREBOARD_TILE_MIN + SCOREBOARD_GAP)));
+    }
+    maxCols = Math.min(maxCols, n);
+    var rows = Math.ceil(n / maxCols);
+    var cols = Math.ceil(n / rows);
+    row.style.gridTemplateColumns = "repeat(" + cols + ", 1fr)";
+  }
+
+  var scoreboardResizeTimer;
+  function scheduleScoreboardResize() {
+    window.clearTimeout(scoreboardResizeTimer);
+    scoreboardResizeTimer = window.setTimeout(applyScoreboardColumns, 150);
+  }
+
+  /* Scoreboard tracks the session selector rather than "whatever session
+     the build considered current" - it goes with whichever slate of games
+     the user is actually looking at, and hides entirely for "Full season"
+     (filters.session === null) since there's no single slate to show. */
   function renderScoreboard() {
     var el = $("scoreboard");
-    var games = data.meta.games || [];
+    var games = filters.session === null
+      ? []
+      : ((data.meta.games || {})[String(filters.session)] || []);
     if (!games.length) {
       el.hidden = true;
       el.innerHTML = "";
@@ -419,6 +545,7 @@
     el.hidden = false;
     el.innerHTML = '<div class="scoreboard-head">Scoreboard</div>' +
       '<div class="scoreboard-row">' + games.map(scoreboardCard).join("") + "</div>";
+    applyScoreboardColumns();
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -433,6 +560,7 @@
     if (filters.favoritesOnly) n += 1;
     if (filters.team) n += 1;
     if (filters.player) n += 1;
+    if (filters.side !== "all") n += 1;
     return n + filters.tags.size;
   }
 
@@ -441,8 +569,30 @@
     $("filters-toggle-label").textContent = n ? "Filters (" + n + " active)" : "Filters";
   }
 
+  /* For/Against only means anything once one of the five side-sensitive
+     filters is active (see sideVerdicts) - otherwise there's no "side" to
+     be for or against. Disabled rather than hidden, so its presence hints
+     at the feature even when it's currently a no-op, and forced back to
+     "all" so a play never silently vanishes because a stale for/against
+     pick outlived the filter that made it meaningful. */
+  function sideFilterActive() {
+    return !!(filters.team || filters.playerId || filters.player ||
+      filters.league || filters.rookiesOnly || filters.favoritesOnly);
+  }
+
+  function updateSideAvailability() {
+    var active = sideFilterActive();
+    if (!active) filters.side = "all";
+    var chips = document.querySelectorAll("#side-chips .chip");
+    Array.prototype.forEach.call(chips, function (c) {
+      c.disabled = !active;
+      c.classList.toggle("active", c.getAttribute("data-side") === filters.side);
+    });
+  }
+
   function render() {
     updateFilterSummary();
+    updateSideAvailability();
     $("page-title").textContent = filters.keyMomentsOnly ? "KEY MOMENTS" : "ALL PLAYS";
     if (loadingPlays) {
       $("moments").innerHTML = "";
@@ -572,8 +722,12 @@
 
     $("session-select").addEventListener("change", function (e) {
       filters.session = e.target.value === "" ? null : Number(e.target.value);
+      deselectScoreboardTile();
+      renderScoreboard();
       renderMaybeLoading();
     });
+
+    window.addEventListener("resize", scheduleScoreboardResize);
 
     // Result is a radio group that can also be fully off: clicking the active
     // chip clears it back to "all categories".
@@ -596,6 +750,16 @@
       Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (c) {
         c.classList.toggle("active", c === chip);
       });
+      render();
+    });
+
+    // For/Against/All - render() re-derives disabled state and active chip
+    // every time (see updateSideAvailability), so a disabled chip here is
+    // just belt-and-suspenders against a stray click event.
+    $("side-chips").addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip || chip.disabled) return;
+      filters.side = chip.getAttribute("data-side");
       render();
     });
 
@@ -651,10 +815,19 @@
       var tile = e.target.closest(".scoreboard-tile");
       if (!tile) return;
       var game = tile.getAttribute("data-game");
+      if (filters.selectedGame === game) {
+        // Clicking the already-selected tile again clears it.
+        filters.team = "";
+        filters.selectedGame = null;
+        $("team-select").value = "";
+        tile.classList.remove("selected");
+        render();
+        return;
+      }
       var away = tile.getAttribute("data-away");
       // Either team in the matchup would do - Team is a season-long filter,
-      // but combined with the page defaulting to the latest session this
-      // reads as "just this game" in practice.
+      // but the scoreboard only ever shows the selected session's games, so
+      // this reads as "just this game" in practice.
       filters.team = away;
       filters.selectedGame = game;
       $("team-select").value = away;
@@ -711,6 +884,7 @@
       filters.player = "";
       filters.playerId = null;
       filters.tags.clear();
+      filters.side = "all";
       deselectScoreboardTile();
       $("player-suggest").hidden = true;
       Array.prototype.forEach.call(
@@ -749,8 +923,8 @@
       data.meta = res[1];
       data.playsBySession = {};   // stale once the feed moves
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      renderScoreboard();
       populateSessionSelect(true);
+      renderScoreboard();
       populateTeamSelect();
       populateTagChips();
       Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
@@ -830,8 +1004,8 @@
       data.players = res[1];
       data.meta = res[2];
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      renderScoreboard();
       populateSessionSelect(false);
+      renderScoreboard();
       populateTeamSelect();
       populateTagChips();
       render();

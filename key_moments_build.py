@@ -657,22 +657,24 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
-        "games": _scoreboard(rows, sessions[0] if sessions else None),
+        # One scoreboard per session, keyed by session number as a string
+        # (JSON object keys are always strings) - the page shows whichever
+        # one matches its session selector and hides the section entirely
+        # for "Full season".
+        "games": {str(s): _scoreboard(rows, s) for s in sessions},
     }
     return rows, roster, meta
 
 
-def _scoreboard(rows: list[dict], session: int | None) -> list[dict]:
-    """One tile per game in the most recent session, from each game's latest
-    play - the replay already carries current score/inning/outs/bases/leverage,
-    so "live" state falls out of the existing per-play computation for free.
+def _scoreboard(rows: list[dict], session: int) -> list[dict]:
+    """One tile per game in the given session, from each game's latest play -
+    the replay already carries current score/inning/outs/bases/leverage, so
+    "live" state falls out of the existing per-play computation for free.
 
     Finished games sink to the end (leverage forced to 0, since a completed
     game has no "how tense is this right now" to show) rather than being
     dropped, so a session's slate doesn't shrink as games wrap up.
     """
-    if session is None:
-        return []
     latest: dict[str, dict] = {}
     for m in rows:
         if m["session_number"] != session:
