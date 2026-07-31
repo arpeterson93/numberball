@@ -35,6 +35,39 @@ button{font-family:inherit;cursor:pointer;}
 .refresh-btn:disabled{opacity:0.55;cursor:default;}
 .refresh-status{font-size:12px;color:var(--muted);text-align:right;min-height:16px;margin-bottom:12px;}
 
+/* ---- Scoreboard ---- */
+.scoreboard{margin-bottom:22px;}
+.scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;margin-bottom:8px;}
+.scoreboard-row{display:flex;flex-wrap:wrap;gap:10px;}
+.scoreboard-tile{
+  position:relative;
+  flex:1 1 176px;max-width:220px;
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px 12px;text-align:left;font-family:inherit;color:inherit;
+  display:flex;flex-direction:column;gap:8px;overflow:hidden;
+}
+.scoreboard-tile.selected{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy) inset;}
+@media (hover: hover){
+  .scoreboard-tile:hover{border-color:#c7ccd3;}
+  .scoreboard-tile.selected:hover{border-color:var(--navy);}
+}
+.sb-lev{
+  position:absolute;top:8px;right:10px;font-size:10px;font-weight:800;color:var(--muted);
+  background:#f3f5f8;border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
+}
+.sb-teams{display:flex;flex-direction:column;gap:4px;padding-right:52px;}
+.sb-row{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--muted);}
+.sb-row.batting{color:var(--text);}
+.sb-logo{width:20px;height:20px;object-fit:contain;flex-shrink:0;}
+.sb-abbr{letter-spacing:0.2px;}
+.sb-score{margin-left:auto;font-size:14px;font-weight:800;}
+.sb-state{display:flex;align-items:center;gap:10px;}
+.sb-state .inning-indicator{min-width:20px;}
+.sb-state .state-stack{min-width:0;}
+.sb-state .state-badge{font-size:9.5px;padding:4px 7px;}
+.wp-bar{display:flex;height:4px;border-radius:3px;overflow:hidden;background:var(--border);margin-top:auto;}
+.wp-seg{height:100%;}
+
 /* ---- Filters ---- */
 .filters-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px 20px;margin-bottom:22px;max-width:100%;}
 /* Phone-only disclosure. The min-width rule below force-shows .filters-body
@@ -95,13 +128,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   margin-bottom:10px;padding:14px 18px 14px 0;
   display:flex;align-items:stretch;gap:18px;overflow:hidden;
 }
+.corner-actions{position:absolute;top:8px;right:10px;display:flex;align-items:center;gap:6px;}
 .game-link{
-  position:absolute;top:8px;right:10px;
   font-size:12px;color:var(--muted);text-decoration:none;line-height:1;
 }
 .game-link:hover{color:var(--blue);}
 .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
 .lev-bar.neutral{background:#fff;border-right:1px solid var(--border);}
+
+/* Featured team's logo - inline to the left of the scorebug on wide screens,
+   swapped for a small badge next to the game-link arrow on phones (see the
+   600px breakpoint below). Never both at once. */
+.team-logo-inline{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.team-logo-inline-img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+.team-logo-corner{display:none;width:20px;height:20px;}
+.team-logo-corner-img{width:100%;height:100%;object-fit:contain;display:block;}
 
 .moment-left{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;}
 .timestamp{font-size:11.5px;color:var(--muted);font-weight:600;}
@@ -151,7 +192,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .base-diamond.off{fill:#fff;stroke:#c7ccd3;}
 .outs-dots{display:flex;gap:5px;}
 .outs-dots .dot{width:7px;height:7px;border-radius:50%;border:1px solid #c7ccd3;background:#fff;}
-.outs-dots .dot.on{background:var(--muted);border-color:var(--muted);}
+.outs-dots .dot.on{background:var(--red);border-color:var(--red);}
 .state-badge{
   font-size:10.5px;font-weight:800;letter-spacing:0.6px;padding:5px 9px;
   border-radius:4px;border:1px solid var(--border);color:var(--muted);background:#f3f5f8;
@@ -206,6 +247,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 @media (max-width: 600px){
   .page{padding:18px 14px 40px;}
 
+  .scoreboard-row{gap:8px;}
+  .scoreboard-tile{flex:1 1 150px;padding:9px 10px 10px;gap:6px;}
+  .sb-score{font-size:13px;}
+  .sb-lev{font-size:9px;padding:2px 6px;}
+
   /* 10f: heading + session on line 1, timestamp + refresh on line 2. */
   .title-row{gap:10px;}
   .title-row h1{font-size:22px;}
@@ -238,6 +284,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .lev-bar{width:5px;}
   .moment-left{flex:1 1 100%;}
   .moment-right{flex:1 1 100%;justify-content:flex-start;gap:12px;}
+  .team-logo-inline{display:none;}
+  .team-logo-corner{display:block;}
 
   .player-name{font-size:14px;}
   .result-pill, .diff-pill{font-size:10.5px;padding:3px 8px;}

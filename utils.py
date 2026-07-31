@@ -7363,7 +7363,7 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
             "name":                _str(row.get("Full Team")),
             "stadium":             _str(row.get("Stadium")),
             "primary_hex":         _str(row.get("Primary Hex")),
-            "logo_url":            _str(row.get("Postimg Logo")),
+            "logo_url":            _str(row.get("Postimg Logo")) or _str(row.get("Logo URL")),
             "role_id":             _str(row.get("Role ID")),
             "hype_id":             _str(row.get("Hype ID")),
             "wins":                _safe_int(row.get("W")),

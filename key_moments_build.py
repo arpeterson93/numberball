@@ -650,14 +650,64 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
                 "name": ref["team_by_abbrev"].get(abbr, {}).get("full_team") or abbr,
                 "sub_league": ref["team_by_abbrev"].get(abbr, {}).get("sub_league") or "",
                 "primary_hex": ref["team_by_abbrev"].get(abbr, {}).get("primary_hex") or "",
+                "logo_url": ref["team_by_abbrev"].get(abbr, {}).get("logo_url") or "",
             }
             for abbr in teams_seen
         },
         "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
+        "games": _scoreboard(rows, sessions[0] if sessions else None),
     }
     return rows, roster, meta
+
+
+def _scoreboard(rows: list[dict], session: int | None) -> list[dict]:
+    """One tile per game in the most recent session, from each game's latest
+    play - the replay already carries current score/inning/outs/bases/leverage,
+    so "live" state falls out of the existing per-play computation for free.
+
+    Finished games sink to the end (leverage forced to 0, since a completed
+    game has no "how tense is this right now" to show) rather than being
+    dropped, so a session's slate doesn't shrink as games wrap up.
+    """
+    if session is None:
+        return []
+    latest: dict[str, dict] = {}
+    for m in rows:
+        if m["session_number"] != session:
+            continue
+        cur = latest.get(m["game_code"])
+        if cur is None or m["play_num"] > cur["play_num"]:
+            latest[m["game_code"]] = m
+
+    games = []
+    for m in latest.values():
+        wp_after = m["win_prob_after"]  # batting team's perspective
+        if wp_after is None:
+            home_wp = away_wp = None
+        elif m["batting_is_home"]:
+            home_wp, away_wp = wp_after, 1.0 - wp_after
+        else:
+            away_wp, home_wp = wp_after, 1.0 - wp_after
+        games.append({
+            "game_code": m["game_code"],
+            "away_team_abbr": m["away_team_abbr"],
+            "home_team_abbr": m["home_team_abbr"],
+            "away_score": m["away_score"],
+            "home_score": m["home_score"],
+            "inning": m["inning"],
+            "half": m["half"],
+            "outs_after": m["outs_after"],
+            "obc_after": m["obc_after"],
+            "is_half_inning_final": m["is_half_inning_final"],
+            "is_game_final": m["is_game_final"],
+            "leverage": 0 if m["is_game_final"] else (m["leverage"] or 0),
+            "away_win_prob": None if away_wp is None else round(away_wp, 4),
+            "home_win_prob": None if home_wp is None else round(home_wp, 4),
+        })
+    games.sort(key=lambda g: g["leverage"], reverse=True)
+    return games
 
 
 def _write(path: str, payload) -> None:

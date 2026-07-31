@@ -38,6 +38,7 @@
     playerId: null,     // set by picking a row from the suggestion dropdown
     tags: new Set(),    // multi-select, OR'd together
     sort: "chrono",
+    selectedGame: null, // game_code, set by clicking a scoreboard tile - display only, not a real filter
   };
 
   var loadingPlays = false;
@@ -217,6 +218,16 @@
     return hex;
   }
 
+  function teamLogoUrl(abbr) {
+    return ((data.meta.teams || {})[abbr] || {}).logo_url || "";
+  }
+
+  function teamLogoImg(abbr, cls) {
+    var url = teamLogoUrl(abbr);
+    if (!url) return "";
+    return '<img class="' + cls + '" src="' + escapeHtml(url) + '" alt="" loading="lazy">';
+  }
+
   function wpFragment(m) {
     if (m.featured_wp_after == null || m.featured_wpa == null) return "";
     var pct = Math.round(m.featured_wp_after * 100);
@@ -297,11 +308,16 @@
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
         'aria-label="View this game on MLN Reference">↗︎</a>'
       : "";
+    var cornerLogo = teamLogoImg(m.featured_team_abbr, "team-logo-corner-img");
+    var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
     var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
-      gameLink +
+      '<div class="corner-actions">' +
+        (cornerLogo ? '<span class="team-logo-corner">' + cornerLogo + '</span>' : "") +
+        gameLink +
+      "</div>" +
       '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
         (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
@@ -321,6 +337,7 @@
         '<div class="why-line">' + why + "</div>" +
       "</div>" +
       '<div class="moment-right">' +
+        (inlineLogo ? '<span class="team-logo-inline">' + inlineLogo + '</span>' : "") +
         '<div class="inning-indicator">' +
           '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
           '<div class="inning-num">' + m.inning + "</div>" +
@@ -333,6 +350,75 @@
          time depending on breakpoint (see style.css). */
       '<div class="why-line why-line-bottom">' + why + "</div>" +
     "</div>";
+  }
+
+  // ── scoreboard ──────────────────────────────────────────────────────────────
+
+  /* Latest session's games, one tile each, sorted server-side by leverage
+     (finished games forced to the back - see key_moments_build.py). Reuses
+     stateStack()'s diamond/outs/FINAL badge since a scoreboard game object
+     carries the same half/inning/outs_after/obc_after/is_game_final shape as
+     a moment. Independent of every play filter below it - clicking a tile
+     only ever touches the Team filter (see wireControls). */
+  function scoreboardCard(g) {
+    var awayBatting = g.half === "top";
+    var awayPct = g.away_win_prob != null ? Math.round(g.away_win_prob * 100) : 50;
+    var homePct = 100 - awayPct;
+    var awayHex = teamColor(g.away_team_abbr) || "#9aa4b2";
+    var homeHex = teamColor(g.home_team_abbr) || "#c7ccd3";
+    var levBadge = g.is_game_final ? "" :
+      '<span class="sb-lev">Lev ' + g.leverage.toFixed(1) + "</span>";
+    var selected = filters.selectedGame === g.game_code ? " selected" : "";
+
+    return '<button type="button" class="scoreboard-tile' + selected +
+      '" data-game="' + escapeHtml(g.game_code) +
+      '" data-away="' + escapeHtml(g.away_team_abbr) +
+      '" data-home="' + escapeHtml(g.home_team_abbr) + '">' +
+      levBadge +
+      '<div class="sb-teams">' +
+        '<div class="sb-row' + (awayBatting ? " batting" : "") + '">' +
+          teamLogoImg(g.away_team_abbr, "sb-logo") +
+          '<span class="sb-abbr">' + escapeHtml(g.away_team_abbr) + "</span>" +
+          '<span class="sb-score">' + g.away_score + "</span>" +
+        "</div>" +
+        '<div class="sb-row' + (!awayBatting ? " batting" : "") + '">' +
+          teamLogoImg(g.home_team_abbr, "sb-logo") +
+          '<span class="sb-abbr">' + escapeHtml(g.home_team_abbr) + "</span>" +
+          '<span class="sb-score">' + g.home_score + "</span>" +
+        "</div>" +
+      "</div>" +
+      '<div class="sb-state">' +
+        '<div class="inning-indicator">' +
+          '<div class="tri ' + (g.half === "top" ? "up" : "down") + '"></div>' +
+          '<div class="inning-num">' + g.inning + "</div>" +
+        "</div>" +
+        stateStack(g) +
+      "</div>" +
+      '<div class="wp-bar">' +
+        '<div class="wp-seg" style="width:' + awayPct + '%;background:' + awayHex + '"></div>' +
+        '<div class="wp-seg" style="width:' + homePct + '%;background:' + homeHex + '"></div>' +
+      "</div>" +
+    "</button>";
+  }
+
+  function deselectScoreboardTile() {
+    filters.selectedGame = null;
+    Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
+      t.classList.remove("selected");
+    });
+  }
+
+  function renderScoreboard() {
+    var el = $("scoreboard");
+    var games = data.meta.games || [];
+    if (!games.length) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = '<div class="scoreboard-head">Scoreboard</div>' +
+      '<div class="scoreboard-row">' + games.map(scoreboardCard).join("") + "</div>";
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -557,6 +643,24 @@
 
     $("team-select").addEventListener("change", function (e) {
       filters.team = e.target.value;
+      deselectScoreboardTile();
+      render();
+    });
+
+    $("scoreboard").addEventListener("click", function (e) {
+      var tile = e.target.closest(".scoreboard-tile");
+      if (!tile) return;
+      var game = tile.getAttribute("data-game");
+      var away = tile.getAttribute("data-away");
+      // Either team in the matchup would do - Team is a season-long filter,
+      // but combined with the page defaulting to the latest session this
+      // reads as "just this game" in practice.
+      filters.team = away;
+      filters.selectedGame = game;
+      $("team-select").value = away;
+      Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
+        t.classList.toggle("selected", t === tile);
+      });
       render();
     });
 
@@ -607,6 +711,7 @@
       filters.player = "";
       filters.playerId = null;
       filters.tags.clear();
+      deselectScoreboardTile();
       $("player-suggest").hidden = true;
       Array.prototype.forEach.call(
         document.querySelectorAll("#result-chips .chip, #tag-chips .chip"),
@@ -644,6 +749,7 @@
       data.meta = res[1];
       data.playsBySession = {};   // stale once the feed moves
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
+      renderScoreboard();
       populateSessionSelect(true);
       populateTeamSelect();
       populateTagChips();
@@ -724,6 +830,7 @@
       data.players = res[1];
       data.meta = res[2];
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
+      renderScoreboard();
       populateSessionSelect(false);
       populateTeamSelect();
       populateTagChips();
