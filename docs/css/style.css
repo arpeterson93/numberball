@@ -1,4 +1,10 @@
+/* Every colour the page paints lives here. Nothing below this block should
+   hardcode a hex - the dark theme is nothing more than a second copy of these
+   values, so a literal colour further down is a rule that silently stays in
+   light mode. The two exceptions are #fff text sitting on --red/--navy fills,
+   which are dark enough in both themes for white to stay legible. */
 :root{
+  color-scheme: light;
   --navy: #0f2238;
   --navy-2: #16233a;
   --red: #c8102e;
@@ -11,6 +17,51 @@
   --muted: #6b7280;
   --green: #1e7d32;
   --gold: #d9a300;
+
+  --tint: #f3f5f8;              /* neutral fill: badges, hover rows, tag pills */
+  --tint-red: #fdeef0;
+  --tint-red-border: #f0b8c0;
+  --tint-blue: #eef4fd;
+  --tint-blue-border: #b9d0f0;
+  --border-hover: #c7ccd3;
+  --star-off: #c7ccd3;
+  --dot-off-fill: #ffffff;      /* empty base diamond + empty outs dot */
+  --dot-off-stroke: #c7ccd3;
+  --shadow: rgba(0,0,0,0.12);
+  --scrim: rgba(15,34,56,0.45);
+}
+
+/* Dark theme. --red stays put: it only ever appears as a fill under white
+   text or as a filled outs dot, and it reads fine on the dark card. --navy,
+   --blue, --green, --red-dark and --gold all lighten, since each is used as
+   text or as an accent that has to separate from --card rather than from
+   white. */
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --navy: #3f6699;
+  --navy-2: #32527a;
+  --red: #c8102e;
+  --red-dark: #ff8494;
+  --blue: #6ea8f0;
+  --bg: #12161c;
+  --card: #1a2029;
+  --border: #2b323d;
+  --text: #e8eaed;
+  --muted: #9aa4b2;
+  --green: #55c47a;
+  --gold: #e0b13c;
+
+  --tint: #232b36;
+  --tint-red: #3a1e22;
+  --tint-red-border: #5c2c33;
+  --tint-blue: #1c2a3d;
+  --tint-blue-border: #2c3f57;
+  --border-hover: #3a4250;
+  --star-off: #4a5361;
+  --dot-off-fill: #1a2029;
+  --dot-off-stroke: #4a5361;
+  --shadow: rgba(0,0,0,0.5);
+  --scrim: rgba(0,0,0,0.62);
 }
 *{box-sizing:border-box;}
 body{
@@ -27,12 +78,29 @@ button{font-family:inherit;cursor:pointer;}
 .title-row h1{font-size:28px;margin:0;letter-spacing:0.5px;}
 .session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
-  color:var(--muted);background:#fff;border:1px solid var(--border);border-radius:6px;
+  color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
 }
 .title-actions{margin-left:auto;display:flex;align-items:center;gap:12px;}
 .built-at{font-size:12px;color:var(--muted);}
-.refresh-btn{padding:7px 14px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:#fff;color:var(--text);}
+.refresh-btn{padding:7px 14px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:var(--card);color:var(--text);}
 .refresh-btn:disabled{opacity:0.55;cursor:default;}
+
+/* Icon-only, borderless, muted - a page-level preference that should sit
+   quietly next to the timestamp rather than compete with Refresh. The two
+   icons both live in the markup; CSS picks whichever matches the theme so
+   there is no JS icon swap to keep in sync. */
+.theme-toggle{
+  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+  width:28px;height:28px;padding:0;border:none;background:none;border-radius:6px;
+  color:var(--muted);line-height:0;
+}
+.theme-toggle svg{width:15px;height:15px;display:block;}
+.theme-toggle .icon-sun{display:none;}
+:root[data-theme="dark"] .theme-toggle .icon-moon{display:none;}
+:root[data-theme="dark"] .theme-toggle .icon-sun{display:block;}
+@media (hover: hover){
+  .theme-toggle:hover{color:var(--text);background:var(--tint);}
+}
 .refresh-status{font-size:12px;color:var(--muted);text-align:right;min-height:16px;margin-bottom:12px;}
 
 /* ---- Scoreboard ---- */
@@ -51,7 +119,7 @@ button{font-family:inherit;cursor:pointer;}
 }
 .scoreboard-tile.selected{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy) inset;}
 @media (hover: hover){
-  .scoreboard-tile:hover{border-color:#c7ccd3;}
+  .scoreboard-tile:hover{border-color:var(--border-hover);}
   .scoreboard-tile.selected:hover{border-color:var(--navy);}
 }
 /* Team stack on the left, scorebug (inning arrow, diamond, outs) on the
@@ -85,9 +153,9 @@ button{font-family:inherit;cursor:pointer;}
 .sb-lev{
   position:absolute;left:50%;bottom:100%;transform:translateX(-50%);margin-bottom:4px;
   font-size:10px;font-weight:800;color:var(--muted);white-space:nowrap;
-  background:#f3f5f8;border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
+  background:var(--tint);border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
 }
-.sb-lev.hot{color:var(--red-dark);background:#fdeef0;border-color:#f0b8c0;}
+.sb-lev.hot{color:var(--red-dark);background:var(--tint-red);border-color:var(--tint-red-border);}
 
 /* ---- Filters ---- */
 .filters-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px 20px;margin-bottom:22px;max-width:100%;}
@@ -107,12 +175,12 @@ button{font-family:inherit;cursor:pointer;}
 .player-suggest{
   position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;
   background:var(--card);border:1px solid var(--border);border-radius:6px;
-  max-height:260px;overflow-y:auto;box-shadow:0 4px 14px rgba(0,0,0,0.12);
+  max-height:260px;overflow-y:auto;box-shadow:0 4px 14px var(--shadow);
 }
 .player-suggest-row{
   display:flex;align-items:center;gap:10px;padding:7px 12px;font-size:13px;cursor:pointer;
 }
-.player-suggest-row:hover, .player-suggest-row.active{background:#f3f5f8;}
+.player-suggest-row:hover, .player-suggest-row.active{background:var(--tint);}
 .player-suggest-row .team{color:var(--muted);font-size:11.5px;margin-left:auto;}
 .player-suggest-empty{padding:8px 12px;font-size:12.5px;color:var(--muted);}
 .filter-group.wide{flex:1 1 100%;}
@@ -123,16 +191,19 @@ button{font-family:inherit;cursor:pointer;}
 .group-hint{font-weight:600;letter-spacing:0;text-transform:none;opacity:0.75;margin-left:6px;}
 .chip-row{display:flex;flex-wrap:nowrap;gap:8px;}
 .chip-row.wrap{flex-wrap:wrap;}
-.chip{padding:7px 13px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:#fff;color:var(--text);white-space:nowrap;}
+.chip{padding:7px 13px;border-radius:6px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:var(--card);color:var(--text);white-space:nowrap;}
 .chip.active{background:var(--red);border-color:var(--red);color:#fff;}
+/* Dimming reads as further away from the background in dark mode than it
+   does on white, so the disabled Side group needs a little more left. */
 .chip:disabled{opacity:0.45;cursor:default;}
-.chip:disabled.active{background:#fff;border-color:var(--border);color:var(--text);}
+:root[data-theme="dark"] .chip:disabled{opacity:0.55;}
+.chip:disabled.active{background:var(--card);border-color:var(--border);color:var(--text);}
 /* Tag chips OR together rather than excluding each other - the checkmark is
    the visual cue that several can be on at once. */
 .chip.multi{border-radius:20px;}
 .chip.multi.active{background:var(--navy);border-color:var(--navy);}
 .chip.multi.active::before{content:"\2713\00a0";}
-select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:#fff;}
+select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:var(--card);}
 .filters-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
 .count-text{font-weight:700;font-size:13.5px;}
 .footer-actions{display:flex;gap:16px;align-items:center;}
@@ -157,7 +228,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 .game-link:hover{color:var(--blue);}
 .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
-.lev-bar.neutral{background:#fff;border-right:1px solid var(--border);}
+.lev-bar.neutral{background:var(--card);border-right:1px solid var(--border);}
 
 /* Featured team's logo, inline to the left of the scorebug at every width. */
 .team-logo-inline{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
@@ -168,7 +239,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .play-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .player-name{font-size:15px;font-weight:800;color:var(--text);text-decoration:none;}
 .player-name:hover{text-decoration:underline;}
-.star-btn{background:none;border:none;padding:0 2px;font-size:15px;line-height:1;color:#c7ccd3;}
+.star-btn{background:none;border:none;padding:0 2px;font-size:15px;line-height:1;color:var(--star-off);}
 .star-btn.on{color:var(--gold);}
 
 .counterpart{font-size:12.5px;color:var(--muted);}
@@ -177,8 +248,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .counterpart-fav{color:var(--gold);}
 
 .result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0.3px;white-space:nowrap;}
-.result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:#b9d0f0;background:#eef4fd;}
-.result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:#f0b8c0;background:#fdeef0;}
+.result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:var(--tint-blue-border);background:var(--tint-blue);}
+.result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:var(--tint-red-border);background:var(--tint-red);}
 
 .scoring-line{font-size:12.5px;color:var(--muted);font-style:italic;}
 
@@ -186,7 +257,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wpa-pos{color:var(--green);font-weight:700;}
 .wpa-neg{color:var(--red-dark);font-weight:700;}
 .why-line{display:flex;gap:6px;flex-wrap:wrap;}
-.why-tag{font-size:10.5px;font-weight:700;color:var(--muted);background:#f3f5f8;border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:0.3px;}
+.why-tag{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--tint);border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:0.3px;}
 /* Phone-only duplicate (10c/6d note) - hidden until the phone breakpoint
    swaps which copy is visible. */
 .why-line-bottom{display:none;}
@@ -214,13 +285,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .state-stack{display:flex;flex-direction:column;align-items:center;gap:4px;}
 .moment-right .state-stack{width:90px;}
 .base-diamond.on{fill:var(--blue);stroke:var(--blue);}
-.base-diamond.off{fill:#fff;stroke:#c7ccd3;}
+.base-diamond.off{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
 .outs-dots{display:flex;gap:5px;}
-.outs-dots .dot{width:7px;height:7px;border-radius:50%;border:1px solid #c7ccd3;background:#fff;}
+.outs-dots .dot{width:7px;height:7px;border-radius:50%;border:1px solid var(--dot-off-stroke);background:var(--dot-off-fill);}
 .outs-dots .dot.on{background:var(--red);border-color:var(--red);}
 .state-badge{
   font-size:10.5px;font-weight:800;letter-spacing:0.6px;padding:5px 9px;
-  border-radius:4px;border:1px solid var(--border);color:var(--muted);background:#f3f5f8;
+  border-radius:4px;border:1px solid var(--border);color:var(--muted);background:var(--tint);
   white-space:nowrap;
 }
 .state-badge.final{color:#fff;background:var(--navy);border-color:var(--navy);}
@@ -228,9 +299,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .empty-state{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:34px;text-align:center;color:var(--muted);font-size:14px;}
 
 /* ---- Favorites modal ---- */
-.modal{position:fixed;inset:0;background:rgba(15,34,56,0.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20;}
+.modal{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20;}
 .modal[hidden]{display:none;}
 .modal-card{background:var(--card);border-radius:10px;width:100%;max-width:520px;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;}
+/* On white the scrim alone separates the card from the page; on dark the two
+   are close enough in value that it needs a real edge. */
+:root[data-theme="dark"] .modal-card{border:1px solid var(--border);}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);font-size:15px;}
 .modal-body{padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
 .modal-note{margin:0;font-size:12px;color:var(--muted);line-height:1.5;}

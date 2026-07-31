@@ -4,7 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MLN Key Moments</title>
+<meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/png" href="favicon.png">
+<!-- Ahead of the stylesheet on purpose: this sets data-theme before first
+     paint, so a dark-mode visitor never sees a light flash. -->
+<script src="js/theme.js"></script>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,6 +20,17 @@
     <div class="title-actions">
       <span id="built-at" class="built-at">Loading</span>
       <button type="button" class="refresh-btn" id="refresh-btn">Refresh now</button>
+      <!-- Both icons ship in the markup; CSS shows the one matching data-theme.
+           theme.js only keeps the label in sync. -->
+      <button type="button" class="theme-toggle" id="theme-toggle" title="Switch to dark mode" aria-label="Switch to dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="5"></circle>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+        </svg>
+      </button>
     </div>
   </div>
   <div id="refresh-status" class="refresh-status"></div>
