@@ -638,6 +638,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         "built_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "sheet_id": sheet_id,
         "season": CURRENT_SEASON,
+        "innings": MLN_INNINGS,
         "sessions": sessions,
         "plays_scanned": len(rows),
         "moment_count": sum(1 for m in rows if m["is_key_moment"]),

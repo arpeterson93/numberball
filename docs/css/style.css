@@ -62,8 +62,12 @@ button{font-family:inherit;cursor:pointer;}
 .sb-row{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--muted);}
 .sb-row.batting{color:var(--text);}
 .sb-logo{width:20px;height:20px;object-fit:contain;flex-shrink:0;}
-.sb-abbr{letter-spacing:0.2px;}
-.sb-score{margin-left:auto;font-size:14px;font-weight:800;}
+/* Fixed width so the score sits at the same x-position on both rows (and
+   every tile) regardless of abbreviation length ("BBEG" vs "KC") - right
+   next to its own team instead of pushed out to the tile's far edge, where
+   it read as belonging to the diamond/outs cluster instead. */
+.sb-abbr{letter-spacing:0.2px;min-width:47px;}
+.sb-score{font-size:14px;font-weight:800;}
 .sb-state{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .sb-state .inning-indicator{min-width:20px;}
 .sb-state .state-stack{min-width:0;}

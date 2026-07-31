@@ -321,10 +321,15 @@
   }
 
   /* Game-final wins over half-inning-final: the last out of a game is both,
-     and FINAL is the more informative badge. */
-  function stateStack(m) {
+     and FINAL is the more informative badge. finalLabel lets the scoreboard
+     (which drops the inning-indicator once a game is final - see
+     scoreboardCard) fold the inning count into the badge itself when the
+     game didn't end after the expected number of innings; play cards keep
+     showing the inning-indicator alongside FINAL, so they never pass one. */
+  function stateStack(m, finalLabel) {
     if (m.is_game_final) {
-      return '<div class="state-stack"><div class="state-badge final">FINAL</div></div>';
+      return '<div class="state-stack"><div class="state-badge final">' +
+        escapeHtml(finalLabel || "FINAL") + "</div></div>";
     }
     if (m.is_half_inning_final) {
       return '<div class="state-stack"><div class="state-badge">END INNING</div></div>';
@@ -448,6 +453,17 @@
       '<span class="sb-lev' + leverageClass(g.leverage) + '">Lev ' + g.leverage.toFixed(1) + "</span>";
     var selected = filters.selectedGame === g.game_code ? " selected" : "";
 
+    // Once final, the inning-indicator is redundant with the FINAL badge -
+    // drop it, and fold the inning count into the badge itself (only) when
+    // the game didn't end after the expected number of innings.
+    var expectedInnings = data.meta.innings || 6;
+    var inningIndicator = g.is_game_final ? "" :
+      '<div class="inning-indicator">' +
+        '<div class="tri ' + (g.half === "top" ? "up" : "down") + '"></div>' +
+        '<div class="inning-num">' + g.inning + "</div>" +
+      "</div>";
+    var finalLabel = g.is_game_final && g.inning !== expectedInnings ? "FINAL/" + g.inning : "FINAL";
+
     return '<button type="button" class="scoreboard-tile' + selected +
       '" data-game="' + escapeHtml(g.game_code) +
       '" data-away="' + escapeHtml(g.away_team_abbr) +
@@ -466,11 +482,8 @@
           "</div>" +
         "</div>" +
         '<div class="sb-state">' +
-          '<div class="inning-indicator">' +
-            '<div class="tri ' + (g.half === "top" ? "up" : "down") + '"></div>' +
-            '<div class="inning-num">' + g.inning + "</div>" +
-          "</div>" +
-          stateStack(g) +
+          inningIndicator +
+          stateStack(g, finalLabel) +
         "</div>" +
       "</div>" +
       '<div class="sb-foot">' +
