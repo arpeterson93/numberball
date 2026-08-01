@@ -454,54 +454,79 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .dm-base.on{fill:var(--gold);stroke:var(--gold);}
 .dm-plate{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
 
-/* Tokens sit at their DESTINATION by default so the end state is what shows
-   when the animation is skipped (reduced motion) or has finished. */
+/* Position lives on .rn, opacity/scale on .rn-inner - one element cannot run
+   two competing transform animations, and a scoring runner needs both a path
+   and a flash. Tokens sit at their DESTINATION by default so the end state is
+   what shows when the animation is skipped (reduced motion) or has finished. */
 .rn{transform:translate(var(--tx),var(--ty));}
 .rn circle{fill:var(--navy);stroke:var(--card);stroke-width:2;}
-.rn.move, .rn:not(.out){animation:rnMove 900ms cubic-bezier(.4,.05,.2,1) forwards;}
-.rn.batter{opacity:1;animation:rnBatter 900ms cubic-bezier(.4,.05,.2,1) forwards;}
+
+/* Runners follow the basepaths, touching every base on the way: one keyframe
+   stop per base passed. Legs are all the same length, so evenly spaced stops
+   plus linear timing means constant speed - easing per stop would read as
+   pausing on each bag. */
+.rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4{
+  animation-duration:var(--dur);animation-timing-function:linear;animation-fill-mode:forwards;
+}
+.rn.legs1{animation-name:rnLegs1;}
+.rn.legs2{animation-name:rnLegs2;}
+.rn.legs3{animation-name:rnLegs3;}
+.rn.legs4{animation-name:rnLegs4;}
+
+@keyframes rnLegs1{
+  from{transform:translate(var(--fx),var(--fy));}
+  to{transform:translate(var(--p1x),var(--p1y));}
+}
+@keyframes rnLegs2{
+  from{transform:translate(var(--fx),var(--fy));}
+  50%{transform:translate(var(--p1x),var(--p1y));}
+  to{transform:translate(var(--p2x),var(--p2y));}
+}
+@keyframes rnLegs3{
+  from{transform:translate(var(--fx),var(--fy));}
+  33.333%{transform:translate(var(--p1x),var(--p1y));}
+  66.667%{transform:translate(var(--p2x),var(--p2y));}
+  to{transform:translate(var(--p3x),var(--p3y));}
+}
+@keyframes rnLegs4{
+  from{transform:translate(var(--fx),var(--fy));}
+  25%{transform:translate(var(--p1x),var(--p1y));}
+  50%{transform:translate(var(--p2x),var(--p2y));}
+  75%{transform:translate(var(--p3x),var(--p3y));}
+  to{transform:translate(var(--p4x),var(--p4y));}
+}
+
+.rn-inner{transform-box:fill-box;transform-origin:center;}
+.rn.batter .rn-inner{animation:rnBatter 380ms ease both;}
 .rn.score circle{fill:var(--green);}
-.rn.score{animation:rnScore 1100ms cubic-bezier(.4,.05,.2,1) forwards;}
+/* Flash on arrival, so the delay is however long the run itself took. */
+.rn.score .rn-inner{animation:rnScore 460ms ease var(--dur) both;}
 /* An out does not move - it fades in place, leaving a ghost so the viewer can
    still see where the runner had been. */
-.rn.out{animation:rnOut 700ms ease forwards;}
+.rn.out .rn-inner{animation:rnOut 700ms ease forwards;}
 .rn.out circle{fill:var(--muted);}
 /* The batter when they never reached base - shown at the plate, then gone, so
    a strikeout is not an empty diamond with nothing having happened. */
-.rn.batter-out{animation:rnBatterOut 900ms ease forwards;}
+.rn.batter-out .rn-inner{animation:rnBatterOut 900ms ease forwards;}
 .rn.batter-out circle{fill:var(--muted);}
 
-@keyframes rnMove{
-  from{transform:translate(var(--fx),var(--fy));}
-  to{transform:translate(var(--tx),var(--ty));}
-}
 @keyframes rnBatter{
-  from{transform:translate(var(--fx),var(--fy));opacity:0;}
-  30%{opacity:1;}
-  to{transform:translate(var(--tx),var(--ty));opacity:1;}
+  from{opacity:0;transform:scale(0.6);}
+  to{opacity:1;transform:scale(1);}
 }
 @keyframes rnScore{
-  from{transform:translate(var(--fx),var(--fy)) scale(1);opacity:1;}
-  70%{transform:translate(var(--tx),var(--ty)) scale(1);opacity:1;}
-  85%{transform:translate(var(--tx),var(--ty)) scale(1.9);opacity:1;}
-  to{transform:translate(var(--tx),var(--ty)) scale(1.2);opacity:0;}
+  0%{transform:scale(1);opacity:1;}
+  40%{transform:scale(1.9);opacity:1;}
+  to{transform:scale(1.2);opacity:0;}
 }
 @keyframes rnOut{
   from{opacity:1;}
   to{opacity:0.18;}
 }
 @keyframes rnBatterOut{
-  0%{opacity:0;transform:translate(var(--tx),var(--ty)) scale(0.7);}
-  35%{opacity:1;transform:translate(var(--tx),var(--ty)) scale(1);}
-  to{opacity:0.18;transform:translate(var(--tx),var(--ty)) scale(1);}
-}
-
-/* A key moment is why the slideshow slows down here - give it a visible
-   reason, not just a longer pause. A centred rule rather than a left border:
-   .scene-detail is a full-width centred column, so a border on its edge sat
-   detached from the text it was meant to mark. */
-.play-scene.is-key .scene-detail::before{
-  content:"";width:32px;height:3px;border-radius:2px;background:var(--red);margin-bottom:1px;
+  0%{opacity:0;transform:scale(0.7);}
+  35%{opacity:1;transform:scale(1);}
+  to{opacity:0.18;transform:scale(1);}
 }
 
 .scene-side{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0;}
@@ -625,13 +650,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Half-innings the game has not reached yet - present so the remaining
    regulation is visible, dimmed so it does not read as already played. */
 .rb-axis-tick.future{opacity:0.4;}
-.rb-seen{fill:none;stroke:var(--muted);stroke-width:1.5;opacity:0.5;
-  vector-effect:non-scaling-stroke;stroke-linejoin:round;}
-.rb-fresh{fill:none;stroke:var(--navy);stroke-width:2.5;
-  vector-effect:non-scaling-stroke;stroke-linejoin:round;}
+/* The line carries the same colour as the shading beneath it: whoever leads
+   that stretch owns it, and the colour changes exactly where the lead does.
+   Stroke colour is set per segment inline, since it comes from team data. */
+.rb-seg{
+  stroke-width:2.5;vector-effect:non-scaling-stroke;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+/* Already-seen stretches recede without losing their team identity. */
+.rb-seg.seen{stroke-width:1.5;opacity:0.45;}
 .rb-new{
-  stroke:var(--navy);stroke-width:3;vector-effect:non-scaling-stroke;stroke-linecap:round;
-  stroke-dasharray:var(--len);animation:ribbonDraw 650ms ease both;
+  stroke-width:3;stroke-dasharray:var(--len);animation:ribbonDraw 650ms ease both;
 }
 @keyframes ribbonDraw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
 /* Marker: the home team's badge riding the newest point, carrying their odds
@@ -649,10 +678,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .rb-marker-logo, .rb-marker-dot{
   position:absolute;left:0;top:0;transform:translate(-50%,-50%);
 }
+/* The ring colour is set inline to the badge team's own colour. */
 .rb-marker-logo{
   width:22px;height:22px;object-fit:contain;
   background:var(--card);border-radius:50%;padding:1.5px;
-  box-shadow:0 0 0 2px var(--navy);
 }
 .rb-marker-dot{
   width:11px;height:11px;border-radius:50%;background:var(--navy);
@@ -707,12 +736,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-slide{transform:none;}
   .catchup-slide.in{transition:none;}
   .catchup-progress::after{transition:none;}
-  .rn, .rn.move, .rn.batter, .rn.score, .rn.out, .rn.batter-out,
+  .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
+  .rn.batter .rn-inner, .rn.score .rn-inner,
+  .rn.out .rn-inner, .rn.batter-out .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash,
   .scene-recap, .scene-inning.new-half{animation:none;}
-  .rn.out, .rn.batter-out{opacity:0.18;}
-  .rn.score{opacity:0;}
+  .rn.out .rn-inner, .rn.batter-out .rn-inner{opacity:0.18;}
+  .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}
   .rb-new{stroke-dasharray:none;}
   .scene-flash{opacity:0;}

@@ -922,6 +922,33 @@
     "3B": { x: 42, y: 110 },
   };
 
+  // Running order around the diamond. Index doubles as "how far around" a
+  // runner is, with 4 meaning they came all the way back to score.
+  var BASE_PATH = ["HOME", "1B", "2B", "3B"];
+  var BASE_ORDINAL = { HOME: 0, "1B": 1, "2B": 2, "3B": 3 };
+
+  /* Every base a runner actually touches getting from one place to another.
+     Runners follow the basepaths - a triple is home to 1st to 2nd to 3rd, not
+     a diagonal across the infield - so a move is a sequence of legs, one per
+     base passed, rather than a single straight hop.
+
+     All four legs of this diamond are the same length, so evenly spaced
+     keyframe stops give constant speed the whole way round. */
+  function basepathWaypoints(fromKey, toKey, scored) {
+    var start = fromKey === "BATTER" ? 0 : BASE_ORDINAL[fromKey];
+    var end = scored ? 4 : BASE_ORDINAL[toKey];
+    if (start == null || end == null || end <= start) return [];
+    var pts = [];
+    for (var o = start + 1; o <= end; o++) {
+      pts.push(o === 4 ? SCENE_BASES.HOME : SCENE_BASES[BASE_PATH[o]]);
+    }
+    return pts;
+  }
+
+  // Longer trips run a little faster rather than strictly proportionally, so
+  // even a home run's four legs finish inside the shortest play dwell (2000ms).
+  var RUN_LEG_MS = [0, 800, 1150, 1450, 1700];
+
   /* Pair up who was on base before a play with where runners ended after it.
      Runners cannot pass each other, so listing both sides most-advanced-first
      and zipping them is physically valid for hits, walks, home runs, sac
@@ -965,17 +992,28 @@
     var after = String(m.obc_after || "000");
     var moves = deriveRunnerMoves(before, after, m.runs || 0);
 
+    /* Two nested groups per token, deliberately: the outer one owns position
+       (the multi-leg basepath run) and the inner one owns opacity and scale
+       (fading out, the batter appearing, the flash on scoring). Both would
+       otherwise be competing to animate `transform` on one element, and only
+       one of them could win. */
     var tokens = moves.map(function (mv) {
       var from = mv.from === "BATTER" ? SCENE_BASES.HOME : SCENE_BASES[mv.from];
       var isOut = mv.to === "OUT";
-      var to = isOut ? from : SCENE_BASES[mv.to];
-      if (!from || !to) return "";
-      var cls = "rn" + (isOut ? " out" : "") + (mv.scored ? " score" : "") +
-                (mv.from === "BATTER" ? " batter" : "");
-      return '<g class="' + cls + '" style="' +
-        "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
-        "--tx:" + to.x + "px;--ty:" + to.y + "px" + '">' +
-        '<circle r="9"></circle></g>';
+      if (!from || (!isOut && !SCENE_BASES[mv.to] && !mv.scored)) return "";
+      var path = isOut ? [] : basepathWaypoints(mv.from, mv.to, mv.scored);
+      var end = path.length ? path[path.length - 1] : from;
+      var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
+      var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
+                 "--tx:" + end.x + "px;--ty:" + end.y + "px;";
+      path.forEach(function (p, i) {
+        vars += "--p" + (i + 1) + "x:" + p.x + "px;--p" + (i + 1) + "y:" + p.y + "px;";
+      });
+      vars += "--dur:" + (RUN_LEG_MS[legs] || 0) + "ms";
+      var cls = "rn" + (legs ? " legs" + legs : "") + (isOut ? " out" : "") +
+                (mv.scored ? " score" : "") + (mv.from === "BATTER" ? " batter" : "");
+      return '<g class="' + cls + '" style="' + vars + '">' +
+        '<g class="rn-inner"><circle r="9"></circle></g></g>';
     }).join("");
 
     // deriveRunnerMoves only tracks RUNNERS, so a play where the batter never
@@ -987,7 +1025,7 @@
       var h = SCENE_BASES.HOME;
       tokens += '<g class="rn batter-out" style="' +
         "--fx:" + h.x + "px;--fy:" + h.y + "px;--tx:" + h.x + "px;--ty:" + h.y + "px" + '">' +
-        '<circle r="9"></circle></g>';
+        '<g class="rn-inner"><circle r="9"></circle></g></g>';
     }
 
     // Base plates show post-play occupancy so the diamond still reads
@@ -1132,50 +1170,54 @@
     // Everything before this run started is context the viewer already knows -
     // muted. From there on is what they came to see.
     var from = slide.ribbonFrom || 0;
-    var seen = pts.filter(function (p) { return p.i <= from; });
-    var fresh = pts.filter(function (p) { return p.i >= from; });
-    var str = function (arr) {
-      return arr.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
-    };
 
-    /* Shade between the line and the 50/50 axis in whichever team's colour is
-       ahead there. Each segment becomes its own quad so the shading switches
-       sides exactly where the line crosses the axis - a segment that spans the
-       crossing is split at the crossing point rather than being coloured for
-       whichever end happens to win a vote. */
+    /* The line and the shading under it are the same story told twice: whoever
+       is ahead owns that stretch, in their colour. Each segment is split at the
+       exact point it crosses the 50/50 axis, so the lead changing hands shows
+       as the colour changing mid-segment rather than a whole segment being
+       coloured for whichever end happens to win a vote. */
     var midY = RIBBON_PAD + 0.5 * (RIBBON_H - RIBBON_PAD * 2);
     var homeHex = teamColor(slide.homeAbbr) || "#4a6fa5";
     var awayHex = teamColor(slide.awayAbbr) || "#9aa4b2";
-    var quad = function (a, bb) {
-      if (Math.abs(a.y - midY) < 0.05 && Math.abs(bb.y - midY) < 0.05) return "";
-      var hex = ((a.y + bb.y) / 2 < midY) ? homeHex : awayHex;
-      return '<path class="rb-fill" fill="' + escapeHtml(hex) + '" d="M' +
-        a.x.toFixed(1) + "," + midY.toFixed(1) + " L" + a.x.toFixed(1) + "," + a.y.toFixed(1) +
-        " L" + bb.x.toFixed(1) + "," + bb.y.toFixed(1) +
-        " L" + bb.x.toFixed(1) + "," + midY.toFixed(1) + ' Z"></path>';
-    };
-    var fills = "";
+    var subs = [];
     for (var q = 1; q < pts.length; q++) {
       var pa = pts[q - 1], pb = pts[q];
+      var isLast = q === pts.length - 1;
+      var seen = pts[q].i <= from;
       var da = pa.y - midY, db = pb.y - midY;
       if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
         var t = da / (da - db);
         var cross = { x: pa.x + (pb.x - pa.x) * t, y: midY };
-        fills += quad(pa, cross) + quad(cross, pb);
+        subs.push({ a: pa, b: cross, seen: seen, last: isLast });
+        subs.push({ a: cross, b: pb, seen: seen, last: isLast });
       } else {
-        fills += quad(pa, pb);
+        subs.push({ a: pa, b: pb, seen: seen, last: isLast });
       }
     }
+    subs.forEach(function (s) {
+      s.hex = ((s.a.y + s.b.y) / 2 <= midY) ? homeHex : awayHex;
+      s.len = Math.sqrt(Math.pow(s.b.x - s.a.x, 2) + Math.pow(s.b.y - s.a.y, 2)) || 1;
+    });
+    var fills = subs.map(function (s) {
+      if (Math.abs(s.a.y - midY) < 0.05 && Math.abs(s.b.y - midY) < 0.05) return "";
+      return '<path class="rb-fill" fill="' + escapeHtml(s.hex) + '" d="M' +
+        s.a.x.toFixed(1) + "," + midY.toFixed(1) + " L" + s.a.x.toFixed(1) + "," + s.a.y.toFixed(1) +
+        " L" + s.b.x.toFixed(1) + "," + s.b.y.toFixed(1) +
+        " L" + s.b.x.toFixed(1) + "," + midY.toFixed(1) + ' Z"></path>';
+    }).join("");
+    var strokes = subs.map(function (s) {
+      return '<line class="rb-seg' + (s.seen ? " seen" : "") + (s.last ? " rb-new" : "") +
+        '" stroke="' + escapeHtml(s.hex) + '" x1="' + s.a.x.toFixed(1) + '" y1="' + s.a.y.toFixed(1) +
+        '" x2="' + s.b.x.toFixed(1) + '" y2="' + s.b.y.toFixed(1) +
+        '" style="--len:' + s.len.toFixed(2) + 'px"></line>';
+    }).join("");
+    var lastHex = subs.length ? subs[subs.length - 1].hex : homeHex;
+
+    /* On the very first plotted play there are no segments yet. The frame and
+       the marker still render, so the slide's layout does not jump when the
+       line appears on the play after it. */
     var last = pts[pts.length - 1];
-    // On the very first plotted play there is no previous point to draw a
-    // segment from. Render the frame and the marker anyway rather than
-    // dropping the whole ribbon, so the slide's layout does not jump when the
-    // line appears on the play after it.
-    var prev = pts.length > 1 ? pts[pts.length - 2] : null;
-    var segLen = prev
-      ? (Math.sqrt(Math.pow(last.x - prev.x, 2) + Math.pow(last.y - prev.y, 2)) || 1)
-      : 0;
-    var mid = RIBBON_PAD + 0.5 * (RIBBON_H - RIBBON_PAD * 2);
+    var mid = midY;
 
     /* One divider and one label per half-inning across the whole axis,
        including halves the game has not reached yet - those render dimmed, so
@@ -1222,10 +1264,17 @@
       // Only the badge itself needs to stay inside the plot; the readout flips
       // to the other side once the point is far enough right.
       var markLeft = Math.max(1.7, Math.min(98.3, xPct));
+      // The ring around the badge is the colour of the team inside it, so the
+      // marker reads as belonging to them rather than to the chart.
+      var gainHex = teamColor(gainAbbr) || lastHex;
+      var gainUrl = teamLogoUrl(gainAbbr);
+      var badge = gainUrl
+        ? '<img class="rb-marker-logo" src="' + escapeHtml(gainUrl) + '" alt="" loading="lazy" ' +
+          'style="box-shadow:0 0 0 2px ' + escapeHtml(gainHex) + '">'
+        : '<span class="rb-marker-dot" style="background:' + escapeHtml(gainHex) + '"></span>';
       marker = '<div class="rb-marker' + (xPct > 68 ? " flip" : "") + '" style="left:' +
         markLeft.toFixed(2) + "%;top:" + ((last.y / RIBBON_H) * 100).toFixed(2) + '%">' +
-        (teamLogoImg(gainAbbr, "rb-marker-logo") ||
-          '<span class="rb-marker-dot"></span>') +
+        badge +
         '<div class="rb-readout">' +
           '<span class="rb-pct">' + Math.round(gainPct * 100) + "%</span>" +
           (gain == null ? "" :
@@ -1243,11 +1292,7 @@
         fills +
         dividers +
         '<line class="rb-mid" x1="0" y1="' + mid + '" x2="' + RIBBON_W + '" y2="' + mid + '"></line>' +
-        (seen.length > 1 ? '<polyline class="rb-seen" points="' + str(seen) + '"></polyline>' : "") +
-        (fresh.length > 1 ? '<polyline class="rb-fresh" points="' + str(fresh) + '"></polyline>' : "") +
-        (prev ? '<line class="rb-new" x1="' + prev.x.toFixed(1) + '" y1="' + prev.y.toFixed(1) +
-          '" x2="' + last.x.toFixed(1) + '" y2="' + last.y.toFixed(1) +
-          '" style="--len:' + segLen.toFixed(2) + 'px"></line>' : "") +
+        strokes +
       "</svg>" +
       // Which end of the y-axis belongs to whom. Without this the line's
       // direction is ambiguous - up is good for someone, but you cannot tell
@@ -1347,14 +1392,15 @@
       var hex = teamColor(leader);
       if (hex) flash = '<div class="scene-flash" style="background:' + escapeHtml(hex) + '"></div>';
     }
-    // The key-moment flag drives the longer dwell (slideDwell); marking it on
-    // the element too lets the scene show why this one is lingering.
+    // The key-moment flag drives the longer dwell (slideDwell). Recorded here
+    // as data only - the scene shows no badge for it; the extra time the slide
+    // stays up is the whole tell.
     var isKey = !!m.is_key_moment;
     // A new half-inning gets both a dwell bonus (slideDwell) and a beat on the
     // inning indicator, so the break between halves is felt rather than just
     // waited through.
     var newHalf = startsHalfInning(slide);
-    return '<div class="play-scene' + (isKey ? " is-key" : "") + '" data-key="' +
+    return '<div class="play-scene" data-key="' +
       (isKey ? "1" : "0") + '" data-new-half="' + (newHalf ? "1" : "0") +
       '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
       sceneRecapHtml(slide.recap) +
