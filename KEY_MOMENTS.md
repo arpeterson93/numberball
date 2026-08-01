@@ -214,7 +214,11 @@ commit, so `built_at` advances and the button's poll can tell it finished.
   data - a `1BWH` with runners on 2nd and 3rd scored both). They classify as
   hitting, so their exact naming does not affect any rule. `bAuto` / `pAuto`
   appear in `result_frequencies.csv` but not in season-13 play data.
-- The sheet's timestamps carry no timezone, so the page renders them as-is with
-  no zone label rather than inventing one.
+- The sheet's timestamps carry no timezone in the data itself, but they're
+  always entered in Central time - `docs/js/app.js`'s `parseChicagoNaive()`
+  reinterprets the naive string as `America/Chicago` (DST-aware) and displays
+  it converted to the viewer's own browser-detected zone, with that zone's
+  abbreviation appended (e.g. "6:20 PM CDT" for a Central viewer, "4:20 PM
+  MDT" for a Mountain one, same instant).
 - Sub-league filtering matches on either team in the game, not on the player -
   the sheet stores `GL`/`LL` on teams, not players, and interleague games exist.

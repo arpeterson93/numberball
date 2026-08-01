@@ -70,14 +70,54 @@
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  // key_moments_build.py's timestamps are naive Central-time wall-clock
+  // strings (no zone in the ISO string it writes) - confirmed source zone
+  // is always Central. `new Date(iso)` on a zone-less "T"-separated string
+  // would otherwise have the browser silently assume ITS OWN local zone,
+  // which is wrong here - reinterpret the digits as America/Chicago first,
+  // then the normal Date getters below report back in the viewer's zone.
+  var CHICAGO_TZ = "America/Chicago";
+
+  function chicagoOffsetMinutesAt(utcMs) {
+    var parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: CHICAGO_TZ, timeZoneName: "shortOffset",
+    }).formatToParts(new Date(utcMs));
+    var tz = parts.find(function (p) { return p.type === "timeZoneName"; });
+    var m = tz && /GMT([+-]\d+)/.exec(tz.value);
+    return m ? parseInt(m[1], 10) * 60 : -300; // fallback: CDT
+  }
+
+  function parseChicagoNaive(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso || "");
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5], s = +m[6];
+    var guessUTC = Date.UTC(y, mo - 1, d, h, mi, s);
+    var offset = chicagoOffsetMinutesAt(guessUTC);
+    var correctedUTC = guessUTC - offset * 60000;
+    // Re-check from the corrected instant in case the first guess (off by
+    // Chicago's ~5-6hr offset) landed on the wrong side of a DST transition -
+    // only possible for events within a few hours of the transition itself.
+    var offset2 = chicagoOffsetMinutesAt(correctedUTC);
+    if (offset2 !== offset) correctedUTC = guessUTC - offset2 * 60000;
+    return new Date(correctedUTC);
+  }
+
+  function viewerZoneAbbr(d) {
+    var parts = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(d);
+    var tz = parts.find(function (p) { return p.type === "timeZoneName"; });
+    return tz ? tz.value : "";
+  }
+
   function formatMomentTime(iso) {
     if (!iso) return "";
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
+    var d = parseChicagoNaive(iso);
+    if (!d || isNaN(d.getTime())) return iso;
     var h = d.getHours();
     var ampm = h >= 12 ? "PM" : "AM";
     h = h % 12 || 12;
-    return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + h + ":" + pad2(d.getMinutes()) + " " + ampm;
+    var zone = viewerZoneAbbr(d);
+    return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + h + ":" + pad2(d.getMinutes()) + " " + ampm +
+      (zone ? " " + zone : "");
   }
 
   function formatBuiltAt(iso) {
