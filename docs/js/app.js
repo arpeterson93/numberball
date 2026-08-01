@@ -492,6 +492,11 @@
     var homeHex = teamColor(g.home_team_abbr) || "#c7ccd3";
     var levBadge = g.is_game_final ? "" :
       '<span class="sb-lev' + leverageClass(g.leverage) + '">LI ' + g.leverage.toFixed(1) + "</span>";
+    var replayBtn = '<button type="button" class="tile-replay-btn" data-replay="' +
+      escapeHtml(g.game_code) + '" title="Replay this game" aria-label="Replay ' +
+      escapeHtml(g.away_team_abbr) + " at " + escapeHtml(g.home_team_abbr) + '">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
+      "</button>";
     var selected = filters.selectedGame === g.game_code ? " selected" : "";
 
     // Once final, the inning-indicator is redundant with the FINAL badge -
@@ -516,11 +521,6 @@
       '" data-home="' + escapeHtml(g.home_team_abbr) +
       '" data-session="' + escapeHtml(String(filters.session == null ? "" : filters.session)) +
       '" aria-pressed="' + (selected ? "true" : "false") + '">' +
-      '<button type="button" class="tile-replay-btn" data-replay="' + escapeHtml(g.game_code) +
-        '" title="Replay this game" aria-label="Replay ' + escapeHtml(g.away_team_abbr) +
-        " at " + escapeHtml(g.home_team_abbr) + '">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
-      "</button>" +
       '<div class="sb-body">' +
         '<div class="sb-teams">' +
           '<div class="sb-row' + (awayBatting ? " batting" : "") + '">' +
@@ -544,7 +544,11 @@
           '<div class="wp-seg" style="width:' + awayPct + '%;background:' + awayHex + '"></div>' +
           '<div class="wp-seg" style="width:' + homePct + '%;background:' + homeHex + '"></div>' +
         "</div>" +
-        levBadge +
+        // Leverage pill and replay control ride together above the bar, so the
+        // replay button stops colliding with the scorebug in the tile's
+        // top-right. A finished game drops the pill and the row centres on the
+        // button alone.
+        '<div class="sb-actions">' + levBadge + replayBtn + "</div>" +
       "</div>" +
     "</div>";
   }
@@ -786,9 +790,14 @@
     if (!fav || !fav.hasName()) return Promise.resolve([]);
     var cursor = fav.lastSeen();
     if (!cursor) {
-      // First time this name has been seen: start tracking from now rather
-      // than replaying the whole season at someone who just typed a name.
-      fav.markSeenNow();
+      /* First time this name has been seen: start tracking from now rather
+         than replaying the whole season at someone who just typed a name.
+
+         built_at is passed here too, not just in the branch below: a
+         first-time visitor arriving during a stale-data window has exactly the
+         same gap risk as a returning one, and capping in only one of the two
+         places would leave that hole open. */
+      fav.markSeenNow(data.meta.built_at);
       return Promise.resolve([]);
     }
     return loadAllSessions().then(function (bySession) {
@@ -798,7 +807,9 @@
       var newPlays = [].concat.apply([], bySession).filter(function (p) {
         return p.timestamp && p.timestamp > cursor;
       });
-      fav.markSeenNow();
+      // Capped at the build's freshness, not wall-clock now - these plays came
+      // out of THIS build, so that is as far as the visitor has actually seen.
+      fav.markSeenNow(data.meta.built_at);
       return groupByGame(newPlays);
     }).catch(function () {
       return [];
@@ -1003,7 +1014,9 @@
         '<path class="dm-field" d="M100,170 L158,110 L100,50 L42,110 Z"></path>' +
         watermark +
         plates +
-        '<path class="dm-plate" d="M94,176 L106,176 L106,168 L100,162 L94,168 Z"></path>' +
+        // Point down, toward the backstop - a home plate seen from above has
+        // its flat edge facing the pitcher, not its apex.
+        '<path class="dm-plate" d="M94,162 L106,162 L106,170 L100,176 L94,170 Z"></path>' +
         tokens +
       "</svg>" +
     "</div>";
@@ -1056,6 +1069,25 @@
 
   var RIBBON_W = 300, RIBBON_H = 64, RIBBON_PAD = 5;
 
+  /* Half-inning-pair index: 0 = top 1st, 1 = bottom 1st, 2 = top 2nd... Used
+     both by the ribbon's segment grouping and by the dwell/beat logic that
+     marks where one half-inning ends and the next begins. */
+  function hipOf(p) {
+    return (p.inning - 1) * 2 + (p.half === "bottom" ? 1 : 0);
+  }
+
+  /* True when this play opens a half-inning - i.e. the play before it in the
+     same game was in a different half. The comparison is against the game's
+     own play list, not the previous slide, so it stays correct for Catch Me Up
+     runs that only show part of a game. */
+  function startsHalfInning(slide) {
+    if (!slide || slide.kind !== "play") return false;
+    var plays = slide.gamePlays || [];
+    var i = slide.gameIdx;
+    if (i == null || i <= 0 || !plays[i] || !plays[i - 1]) return false;
+    return hipOf(plays[i]) !== hipOf(plays[i - 1]);
+  }
+
   function sceneRibbonHtml(slide) {
     var plays = slide.gamePlays || [];
     var upto = slide.gameIdx;
@@ -1067,7 +1099,6 @@
        game still ahead of it, instead of stretching two innings over the whole
        width and looking complete. Extras push the axis out past regulation.
        Plays are spaced evenly inside whichever half-inning they belong to. */
-    var hipOf = function (p) { return (p.inning - 1) * 2 + (p.half === "bottom" ? 1 : 0); };
     var segs = [];
     plays.forEach(function (p, i) {
       var hip = hipOf(p);
@@ -1106,6 +1137,35 @@
     var str = function (arr) {
       return arr.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
     };
+
+    /* Shade between the line and the 50/50 axis in whichever team's colour is
+       ahead there. Each segment becomes its own quad so the shading switches
+       sides exactly where the line crosses the axis - a segment that spans the
+       crossing is split at the crossing point rather than being coloured for
+       whichever end happens to win a vote. */
+    var midY = RIBBON_PAD + 0.5 * (RIBBON_H - RIBBON_PAD * 2);
+    var homeHex = teamColor(slide.homeAbbr) || "#4a6fa5";
+    var awayHex = teamColor(slide.awayAbbr) || "#9aa4b2";
+    var quad = function (a, bb) {
+      if (Math.abs(a.y - midY) < 0.05 && Math.abs(bb.y - midY) < 0.05) return "";
+      var hex = ((a.y + bb.y) / 2 < midY) ? homeHex : awayHex;
+      return '<path class="rb-fill" fill="' + escapeHtml(hex) + '" d="M' +
+        a.x.toFixed(1) + "," + midY.toFixed(1) + " L" + a.x.toFixed(1) + "," + a.y.toFixed(1) +
+        " L" + bb.x.toFixed(1) + "," + bb.y.toFixed(1) +
+        " L" + bb.x.toFixed(1) + "," + midY.toFixed(1) + ' Z"></path>';
+    };
+    var fills = "";
+    for (var q = 1; q < pts.length; q++) {
+      var pa = pts[q - 1], pb = pts[q];
+      var da = pa.y - midY, db = pb.y - midY;
+      if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+        var t = da / (da - db);
+        var cross = { x: pa.x + (pb.x - pa.x) * t, y: midY };
+        fills += quad(pa, cross) + quad(cross, pb);
+      } else {
+        fills += quad(pa, pb);
+      }
+    }
     var last = pts[pts.length - 1];
     // On the very first plotted play there is no previous point to draw a
     // segment from. Render the frame and the marker anyway rather than
@@ -1180,6 +1240,7 @@
        row included, and the badge would sit below the point it marks. */
     return '<div class="scene-ribbon"><div class="rb-plot">' +
       '<svg viewBox="0 0 ' + RIBBON_W + " " + RIBBON_H + '" preserveAspectRatio="none" aria-hidden="true">' +
+        fills +
         dividers +
         '<line class="rb-mid" x1="0" y1="' + mid + '" x2="' + RIBBON_W + '" y2="' + mid + '"></line>' +
         (seen.length > 1 ? '<polyline class="rb-seen" points="' + str(seen) + '"></polyline>' : "") +
@@ -1187,7 +1248,13 @@
         (prev ? '<line class="rb-new" x1="' + prev.x.toFixed(1) + '" y1="' + prev.y.toFixed(1) +
           '" x2="' + last.x.toFixed(1) + '" y2="' + last.y.toFixed(1) +
           '" style="--len:' + segLen.toFixed(2) + 'px"></line>' : "") +
-      "</svg>" + marker + "</div>" +
+      "</svg>" +
+      // Which end of the y-axis belongs to whom. Without this the line's
+      // direction is ambiguous - up is good for someone, but you cannot tell
+      // who from the curve alone.
+      '<div class="rb-y rb-y-top"><span>' + escapeHtml(slide.homeAbbr || "") + " 100%</span></div>" +
+      '<div class="rb-y rb-y-bot"><span>' + escapeHtml(slide.awayAbbr || "") + " 100%</span></div>" +
+      marker + "</div>" +
       '<div class="rb-axis">' + axis + "</div>" +
     "</div>";
   }
@@ -1253,6 +1320,23 @@
     "</div>";
   }
 
+  /* Carries what the removed replay-done card used to say, pinned to the play
+     the replay now rests on. */
+  function sceneRecapHtml(r) {
+    if (!r) return "";
+    if (!r.isFinal) {
+      return '<div class="scene-recap live">That’s everything so far · the game’s still going</div>';
+    }
+    var head = "FINAL · " + escapeHtml(r.away) + " " + r.awayScore + ", " +
+               escapeHtml(r.home) + " " + r.homeScore;
+    var top = r.topPlay
+      ? '<span class="scene-recap-top">Biggest play: ' + escapeHtml(r.topPlay.featured_name) +
+        " · " + escapeHtml((data.meta.result_labels || {})[r.topPlay.result] || r.topPlay.result) +
+        " (LI " + r.topPlay.leverage.toFixed(1) + ")</span>"
+      : "";
+    return '<div class="scene-recap"><span class="scene-recap-head">' + head + "</span>" + top + "</div>";
+  }
+
   function playSceneHtml(slide) {
     var m = slide.play;
     // A lead change gets a one-shot wash of the new leader's colour - cheap,
@@ -1266,12 +1350,18 @@
     // The key-moment flag drives the longer dwell (slideDwell); marking it on
     // the element too lets the scene show why this one is lingering.
     var isKey = !!m.is_key_moment;
+    // A new half-inning gets both a dwell bonus (slideDwell) and a beat on the
+    // inning indicator, so the break between halves is felt rather than just
+    // waited through.
+    var newHalf = startsHalfInning(slide);
     return '<div class="play-scene' + (isKey ? " is-key" : "") + '" data-key="' +
-      (isKey ? "1" : "0") + '">' + flash +
+      (isKey ? "1" : "0") + '" data-new-half="' + (newHalf ? "1" : "0") +
+      '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
+      sceneRecapHtml(slide.recap) +
       '<div class="scene-top">' +
         sceneDiamondHtml(m) +
         '<div class="scene-side">' +
-          '<div class="scene-inning">' +
+          '<div class="scene-inning' + (newHalf ? " new-half" : "") + '">' +
             '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
             '<div class="inning-num">' + m.inning + "</div>" +
           "</div>" +
@@ -1320,23 +1410,6 @@
           (slide.count === 1 ? " play" : " plays") + "</div>" +
       "</div>";
     }
-    if (slide.kind === "replay-done") {
-      var head = slide.isFinal
-        ? "FINAL · " + escapeHtml(slide.away) + " " + slide.awayScore + ", " +
-          escapeHtml(slide.home) + " " + slide.homeScore
-        : "That’s everything so far";
-      var sub = slide.isFinal
-        ? (slide.topPlay
-            ? "Biggest moment: " + escapeHtml(slide.topPlay.featured_name) + " · " +
-              escapeHtml((data.meta.result_labels || {})[slide.topPlay.result] || slide.topPlay.result) +
-              " (LI " + slide.topPlay.leverage.toFixed(1) + ")"
-            : "")
-        : "The game’s still going";
-      return '<div class="catchup-title">' +
-        '<div class="catchup-title-teams"><span>' + head + "</span></div>" +
-        (sub ? '<div class="catchup-title-sub">' + sub + "</div>" : "") +
-      "</div>";
-    }
     return playSceneHtml(slide);
   }
 
@@ -1349,10 +1422,39 @@
      auto-advances mid-animation reads as broken. */
   var PLAY_DWELL_MS_ROUTINE = 2000;
   var PLAY_DWELL_MS_KEY = 4500;
+  // Extra beat on the play that opens a half-inning, so the break between
+  // halves registers instead of the reel running straight through it.
+  var HALF_INNING_BONUS_MS = 700;
 
   function slideDwell(slide) {
     if (slide.kind !== "play") return TITLE_DWELL_MS;
-    return slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
+    var base = slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
+    return base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0);
+  }
+
+  /* Whole-card fades are for structural changes only - title to play, one game
+     to the next, play to the closing card. Running that fade between two plays
+     of the same game blinked every logo, the diamond field and the ribbon
+     baseline back through transparent even though none of it had changed,
+     which is what read as choppy. On a same-game advance the card stays at
+     full opacity and each inner component animates itself instead; they are
+     freshly built elements, so their own CSS animations restart on their own. */
+  function isSameGameAdvance(prev, next) {
+    if (!prev || !next || prev.kind !== "play" || next.kind !== "play") return false;
+    return prev.play.game_code === next.play.game_code;
+  }
+
+  function mountSlide(slideEl, slide, prev) {
+    slideEl.innerHTML = catchUpSlideHtml(slide);
+    if (isSameGameAdvance(prev, slide)) {
+      slideEl.classList.add("in");
+      return;
+    }
+    // Restart the fade: removing and re-adding after a reflow is what makes
+    // the transition replay rather than running only on the first slide.
+    slideEl.classList.remove("in");
+    void slideEl.offsetWidth;
+    slideEl.classList.add("in");
   }
 
   function clearCatchUpTimer() {
@@ -1374,15 +1476,10 @@
 
   function showCatchUpSlide(i) {
     if (i >= catchUp.slides.length) { closeCatchUp(); return; }
+    var prev = catchUp.index >= 0 ? catchUp.slides[catchUp.index] : null;
     catchUp.index = i;
     var slide = catchUp.slides[i];
-    var slideEl = $("catchup-slide");
-    slideEl.innerHTML = catchUpSlideHtml(slide);
-    // Restart the fade: removing and re-adding on the next frame is what makes
-    // the transition replay for every slide rather than only the first.
-    slideEl.classList.remove("in");
-    void slideEl.offsetWidth;
-    slideEl.classList.add("in");
+    mountSlide($("catchup-slide"), slide, prev);
 
     var progress = $("catchup-progress");
     // Unitless on purpose - the CSS divides it by 100 (see .catchup-progress::after).
@@ -1426,6 +1523,7 @@
     if (fav && !fav.hasName()) { fav.openPanel(); return; }
     if (!catchUpPlayCount(data.catchUpGroups)) return;
     catchUp.slides = buildCatchUpSlides(data.catchUpGroups);
+    catchUp.index = -1;   // no previous slide, so slide 0 gets the full fade in
     catchUp.paused = false;
     $("catchup-pause-hint").hidden = true;
     $("catchup-card").classList.remove("paused");
@@ -1504,32 +1602,39 @@
     });
   }
 
+  /* No trailing summary card: a single-game replay ends by holding on the
+     game's actual last play. The recap that card used to carry (final score,
+     and the game's highest-leverage play) rides along on that last play slide
+     as a banner instead, so the information survives the change. */
   function buildGameReplaySlides(plays) {
     if (!plays.length) return [];
     var last = plays[plays.length - 1];
     var isFinal = !!last.is_game_final;
     var away = plays[0].away_team_abbr, home = plays[0].home_team_abbr;
-    var slides = [{
-      kind: "replay-title", away: away, home: home,
-      isFinal: isFinal, count: plays.length,
-    }];
-    plays.forEach(function (p, i) {
-      slides.push({
-        kind: "play", play: p, playNo: i + 1, total: plays.length,
-        gamePlays: plays, gameIdx: i,
-        ribbonFrom: 0,          // a replay has no already-known prefix to mute
-        homeAbbr: home, awayAbbr: away,
-      });
-    });
     // Highest-leverage play of the game, straight off the list already loaded.
     var top = null;
     plays.forEach(function (p) {
       if (p.leverage != null && (!top || p.leverage > top.leverage)) top = p;
     });
-    slides.push({
-      kind: "replay-done", isFinal: isFinal, away: away, home: home,
-      awayScore: last.away_score, homeScore: last.home_score,
-      topPlay: isFinal ? top : null,
+    var slides = [{
+      kind: "replay-title", away: away, home: home,
+      isFinal: isFinal, count: plays.length,
+    }];
+    plays.forEach(function (p, i) {
+      var slide = {
+        kind: "play", play: p, playNo: i + 1, total: plays.length,
+        gamePlays: plays, gameIdx: i,
+        ribbonFrom: 0,          // a replay has no already-known prefix to mute
+        homeAbbr: home, awayAbbr: away,
+      };
+      if (i === plays.length - 1) {
+        slide.recap = {
+          isFinal: isFinal, away: away, home: home,
+          awayScore: last.away_score, homeScore: last.home_score,
+          topPlay: isFinal ? top : null,
+        };
+      }
+      slides.push(slide);
     });
     return slides;
   }
@@ -1553,27 +1658,25 @@
 
   function showReplaySlide(i) {
     if (i >= replay.slides.length) { closeReplay(); return; }
+    var prev = replay.index >= 0 ? replay.slides[replay.index] : null;
     replay.index = i;
     var slide = replay.slides[i];
-    var slideEl = $("replay-slide");
-    slideEl.innerHTML = catchUpSlideHtml(slide);
-    slideEl.classList.remove("in");
-    void slideEl.offsetWidth;
-    slideEl.classList.add("in");
+    mountSlide($("replay-slide"), slide, prev);
 
     var progress = $("replay-progress");
     if (slide.kind === "play") {
       progress.textContent = "Play " + slide.playNo + " of " + slide.total;
       progress.style.setProperty("--catchup-pct", String(100 * slide.playNo / slide.total));
-    } else if (slide.kind === "replay-done") {
-      progress.textContent = "";
-      progress.style.setProperty("--catchup-pct", "100");
     } else {
       progress.textContent = "Replay";
       progress.style.setProperty("--catchup-pct", "0");
     }
 
-    if (slide.kind === "replay-done") { clearReplayTimer(); return; }
+    /* A replay ends by holding on the game's actual last play, not by cutting
+       to a summary card. Without a trailing slide to stop on, the final play
+       has to stop the timer itself - otherwise its dwell would expire, the
+       index would run past the end and the overlay would auto-close. */
+    if (i === replay.slides.length - 1) { clearReplayTimer(); return; }
     if (!replay.paused) scheduleReplay(slideDwell(slide));
   }
 
@@ -1587,7 +1690,9 @@
       replay.remaining = Math.max(0, replay.remaining - elapsed);
       clearReplayTimer();
     } else if (replay.slides[replay.index] &&
-               replay.slides[replay.index].kind !== "replay-done") {
+               replay.index !== replay.slides.length - 1) {
+      // The last play is the resting point - resuming there has nothing to
+      // advance to, same as the closing card it replaced.
       scheduleReplay(replay.remaining || slideDwell(replay.slides[replay.index]));
     }
   }
@@ -1609,6 +1714,7 @@
       btn.classList.remove("loading");
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
       replay.slides = buildGameReplaySlides(plays);
+      replay.index = -1;   // no previous slide, so slide 0 gets the full fade in
       replay.paused = false;
       $("replay-pause-hint").hidden = true;
       $("replay-card").classList.remove("paused");

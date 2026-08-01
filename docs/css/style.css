@@ -145,19 +145,21 @@ button{font-family:inherit;cursor:pointer;}
 .scoreboard-tile:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
 .scoreboard-tile.selected{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy) inset;}
 
-/* Replay control, top-right of the tile. Sits above the tile's own click
-   target; app.js stops the event so it never also selects the game. */
+/* Replay control. Lives in .sb-foot's action row next to the leverage pill -
+   it used to sit at the tile's top-right, on top of the scorebug. Still a real
+   nested <button> inside the role="button" tile; app.js stops the event so it
+   never also selects the game. */
 .tile-replay-btn{
-  position:absolute;top:4px;right:4px;z-index:2;
-  width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;
-  border:1px solid transparent;border-radius:5px;background:transparent;
-  color:var(--muted);cursor:pointer;opacity:0.55;
+  position:relative;z-index:2;
+  width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:20px;background:var(--tint);
+  color:var(--muted);cursor:pointer;flex-shrink:0;
 }
-.tile-replay-btn svg{width:13px;height:13px;fill:currentColor;}
+.tile-replay-btn svg{width:9px;height:9px;fill:currentColor;margin-left:1px;}
 .tile-replay-btn:hover,.tile-replay-btn:focus-visible{
-  opacity:1;color:var(--navy);background:var(--tint);border-color:var(--border);
+  color:var(--navy);border-color:var(--navy);
 }
-.tile-replay-btn.loading{opacity:0.35;pointer-events:none;}
+.tile-replay-btn.loading{opacity:0.4;pointer-events:none;}
 @media (hover: hover){
   .scoreboard-tile:hover{border-color:var(--border-hover);}
   .scoreboard-tile.selected:hover{border-color:var(--navy);}
@@ -190,8 +192,14 @@ button{font-family:inherit;cursor:pointer;}
 .sb-foot{position:relative;margin-top:20px;}
 .wp-bar{display:flex;height:4px;border-radius:3px;overflow:hidden;background:var(--border);}
 .wp-seg{height:100%;}
-.sb-lev{
+/* The pill and the replay button centre together as one row. Previously
+   .sb-lev centred itself; now the row does, so a finished game (pill omitted)
+   still centres correctly on the button alone. */
+.sb-actions{
   position:absolute;left:50%;bottom:100%;transform:translateX(-50%);margin-bottom:4px;
+  display:flex;align-items:center;gap:5px;
+}
+.sb-lev{
   font-size:10px;font-weight:800;color:var(--muted);white-space:nowrap;
   background:var(--tint);border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
 }
@@ -489,13 +497,35 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 
 /* A key moment is why the slideshow slows down here - give it a visible
-   reason, not just a longer pause. */
-.play-scene.is-key .scene-detail{
-  border-left:3px solid var(--red);padding-left:9px;
+   reason, not just a longer pause. A centred rule rather than a left border:
+   .scene-detail is a full-width centred column, so a border on its edge sat
+   detached from the text it was meant to mark. */
+.play-scene.is-key .scene-detail::before{
+  content:"";width:32px;height:3px;border-radius:2px;background:var(--red);margin-bottom:1px;
 }
 
 .scene-side{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0;}
+/* Replaces the removed replay closing card - the final score and the game's
+   biggest play, pinned to the play the replay rests on. */
+.scene-recap{
+  align-self:center;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:5px 12px;border-radius:8px;text-align:center;
+  background:var(--navy);color:#fff;
+  animation:recapIn 420ms ease 260ms both;
+}
+.scene-recap.live{background:var(--tint);color:var(--muted);border:1px solid var(--border);}
+.scene-recap-head{font-size:12px;font-weight:800;letter-spacing:0.4px;}
+.scene-recap-top{font-size:10.5px;font-weight:600;opacity:0.82;}
+@keyframes recapIn{from{opacity:0;transform:translateY(-5px);}to{opacity:1;transform:none;}}
+
 .scene-inning{display:flex;align-items:center;gap:6px;}
+/* The beat that marks a new half-inning starting. */
+.scene-inning.new-half{animation:newHalf 900ms ease both;}
+@keyframes newHalf{
+  0%{transform:scale(1);opacity:0.35;}
+  35%{transform:scale(1.35);opacity:1;}
+  to{transform:scale(1);opacity:1;}
+}
 .scene-inning .tri{
   width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
 }
@@ -566,7 +596,23 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Exactly the plot box, and the only positioning context the marker sees. */
 .rb-plot{position:relative;}
 .scene-ribbon svg{width:100%;height:96px;display:block;overflow:visible;}
+/* Team-coloured shading between the line and the 50/50 axis. Kept low-opacity
+   so the line, dividers and marker all stay readable on top of it. */
+.rb-fill{opacity:0.3;stroke:none;}
+:root[data-theme="dark"] .rb-fill{opacity:0.38;}
+
 .rb-mid{stroke:var(--border);stroke-width:1;stroke-dasharray:3 4;}
+
+/* Whose 100% is at which end of the y-axis. Chipped so they stay legible
+   where the line runs close to the top or bottom of the plot. */
+.rb-y{position:absolute;left:0;pointer-events:none;}
+.rb-y span{
+  display:inline-block;padding:1px 5px;border-radius:3px;
+  font-size:8px;font-weight:800;letter-spacing:0.5px;color:var(--muted);
+  background:var(--card);opacity:0.85;
+}
+.rb-y-top{top:0;}
+.rb-y-bot{bottom:0;}
 /* Half-inning boundaries. vector-effect keeps them hairline-thin despite the
    non-uniform scaling this SVG gets stretched by. */
 .rb-div{stroke:var(--border);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0.7;}
@@ -663,7 +709,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-progress::after{transition:none;}
   .rn, .rn.move, .rn.batter, .rn.score, .rn.out, .rn.batter-out,
   .mt-fill, .scene-meter.hot .mt-fill,
-  .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash{animation:none;}
+  .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash,
+  .scene-recap, .scene-inning.new-half{animation:none;}
   .rn.out, .rn.batter-out{opacity:0.18;}
   .rn.score{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}

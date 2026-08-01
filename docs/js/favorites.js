@@ -24,24 +24,46 @@
 
   var CURSOR_TZ = "America/Chicago";
 
-  /* "Now" as a naive Central wall-clock string, matching the format
+  /* A Date as a naive Central wall-clock string, matching the format
      key_moments_build.py writes into every play's `timestamp`.
-     Deliberately NOT new Date().toISOString(): app.js compares the cursor to
-     those timestamps with a plain string compare, and a UTC-with-Z cursor
-     sorts 5-6 hours ahead of the Central wall clock it is being compared
-     against, which would silently drop that many hours of new plays on every
-     visit. app.js's parseChicagoNaive() is the same conversion in reverse. */
-  function centralNowIso() {
+     Deliberately NOT toISOString(): app.js compares the cursor to those
+     timestamps with a plain string compare, and a UTC-with-Z cursor sorts 5-6
+     hours ahead of the Central wall clock it is being compared against, which
+     would silently drop that many hours of new plays on every visit. app.js's
+     parseChicagoNaive() is the same conversion in reverse. */
+  function toCentralNaive(date) {
     var parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: CURSOR_TZ,
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
       hour12: false,
-    }).formatToParts(new Date());
+    }).formatToParts(date);
     var g = {};
     parts.forEach(function (p) { g[p.type] = p.value; });
     var hh = g.hour === "24" ? "00" : g.hour;   // some engines report midnight as 24
     return g.year + "-" + g.month + "-" + g.day + "T" + hh + ":" + g.minute + ":" + g.second;
+  }
+
+  function centralNowIso() {
+    return toCentralNaive(new Date());
+  }
+
+  /* The cursor may never claim to have seen further than the data actually
+     shown. A visitor arriving at 2pm against a 1pm build has only been shown
+     plays through 1pm; writing 2pm would mean a later build adding a play that
+     really happened at 1:30pm - before the visit, but not yet baked into the
+     JSON - lands behind the cursor and is filtered out forever, unseen.
+
+     built_at is a real UTC "...Z" string from key_moments_build.py, so it has
+     to be converted into the same naive-Central representation before the two
+     can be compared or min'd. */
+  function cappedCentralIso(builtAtUtcIso) {
+    var now = centralNowIso();
+    if (!builtAtUtcIso) return now;
+    var d = new Date(builtAtUtcIso);
+    if (isNaN(d.getTime())) return now;
+    var built = toCentralNaive(d);
+    return built < now ? built : now;
   }
 
   function endpoint() {
@@ -132,9 +154,15 @@
      in flight can never clobber it and vice versa. Resolves to null (never
      rejects) when there is no name or no endpoint - Catch Me Up simply has
      nothing to track in that case. */
-  function markSeenNow() {
+  function markSeenNow(builtAtIso) {
     if (!state.key || !endpoint()) return Promise.resolve(null);
-    var iso = centralNowIso();
+    var candidate = builtAtIso ? cappedCentralIso(builtAtIso) : centralNowIso();
+    /* Never move an existing cursor backward. built_at only marches forward in
+       normal operation, so this should not fire - but clock skew or a stale
+       cached build could hand back an older candidate, and a cursor that goes
+       backward re-shows plays the visitor has already been through. Cheap
+       insurance for a smaller annoyance than the bug above. */
+    var iso = (state.lastSeenIso && state.lastSeenIso > candidate) ? state.lastSeenIso : candidate;
     return fetch(endpoint(), {
       method: "POST",
       // text/plain dodges the CORS preflight Apps Script cannot answer.
