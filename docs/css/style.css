@@ -388,9 +388,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .header-toggle-btn{display:inline-flex;}
   .session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
 
-  /* 10c: collapsed filters bar and the sort chips share one line. */
+  /* 10c: collapsed filters bar and the sort chips share one line - same
+     7px vertical padding as .sort-chip-row .chip below, so the two match
+     in height exactly. Only affects the collapsed bar: the more specific
+     :not(.collapsed) rule below overrides padding for the expanded panel,
+     which stays roomier on purpose. */
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:16px;}
-  .filters-card{flex:1 1 auto;margin-bottom:0;padding:11px 13px;}
+  .filters-card{flex:1 1 auto;margin-bottom:0;padding:7px 13px;}
   .filters-card:not(.collapsed){flex:1 1 100%;padding:14px 14px 12px;}
   .filters-toggle{display:flex;}
   .filters-card.collapsed .filters-body{display:none;}
