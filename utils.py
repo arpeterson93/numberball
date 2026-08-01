@@ -829,6 +829,49 @@ def get_res_category(result: str, diff: int) -> str:
     return "OUT"
 
 
+# Canonical best -> worst result order, reused straight from the zone-color map
+# so the prior-result signals can never drift from the established ranking.
+_SEQ_RESULT_ORDER = list(_RESULT_ZONE_COLORS.keys())
+# K and everything ordered at or worse than it, plus the two DP-adjacent results
+# that _RESULT_ZONE_COLORS does not carry (see _DP_RESULTS below).
+_SEQ_K_OR_WORSE = set(_SEQ_RESULT_ORDER[_SEQ_RESULT_ORDER.index("K"):]) | {"KCS", "BDP"}
+# Fixed display / axis order for the prior-result signals.
+SEQ_RESULT_CATEGORIES = ["XBH", "BB-1B", "Out", "K+"]
+# Live result strings that carry none of the usual spellings but are plainly one
+# of the four buckets. Found by diffing the plays table's distinct results
+# against _RESULT_ZONE_COLORS; without these they would silently default to
+# "Out" (IBB is a walk, AutoK a strikeout, DP32 a double play, and so on).
+_SEQ_RESULT_ALIASES = {
+    "IBB": "BB", "AutoBB": "BB", "AutoK": "K", "DP32": "DP",
+}
+
+
+def seq_result_category(result: str) -> str:
+    """XBH / BB-1B / Out / K+ bucket for the prior-result Swing Suggestion signals.
+
+    Distinct from get_res_category: no diff>=300 override - this is a pure
+    result-string categorization. 'K+' is K and anything ordered at or worse
+    than K in _RESULT_ZONE_COLORS's canonical best->worst key order (plus the
+    DP-adjacent KCS/BDP, which aren't in that dict). Bunt variants resolve
+    through _BUNT_TO_SWING and then the same generic B-prefix stripping
+    _result_color uses (B1B -> 1B), so a bunt lands in its swing equivalent's
+    bucket. Unrecognized result strings default to 'Out', mirroring
+    get_res_category's own default.
+    """
+    r = _SEQ_RESULT_ALIASES.get(result, result)
+    r = _BUNT_TO_SWING.get(r, r)
+    if (r not in _RESULT_ZONE_COLORS and r not in _SEQ_K_OR_WORSE
+            and r.startswith("B") and r[1:] in _RESULT_ZONE_COLORS):
+        r = r[1:]
+    if r in _XBH:
+        return "XBH"
+    if r in _BB1B:
+        return "BB-1B"
+    if r in _SEQ_K_OR_WORSE:
+        return "K+"
+    return "Out"
+
+
 _OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "DFO", "SacF", "FC", "LO",
                 "LCO", "FC3rd", "FCH", "SacB", "CS", "CS2", "CS3", "CS4",
                 "BFC"}
@@ -1552,6 +1595,57 @@ def between_game_deltas(df: pd.DataFrame, value_col: str = "pitch") -> pd.Series
     return subset.apply(
         lambda r: circular_signed_delta(int(r["_prev_val"]), int(r[value_col])), axis=1
     ).dropna()
+
+
+def between_game_delta_hint(df: pd.DataFrame, value_col: str = "pitch") -> dict | None:
+    """Most likely |Δ| (fixed 100-unit bins) into the first pitch of a new game,
+    given this player's historical between-game deltas. Unconditional (no prior
+    value to condition on beyond "this is a game transition") - see
+    between_game_deltas for the underlying signed-delta computation."""
+    deltas = between_game_deltas(df, value_col)
+    if deltas.empty:
+        return None
+    cats = pd.cut(deltas.abs().astype(int), bins=_DELTA_HM_BINS, labels=False,
+                  right=True, include_lowest=True).dropna()
+    if cats.empty:
+        return None
+    counts = cats.astype(int).value_counts()
+    best_bkt = int(counts.index[0])
+    delta_step = _DELTA_HM_BINS[1] - _DELTA_HM_BINS[0]
+    n_d_bkts = len(_DELTA_HM_BINS) - 1
+    all_counts = [int(counts.get(i, 0)) for i in range(n_d_bkts)]
+    return {
+        "delta_lo": best_bkt * delta_step,
+        "delta_hi": (best_bkt + 1) * delta_step,
+        "prob": counts.iloc[0] / len(cats),
+        "n": int(len(cats)),
+        "all_counts": all_counts,
+        "delta_bucket_size": delta_step,
+    }
+
+
+def between_inning_delta_hint(df: pd.DataFrame, value_col: str = "pitch") -> dict | None:
+    """Same as between_game_delta_hint but for within-game inning transitions."""
+    deltas = between_inning_deltas(df, value_col)
+    if deltas.empty:
+        return None
+    cats = pd.cut(deltas.abs().astype(int), bins=_DELTA_HM_BINS, labels=False,
+                  right=True, include_lowest=True).dropna()
+    if cats.empty:
+        return None
+    counts = cats.astype(int).value_counts()
+    best_bkt = int(counts.index[0])
+    delta_step = _DELTA_HM_BINS[1] - _DELTA_HM_BINS[0]
+    n_d_bkts = len(_DELTA_HM_BINS) - 1
+    all_counts = [int(counts.get(i, 0)) for i in range(n_d_bkts)]
+    return {
+        "delta_lo": best_bkt * delta_step,
+        "delta_hi": (best_bkt + 1) * delta_step,
+        "prob": counts.iloc[0] / len(cats),
+        "n": int(len(cats)),
+        "all_counts": all_counts,
+        "delta_bucket_size": delta_step,
+    }
 
 
 _HOT_ZONE_LABELS = [
@@ -3867,6 +3961,86 @@ def diff_to_delta_hint(
     }
 
 
+def prior_result_delta_hint(df: pd.DataFrame, value_col: str, prior_category: str) -> dict | None:
+    """Most likely next |Δ| (fixed 100-unit bins) given the PREVIOUS plate
+    appearance's result category (XBH / BB-1B / Out / K+)."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_s = df[df[value_col].notna() & df["result"].notna()].sort_values(["game_id", group_col, "id"]).copy()
+    df_s["_nv"] = df_s.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_s = df_s.dropna(subset=["_nv"])
+    if df_s.empty:
+        return None
+    df_s["_nd"] = df_s.apply(lambda r: circular_diff(int(r[value_col]), int(r["_nv"])), axis=1)
+    df_s["_nc"] = pd.cut(df_s["_nd"], bins=_DELTA_HM_BINS, labels=False, right=True, include_lowest=True)
+    df_s = df_s.dropna(subset=["_nc"])
+    if df_s.empty:
+        return None
+    df_s["_rescat"] = df_s["result"].map(seq_result_category)
+    col_data = df_s[df_s["_rescat"] == prior_category]["_nc"].astype(int)
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    delta_step = _DELTA_HM_BINS[1] - _DELTA_HM_BINS[0]
+    n_d_bkts = len(_DELTA_HM_BINS) - 1
+    all_counts = [int(counts.get(i, 0)) for i in range(n_d_bkts)]
+    return {
+        "delta_lo": best_bkt * delta_step,
+        "delta_hi": (best_bkt + 1) * delta_step,
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+        "all_counts": all_counts,
+        "delta_bucket_size": delta_step,
+    }
+
+
+def _result_seq_context(df: pd.DataFrame, value_col: str) -> "pd.DataFrame | None":
+    """Fresh recompute: one row per plate appearance with '_cat' (this row's own
+    result category), '_prev_cat' (the immediately preceding SAME-GAME row's
+    category), and '_nc' (next-pitch |Δ| bucket, fixed 100-unit bins). Shared by
+    result_seq_delta_hint and result_seq_delta_dist so the two views can never
+    drift out of sync with each other."""
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_s = df[df[value_col].notna() & df["result"].notna()].sort_values(["game_id", group_col, "id"]).copy()
+    df_s["_cat"] = df_s["result"].map(seq_result_category)
+    df_s["_prev_cat"] = df_s.groupby(["game_id", group_col])["_cat"].shift(1)
+    df_s["_nv"] = df_s.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_s = df_s.dropna(subset=["_nv", "_prev_cat"])
+    if df_s.empty:
+        return None
+    df_s["_nd"] = df_s.apply(lambda r: circular_diff(int(r[value_col]), int(r["_nv"])), axis=1)
+    df_s["_nc"] = pd.cut(df_s["_nd"], bins=_DELTA_HM_BINS, labels=False, right=True, include_lowest=True)
+    df_s = df_s.dropna(subset=["_nc"])
+    return df_s if not df_s.empty else None
+
+
+def result_seq_delta_hint(df: pd.DataFrame, value_col: str,
+                          prior_cat_older: str, prior_cat_newer: str) -> dict | None:
+    """Most likely next |Δ| (fixed 100-unit bins) given the result categories of
+    the two most recent plate appearances (older first, newer/most-recent
+    second - same argument order convention as seq3_delta_hint)."""
+    df_s = _result_seq_context(df, value_col)
+    if df_s is None:
+        return None
+    col_data = df_s[(df_s["_prev_cat"] == prior_cat_older) &
+                    (df_s["_cat"] == prior_cat_newer)]["_nc"].astype(int)
+    if col_data.empty:
+        return None
+    counts = col_data.value_counts()
+    best_bkt = int(counts.index[0])
+    delta_step = _DELTA_HM_BINS[1] - _DELTA_HM_BINS[0]
+    n_d_bkts = len(_DELTA_HM_BINS) - 1
+    all_counts = [int(counts.get(i, 0)) for i in range(n_d_bkts)]
+    return {
+        "delta_lo": best_bkt * delta_step,
+        "delta_hi": (best_bkt + 1) * delta_step,
+        "prob": counts.iloc[0] / len(col_data),
+        "n": int(len(col_data)),
+        "all_counts": all_counts,
+        "delta_bucket_size": delta_step,
+    }
+
+
 def context_zone_hint(
     df: pd.DataFrame,
     value_col: str,
@@ -4248,6 +4422,15 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
     delta100 = pd.cut(pd.Series(delta_abs), bins=_DELTA_HM_BINS,
                       labels=False, right=True, include_lowest=True).to_numpy()
 
+    # Same wrapped delta, but WITHOUT the same-game mask - the cross-boundary
+    # deltas the between-game / between-inning signals are made of (that mask is
+    # exactly what would otherwise hide their only eligible rows).
+    delta_signed_any = np.full(n, np.nan)
+    if n > 1:
+        delta_signed_any[1:] = raw
+    delta_any100 = pd.cut(pd.Series(np.abs(delta_signed_any)), bins=_DELTA_HM_BINS,
+                          labels=False, right=True, include_lowest=True).to_numpy()
+
     # |Delta^2| into each pitch: the magnitude of the wrapped signed difference
     # between two consecutive signed deltas (see _wrap_delta2). NaN at each
     # game's first two pitches. The same2 guard is required (not optional): at a
@@ -4272,10 +4455,16 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
     fp_app = sw["is_fp_app"].to_numpy() if "is_fp_app" in sw.columns else np.zeros(n, dtype=bool)
     fp_inn = sw["is_fp_inn"].to_numpy() if "is_fp_inn" in sw.columns else np.zeros(n, dtype=bool)
 
+    # Result category (XBH / BB-1B / Out / K+) - context for the prior-result
+    # indications.
+    rescat = ([seq_result_category(r) if pd.notna(r) else None for r in sw["result"]]
+              if "result" in sw.columns else [None] * n)
+
     zb = [int(z) for z in zone_bkt]
     zb9 = [int(z) for z in zone9]
     db = [_int_or_none(delta_bkt[i]) for i in range(n)]
     d100 = [_int_or_none(delta100[i]) for i in range(n)]
+    da100 = [_int_or_none(delta_any100[i]) for i in range(n)]
     d2b = [_int_or_none(d2sq_bkt[i]) for i in range(n)]
     fb = [_int_or_none(diff_bkt[i]) for i in range(n)]
 
@@ -4303,6 +4492,31 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
     # Prior diff -> Delta: prior |diff| bucket -> |Delta| in fixed 100-unit bins.
     ind["Prior diff → Δ"] = (
         [fb[i - 1] if i >= 1 else None for i in range(n)], d100, len(_DELTA_HM_BINS) - 1)
+    # Prior result -> Delta: previous plate appearance's result category ->
+    # |Delta| in fixed 100-unit bins. Context is un-gated, matching
+    # "Prior diff → Δ" - the outcome (d100) is already NaN across a game
+    # boundary via the same1 mask upstream.
+    ind["Prior result → Δ"] = (
+        [rescat[i - 1] if i >= 1 else None for i in range(n)], d100, len(_DELTA_HM_BINS) - 1)
+    # Result seq -> Delta: the two preceding result categories -> |Delta|.
+    # same2 is required here: a two-event momentum read ("XBH then XBH") should
+    # reflect an actual in-game sequence, not two results that merely happen to
+    # be adjacent in career order.
+    ind["Result seq → Δ"] = (
+        [(rescat[i - 2], rescat[i - 1])
+         if (i >= 2 and same2[i] and rescat[i - 2] is not None and rescat[i - 1] is not None)
+         else None for i in range(n)], d100, len(_DELTA_HM_BINS) - 1)
+    # Between-Game Delta: is this row the first pitch of a new game for this
+    # pitcher? -> |Delta| into it, unmasked by the same-game guard.
+    ind["Between-Game Δ"] = (
+        ["bg" if bool(fp_app[i]) else None for i in range(n)], da100, len(_DELTA_HM_BINS) - 1)
+    # Between-Inning Delta: first pitch of a new inning, but NOT also the first
+    # pitch of a new game (that case belongs to Between-Game Δ instead - mirrors
+    # between_inning_deltas' own game-scoped groupby, which never sees a game's
+    # first inning at all).
+    ind["Between-Inning Δ"] = (
+        ["bi" if (bool(fp_inn[i]) and not bool(fp_app[i])) else None for i in range(n)],
+        da100, len(_DELTA_HM_BINS) - 1)
     # The context-zone indications below use the 9-cell ZONES grid (zb9) as the
     # outcome, matching their displayed best_zone_hint rows.
     # Outs: outs value -> zone9 (no sequence, so no game guard).
@@ -4329,7 +4543,7 @@ def scouting_recency_states(
     Wired for the pitcher side first; kept value_col-agnostic (pitch vs swing)
     so the batter side is a follow-up, not a rewrite. Returns
     {signal: {"avg": float|None, "n_scored": int, "state": "red"|"yellow"|"green"|None}}
-    for the eleven covered indications. Uses fixed-bucket conditioning only - it
+    for the fifteen covered indications. Uses fixed-bucket conditioning only - it
     deliberately ignores the page's Centered toggle, measuring general
     predictability rather than the exact displayed tooltip. dd2_bkt defaults to dd_bkt.
     """
@@ -4419,6 +4633,10 @@ def _recency_labelers(signal: str, hz_bkt: int, dd_bkt: int, dd2_bkt: int | None
         "2-Δ² seq":             (delta2sq, delta2sq),
         "3-Δ² seq":             (pair(delta2sq), delta2sq),
         "Prior diff → Δ":       (diff, delta100),
+        "Prior result → Δ":     (lambda c: c, delta100),
+        "Result seq → Δ":       (pair(lambda c: c), delta100),
+        "Between-Game Δ":       (lambda c: "New game", delta100),
+        "Between-Inning Δ":     (lambda c: "New inning", delta100),
         "Outs":                 (outs, zone9),
         "Base state":           (base, zone9),
         "1st pitch appearance": (lambda c: "1st of PA", zone9),
@@ -5018,7 +5236,7 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
     colors = [_cls_c.get(r["cls"], "#9e9e9e") for r in rows]
     # Display-payload only: OBP-backtest rows carry a per-step baseline p0, so
     # disclose the observed bucket's true width and base in the hover (Decision 9).
-    # Rows without a p0 key (all eleven existing signals) keep the byte-identical
+    # Rows without a p0 key (every non-OBP signal) keep the byte-identical
     # customdata and hover below.
     _disclose = bool(rows) and ("p0" in rows[0])
     if _disclose:
@@ -6457,6 +6675,147 @@ def diff_vs_next_pitch_delta_heatmap(
         annotations=annotations,
         height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
         margin=dict(l=80, r=62, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def next_pitch_delta_vs_prior_result_heatmap(
+    df: pd.DataFrame,
+    title: str = "Next Pitch |Δ| vs Prior Result",
+    value_col: str = "pitch",
+) -> go.Figure:
+    """Heatmap: unsigned next-value delta vs the PREVIOUS plate appearance's
+    result category (XBH / BB-1B / Out / K+, see seq_result_category).
+
+    X = prior result category (fixed best->worst order); Y = abs circular delta
+    to next value (0 at bottom, 500 at top). Only consecutive plate appearances
+    from the same player within the same game are counted.
+    """
+    df_sw = df[df[value_col].notna() & df["result"].notna()].copy()
+    if len(df_sw) < 2:
+        return go.Figure()
+
+    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    df_sw = df_sw.sort_values(["game_id", group_col, "id"])
+    df_sw["_next_val"] = df_sw.groupby(["game_id", group_col])[value_col].shift(-1)
+    df_sw = df_sw.dropna(subset=["_next_val"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_next_delta"] = df_sw.apply(
+        lambda r: circular_diff(int(r[value_col]), int(r["_next_val"])), axis=1
+    )
+    df_sw["_res_cat"] = pd.Categorical(
+        df_sw["result"].map(seq_result_category), categories=SEQ_RESULT_CATEGORIES
+    )
+    df_sw["_delta_cat"] = pd.cut(
+        df_sw["_next_delta"],
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_res_cat"]).reindex(
+        index=_DELTA_HM_LABELS, columns=SEQ_RESULT_CATEGORIES, fill_value=0
+    )
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
+    # Normalize each column to 0–100 % so colour reflects within-column distribution.
+    col_totals = _col_n.replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw  = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(SEQ_RESULT_CATEGORIES))]
+        for i in range(len(_DELTA_HM_LABELS))
+    ]
+    customdata = z_raw
+
+    annotations = []
+    for j, lbl in enumerate(SEQ_RESULT_CATEGORIES):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"{int(_col_n.iloc[j])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(_DELTA_HM_LABELS):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"{int(_row_n.iloc[i])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
+
+    fig = go.Figure(go.Heatmap(
+        z=z_norm,
+        x=SEQ_RESULT_CATEGORIES,
+        y=_DELTA_HM_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        customdata=customdata,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Prior result: %{x}<br>Next pitch |Δ|: %{y}<br>%{z:.1f}% of column (%{customdata} pitches)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Prior result"),
+        yaxis=dict(title="Next pitch |Δ|", autorange=True),
+        annotations=annotations,
+        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        margin=dict(l=80, r=62, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def result_seq_delta_dist(df: pd.DataFrame, value_col: str,
+                          prior_cat_older: str, prior_cat_newer: str) -> "go.Figure | None":
+    """Single-row heatmap: distribution of the next |Δ| given the result
+    categories of the two most recent plate appearances. Returns None when
+    there is no data for the given category pair."""
+    df_s = _result_seq_context(df, value_col)
+    if df_s is None:
+        return None
+    subset = df_s[(df_s["_prev_cat"] == prior_cat_older) & (df_s["_cat"] == prior_cat_newer)]
+    if subset.empty:
+        return None
+    counts = subset["_nc"].astype(int).value_counts().reindex(range(len(_DELTA_HM_LABELS)), fill_value=0)
+    total = int(counts.sum())
+    pcts = counts / total * 100 if total > 0 else counts * 0.0
+    text = [[f"{pcts[i]:.0f}%" if counts[i] > 0 else "" for i in range(len(_DELTA_HM_LABELS))]]
+
+    fig = go.Figure(go.Heatmap(
+        z=[pcts.values.tolist()],
+        x=_DELTA_HM_LABELS,
+        y=["Next |Δ|"],
+        text=text,
+        texttemplate="%{text}",
+        customdata=[counts.values.tolist()],
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="%{x}<br>%{z:.1f}% (%{customdata} instances)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(
+            text=f"Next |Δ|  |  {prior_cat_older} → {prior_cat_newer}  (n={total})",
+            x=0.5, xanchor="center", font=dict(size=13),
+        ),
+        xaxis=dict(title=None, side="bottom"),
+        yaxis=dict(showticklabels=True),
+        height=130,
+        margin=dict(l=80, r=10, t=55, b=40),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

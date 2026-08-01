@@ -25,7 +25,11 @@
       "Bash(powershell -Command \"Select-String -Path 'database.py' -Pattern 'def get_plays|table\\\\\\(.play' \")",
       "Bash(grep -n -i \"^result$\\\\|play_type\")",
       "Bash(awk -F',' 'NR==1{next} $16==\"HR\"{print NR\": on1=\"$19\" on2=\"$20\" on3=\"$21\" sc2=\"$22\" sc3=\"$23\" sc4=\"$24\" batter_id=\"$18\" batter_name=\"$35; c++} c>=6{exit}' plays_from_pitchers_200+_bf.csv)",
-      "Bash(awk -F',' 'NR==1{next} $13==\"HR\"{print NR\": on1=\"$19\" on2=\"$20\" on3=\"$21\" sc2=\"$22\" sc3=\"$23\" sc4=\"$24\" batter_id=\"$18\" batter_name=\"$35; c++} c>=8{exit}' plays_from_pitchers_200+_bf.csv)"
+      "Bash(awk -F',' 'NR==1{next} $13==\"HR\"{print NR\": on1=\"$19\" on2=\"$20\" on3=\"$21\" sc2=\"$22\" sc3=\"$23\" sc4=\"$24\" batter_id=\"$18\" batter_name=\"$35; c++} c>=8{exit}' plays_from_pitchers_200+_bf.csv)",
+      "Bash(grep -nE '#[0-9a-fA-F]{3,6}|rgba?\\\\\\(' /c/Users/Alex/PycharmProjects/numberball/docs/css/style.css)",
+      "Bash(awk -F: '$1>62')",
+      "Bash(awk 'NR>=1480 && NR<=1560 && /^ *\\(with|if|for|else|elif|def\\) /' pages/2_Scouting.py)",
+      "Bash(awk -F: '$1>1450 && $1<2320')"
     ]
   }
 }

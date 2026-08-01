@@ -271,7 +271,9 @@ def _load_pitcher_stoplight_detail(pitcher_name: str, leagues: tuple[str, ...], 
 _OBP_STOPLIGHT_SIGNALS = ["OBP recent pitch", "OBP recent Δ", "OBP recent Δ²"]
 _STOPLIGHT_ORDER = _OBP_STOPLIGHT_SIGNALS + [
                     "2-pitch seq", "3-pitch seq", "2-Δ seq", "3-Δ seq", "2-Δ² seq", "3-Δ² seq",
-                    "Prior diff → Δ", "Outs", "Base state", "1st pitch appearance", "1st pitch inning"]
+                    "Prior diff → Δ", "Prior result → Δ", "Result seq → Δ",
+                    "Outs", "Base state", "1st pitch appearance", "1st pitch inning",
+                    "Between-Game Δ", "Between-Inning Δ"]
 _STOPLIGHT_DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴", None: "⚪"}
 
 def _obp_widths_dict(widths_key: tuple) -> dict:
@@ -1561,6 +1563,9 @@ with tab_p:
             _h_diff_hist = (
                 df_p[df_p["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
             ) if "diff" in df_p.columns else []
+            _h_result_hist = (
+                df_p[df_p["result"].notna()].sort_values("id")["result"].tolist()
+            ) if "result" in df_p.columns else []
 
             _h_prior_pitch  = _h_recent[-1]      if len(_h_recent) >= 1 else None
             _h_prior_pitch2 = _h_recent[-2]      if len(_h_recent) >= 2 else None
@@ -1569,6 +1574,8 @@ with tab_p:
             _h_prior_d2sq   = _h_d2sq_hist[-1]   if len(_h_d2sq_hist)  >= 1 else None
             _h_prior_d2sq2  = _h_d2sq_hist[-2]   if len(_h_d2sq_hist)  >= 2 else None
             _h_prior_diff   = _h_diff_hist[-1]   if len(_h_diff_hist)  >= 1 else None
+            _h_prior_rescat  = utils.seq_result_category(_h_result_hist[-1]) if _h_result_hist else None
+            _h_prior_rescat2 = utils.seq_result_category(_h_result_hist[-2]) if len(_h_result_hist) >= 2 else None
 
             def _hstr(prob, n, n_bkts):
                 pct = prob * 100
@@ -1709,6 +1716,16 @@ with tab_p:
                 if _h:
                     _hint_rows_p.append(_delta_row_p("Prior diff → Δ", _h, 5))
 
+            if _h_prior_rescat is not None:
+                _h = utils.prior_result_delta_hint(df_p, "pitch", _h_prior_rescat)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Prior result → Δ", _h, 5))
+
+            if _h_prior_rescat is not None and _h_prior_rescat2 is not None:
+                _h = utils.result_seq_delta_hint(df_p, "pitch", _h_prior_rescat2, _h_prior_rescat)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Result seq → Δ", _h, 5))
+
             if _h_prior_pitch is not None:
                 _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p)
                 if _h:
@@ -1767,6 +1784,16 @@ with tab_p:
             _show_fp_inn_p = (_cur_game_id is not None
                               and (_p_last_game is None or _p_last_game != _cur_game_id
                                    or _p_last_inn != _cur_inn))
+
+            if _show_fp_app_p:
+                _h = utils.between_game_delta_hint(df_p, "pitch")
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Between-Game Δ", _h, 5))
+
+            if _show_fp_inn_p and not _show_fp_app_p:
+                _h = utils.between_inning_delta_hint(df_p, "pitch")
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Between-Inning Δ", _h, 5))
 
             if "is_fp_inn" in df_p.columns and _show_fp_inn_p:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
@@ -2243,6 +2270,48 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
                 width="stretch", config={"displayModeBar": False}, key="p_diff_delta_hm",
             )
+
+            st.divider()
+            st.subheader("Next Pitch Delta vs Prior Result")
+            st.caption("How does a pitcher adjust their next pitch based on how the previous plate appearance ended?")
+            st.plotly_chart(
+                utils.next_pitch_delta_vs_prior_result_heatmap(df_p, title="Next Pitch Δ vs Prior Result"),
+                width="stretch", config={"displayModeBar": False}, key="p_result_delta_hm",
+            )
+
+            st.divider()
+            st.subheader("Next Pitch Delta following a Result Sequence")
+            st.caption("Two plate appearances ago, then the most recent one - what does the pitcher's next adjustment look like?")
+            _rs_cats = utils.SEQ_RESULT_CATEGORIES
+            # Default both boxes to the pitcher's own last two result categories,
+            # mirroring how the Δ/Δ² Initial/Following inputs default from history.
+            _rs_res_hist_p = (
+                df_p[df_p["result"].notna()].sort_values("id")["result"].tolist()
+                if "result" in df_p.columns else []
+            )
+            _rs_def_older_p = (utils.seq_result_category(_rs_res_hist_p[-2])
+                               if len(_rs_res_hist_p) >= 2 else None)
+            _rs_def_newer_p = (utils.seq_result_category(_rs_res_hist_p[-1])
+                               if _rs_res_hist_p else None)
+            _rs_c1_p, _rs_c2_p = st.columns(2)
+            with _rs_c1_p:
+                _rs_older_p = st.selectbox(
+                    "Result 2 PAs ago", _rs_cats,
+                    index=_rs_cats.index(_rs_def_older_p) if _rs_def_older_p in _rs_cats else 0,
+                    key=f"rs_older_p_{tab_p_pitcher}",
+                )
+            with _rs_c2_p:
+                _rs_newer_p = st.selectbox(
+                    "Most recent result", _rs_cats,
+                    index=_rs_cats.index(_rs_def_newer_p) if _rs_def_newer_p in _rs_cats else 0,
+                    key=f"rs_newer_p_{tab_p_pitcher}",
+                )
+            _rs_fig_p = utils.result_seq_delta_dist(df_p, "pitch", _rs_older_p, _rs_newer_p)
+            if _rs_fig_p:
+                st.plotly_chart(_rs_fig_p, width="stretch",
+                                config={"displayModeBar": False}, key="p_result_seq_dist")
+            else:
+                st.caption("Not enough data for this result sequence.")
 
             # ── hot zone ─────────────────────────────────────────────────────────
             st.divider()
