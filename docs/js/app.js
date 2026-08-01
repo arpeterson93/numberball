@@ -450,7 +450,7 @@
     var awayHex = teamColor(g.away_team_abbr) || "#9aa4b2";
     var homeHex = teamColor(g.home_team_abbr) || "#c7ccd3";
     var levBadge = g.is_game_final ? "" :
-      '<span class="sb-lev' + leverageClass(g.leverage) + '">Lev ' + g.leverage.toFixed(1) + "</span>";
+      '<span class="sb-lev' + leverageClass(g.leverage) + '">LI ' + g.leverage.toFixed(1) + "</span>";
     var selected = filters.selectedGame === g.game_code ? " selected" : "";
 
     // Once final, the inning-indicator is redundant with the FINAL badge -

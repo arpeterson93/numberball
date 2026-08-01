@@ -125,7 +125,7 @@ RESULT_LABELS = {
 # (moment_tags() below appends in exactly this sequence) - reordering this
 # dict is the one place to change both.
 TAG_LABELS = {
-    "high_leverage": "High leverage",
+    "high_leverage": "High LI",
     "wpa": "WPA",
     "risp": "RISP",
     "run_scored": "Run scored",
