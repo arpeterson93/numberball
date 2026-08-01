@@ -41,7 +41,12 @@ OUT_DIR = os.path.join("docs", "data")
 
 # Inclusion thresholds - tuned against real per-session volume, see the
 # "threshold" summary printed at the end of a build.
-LEVERAGE_THRESHOLD = 2.0
+# 1.5 matches SCOREBOARD_HOT_LEVERAGE in docs/js/app.js, so "high leverage"
+# means the same number in the feed and on the game cards. Retuned from 2.0
+# alongside the leverage denominator refresh (_AVG_WP_SWING now uses
+# result_ranges_re24.csv and simulated visitation weights), which lowered every
+# leverage number in the app by about 11%.
+LEVERAGE_THRESHOLD = 1.5
 WPA_THRESHOLD = 0.12   # 12 percentage points of win probability
 
 # ── result taxonomy ───────────────────────────────────────────────────────────
@@ -398,8 +403,8 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
         else:
             wp_after = utils.get_win_probability_interpolated(remaining, outs_after, obc_after, lead_after)
 
-        leverage = utils.compute_leverage(
-            utils.RESULT_RANGES, remaining, outs_before, obc_before, lead_before
+        leverage = utils.compute_leverage_re24(
+            remaining, outs_before, obc_before, lead_before
         )
 
         states.append({
@@ -759,7 +764,7 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
                     else (m["away_score"] - m["home_score"]))
         remaining_now = utils.remaining_half_innings(inning, half, MLN_INNINGS)
         leverage_now = (0 if is_final else
-                       (utils.compute_leverage(utils.RESULT_RANGES, remaining_now, outs_after, obc_after, lead_now) or 0))
+                       (utils.compute_leverage_re24(remaining_now, outs_after, obc_after, lead_now) or 0))
 
         games.append({
             "game_code": m["game_code"],

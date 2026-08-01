@@ -1,0 +1,14 @@
+{
+  "total_games": 2000000,
+  "total_rollouts": {
+    "backfill": 2544000
+  },
+  "total_plays": 181465207,
+  "seeds": [
+    1,
+    2
+  ],
+  "runs": 2,
+  "lead_clip": 18,
+  "last_run": "2026-08-01T06:32:47+00:00"
+}

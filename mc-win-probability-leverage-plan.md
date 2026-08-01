@@ -100,6 +100,86 @@ resolved:
 
 ---
 
+## Implementation update - first run findings (Opus, 2026-08-01)
+
+Opus implemented the plan and ran it at 2,000,000 games. One real issue
+surfaced, plus two design requests from Alex in response - all three
+addressed here.
+
+### The 481-gap / `_wp_post_play` finding
+
+**Diagnosis (confirmed correct, not a Monte Carlo quality problem):** the
+simulated table has 481 gaps inside the `[-10, 10]` domain, concentrated at
+two boundaries:
+
+- `remaining=12` (top of the 1st) with a negative lead - genuinely
+  unreachable (the away team, batting first, can't be behind before the
+  home team has taken a single at-bat) and, importantly, **never queried**
+  by anything in the app - the only lookup at game start uses `lead=0`
+  exactly (`utils.compute_game_wp_series`'s `wp0` line), and `remaining`
+  only ever counts *down* from 12, so nothing ever transitions *into*
+  `remaining=12`. Harmless.
+- `remaining=1` (bottom of the last inning) with a **positive** lead - this
+  one is not harmless. It represents "the home team is already ahead as
+  they're about to bat in the last inning," which by the real walk-off rule
+  (`key_moments_build._is_walkoff_final`'s condition 1) means **the game is
+  already over and this half-inning is never played** - so no table, empirical
+  or simulated, will ever have real data there. `_wp_post_play`
+  (`utils.py:286-302`) doesn't know this: its generic "flip perspective for
+  the next half-inning" branch (`1.0 - get_win_probability_interpolated(remaining - 1, 0, "000", -new_bl)`)
+  queries this dead cell every time a top-of-the-last-inning play ends the
+  half with the home team ahead. `get_win_probability_interpolated`'s
+  clamp-to-nearest-lead fallback then returns whatever the nearest *populated*
+  lead's WP happens to be (e.g. ~0.34) instead of the true answer (1.0 - the
+  home team has already won), producing the leverage blowups Opus measured
+  (LI 0.00 -> 5.36 at one state; pooled mean LI 0.61 -> 0.95 with this
+  artifact included, 0.10/88-crossings/3.4%->3.8% without it).
+
+**Resolution:**
+
+1. **Fix the guard in `_wp_post_play` itself, not by patching either CSV.**
+   Detect the specific case - next half-inning is `remaining=1` and the
+   about-to-bat team's `new_bl` (from their own perspective, i.e. `-new_bl`
+   as currently computed) is positive - and short-circuit to `1.0` directly,
+   instead of doing the table lookup at all. This fixes the bug for *every*
+   table (today's empirical one and the new simulated one) permanently,
+   rather than requiring each table-generation script to remember to
+   backfill the same ~20 cells by hand. This is a small, precisely-scoped
+   correction to an existing win-probability-lookup edge case - not the kind
+   of open-ended "improve the leverage formula" work this plan's "Why"
+   section says is out of scope, but it *is* real production `utils.py`
+   code, so it's still a change Alex should review before it ships, same as
+   Opus already treated it.
+2. **Check whether today's live `win_probability_table.csv` has the same
+   gap.** If the empirical table also lacks positive-lead data at
+   `remaining=1` (likely, since real games never play out that half-inning
+   either), this bug already affects production leverage today, independent
+   of whether the Monte Carlo table is ever adopted - that's a materially
+   different priority (fix now) than "clean up before comparing tables."
+3. **No change needed to the `remaining=12` gaps** - confirmed harmless per
+   the diagnosis above, leave them as gaps.
+4. The rest of the comparison report (the `remaining > 2` figures) is
+   unaffected by this issue and can be evaluated independently while the
+   `_wp_post_play` fix is reviewed separately.
+
+### Two design changes requested by Alex, addressed together below
+
+1. **Incremental/resumable simulation** - re-running the simulator should
+   *add* games to the existing pool by default, not discard prior work and
+   start over.
+2. **State-seeded rollouts** - added to the plan per the tradeoff discussed
+   earlier: instead of (or in addition to) relying on full games organically
+   wandering into rare states, directly seed rollouts *at* every
+   `(remaining, outs, obc, batting_lead)` cell and simulate forward from
+   there, guaranteeing every cell gets controllable sample size regardless
+   of real-world rarity.
+
+These two turn out to unify well with each other and with the original
+full-game design - see the rewritten Stage 1 below, which replaces the
+original single-mode version.
+
+---
+
 ## The star of the show: `result_ranges_re24.csv`
 
 Verified this session (see the mechanics review two conversations back for
@@ -156,13 +236,26 @@ better-suited input for the *simulator* specifically):
 | Simulator output | `simulated_win_probability_table.csv` (never `win_probability_table.csv`) |
 | Comparison/report script | `compare_win_probability_tables.py` |
 | CLI flag (historical comparison script only) | `--season-start` (default `6`) |
+| Simulator mode flag | `--mode {full-game, state-seeded, backfill}` (default `full-game`) |
+| Simulator sizing flags | `--games` (full-game mode), `--rollouts-per-state` (state-seeded/backfill), `--min-n` (backfill's thinness threshold) |
+| Simulator accumulation flags | `--fresh` (discard existing pool and start over; default is to accumulate) |
 | Reused, untouched | `utils.advance_runners`, `utils.outs_added`, `utils.remaining_half_innings`, `utils.game_innings`, `key_moments_build._is_walkoff_final`, `utils.compute_leverage`, `utils._compute_avg_wp_swing` |
+| New, small, reviewed-separately | `_wp_post_play`'s `remaining=1`/positive-lead guard (see "Implementation update" above) |
 
 ---
 
 ## Stage 1 - `simulate_win_probability.py` (the simulator itself)
 
-### 1a. Setup
+Rewritten from the original single-mode design to add resumable
+accumulation and state-seeded rollouts, per Alex's follow-up requests.
+**Both new capabilities share the same underlying mechanic as the original
+full-game design** - "start at some state, simulate forward to a decided
+finish, backfill every state visited along the way with the eventual
+winner" - so this is a refactor of Stage 1 into one shared continuation
+function called two different ways, not two separate simulators to
+maintain.
+
+### 1a. Setup (shared by every mode)
 
 - Load `result_ranges_re24.csv` with `dtype={"obc": str}`, `.str.zfill(3)`
   on the `obc` column (see the gotcha above).
@@ -174,18 +267,21 @@ better-suited input for the *simulator* specifically):
   relative weights without needing them normalized to sum to 1 - the
   `Rng * 2 / 1000` conversion `compute_leverage`'s numerator formula uses
   (`utils.py:360`) matters when computing an absolute probability number,
-  not when weighting a random draw, so skip it here. One less thing to get
-  slightly wrong (the per-group `Rng` sum of `501` rather than `500` would
-  otherwise raise a "do I clip at 1.0 or not" question that simply doesn't
-  arise if weights are never normalized in the first place).
-- `--games` CLI flag, default `200000` (see the resolved discussion above -
-  validated via the convergence check in Stage 3, not a precomputed number).
-- `--seed` CLI flag for reproducibility.
+  not when weighting a random draw, so skip it here.
+- `--seed` CLI flag, **optional** - if omitted, seed from OS entropy
+  (`random.seed()` with no argument) so repeated invocations under the
+  default accumulate-by-default behavior (1c below) actually add *new*
+  games rather than resampling the same ones. Always print whichever seed
+  got used (explicit or entropy-derived) so a specific run can be
+  reproduced later if needed.
 
-### 1b. One simulated game
+### 1b. The shared continuation function
 
-Initialize `inning=1, half="top", outs=0, obc="000", away_score=0, home_score=0`.
-Loop:
+```
+def simulate_from(inning, half, outs, obc, home_score, away_score) -> (events, winner)
+```
+
+Loop, starting from whatever state it's called with:
 
 1. `remaining = utils.remaining_half_innings(inning, half, key_moments_build.MLN_INNINGS)`
    (import `MLN_INNINGS` from `key_moments_build.py:38` rather than
@@ -194,65 +290,157 @@ Loop:
 2. `batting_is_home = (half == "bottom")`;
    `batting_lead_before = (home_score - away_score) if batting_is_home else (away_score - home_score)`.
 3. **Record the pre-play snapshot**: `(remaining, outs, obc, batting_lead_before, batting_is_home)`
-   appended to this game's own event list (not the global accumulator yet -
-   see 1c on why the win/loss label can't be known until the game ends).
-4. Look up `dist.get((outs, obc))`. Given the exactness guarantee above,
-   every `(outs, obc)` the simulator can actually reach has a non-empty
-   entry - `result_ranges_re24.csv` covers all 24 combinations, and the
-   simulator can never produce an `obc`/`outs` pair the BRC-derived
-   transitions don't already keep within that same 24-combination space.
-   No fallback branch is needed here; if one is ever hit, that is a bug to
-   surface loudly (assert, don't silently default), not a runtime case to
-   design around.
+   appended to `events` (not the global accumulator yet - the win/loss
+   label isn't known until the whole continuation ends, see 1d).
+4. Look up `dist.get((outs, obc))`. Given the exactness guarantee in "The
+   star of the show" above, every `(outs, obc)` the simulator can reach
+   from a legal starting state has a non-empty entry. No fallback branch is
+   needed; if one is ever hit, assert loudly rather than silently defaulting
+   - that would mean a state-seeded rollout was started from an illegal
+   `(outs, obc)` combination, a bug in the seeding logic (1c), not a runtime
+   case to design around.
 5. Sample `result` from `dist[(outs, obc)]`.
 6. `new_obc, runs = utils.advance_runners(result, obc, outs)`.
 7. `new_outs = min(3, outs + utils.outs_added(result))`.
-8. Apply `runs` to whichever team is batting (`home_score`/`away_score`).
+8. Apply `runs` to whichever team is batting.
 9. **Game-end check - reuse, do not reimplement.** Import
-   `_is_walkoff_final` from `key_moments_build.py` and call it with the
+   `_is_walkoff_final` from `key_moments_build.py`, call it with the
    post-play `(inning, half, new_outs, home_score, away_score)` exactly as
    `key_moments_build._scoreboard()` already does (`key_moments_build.py:725-727`).
-   If it returns `True`, the game is over - go to 1c. Otherwise, if
-   `new_outs >= 3`, flip half (top->bottom same inning, bottom->top next
-   inning), `outs=0, obc="000"`; else `outs=new_outs, obc=new_obc`.
-   Continue the loop.
+   If `True`, return `(events, winner)`. Otherwise, if `new_outs >= 3`, flip
+   half (top->bottom same inning, bottom->top next inning), `outs=0,
+   obc="000"`; else `outs=new_outs, obc=new_obc`. Continue the loop.
 
-### 1c. Scoring the game's events into the accumulator
+### 1c. Three ways to call it
 
-Once a game ends, determine the winner (`home_score` vs `away_score` - by
-construction of the walk-off/last-inning check, it is never a tie at this
-point). For every recorded `(remaining, outs, obc, batting_lead, batting_is_home)`
-snapshot from this game:
+**Full-game mode (`--mode full-game`, the original design):** call
+`simulate_from(1, "top", 0, "000", 0, 0)` - the canonical game-opening
+state - once per game, `--games` times (default `200000`). This is the
+"natural" distribution: states get visited proportional to how often real
+games actually reach them, which is good for common states and slow to
+converge on rare ones (the sparse-cell problem discussed when this plan was
+first drafted, and part of what produced Opus's first-run gaps beyond the
+two boundary-condition ones).
 
+**State-seeded mode (`--mode state-seeded`, new):** enumerate every
+`(remaining, outs, obc, batting_lead)` cell in the table's domain -
+`remaining` 1-12, `outs` 0-2, `obc` all 8 values, `batting_lead` -18..18 -
+10,656 cells (revised from an initial -10..10/6,048-cell domain - see
+"`batting_lead` domain: -18..18, matching production" below for why).
+For each, reconstruct a concrete starting game state and call
+`simulate_from` `--rollouts-per-state` times (default `500`):
+
+- `remaining -> (inning, half)`: invert `remaining_half_innings` within
+  regulation - `hip = MLN_INNINGS*2 - remaining`, `inning = hip // 2 + 1`,
+  `half = "bottom" if hip % 2 == 1 else "top"`. This is well-defined and
+  unique for every `remaining` 1-12 (`MLN_INNINGS=6` means `hip` ranges
+  0-11, one value per `remaining`). Extra-inning depth doesn't need
+  separate handling - a `remaining=2` cell reached via a real 9th-inning
+  top half behaves identically, going forward, to one reached via a
+  regulation 6th-inning top half, since the same capping rule governs
+  continuation from either; seeding at the regulation-equivalent inning is
+  fully valid.
+- `obc`, `outs`: used directly, no translation needed.
+- `batting_lead -> (home_score, away_score)`: only the *difference* matters
+  anywhere downstream (`_is_walkoff_final` and every WP/leverage function
+  only ever compares `home_score` to `away_score`, never an absolute value)
+  - so pick any consistent baseline: `home_score = max(lead, 0)`,
+  `away_score = max(-lead, 0)` where `lead` is from the batting team's
+  perspective and sign-flipped back to home/away as needed based on
+  `batting_is_home`.
+- Every cell gets guaranteed, controllable sample size regardless of
+  real-world rarity - this is the direct fix for the sparse-cell problem,
+  and, as a side effect, would also produce a sensible (if approximate)
+  answer at the `remaining=1`/positive-lead boundary cells discussed above
+  even before the `_wp_post_play` guard fix ships (forcing a rollout to
+  "play out" that dead half-inning still converges close to 1.0, since the
+  home team's existing lead going in makes losing that specific inning
+  extremely unlikely) - complementary to, not a substitute for, the
+  `_wp_post_play` fix, which is exact where this is merely close.
+
+**Backfill mode (`--mode backfill`, new, the recommended default workflow
+after an initial full-game pass):** load the existing
+`simulated_win_probability_table.csv`, find every cell with `n <
+--min-n` (default `200`), and run state-seeded rollouts (1c above) *only*
+for those cells. This avoids paying for all 10,656 cells at full rollout
+count every time - most cells get plenty of coverage from a big full-game
+run; only the genuinely rare ones need direct seeding.
+
+### `batting_lead` domain: -18..18, matching production (revised 2026-08-01)
+
+The original design clamped `batting_lead` to `[-10, 10]`, copied from the
+clamps inside `get_win_probability`/`get_win_probability_interpolated`
+(`utils.py:181`, `214` - both do `max(-10, min(10, int(batting_lead)))`
+before any lookup). That was an incomplete read of "the existing table's
+domain": those two functions clamp every *query* to `[-10, 10]`, but the
+*stored* `win_probability_table.csv` file itself actually carries data out
+to `[-18, 18]` (37 distinct lead values, confirmed by inspection) - cells
+between 11 and 18 in magnitude that the app has apparently never actually
+queried, since the query-side clamp cuts them off first. Alex wants the
+simulated table to match the *file's* domain, not the narrower query clamp,
+so **`batting_lead` is now `[-18, 18]` everywhere in this plan**: the
+state-seeded enumeration (10,656 cells, previous section), the accumulation
+clamp below, and the coverage-summary range.
+
+**This is a file-level match only, not a behavior change.** `utils.py`'s
+query clamps stay at `[-10, 10]` unless and until that's separately decided
+- widening the simulated table's stored range doesn't by itself change what
+the live app ever looks up. If the cells from 11-18 in magnitude should
+actually start getting used (e.g. blowout leverage/WP no longer flattens at
+±10), that requires also widening those two clamp lines - a small,
+`utils.py`-touching change in the same spirit as the `_wp_post_play` guard
+fix above, and one that should get the same explicit review rather than
+being bundled into this data-generation work.
+
+### 1d. Accumulation - resumable by default
+
+**Re-running the simulator adds to the existing pool; it does not replace
+it, unless `--fresh` is passed.** To make this correct:
+
+- Store the raw win **count**, not just a probability, in the output file -
+  add an explicit `win_sum` column (always a whole number, since each
+  labeled event contributes exactly `1` or `0`) alongside `n`. `win_prob`
+  stays in the file too, as a derived convenience column
+  (`win_sum / n`), but accumulation always reconstructs from `win_sum`/`n`
+  directly rather than reverse-engineering a sum from a rounded probability
+  - avoids any precision loss across repeated accumulation.
+- On startup (unless `--fresh`), if `simulated_win_probability_table.csv`
+  already exists, load its `(remaining, outs, obc, batting_lead) ->
+  (win_sum, n)` rows as the accumulator's starting point; add this run's
+  results on top; write the combined totals back to the same file.
+- Persist a small sidecar, `simulated_win_probability_meta.json`, tracking
+  cumulative totals across all runs (`total_games` for full-game mode,
+  `total_rollouts` per mode, the list of seeds used, last-run timestamp) -
+  purely informational bookkeeping so it's visible how much total
+  simulation backs the current file without having to keep every run's
+  terminal output around.
+- Clamp `batting_lead` to `[-18, 18]` **only when bucketing into the
+  accumulator** (matches `win_probability_table.csv`'s actual stored
+  domain, not the narrower `[-10, 10]` query clamp in
+  `get_win_probability`/`get_win_probability_interpolated` - see
+  "`batting_lead` domain" above) - do not clamp the value used to decide
+  `won`, only the key used to file it into the output table.
 - `won = 1.0 if (batting_is_home == (home_score > away_score)) else 0.0`
-- Clamp `batting_lead` to `[-10, 10]` **only when bucketing into the
-  accumulator** (matches the existing table's domain and the clamps already
-  present in `get_win_probability`/`get_win_probability_interpolated`,
-  `utils.py:181`, `214`) - do not clamp the value used to decide `won`,
-  only the key used to file it into the output table.
-- Accumulate into a global `dict[(remaining, outs, obc, batting_lead), [win_sum, n]]`.
+  for every recorded event once a continuation's winner is known - the
+  same two-pass "simulate forward, label backward" discipline as the
+  original design, unchanged: there is no way to know a mid-continuation
+  state's eventual win/loss before the continuation finishes, so don't try
+  to compute WP incrementally during the walk.
 
-This two-pass-per-game shape (simulate forward, label backward once the
-winner is known) is the only correct way to do this - there is no way to
-know a mid-game state's eventual win/loss without finishing the game first,
-so do not try to compute WP incrementally during the walk.
+### 1e. Output
 
-### 1d. Output
+`simulated_win_probability_table.csv` columns:
+`remaining,outs,obc,batting_lead,win_prob,win_sum,n`. `utils._load_wp_table()`
+only reads the four named key columns plus `win_prob` (`utils.py:110-113`),
+so the extra columns are silently ignored if this file is ever pointed at
+by that loader - they exist for Stage 3's reporting and for this script's
+own resumability, not for production consumption.
 
-After all games: for every accumulated key, `win_prob = win_sum / n`. Write
-`simulated_win_probability_table.csv` with columns
-`remaining,outs,obc,batting_lead,win_prob,n` - the extra `n` column (sample
-count backing that cell) is new relative to `win_probability_table.csv`'s
-schema, and that's fine: `utils._load_wp_table()` only reads the four named
-key columns plus `win_prob` (`utils.py:110-113`), so an extra column is
-silently ignored if this file is ever pointed at by that loader. `n` exists
-purely so Stage 3's comparison report can weight/flag low-confidence cells -
-it is diagnostic, not consumed by any production code path in this plan.
-
-Print a coverage summary: how many `(remaining, outs, obc)` combinations
-have data across the full `batting_lead` range `[-10, 10]` vs. only a
-partial range, and the count of cells with `n` below some visibility
-threshold (e.g. 30).
+Print a coverage summary every run: how many `(remaining, outs, obc)`
+combinations have data across the full `batting_lead` range `[-18, 18]` vs.
+only a partial range, and the count of cells with `n` below the visibility
+threshold - this is exactly the signal that tells you whether to follow up
+with `--mode backfill`.
 
 ---
 
@@ -343,21 +531,242 @@ Read-only, produces a report - no file writes beyond an optional
    `_BRC_RUN_LOOKUP` (both already verified manually this session, but
    re-verify in-script since this is the simulator's foundation and should
    fail loudly, not silently, if the file ever changes).
-3. **Stage 1 hand-check**: with a small `--games` (e.g. 500) for a fast dev
-   loop, confirm the script finishes, and add a lightweight in-script
-   assertion that every simulated game ends with exactly 3 outs on every
-   completed half-inning and a decided (non-tied) final score - mirroring
-   the same invariant `key_moments_build.py`'s docstring says its own
-   replay is checked against.
-4. **Full run**: run Stage 1 at the real `--games` count, note wall-clock
-   time, run the two-seed convergence check (rerun with a different
-   `--seed`, diff the two output tables - common states should agree
-   closely, rare states may still show noise; raise `--games` if rare
-   states relevant to leverage - 2 outs, RISP - are still noisy at the
-   chosen count), then run Stage 3 and read the report.
-5. **Regression**: confirm `win_probability_table.csv` is byte-for-byte
-   unchanged (nothing in this plan writes to it), confirm
-   `python -m py_compile utils.py` still passes (nothing in `utils.py`
-   changes), confirm the live app is unaffected - this entire plan is
-   additive/read-only against production code paths until Alex explicitly
-   decides to adopt the new table.
+3. **Stage 1 hand-check**: with a small `--games` (e.g. 500, full-game mode)
+   for a fast dev loop, confirm the script finishes, and add a lightweight
+   in-script assertion that every simulated continuation ends with exactly
+   3 outs on every completed half-inning and a decided (non-tied) final
+   score - mirroring the same invariant `key_moments_build.py`'s docstring
+   says its own replay is checked against.
+4. **State-seeded hand-check**: run `--mode state-seeded` at a small
+   `--rollouts-per-state` (e.g. 20) for one deliberately-chosen cell (e.g.
+   `remaining=6, outs=1, obc="010", batting_lead=2`), confirm the
+   reconstructed starting `(inning, half, home_score, away_score)` is
+   correct by hand, and confirm every rollout's first recorded event
+   matches that exact seeded state (a bug in the seeding math would show up
+   immediately as the seeded cell itself having the wrong `(remaining,
+   outs, obc, batting_lead)` in its own output row).
+5. **Resumability check**: run Stage 1 twice in a row at a small `--games`
+   count without `--fresh`, confirm `n` roughly doubles across the affected
+   cells (not resets), confirm `win_sum <= n` always holds (a violated
+   invariant would mean the accumulate-vs-fresh logic is buggy), and confirm
+   two consecutive runs use different seeds by default (print them, compare).
+6. **Full run**: run Stage 1 in full-game mode at the real `--games` count
+   (starting default `200000`, `--fresh` for a clean baseline), note
+   wall-clock time, run the two-seed convergence check (rerun with a
+   different `--seed`, diff the two output tables - common states should
+   agree closely, rare states may still show noise), then run `--mode
+   backfill` with the default `--min-n` and confirm the coverage summary's
+   thin-cell count drops to (near) zero afterward, then run Stage 3 and
+   read the report.
+7. **Regression**: confirm `win_probability_table.csv` is byte-for-byte
+   unchanged (nothing in Stages 1-3 write to it), confirm
+   `python -m py_compile utils.py` still passes, confirm the live app is
+   unaffected. (Note: the `_wp_post_play` guard fix from the "Implementation
+   update" section above has already landed in `utils.py:300-309` and is a
+   real, reviewed production change - Stage 4 below is a second, separate
+   production change, not part of Stages 1-3's read-only scope.)
+
+---
+
+## Stage 4 - leverage constant refresh (`win_probability_table.csv` stays exactly as-is in prod)
+
+Requested by Alex once the simulated table and `result_ranges_re24.csv`
+were both in hand: **do not adopt the simulated win-probability table** (the
+build-vs-compare decision from "Resolved decisions" #3 stays undecided/open)
+- instead, use the *pieces this project already produced and trusts* -
+`result_ranges_re24.csv` and the simulation's state-visitation counts - to
+improve `_AVG_WP_SWING` (the shared leverage denominator) and to give
+`key_moments_build.py`'s leverage numerator a properly situational input,
+without touching `win_probability_table.csv`, `compute_win_probability.py`,
+or `compute_leverage()`'s own signature/behavior at all.
+
+**Important consequence to sign off on before this ships**:
+`_AVG_WP_SWING` is one constant shared by *every* `compute_leverage()` call
+in the app - Scouting's included, even though Scouting's own `result_ranges`
+input isn't touched by this stage. Improving the denominator will shift the
+leverage *number* shown on the Scouting page too (a better-calibrated shared
+baseline, not a bug), and `LEVERAGE_THRESHOLD = 2.0`
+(`key_moments_build.py`) plus any Scouting-side leverage-based tuning need
+re-checking against the new baseline, not an assumption that the old
+threshold still means the same thing. See validation step 4d below.
+
+### 4a. New situational range lookup - `utils.py`, near `RESULT_RANGES` (`utils.py:536-554`)
+
+```python
+_RE24_RANGES: dict[tuple[int, str], list[tuple[str, int, int]]] = {}
+
+def _load_re24_ranges() -> None:
+    global _RE24_RANGES
+    try:
+        df = pd.read_csv("result_ranges_re24.csv", dtype={"obc": str})
+        df["obc"] = df["obc"].str.zfill(3)
+        ranges: dict[tuple[int, str], list[tuple[str, int, int]]] = {}
+        for _, row in df.iterrows():
+            key = (int(row["outs"]), row["obc"])
+            ranges.setdefault(key, []).append(
+                (str(row["Result"]), int(row["Low"]), int(row["High"]))
+            )
+        _RE24_RANGES = ranges
+    except FileNotFoundError:
+        pass
+
+_load_re24_ranges()
+```
+
+Place the module-level load call alongside `_load_result_frequencies()`/
+`_load_state_frequencies()` (`utils.py:282-283`) - same pattern, same
+FileNotFoundError-is-a-silent-no-op discipline as every other CSV this file
+loads at import time.
+
+### 4b. `compute_leverage_re24` - new function, right after `compute_leverage` (`utils.py:343-363`)
+
+```python
+def compute_leverage_re24(remaining: int, outs: int, obc: str, batting_lead: int) -> float | None:
+    """Leverage using result_ranges_re24.csv's per-(outs,obc) situational
+    diff-band table instead of a caller-supplied matchup range list - for
+    contexts with no stadium-sheet ranges available (Key Moments build,
+    scoreboard). compute_leverage() itself is unchanged; this just supplies
+    the right situational slice of ranges to it."""
+    ranges = _RE24_RANGES.get((int(outs), str(obc)))
+    if not ranges:
+        return None
+    return compute_leverage(ranges, remaining, outs, obc, batting_lead)
+```
+
+Zero changes to `compute_leverage()`'s own body - it already accepts any
+`(result, lo, hi)` list, so this is purely "supply a better list," not "add
+a new code path inside the leverage formula." Scouting's call site
+(`pages/2_Scouting.py:3962`) is not touched at all.
+
+### 4c. `key_moments_build.py` - swap the two call sites
+
+- `replay_game()`, `key_moments_build.py:401-403`: replace
+  `utils.compute_leverage(utils.RESULT_RANGES, remaining, outs_before, obc_before, lead_before)`
+  with `utils.compute_leverage_re24(remaining, outs_before, obc_before, lead_before)`.
+- `_scoreboard()`, `key_moments_build.py:762` (the "leverage of the state
+  following the latest play" fix from earlier): same swap, same arguments
+  (`remaining_now, outs_after, obc_after, lead_now`).
+- `utils.RESULT_RANGES` stays in `utils.py` untouched - it's still the
+  Scouting page's fallback/default template for contexts without a fetched
+  matchup, unrelated to this change.
+
+### 4d. `_AVG_WP_SWING` denominator upgrade - `utils.py:318-341`
+
+Two changes to `_compute_avg_wp_swing()`, both additive to the existing
+loop structure (the outer loop still walks `_WP_BY_STATE`, i.e. every state
+present in **prod's `win_probability_table.csv`** - that table's role as
+the source of `wp_cur`/`wp_after` values is completely unchanged):
+
+1. **Per-state result distribution**: replace the flat
+   `_LI_AVG_PROBS.items()` iteration with a lookup into `_RE24_RANGES` for
+   *that specific state's* `(outs, obc)`, converting each range to a
+   probability the same way `compute_leverage`'s own numerator already does
+   (`min((hi - lo + 1) * 2 / 1000, 1.0)`) - so "expected swing at this
+   state" is computed from results that can actually happen there, not a
+   distribution that includes e.g. double-play results at a 2-out state
+   where the theoretical table (correctly) has none.
+2. **State weighting**: new `_SIM_STATE_WEIGHTS` dict (see 4e), used in
+   place of `_STATE_WEIGHTS` **only inside this function** - do not touch
+   `_STATE_WEIGHTS`/`state_frequencies.csv` itself, since
+   `batter_optimizer.py:55` reads `_utils._STATE_WEIGHTS` directly for an
+   unrelated purpose and has no reason to be affected by this leverage-only
+   change. (A shared upgrade might be worth doing later - a larger, more
+   consistent sample would plausibly help `batter_optimizer.py` too - but
+   that's a separate decision for a separate conversation, not bundled in
+   here.)
+
+```python
+def _compute_avg_wp_swing() -> None:
+    global _AVG_WP_SWING
+    if not _WP_BY_STATE:
+        _AVG_WP_SWING = 0.04
+        return
+    total = 0.0
+    weight_sum = 0.0
+    for (rem, outs, obc_s) in _WP_BY_STATE:
+        wp_cur = get_win_probability_interpolated(rem, outs, obc_s, 0) or 0.5
+        ranges = _RE24_RANGES.get((outs, obc_s), [])
+        swing = sum(
+            min((hi - lo + 1) * 2 / 1000, 1.0) * abs(_wp_post_play(res, rem, outs, obc_s, 0) - wp_cur)
+            for res, lo, hi in ranges
+        )
+        w = _SIM_STATE_WEIGHTS.get((rem, outs, obc_s), 1.0)
+        total += w * swing
+        weight_sum += w
+    _AVG_WP_SWING = total / weight_sum if weight_sum else 0.04
+```
+
+`_LI_AVG_PROBS`/`_load_result_frequencies()`/the `result_frequencies.csv`
+load become dead code once this ships (grep confirms zero other consumers,
+unlike `_STATE_WEIGHTS`) - remove them rather than leaving unused code
+around, per repo convention.
+
+### 4e. `_SIM_STATE_WEIGHTS` - new loader, near `_load_state_frequencies` (`utils.py:268-283`)
+
+```python
+_SIM_STATE_WEIGHTS: dict[tuple[int, int, str], float] = {}
+
+def _load_sim_state_weights() -> None:
+    global _SIM_STATE_WEIGHTS
+    try:
+        df = pd.read_csv("simulated_win_probability_table.csv", dtype={"obc": str})
+        df["obc"] = df["obc"].str.zfill(3)
+        grouped = df.groupby(["remaining", "outs", "obc"])["n"].sum()
+        _SIM_STATE_WEIGHTS = {
+            (int(rem), int(outs), str(obc_s)): float(n)
+            for (rem, outs, obc_s), n in grouped.items()
+        }
+    except FileNotFoundError:
+        pass
+
+_load_sim_state_weights()
+```
+
+Sums `n` across every `batting_lead` bucket for each `(remaining, outs,
+obc)` - a `(remaining, outs, obc)`-level visitation weight, matching
+`_STATE_WEIGHTS`'s own key shape exactly (`utils.py:274-277`), just sourced
+from `simulated_win_probability_table.csv` (millions of simulated events)
+instead of `state_frequencies.csv` (a static historical snapshot). If that
+file is absent (e.g. a checkout that hasn't run Stage 1 yet),
+`_SIM_STATE_WEIGHTS` stays empty and `_compute_avg_wp_swing`'s
+`.get(key, 1.0)` fallback degrades to equal weighting - a graceful, if less
+accurate, fallback rather than a crash.
+
+---
+
+## Validation - Stage 4
+
+1. **Compile/boot**: `python -m py_compile utils.py key_moments_build.py`.
+2. **`_RE24_RANGES` sanity**: confirm `compute_leverage_re24` returns `None`
+   (not a crash) for any `(outs, obc)` combination not present in
+   `result_ranges_re24.csv` - shouldn't happen given the 24-combination
+   coverage already verified, but the function should degrade gracefully,
+   not assume coverage.
+3. **Numerator hand-check**: pick one real Key Moments play, compute its
+   leverage by hand using `result_ranges_re24.csv`'s row for that exact
+   `(outs, obc)` and compare against `compute_leverage_re24`'s output -
+   should match exactly (same formula, same inputs).
+4. **Denominator hand-check**: confirm `_AVG_WP_SWING` recomputes to a
+   different (and log/print both old and new values, don't just assert
+   "different") number than before this stage - if it's identical, something
+   didn't wire up (e.g. `_RE24_RANGES`/`_SIM_STATE_WEIGHTS` silently failed
+   to load and the function fell through to old-equivalent behavior).
+5. **App-wide leverage shift check (the consequence flagged above)**: run
+   `key_moments_build.py` and compare the `leverage`/`high_leverage` tag
+   counts against a pre-Stage-4 baseline run; separately, load the Scouting
+   page for a matchup with real `result_ranges` and confirm its displayed
+   leverage number changed too (expected) and is still a sane, non-degenerate
+   value (not expected to be wrong, but the *number* moving is the point of
+   this check). Re-run `scripts/calibrate_stoplight_thresholds.py` and
+   review whether `LEVERAGE_THRESHOLD = 2.0` (`key_moments_build.py`) and
+   `WPA_THRESHOLD` still land near their intended percentile targets under
+   the new baseline, or need retuning - this is the direct follow-up to the
+   consequence flagged at the top of this stage, not optional cleanup.
+6. **Regression**: `batter_optimizer.py` still reads the untouched
+   `_STATE_WEIGHTS`/`state_frequencies.csv` and produces unchanged output -
+   confirm this explicitly given how easy it would be to accidentally wire
+   `_SIM_STATE_WEIGHTS` into the wrong place during implementation.
+7. **`win_probability_table.csv` untouched**: confirm byte-for-byte, same
+   as every other stage in this plan - Stage 4 only ever *reads* it via the
+   existing `_WP_LOOKUP`/`_WP_BY_STATE`/`get_win_probability_interpolated`
+   machinery, never writes to it.
