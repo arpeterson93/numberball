@@ -19,7 +19,30 @@
     loaded: false,
     onChange: null,
     saveTimer: null,
+    lastSeenIso: null,   // Catch Me Up cursor, naive Central - see centralNowIso()
   };
+
+  var CURSOR_TZ = "America/Chicago";
+
+  /* "Now" as a naive Central wall-clock string, matching the format
+     key_moments_build.py writes into every play's `timestamp`.
+     Deliberately NOT new Date().toISOString(): app.js compares the cursor to
+     those timestamps with a plain string compare, and a UTC-with-Z cursor
+     sorts 5-6 hours ahead of the Central wall clock it is being compared
+     against, which would silently drop that many hours of new plays on every
+     visit. app.js's parseChicagoNaive() is the same conversion in reverse. */
+  function centralNowIso() {
+    var parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: CURSOR_TZ,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    var g = {};
+    parts.forEach(function (p) { g[p.type] = p.value; });
+    var hh = g.hour === "24" ? "00" : g.hour;   // some engines report midnight as 24
+    return g.year + "-" + g.month + "-" + g.day + "T" + hh + ":" + g.minute + ":" + g.second;
+  }
 
   function endpoint() {
     return (window.KM_CONFIG && window.KM_CONFIG.FAVORITES_ENDPOINT) || "";
@@ -73,6 +96,9 @@
       .then(function (data) {
         var ids = (data && data.player_ids) || [];
         state.ids = new Set(ids.map(Number));
+        // Rides the favorites GET that already happens on boot - the Catch Me
+        // Up cursor costs no extra round-trip.
+        state.lastSeenIso = (data && data.last_seen_iso) || null;
         state.loaded = true;
         setStatus(ids.length ? ids.length + " favorite(s) loaded." : "No favorites yet - star some players.");
         notify();
@@ -99,6 +125,25 @@
         .then(function () { setStatus("Saved."); })
         .catch(function () { setStatus("Save failed - your list is still stored on this device."); });
     }, 400);
+  }
+
+  /* Advance the cursor to now. Independent of save(): this POSTs
+     action=mark_seen, which touches only the cursor column, so a star toggle
+     in flight can never clobber it and vice versa. Resolves to null (never
+     rejects) when there is no name or no endpoint - Catch Me Up simply has
+     nothing to track in that case. */
+  function markSeenNow() {
+    if (!state.key || !endpoint()) return Promise.resolve(null);
+    var iso = centralNowIso();
+    return fetch(endpoint(), {
+      method: "POST",
+      // text/plain dodges the CORS preflight Apps Script cannot answer.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ key: state.key, action: "mark_seen", last_seen: iso }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function () { state.lastSeenIso = iso; return iso; })
+      .catch(function () { return null; });
   }
 
   function setName(name) {
@@ -151,6 +196,8 @@
     save();
   }
 
+  var openPanelRef = null;
+
   function wirePanel() {
     var modal = document.getElementById("fav-modal");
     var openBtn = document.getElementById("favorites-btn");
@@ -173,6 +220,10 @@
       renderList(search.value);
     }
     function closePanel() { modal.hidden = true; }
+
+    // Catch Me Up's banner routes a nameless visitor here rather than growing
+    // a second name-prompt UI - this modal already leads with the name input.
+    openPanelRef = openPanel;
 
     openBtn.addEventListener("click", openPanel);
     closeBtn.addEventListener("click", closePanel);
@@ -212,6 +263,10 @@
     toggle: toggle,
     count: function () { return state.ids.size; },
     name: function () { return state.name; },
+    hasName: function () { return !!state.key; },
     refreshList: function () { renderList((document.getElementById("fav-search") || {}).value); },
+    openPanel: function () { if (openPanelRef) openPanelRef(); },
+    lastSeen: function () { return state.lastSeenIso; },
+    markSeenNow: markSeenNow,
   };
 })();

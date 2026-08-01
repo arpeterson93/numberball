@@ -65,6 +65,12 @@
   </div>
   <div id="refresh-status" class="refresh-status"></div>
 
+  <!-- Catch Me Up entry point. A banner rather than a 5th header icon: the
+       title row's icon cluster is already tight on phone. app.js shows this
+       only when there is something to say - prominent when plays are waiting,
+       quiet when it is prompting for a name, hidden otherwise. -->
+  <button type="button" class="catchup-banner" id="catchup-banner" hidden></button>
+
   <!-- Always visible (built-at has somewhere to live even when the
        scoreboard itself is hidden, e.g. "Full season"); the "Scoreboard"
        label is only shown by app.js's renderScoreboard() when there are
@@ -184,6 +190,28 @@
       <div id="fav-list" class="fav-list"></div>
       <div id="fav-status" class="fav-status"></div>
     </div>
+  </div>
+</div>
+
+<!-- Catch Me Up slideshow. Reuses .modal's scrim; .catchup-card is taller and
+     more presentation-like than the compact favorites card. -->
+<div class="modal catchup-modal" id="catchup-modal" hidden>
+  <div class="catchup-card" id="catchup-card">
+    <button type="button" class="catchup-close" id="catchup-close" aria-label="Close">&times;</button>
+    <div class="catchup-progress" id="catchup-progress"></div>
+    <div class="catchup-slide" id="catchup-slide"></div>
+    <div class="catchup-pause-hint" id="catchup-pause-hint" hidden>Paused - tap to resume</div>
+  </div>
+</div>
+
+<!-- Game Replay. Same visual treatment as Catch Me Up (shared CSS classes) but
+     its own element ids, matching the separate state/timer machinery in app.js. -->
+<div class="modal catchup-modal" id="replay-modal" hidden>
+  <div class="catchup-card" id="replay-card">
+    <button type="button" class="catchup-close" id="replay-close" aria-label="Close">&times;</button>
+    <div class="catchup-progress" id="replay-progress"></div>
+    <div class="catchup-slide" id="replay-slide"></div>
+    <div class="catchup-pause-hint" id="replay-pause-hint" hidden>Paused - tap to resume</div>
   </div>
 </div>
 

@@ -11,7 +11,19 @@
  */
 
 var SHEET_NAME = 'favorites';
-var HEADERS = ['key', 'player_ids_json', 'updated_at_iso', 'note'];
+// last_seen_iso (column 5) is the Catch Me Up cursor: the moment this key last
+// had the page open. Two independent writers touch this row - writeFavorites_
+// (stars) and markSeen_ (cursor) - and neither may clobber the other's column.
+// See the read-then-preserve note on writeFavorites_.
+var HEADERS = ['key', 'player_ids_json', 'updated_at_iso', 'note', 'last_seen_iso'];
+
+// The cursor is stored as a NAIVE Central wall-clock string ("YYYY-MM-DDTHH:mm:ss"),
+// deliberately not new Date().toISOString(). The client compares it
+// lexicographically against play timestamps, and key_moments_build.py writes
+// those as naive Central. A UTC-with-Z cursor would read 5-6 hours ahead of the
+// local wall clock and silently swallow that many hours of genuinely new plays.
+var CURSOR_TZ = 'America/Chicago';
+var CURSOR_FORMAT = "yyyy-MM-dd'T'HH:mm:ss";
 
 var GITHUB_OWNER = 'arpeterson93';
 var GITHUB_REPO = 'numberball';
@@ -46,6 +58,9 @@ function doPost(e) {
     var key = normalizeKey_(body.key);
     if (!key) {
       return json_({ error: 'missing key' });
+    }
+    if (body.action === 'mark_seen') {
+      return json_(markSeen_(key, body.last_seen || centralNow_()));
     }
     var ids = (body.player_ids || [])
       .map(function (v) { return parseInt(v, 10); })
@@ -123,7 +138,7 @@ function readFavorites_(key) {
   var sh = sheet_();
   var row = findRow_(sh, key);
   if (row === -1) {
-    return { key: key, player_ids: [], updated_at: null };
+    return { key: key, player_ids: [], updated_at: null, last_seen_iso: null };
   }
   var vals = sh.getRange(row, 1, 1, HEADERS.length).getValues()[0];
   var ids = [];
@@ -132,16 +147,33 @@ function readFavorites_(key) {
   } catch (err) {
     ids = [];
   }
-  return { key: key, player_ids: ids, updated_at: vals[2] || null };
+  return {
+    key: key,
+    player_ids: ids,
+    updated_at: vals[2] || null,
+    last_seen_iso: isoOf_(vals[4]),
+  };
 }
 
+/**
+ * Save a favorites list.
+ *
+ * This rewrites the whole row, so it MUST carry last_seen_iso through
+ * untouched: setValues writes exactly the array it is given, and a 4-element
+ * record against a 5-column range would blank the Catch Me Up cursor on every
+ * star toggle. Read the existing value first, then put it back.
+ */
 function writeFavorites_(key, ids, note) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     var sh = sheet_();
     var row = findRow_(sh, key);
-    var record = [key, JSON.stringify(ids), new Date().toISOString(), note];
+    var lastSeen = '';
+    if (row !== -1) {
+      lastSeen = isoOf_(sh.getRange(row, 5, 1, 1).getValue()) || '';
+    }
+    var record = [key, JSON.stringify(ids), new Date().toISOString(), note, lastSeen];
     if (row === -1) {
       sh.appendRow(record);
     } else {
@@ -153,7 +185,51 @@ function writeFavorites_(key, ids, note) {
   }
 }
 
+/**
+ * Advance the Catch Me Up cursor.
+ *
+ * Touches only column 5, which is what keeps this direction safe: the
+ * favorites list and note are never in the write range, so they cannot be
+ * clobbered here no matter what else is in the row.
+ */
+function markSeen_(key, iso) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sh = sheet_();
+    var row = findRow_(sh, key);
+    if (row === -1) {
+      // No favorites row yet - create one with an empty list rather than
+      // making the client save a favorite before it can track "seen".
+      sh.appendRow([key, '[]', '', '', iso]);
+      return { key: key, last_seen_iso: iso };
+    }
+    sh.getRange(row, 5, 1, 1).setValue(iso);
+    return { key: key, last_seen_iso: iso };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ── util ──────────────────────────────────────────────────────────────────────
+
+function centralNow_() {
+  return Utilities.formatDate(new Date(), CURSOR_TZ, CURSOR_FORMAT);
+}
+
+/**
+ * Read a cursor cell back as a naive Central string.
+ *
+ * Sheets sometimes coerces a written timestamp into a real Date value, and
+ * getValue would then hand back a Date whose JSON form is UTC-with-Z - the
+ * exact format that breaks the client's lexicographic comparison. Normalize
+ * on the way out so the wire format is always the naive one.
+ */
+function isoOf_(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return Utilities.formatDate(v, CURSOR_TZ, CURSOR_FORMAT);
+  return String(v);
+}
 
 function normalizeKey_(raw) {
   return String(raw || '')

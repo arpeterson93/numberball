@@ -24,6 +24,7 @@
     players: [],
     meta: {},
     playsBySession: {}, // session number -> every play of that session
+    catchUpGroups: null, // Catch Me Up: plays new since last visit, grouped by game
   };
 
   var filters = {
@@ -504,10 +505,22 @@
       "</div>";
     var finalLabel = g.is_game_final && g.inning !== expectedInnings ? "FINAL/" + g.inning : "FINAL";
 
-    return '<button type="button" class="scoreboard-tile' + selected +
+    // A div with role=button, not a <button>: the replay control below is a
+    // real nested <button>, and the HTML content model forbids a button inside
+    // a button (browsers auto-close the outer one and the markup falls apart).
+    // Keyboard activation is wired explicitly in the #scoreboard keydown
+    // handler to replace what the native button gave us for free.
+    return '<div role="button" tabindex="0" class="scoreboard-tile' + selected +
       '" data-game="' + escapeHtml(g.game_code) +
       '" data-away="' + escapeHtml(g.away_team_abbr) +
-      '" data-home="' + escapeHtml(g.home_team_abbr) + '">' +
+      '" data-home="' + escapeHtml(g.home_team_abbr) +
+      '" data-session="' + escapeHtml(String(filters.session == null ? "" : filters.session)) +
+      '" aria-pressed="' + (selected ? "true" : "false") + '">' +
+      '<button type="button" class="tile-replay-btn" data-replay="' + escapeHtml(g.game_code) +
+        '" title="Replay this game" aria-label="Replay ' + escapeHtml(g.away_team_abbr) +
+        " at " + escapeHtml(g.home_team_abbr) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
+      "</button>" +
       '<div class="sb-body">' +
         '<div class="sb-teams">' +
           '<div class="sb-row' + (awayBatting ? " batting" : "") + '">' +
@@ -533,14 +546,44 @@
         "</div>" +
         levBadge +
       "</div>" +
-    "</button>";
+    "</div>";
   }
 
   function deselectScoreboardTile() {
     filters.selectedGame = null;
     Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
       t.classList.remove("selected");
+      t.setAttribute("aria-pressed", "false");
     });
+  }
+
+  /* Select (or re-click to clear) a game tile. Extracted from the click
+     handler so the keyboard path activates exactly the same behaviour rather
+     than a second copy of it. */
+  function selectScoreboardTile(tile) {
+    var game = tile.getAttribute("data-game");
+    if (filters.selectedGame === game) {
+      filters.team = "";
+      filters.selectedGame = null;
+      $("team-select").value = "";
+      tile.classList.remove("selected");
+      tile.setAttribute("aria-pressed", "false");
+      render();
+      return;
+    }
+    var away = tile.getAttribute("data-away");
+    // Either team in the matchup would do - Team is a season-long filter, but
+    // the scoreboard only ever shows the selected session's games, so this
+    // reads as "just this game" in practice.
+    filters.team = away;
+    filters.selectedGame = game;
+    $("team-select").value = away;
+    Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
+      var on = t === tile;
+      t.classList.toggle("selected", on);
+      t.setAttribute("aria-pressed", String(on));
+    });
+    render();
   }
 
   var SCOREBOARD_TILE_MIN = 176;
@@ -683,6 +726,927 @@
     }).catch(function () {
       loadingPlays = false;
       toast("Could not load the full play list.");
+    });
+  }
+
+  // ── Catch Me Up: what's new since this name last had the page open ──────────
+
+  /* Load every session's plays, not just the active filter's. "No cap" means
+     a returning visitor's backlog can span any number of sessions, so guessing
+     which ones are relevant would be a correctness risk for a handful of small
+     JSON fetches. If a many-season backlog ever makes this slow, the fix is to
+     skip sessions older than the cursor's date - not needed yet. */
+  function loadAllSessions() {
+    var sessions = (data.meta.sessions || []).slice();
+    return Promise.all(sessions.map(function (s) {
+      if (data.playsBySession[s]) return Promise.resolve(data.playsBySession[s]);
+      return getJSON("data/plays_" + pad2(s) + ".json").then(function (rows) {
+        data.playsBySession[s] = rows;
+        return rows;
+      });
+    }));
+  }
+
+  /* Group plays into games: groups ordered by each game's earliest play,
+     plays within a group by play_num. Team abbreviations ride on every play
+     row already, so a title slide needs no extra lookup. */
+  function groupByGame(plays) {
+    var byGame = {};
+    plays.forEach(function (p) {
+      var g = byGame[p.game_code];
+      if (!g) {
+        g = byGame[p.game_code] = {
+          game_code: p.game_code,
+          away_team_abbr: p.away_team_abbr,
+          home_team_abbr: p.home_team_abbr,
+          session_number: p.session_number,
+          first_ts: p.timestamp || "",
+          plays: [],
+        };
+      }
+      g.plays.push(p);
+      if (p.timestamp && (!g.first_ts || p.timestamp < g.first_ts)) g.first_ts = p.timestamp;
+    });
+    return Object.keys(byGame).map(function (k) { return byGame[k]; })
+      .sort(function (a, b) { return a.first_ts < b.first_ts ? -1 : (a.first_ts > b.first_ts ? 1 : 0); })
+      .map(function (g) {
+        g.plays.sort(function (a, b) { return a.play_num - b.play_num; });
+        return g;
+      });
+  }
+
+  /* Read the OLD cursor, build the new-since set from it, THEN write the new
+     cursor. That order is the whole contract: the value used to decide what is
+     new must never be the value just written. The cursor advances on page load
+     regardless of whether the slideshow is ever opened, so closing it early -
+     or never opening it - loses nothing that browsing the page normally
+     wouldn't have. */
+  function computeCatchUp() {
+    var fav = window.KMFavorites;
+    if (!fav || !fav.hasName()) return Promise.resolve([]);
+    var cursor = fav.lastSeen();
+    if (!cursor) {
+      // First time this name has been seen: start tracking from now rather
+      // than replaying the whole season at someone who just typed a name.
+      fav.markSeenNow();
+      return Promise.resolve([]);
+    }
+    return loadAllSessions().then(function (bySession) {
+      // Both sides are naive Central "YYYY-MM-DDTHH:mm:ss" strings in the same
+      // source zone (see favorites.js's centralNowIso), so lexicographic order
+      // is chronological order and no timezone math is needed here.
+      var newPlays = [].concat.apply([], bySession).filter(function (p) {
+        return p.timestamp && p.timestamp > cursor;
+      });
+      fav.markSeenNow();
+      return groupByGame(newPlays);
+    }).catch(function () {
+      return [];
+    });
+  }
+
+  /* Every play of one game, in order. Reads the same per-session cache
+     loadAllSessions()/ensurePlaysLoaded() fill, so by the time a slideshow is
+     open this is already in memory. */
+  function gamePlaysFor(session, gameCode) {
+    var rows = data.playsBySession[session] || [];
+    return rows.filter(function (p) { return p.game_code === gameCode; })
+      .sort(function (a, b) { return a.play_num - b.play_num; });
+  }
+
+  function catchUpPlayCount(groups) {
+    return (groups || []).reduce(function (n, g) { return n + g.plays.length; }, 0);
+  }
+
+  /* Banner states, in the order they are checked:
+       no name        - quiet prompt, opens the Favorites modal (that modal
+                        already leads with the name input, so there is no
+                        second name-prompt UI to build)
+       nothing new    - hidden entirely, rather than a standing "all caught up"
+                        line that would just be noise on every visit
+       something new  - prominent, with the count */
+  function renderCatchUpBanner() {
+    var el = $("catchup-banner");
+    if (!el) return;
+    var fav = window.KMFavorites;
+    if (fav && !fav.hasName()) {
+      el.hidden = false;
+      el.classList.add("quiet");
+      el.textContent = "Catch Me Up - add your name to track what's new";
+      return;
+    }
+    var count = catchUpPlayCount(data.catchUpGroups);
+    if (!count) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.classList.remove("quiet");
+    el.textContent = "▶ Catch Me Up (" + count + (count === 1 ? " new play)" : " new plays)");
+  }
+
+  // ── Catch Me Up: the slideshow ──────────────────────────────────────────────
+
+  var TITLE_DWELL_MS = 1800;
+
+  var catchUp = {
+    slides: [],
+    index: 0,
+    timer: null,
+    paused: false,
+    startedAt: 0,
+    remaining: 0,
+  };
+
+  function buildCatchUpSlides(groups) {
+    var slides = [];
+    var playNo = 0;
+    var total = catchUpPlayCount(groups);
+    var gameTotal = (groups || []).length;
+    (groups || []).forEach(function (g, gi) {
+      slides.push({ kind: "title", group: g, gameNo: gi + 1, gameTotal: gameTotal });
+      // The ribbon plots the WHOLE game, not just the new plays, so the shape
+      // of what came before is visible behind what's new.
+      var gamePlays = gamePlaysFor(g.session_number, g.game_code);
+      var byNum = {};
+      gamePlays.forEach(function (p, i) { byNum[p.play_num] = i; });
+      var ribbonFrom = g.plays.length ? (byNum[g.plays[0].play_num] || 0) : 0;
+      g.plays.forEach(function (p) {
+        playNo += 1;
+        slides.push({
+          kind: "play", play: p, group: g, playNo: playNo, total: total,
+          gamePlays: gamePlays,
+          gameIdx: byNum[p.play_num] == null ? -1 : byNum[p.play_num],
+          ribbonFrom: ribbonFrom,
+          homeAbbr: g.home_team_abbr,
+          awayAbbr: g.away_team_abbr,
+        });
+      });
+    });
+    slides.push({ kind: "done", total: total });
+    return slides;
+  }
+
+  function teamName(abbr) {
+    var t = (data.meta.teams || {})[abbr];
+    return (t && t.name) || abbr || "";
+  }
+
+  // ── Play Scene ──────────────────────────────────────────────────────────────
+  // The slideshow's play slide. Composes an animated diamond, a leverage
+  // meter, a win-probability ribbon and a detail strip around the same data
+  // card(m) already uses. card(m) itself is untouched - the main feed keeps
+  // rendering exactly as it does today; this is Catch Me Up / Game Replay only.
+  //
+  // Every animation here is a pure CSS @keyframes driven by custom properties
+  // set inline, deliberately: the slide's innerHTML is replaced wholesale on
+  // every advance, so fresh elements restart their own animations with no
+  // rAF dance, no timers to leak, and one place (the reduced-motion block in
+  // style.css) that can switch all of them off at once.
+
+  var SCENE_BASES = {
+    HOME: { x: 100, y: 170 },
+    "1B": { x: 158, y: 110 },
+    "2B": { x: 100, y: 50 },
+    "3B": { x: 42, y: 110 },
+  };
+
+  /* Pair up who was on base before a play with where runners ended after it.
+     Runners cannot pass each other, so listing both sides most-advanced-first
+     and zipping them is physically valid for hits, walks, home runs, sac
+     flies and ordinary outs.
+
+     Known limitation, deliberate: on tangled force plays and fielder's
+     choices the runner actually removed is not always the furthest back, and
+     obc_before/obc_after/runs alone do not uniquely determine which runner
+     did what. The token that animates can therefore be plausible-but-unverified
+     on those plays. Shipping the heuristic is the explicit v1 choice; the
+     exact assignment would have to come from key_moments_build.py, which
+     already knows it, if this ever reads wrong often enough to matter. */
+  function deriveRunnerMoves(obcBefore, obcAfter, runs) {
+    var before = [];
+    if (obcBefore[0] === "1") before.push("3B");
+    if (obcBefore[1] === "1") before.push("2B");
+    if (obcBefore[2] === "1") before.push("1B");
+
+    var after = [];
+    for (var i = 0; i < runs; i++) after.push("HOME");
+    if (obcAfter[0] === "1") after.push("3B");
+    if (obcAfter[1] === "1") after.push("2B");
+    if (obcAfter[2] === "1") after.push("1B");
+
+    var moves = [];
+    var n = Math.min(before.length, after.length);
+    for (var j = 0; j < n; j++) {
+      moves.push({ from: before[j], to: after[j], scored: after[j] === "HOME" });
+    }
+    for (var k = n; k < before.length; k++) {
+      moves.push({ from: before[k], to: "OUT", scored: false });
+    }
+    if (after.length > n) {
+      moves.push({ from: "BATTER", to: after[n], scored: after[n] === "HOME" });
+    }
+    return moves;
+  }
+
+  function sceneDiamondHtml(m) {
+    var before = String(m.obc_before || "000");
+    var after = String(m.obc_after || "000");
+    var moves = deriveRunnerMoves(before, after, m.runs || 0);
+
+    var tokens = moves.map(function (mv) {
+      var from = mv.from === "BATTER" ? SCENE_BASES.HOME : SCENE_BASES[mv.from];
+      var isOut = mv.to === "OUT";
+      var to = isOut ? from : SCENE_BASES[mv.to];
+      if (!from || !to) return "";
+      var cls = "rn" + (isOut ? " out" : "") + (mv.scored ? " score" : "") +
+                (mv.from === "BATTER" ? " batter" : "");
+      return '<g class="' + cls + '" style="' +
+        "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
+        "--tx:" + to.x + "px;--ty:" + to.y + "px" + '">' +
+        '<circle r="9"></circle></g>';
+    }).join("");
+
+    // deriveRunnerMoves only tracks RUNNERS, so a play where the batter never
+    // reached base (a strikeout with nobody on, most obviously) yields no
+    // tokens at all and the diamond sits empty with nothing having happened.
+    // Give the batter their own token in that case, fading at the plate.
+    var batterReached = moves.some(function (mv) { return mv.from === "BATTER"; });
+    if (!batterReached) {
+      var h = SCENE_BASES.HOME;
+      tokens += '<g class="rn batter-out" style="' +
+        "--fx:" + h.x + "px;--fy:" + h.y + "px;--tx:" + h.x + "px;--ty:" + h.y + "px" + '">' +
+        '<circle r="9"></circle></g>';
+    }
+
+    // Base plates show post-play occupancy so the diamond still reads
+    // correctly once the tokens have settled.
+    var plates = ["3B", "2B", "1B"].map(function (b, i) {
+      var occupied = after[i] === "1";
+      var p = SCENE_BASES[b];
+      return '<rect class="dm-base' + (occupied ? " on" : "") +
+        '" x="-7" y="-7" width="14" height="14" rx="2" transform="translate(' +
+        p.x + "," + p.y + ') rotate(45)"></rect>';
+    }).join("");
+
+    /* The batting team's mark is painted ON the infield, inside the SVG and
+       above the field fill - as an HTML layer underneath it, the opaque
+       .dm-field simply covered it. It sits below the bases and tokens so the
+       runners always stay the thing you look at. */
+    var markUrl = teamLogoUrl(m.batting_is_home ? m.home_team_abbr : m.away_team_abbr);
+    var watermark = markUrl
+      ? '<image class="dm-mark" href="' + escapeHtml(markUrl) + '" x="52" y="62" ' +
+        'width="96" height="96" preserveAspectRatio="xMidYMid meet"></image>'
+      : "";
+    return '<div class="scene-diamond-wrap">' +
+      '<svg class="scene-diamond" viewBox="0 0 200 200" aria-hidden="true">' +
+        '<path class="dm-field" d="M100,170 L158,110 L100,50 L42,110 Z"></path>' +
+        watermark +
+        plates +
+        '<path class="dm-plate" d="M94,176 L106,176 L106,168 L100,162 L94,168 Z"></path>' +
+        tokens +
+      "</svg>" +
+    "</div>";
+  }
+
+  // Values above this read as "off the charts" rather than being plotted
+  // proportionally - real leverage in this data rarely gets near it.
+  var SCENE_LEV_CEILING = 4;
+  var SCENE_ARC_LEN = Math.PI * 46;   // matches the r=46 arc path below
+
+  function sceneMeterHtml(m) {
+    if (m.leverage == null) return "";
+    var lev = m.leverage;
+    var frac = Math.max(0, Math.min(1, lev / SCENE_LEV_CEILING));
+    // Same threshold and the same hot/cold rule the scoreboard tile uses, so a
+    // play that redlines here is exactly one that shows hot there.
+    var threshold = data.meta.leverage_threshold || SCOREBOARD_HOT_LEVERAGE;
+    var hot = leverageClass(lev) === " hot";
+    var tFrac = Math.max(0, Math.min(1, threshold / SCENE_LEV_CEILING));
+    var tAngle = Math.PI * (1 - tFrac);
+    var tick = {
+      x1: 60 + Math.cos(tAngle) * 36, y1: 60 - Math.sin(tAngle) * 36,
+      x2: 60 + Math.cos(tAngle) * 56, y2: 60 - Math.sin(tAngle) * 56,
+    };
+    return '<div class="scene-meter' + (hot ? " hot" : "") + '">' +
+      '<svg viewBox="0 0 120 72" aria-hidden="true">' +
+        '<path class="mt-track" d="M14,60 A46,46 0 0 1 106,60"></path>' +
+        '<path class="mt-redline" d="M14,60 A46,46 0 0 1 106,60" style="' +
+          "--len:" + SCENE_ARC_LEN.toFixed(2) + "px;--off:" +
+          (SCENE_ARC_LEN * tFrac).toFixed(2) + 'px"></path>' +
+        '<line class="mt-tick" x1="' + tick.x1.toFixed(1) + '" y1="' + tick.y1.toFixed(1) +
+          '" x2="' + tick.x2.toFixed(1) + '" y2="' + tick.y2.toFixed(1) + '"></line>' +
+        '<path class="mt-fill" d="M14,60 A46,46 0 0 1 106,60" style="' +
+          "--len:" + SCENE_ARC_LEN.toFixed(2) + "px;--off:" +
+          (SCENE_ARC_LEN * (1 - frac)).toFixed(2) + 'px"></path>' +
+      "</svg>" +
+      '<div class="scene-meter-val">' + lev.toFixed(1) + "</div>" +
+      '<div class="scene-meter-lbl">LEVERAGE</div>' +
+    "</div>";
+  }
+
+  /* Win probability from the home team's perspective. The stored value is
+     from the batting team's, which flips every half-inning, so it has to be
+     normalized before it can be plotted as one continuous line - the same
+     conversion utils.compute_game_wp_series does server-side. */
+  function homeWpOf(p) {
+    if (p.win_prob_after == null) return null;
+    return p.batting_is_home ? p.win_prob_after : 1 - p.win_prob_after;
+  }
+
+  var RIBBON_W = 300, RIBBON_H = 64, RIBBON_PAD = 5;
+
+  function sceneRibbonHtml(slide) {
+    var plays = slide.gamePlays || [];
+    var upto = slide.gameIdx;
+    if (plays.length < 2 || upto == null || upto < 0) return "";
+
+    /* The x axis is a half-inning timeline, not a play index, and it always
+       runs the full length of regulation. A live game in the 2nd therefore
+       shows the line reaching a fifth of the way across with the rest of the
+       game still ahead of it, instead of stretching two innings over the whole
+       width and looking complete. Extras push the axis out past regulation.
+       Plays are spaced evenly inside whichever half-inning they belong to. */
+    var hipOf = function (p) { return (p.inning - 1) * 2 + (p.half === "bottom" ? 1 : 0); };
+    var segs = [];
+    plays.forEach(function (p, i) {
+      var hip = hipOf(p);
+      var s = segs[segs.length - 1];
+      if (!s || s.hip !== hip) segs.push({ hip: hip, inning: p.inning, half: p.half, a: i, b: i });
+      else s.b = i;
+    });
+    var lastHip = segs.length ? segs[segs.length - 1].hip : 0;
+    var totalHalves = Math.max((data.meta.innings || 6) * 2, lastHip + 1);
+    var xAt = function (frac) { return (frac / totalHalves) * RIBBON_W; };
+    var xByIdx = new Array(plays.length);
+    segs.forEach(function (s) {
+      var k = s.b - s.a + 1;
+      for (var i = s.a; i <= s.b; i++) {
+        xByIdx[i] = xAt(s.hip + (i - s.a + 0.5) / k);
+      }
+    });
+
+    var pts = [];
+    for (var i = 0; i <= upto && i < plays.length; i++) {
+      var hw = homeWpOf(plays[i]);
+      if (hw == null) continue;
+      pts.push({
+        i: i,
+        x: xByIdx[i],
+        y: RIBBON_PAD + (1 - hw) * (RIBBON_H - RIBBON_PAD * 2),
+      });
+    }
+    if (!pts.length) return "";
+
+    // Everything before this run started is context the viewer already knows -
+    // muted. From there on is what they came to see.
+    var from = slide.ribbonFrom || 0;
+    var seen = pts.filter(function (p) { return p.i <= from; });
+    var fresh = pts.filter(function (p) { return p.i >= from; });
+    var str = function (arr) {
+      return arr.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+    };
+    var last = pts[pts.length - 1];
+    // On the very first plotted play there is no previous point to draw a
+    // segment from. Render the frame and the marker anyway rather than
+    // dropping the whole ribbon, so the slide's layout does not jump when the
+    // line appears on the play after it.
+    var prev = pts.length > 1 ? pts[pts.length - 2] : null;
+    var segLen = prev
+      ? (Math.sqrt(Math.pow(last.x - prev.x, 2) + Math.pow(last.y - prev.y, 2)) || 1)
+      : 0;
+    var mid = RIBBON_PAD + 0.5 * (RIBBON_H - RIBBON_PAD * 2);
+
+    /* One divider and one label per half-inning across the whole axis,
+       including halves the game has not reached yet - those render dimmed, so
+       the amount of game still to come is visible rather than implied. */
+    var dividers = "";
+    var axis = "";
+    for (var h = 0; h < totalHalves; h++) {
+      var future = h > lastHip ? " future" : "";
+      if (h > 0) {
+        var dx = xAt(h).toFixed(1);
+        dividers += '<line class="rb-div' + future + '" x1="' + dx +
+          '" y1="0" x2="' + dx + '" y2="' + RIBBON_H + '"></line>';
+      }
+      axis += '<span class="rb-axis-tick' + future + '" style="left:' +
+        ((xAt(h + 0.5) / RIBBON_W) * 100).toFixed(2) + '%">' +
+        (h % 2 === 0 ? "▲" : "▼") + (Math.floor(h / 2) + 1) + "</span>";
+    }
+
+    /* The marker carries the readout instead of a separate caption: the home
+       team's badge sits on the newest point, with their current odds and what
+       this play just did to them. It rides on an HTML overlay rather than
+       inside the SVG because the SVG is stretched with
+       preserveAspectRatio="none" and would squash an embedded image. */
+    var cur = plays[upto];
+    var wpAfter = homeWpOf(cur);
+    var wpBefore = cur.win_prob_before == null ? null
+      : (cur.batting_is_home ? cur.win_prob_before : 1 - cur.win_prob_before);
+    var homeDelta = (wpAfter != null && wpBefore != null) ? (wpAfter - wpBefore) : null;
+    var xPct = (last.x / RIBBON_W) * 100;
+    var marker = "";
+    if (wpAfter != null) {
+      /* The badge belongs to whichever team the play just helped, with their
+         own odds and their gain - "who just got better off" is the thing worth
+         reading, and it makes the number always a positive move.
+
+         The line itself stays home-perspective, because that is the only way
+         it can be one continuous curve. So the badge is a callout about the
+         moment rather than a label for the dot's height: on an away-team gain
+         the dot still sits at the home team's win probability. */
+      var homeGained = homeDelta == null ? true : homeDelta >= 0;
+      var gainAbbr = homeGained ? slide.homeAbbr : slide.awayAbbr;
+      var gainPct = homeGained ? wpAfter : 1 - wpAfter;
+      var gain = homeDelta == null ? null : Math.abs(homeDelta) * 100;
+      // Only the badge itself needs to stay inside the plot; the readout flips
+      // to the other side once the point is far enough right.
+      var markLeft = Math.max(1.7, Math.min(98.3, xPct));
+      marker = '<div class="rb-marker' + (xPct > 68 ? " flip" : "") + '" style="left:' +
+        markLeft.toFixed(2) + "%;top:" + ((last.y / RIBBON_H) * 100).toFixed(2) + '%">' +
+        (teamLogoImg(gainAbbr, "rb-marker-logo") ||
+          '<span class="rb-marker-dot"></span>') +
+        '<div class="rb-readout">' +
+          '<span class="rb-pct">' + Math.round(gainPct * 100) + "%</span>" +
+          (gain == null ? "" :
+            '<span class="wpa-pos">+' + gain.toFixed(1) + "</span>") +
+        "</div>" +
+      "</div>";
+    }
+
+    /* The marker is positioned inside .rb-plot, which wraps the SVG and
+       nothing else. Percentages have to resolve against exactly the plot box:
+       hung on .scene-ribbon they would resolve against its full height, axis
+       row included, and the badge would sit below the point it marks. */
+    return '<div class="scene-ribbon"><div class="rb-plot">' +
+      '<svg viewBox="0 0 ' + RIBBON_W + " " + RIBBON_H + '" preserveAspectRatio="none" aria-hidden="true">' +
+        dividers +
+        '<line class="rb-mid" x1="0" y1="' + mid + '" x2="' + RIBBON_W + '" y2="' + mid + '"></line>' +
+        (seen.length > 1 ? '<polyline class="rb-seen" points="' + str(seen) + '"></polyline>' : "") +
+        (fresh.length > 1 ? '<polyline class="rb-fresh" points="' + str(fresh) + '"></polyline>' : "") +
+        (prev ? '<line class="rb-new" x1="' + prev.x.toFixed(1) + '" y1="' + prev.y.toFixed(1) +
+          '" x2="' + last.x.toFixed(1) + '" y2="' + last.y.toFixed(1) +
+          '" style="--len:' + segLen.toFixed(2) + 'px"></line>' : "") +
+      "</svg>" + marker + "</div>" +
+      '<div class="rb-axis">' + axis + "</div>" +
+    "</div>";
+  }
+
+  /* Batter and pitcher always sit in the same two slots, unlike card(m)'s
+     featured/counterpart pair - which one is "featured" flips with the result
+     category, so in a slideshow the same name would jump sides play to play.
+     A fixed AT BAT / PITCHING pairing is what makes a run of slides readable. */
+  function sceneRoleHtml(role, id, name, teamAbbr) {
+    var isFav = window.KMFavorites && id && window.KMFavorites.has(id);
+    var star = id
+      ? '<button type="button" class="star-btn ' + (isFav ? "on" : "") +
+        '" data-fav-id="' + id + '" title="Favorite this player">' +
+        (isFav ? "★" : "☆") + "</button>"
+      : "";
+    return '<div class="mu-side">' +
+      '<div class="mu-role">' + teamLogoImg(teamAbbr, "mu-logo") +
+        "<span>" + role + "</span></div>" +
+      '<div class="mu-name">' + star +
+        "<span>" + escapeHtml(name || "-") + "</span></div>" +
+    "</div>";
+  }
+
+  /* No tag pills and no win-probability text here: the tags are a filtering
+     device for the main feed rather than something to read mid-slideshow, and
+     the win probability is already on the ribbon's marker, attached to the
+     point it belongs to. */
+  function sceneDetailHtml(m) {
+    var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
+    return '<div class="scene-detail">' +
+      '<div class="scene-matchup">' +
+        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
+        '<span class="mu-vs">vs</span>' +
+        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr) +
+      "</div>" +
+      '<div class="scene-play-line">' +
+        '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
+          escapeHtml(resultLabel) + "</span>" +
+        diffPill(m) +
+      "</div>" +
+      scoringLine(m) +
+    "</div>";
+  }
+
+  /* Score ticker: the run lands as the scoring token reaches home, so the
+     digit's animation-delay is tuned to the token travel time in style.css
+     rather than being driven by a timer that could outlive the slide. */
+  function sceneScoreHtml(m) {
+    var awayBatting = !m.batting_is_home;
+    var scored = (m.runs || 0) > 0;
+    var tick = function (isThisRow) {
+      return scored && isThisRow ? " tick" : "";
+    };
+    return '<div class="score-block scene-score">' +
+      '<div class="row' + (awayBatting ? " batting" : "") + '">' +
+        teamLogoImg(m.away_team_abbr, "scene-score-logo") +
+        '<span class="abbr">' + escapeHtml(m.away_team_abbr) + "</span>" +
+        '<span class="val' + tick(awayBatting) + '">' + m.away_score + "</span></div>" +
+      '<div class="row' + (awayBatting ? "" : " batting") + '">' +
+        teamLogoImg(m.home_team_abbr, "scene-score-logo") +
+        '<span class="abbr">' + escapeHtml(m.home_team_abbr) + "</span>" +
+        '<span class="val' + tick(!awayBatting) + '">' + m.home_score + "</span></div>" +
+    "</div>";
+  }
+
+  function playSceneHtml(slide) {
+    var m = slide.play;
+    // A lead change gets a one-shot wash of the new leader's colour - cheap,
+    // and it makes the one tag that changes the game's story feel different.
+    var flash = "";
+    if ((m.tags || []).indexOf("lead_change") !== -1) {
+      var leader = m.home_score > m.away_score ? m.home_team_abbr : m.away_team_abbr;
+      var hex = teamColor(leader);
+      if (hex) flash = '<div class="scene-flash" style="background:' + escapeHtml(hex) + '"></div>';
+    }
+    // The key-moment flag drives the longer dwell (slideDwell); marking it on
+    // the element too lets the scene show why this one is lingering.
+    var isKey = !!m.is_key_moment;
+    return '<div class="play-scene' + (isKey ? " is-key" : "") + '" data-key="' +
+      (isKey ? "1" : "0") + '">' + flash +
+      '<div class="scene-top">' +
+        sceneDiamondHtml(m) +
+        '<div class="scene-side">' +
+          '<div class="scene-inning">' +
+            '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
+            '<div class="inning-num">' + m.inning + "</div>" +
+          "</div>" +
+          sceneScoreHtml(m) +
+          sceneMeterHtml(m) +
+        "</div>" +
+      "</div>" +
+      sceneDetailHtml(m) +
+      sceneRibbonHtml(slide) +
+    "</div>";
+  }
+
+  function catchUpSlideHtml(slide) {
+    if (slide.kind === "title") {
+      var g = slide.group;
+      return '<div class="catchup-title">' +
+        '<div class="catchup-title-teams">' +
+          teamLogoImg(g.away_team_abbr, "catchup-title-logo") +
+          '<span>' + escapeHtml(teamName(g.away_team_abbr)) + "</span>" +
+          '<span class="catchup-at">@</span>' +
+          teamLogoImg(g.home_team_abbr, "catchup-title-logo") +
+          '<span>' + escapeHtml(teamName(g.home_team_abbr)) + "</span>" +
+        "</div>" +
+        '<div class="catchup-title-sub">Session ' + escapeHtml(String(g.session_number)) +
+          " · " + g.plays.length + (g.plays.length === 1 ? " new play" : " new plays") + "</div>" +
+      "</div>";
+    }
+    if (slide.kind === "done") {
+      return '<div class="catchup-title">' +
+        '<div class="catchup-title-teams"><span>You’re all caught up</span></div>' +
+        '<div class="catchup-title-sub">' + slide.total +
+          (slide.total === 1 ? " play" : " plays") + " since your last visit</div>" +
+      "</div>";
+    }
+    if (slide.kind === "replay-title") {
+      return '<div class="catchup-title">' +
+        '<div class="catchup-title-teams">' +
+          teamLogoImg(slide.away, "catchup-title-logo") +
+          '<span>' + escapeHtml(teamName(slide.away)) + "</span>" +
+          '<span class="catchup-at">@</span>' +
+          teamLogoImg(slide.home, "catchup-title-logo") +
+          '<span>' + escapeHtml(teamName(slide.home)) + "</span>" +
+        "</div>" +
+        '<div class="catchup-title-sub">' +
+          (slide.isFinal ? "Final · " : "In progress · ") + slide.count +
+          (slide.count === 1 ? " play" : " plays") + "</div>" +
+      "</div>";
+    }
+    if (slide.kind === "replay-done") {
+      var head = slide.isFinal
+        ? "FINAL · " + escapeHtml(slide.away) + " " + slide.awayScore + ", " +
+          escapeHtml(slide.home) + " " + slide.homeScore
+        : "That’s everything so far";
+      var sub = slide.isFinal
+        ? (slide.topPlay
+            ? "Biggest moment: " + escapeHtml(slide.topPlay.featured_name) + " · " +
+              escapeHtml((data.meta.result_labels || {})[slide.topPlay.result] || slide.topPlay.result) +
+              " (LI " + slide.topPlay.leverage.toFixed(1) + ")"
+            : "")
+        : "The game’s still going";
+      return '<div class="catchup-title">' +
+        '<div class="catchup-title-teams"><span>' + head + "</span></div>" +
+        (sub ? '<div class="catchup-title-sub">' + sub + "</div>" : "") +
+      "</div>";
+    }
+    return playSceneHtml(slide);
+  }
+
+  /* Dwell is per-play, not a metronome: a routine groundout goes by quickly,
+     a play that earned its way into the feed lingers. Shared by Catch Me Up
+     and Game Replay so pacing is tuned in one place.
+
+     The key-moment floor also has to clear the Play Scene's own animations
+     (diamond travel 900ms, score ticker landing at ~1.3s) - a slide that
+     auto-advances mid-animation reads as broken. */
+  var PLAY_DWELL_MS_ROUTINE = 2000;
+  var PLAY_DWELL_MS_KEY = 4500;
+
+  function slideDwell(slide) {
+    if (slide.kind !== "play") return TITLE_DWELL_MS;
+    return slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
+  }
+
+  function clearCatchUpTimer() {
+    if (catchUp.timer) {
+      window.clearTimeout(catchUp.timer);
+      catchUp.timer = null;
+    }
+  }
+
+  function scheduleCatchUp(ms) {
+    clearCatchUpTimer();
+    catchUp.startedAt = Date.now();
+    catchUp.remaining = ms;
+    catchUp.timer = window.setTimeout(function () {
+      catchUp.timer = null;
+      showCatchUpSlide(catchUp.index + 1);
+    }, ms);
+  }
+
+  function showCatchUpSlide(i) {
+    if (i >= catchUp.slides.length) { closeCatchUp(); return; }
+    catchUp.index = i;
+    var slide = catchUp.slides[i];
+    var slideEl = $("catchup-slide");
+    slideEl.innerHTML = catchUpSlideHtml(slide);
+    // Restart the fade: removing and re-adding on the next frame is what makes
+    // the transition replay for every slide rather than only the first.
+    slideEl.classList.remove("in");
+    void slideEl.offsetWidth;
+    slideEl.classList.add("in");
+
+    var progress = $("catchup-progress");
+    // Unitless on purpose - the CSS divides it by 100 (see .catchup-progress::after).
+    if (slide.kind === "play") {
+      progress.textContent = "Play " + slide.playNo + " of " + slide.total;
+      progress.style.setProperty("--catchup-pct", String(100 * slide.playNo / slide.total));
+    } else if (slide.kind === "done") {
+      progress.textContent = "";
+      progress.style.setProperty("--catchup-pct", "100");
+    } else {
+      progress.textContent = "Game " + slide.gameNo + " of " + slide.gameTotal;
+    }
+
+    // The closing slide is the one place the show stops on its own - it waits
+    // for the user rather than blinking out from under them.
+    if (slide.kind === "done") {
+      clearCatchUpTimer();
+      return;
+    }
+    if (!catchUp.paused) scheduleCatchUp(slideDwell(slide));
+  }
+
+  function setCatchUpPaused(paused) {
+    if (catchUp.paused === paused) return;
+    catchUp.paused = paused;
+    $("catchup-pause-hint").hidden = !paused;
+    $("catchup-card").classList.toggle("paused", paused);
+    if (paused) {
+      // Resume from what was actually left, not a fresh full dwell.
+      var elapsed = Date.now() - catchUp.startedAt;
+      catchUp.remaining = Math.max(0, catchUp.remaining - elapsed);
+      clearCatchUpTimer();
+    } else if (catchUp.slides[catchUp.index] &&
+               catchUp.slides[catchUp.index].kind !== "done") {
+      scheduleCatchUp(catchUp.remaining || slideDwell(catchUp.slides[catchUp.index]));
+    }
+  }
+
+  function openCatchUp() {
+    var fav = window.KMFavorites;
+    if (fav && !fav.hasName()) { fav.openPanel(); return; }
+    if (!catchUpPlayCount(data.catchUpGroups)) return;
+    catchUp.slides = buildCatchUpSlides(data.catchUpGroups);
+    catchUp.paused = false;
+    $("catchup-pause-hint").hidden = true;
+    $("catchup-card").classList.remove("paused");
+    $("catchup-modal").hidden = false;
+    showCatchUpSlide(0);
+  }
+
+  function closeCatchUp() {
+    // Clearing the timer here is what stops a slide advancing behind an
+    // already-hidden modal.
+    clearCatchUpTimer();
+    catchUp.paused = false;
+    $("catchup-modal").hidden = true;
+    $("catchup-slide").innerHTML = "";
+  }
+
+  function wireCatchUp() {
+    var modal = $("catchup-modal");
+    if (!modal) return;
+    $("catchup-banner").addEventListener("click", openCatchUp);
+    $("catchup-close").addEventListener("click", closeCatchUp);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeCatchUp(); });
+    $("catchup-slide").addEventListener("click", function (e) {
+      // A star or a link inside a card is a real action - it should not also
+      // pause the show.
+      var star = e.target.closest("[data-fav-id]");
+      if (star) {
+        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
+        star.classList.toggle("on");
+        star.textContent = star.classList.contains("on") ? "★" : "☆";
+        return;
+      }
+      if (e.target.closest("a")) return;
+      setCatchUpPaused(!catchUp.paused);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (modal.hidden) return;
+      if (e.key === "Escape") closeCatchUp();
+      else if (e.key === " ") { e.preventDefault(); setCatchUpPaused(!catchUp.paused); }
+    });
+  }
+
+  // ── Game Replay ─────────────────────────────────────────────────────────────
+  // Watch one whole game from a scoreboard tile. No identity, no cursor, no
+  // per-user progress - it works for any anonymous visitor.
+  //
+  // The timer/pause/close machinery below is a deliberate parallel copy of
+  // Catch Me Up's rather than a shared abstraction. This codebase's convention
+  // has been to wait for two proven usages before generalizing; this is the
+  // second one, so de-duplicating the two engines is now a reasonable cleanup -
+  // but it is a refactor of shipped, working code, and worth doing only once
+  // both features have been live long enough to be sure the shapes really are
+  // the same. The slide RENDERER (playSceneHtml/catchUpSlideHtml) and the dwell
+  // function are already shared; it is only the stateful parts that are twinned.
+
+  var replay = {
+    slides: [],
+    index: 0,
+    timer: null,
+    paused: false,
+    startedAt: 0,
+    remaining: 0,
+  };
+
+  /* Same lazy-fetch-and-cache shape as loadAllSessions()/ensurePlaysLoaded(),
+     scoped to the one session the game belongs to. */
+  function loadGameReplay(gameCode, session) {
+    var fetchPromise = data.playsBySession[session]
+      ? Promise.resolve(data.playsBySession[session])
+      : getJSON("data/plays_" + pad2(session) + ".json").then(function (rows) {
+          data.playsBySession[session] = rows;
+          return rows;
+        });
+    return fetchPromise.then(function () {
+      return gamePlaysFor(session, gameCode);
+    });
+  }
+
+  function buildGameReplaySlides(plays) {
+    if (!plays.length) return [];
+    var last = plays[plays.length - 1];
+    var isFinal = !!last.is_game_final;
+    var away = plays[0].away_team_abbr, home = plays[0].home_team_abbr;
+    var slides = [{
+      kind: "replay-title", away: away, home: home,
+      isFinal: isFinal, count: plays.length,
+    }];
+    plays.forEach(function (p, i) {
+      slides.push({
+        kind: "play", play: p, playNo: i + 1, total: plays.length,
+        gamePlays: plays, gameIdx: i,
+        ribbonFrom: 0,          // a replay has no already-known prefix to mute
+        homeAbbr: home, awayAbbr: away,
+      });
+    });
+    // Highest-leverage play of the game, straight off the list already loaded.
+    var top = null;
+    plays.forEach(function (p) {
+      if (p.leverage != null && (!top || p.leverage > top.leverage)) top = p;
+    });
+    slides.push({
+      kind: "replay-done", isFinal: isFinal, away: away, home: home,
+      awayScore: last.away_score, homeScore: last.home_score,
+      topPlay: isFinal ? top : null,
+    });
+    return slides;
+  }
+
+  function clearReplayTimer() {
+    if (replay.timer) {
+      window.clearTimeout(replay.timer);
+      replay.timer = null;
+    }
+  }
+
+  function scheduleReplay(ms) {
+    clearReplayTimer();
+    replay.startedAt = Date.now();
+    replay.remaining = ms;
+    replay.timer = window.setTimeout(function () {
+      replay.timer = null;
+      showReplaySlide(replay.index + 1);
+    }, ms);
+  }
+
+  function showReplaySlide(i) {
+    if (i >= replay.slides.length) { closeReplay(); return; }
+    replay.index = i;
+    var slide = replay.slides[i];
+    var slideEl = $("replay-slide");
+    slideEl.innerHTML = catchUpSlideHtml(slide);
+    slideEl.classList.remove("in");
+    void slideEl.offsetWidth;
+    slideEl.classList.add("in");
+
+    var progress = $("replay-progress");
+    if (slide.kind === "play") {
+      progress.textContent = "Play " + slide.playNo + " of " + slide.total;
+      progress.style.setProperty("--catchup-pct", String(100 * slide.playNo / slide.total));
+    } else if (slide.kind === "replay-done") {
+      progress.textContent = "";
+      progress.style.setProperty("--catchup-pct", "100");
+    } else {
+      progress.textContent = "Replay";
+      progress.style.setProperty("--catchup-pct", "0");
+    }
+
+    if (slide.kind === "replay-done") { clearReplayTimer(); return; }
+    if (!replay.paused) scheduleReplay(slideDwell(slide));
+  }
+
+  function setReplayPaused(paused) {
+    if (replay.paused === paused) return;
+    replay.paused = paused;
+    $("replay-pause-hint").hidden = !paused;
+    $("replay-card").classList.toggle("paused", paused);
+    if (paused) {
+      var elapsed = Date.now() - replay.startedAt;
+      replay.remaining = Math.max(0, replay.remaining - elapsed);
+      clearReplayTimer();
+    } else if (replay.slides[replay.index] &&
+               replay.slides[replay.index].kind !== "replay-done") {
+      scheduleReplay(replay.remaining || slideDwell(replay.slides[replay.index]));
+    }
+  }
+
+  /* A live game's replay is a snapshot taken when it opens - it plays to the
+     last recorded play and stops, rather than chasing a game still in progress.
+     Same "don't chase a moving target" rule as Catch Me Up's cursor read. */
+  function openGameReplayFor(btn) {
+    var gameCode = btn.getAttribute("data-replay");
+    var tile = btn.closest(".scoreboard-tile");
+    var raw = tile && tile.getAttribute("data-session");
+    var session = raw ? Number(raw) : filters.session;
+    if (session == null || isNaN(session)) {
+      toast("Pick a session to replay a game.");
+      return;
+    }
+    btn.classList.add("loading");
+    loadGameReplay(gameCode, session).then(function (plays) {
+      btn.classList.remove("loading");
+      if (!plays.length) { toast("No plays recorded for that game yet."); return; }
+      replay.slides = buildGameReplaySlides(plays);
+      replay.paused = false;
+      $("replay-pause-hint").hidden = true;
+      $("replay-card").classList.remove("paused");
+      $("replay-modal").hidden = false;
+      showReplaySlide(0);
+    }).catch(function () {
+      btn.classList.remove("loading");
+      toast("Could not load that game's plays.");
+    });
+  }
+
+  function closeReplay() {
+    clearReplayTimer();
+    replay.paused = false;
+    $("replay-modal").hidden = true;
+    $("replay-slide").innerHTML = "";
+  }
+
+  function wireReplay() {
+    var modal = $("replay-modal");
+    if (!modal) return;
+    $("replay-close").addEventListener("click", closeReplay);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeReplay(); });
+    $("replay-slide").addEventListener("click", function (e) {
+      var star = e.target.closest("[data-fav-id]");
+      if (star) {
+        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
+        star.classList.toggle("on");
+        star.textContent = star.classList.contains("on") ? "★" : "☆";
+        return;
+      }
+      if (e.target.closest("a")) return;
+      setReplayPaused(!replay.paused);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (modal.hidden) return;
+      if (e.key === "Escape") closeReplay();
+      else if (e.key === " ") { e.preventDefault(); setReplayPaused(!replay.paused); }
     });
   }
 
@@ -897,29 +1861,28 @@
     });
 
     $("scoreboard").addEventListener("click", function (e) {
-      var tile = e.target.closest(".scoreboard-tile");
-      if (!tile) return;
-      var game = tile.getAttribute("data-game");
-      if (filters.selectedGame === game) {
-        // Clicking the already-selected tile again clears it.
-        filters.team = "";
-        filters.selectedGame = null;
-        $("team-select").value = "";
-        tile.classList.remove("selected");
-        render();
+      // Checked before the tile lookup: the replay control sits inside the
+      // tile, so without stopping here a click on it would also toggle the
+      // tile's own game filter.
+      var replayBtn = e.target.closest("[data-replay]");
+      if (replayBtn) {
+        e.stopPropagation();
+        openGameReplayFor(replayBtn);
         return;
       }
-      var away = tile.getAttribute("data-away");
-      // Either team in the matchup would do - Team is a season-long filter,
-      // but the scoreboard only ever shows the selected session's games, so
-      // this reads as "just this game" in practice.
-      filters.team = away;
-      filters.selectedGame = game;
-      $("team-select").value = away;
-      Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
-        t.classList.toggle("selected", t === tile);
-      });
-      render();
+      var tile = e.target.closest(".scoreboard-tile");
+      if (!tile) return;
+      selectScoreboardTile(tile);
+    });
+
+    // role=button does not bring the native Enter/Space activation a real
+    // <button> had, so the tile's keyboard behaviour is restored by hand.
+    $("scoreboard").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var tile = e.target.closest(".scoreboard-tile");
+      if (!tile || e.target.closest("[data-replay]")) return;   // the button handles itself
+      e.preventDefault();
+      selectScoreboardTile(tile);
     });
 
     var playerTimer;
@@ -997,6 +1960,9 @@
     });
 
     $("refresh-btn").addEventListener("click", requestRefresh);
+
+    wireCatchUp();
+    wireReplay();
   }
 
   // ── refresh ─────────────────────────────────────────────────────────────────
@@ -1099,6 +2065,13 @@
       window.KMFavorites.init(data.players, function () {
         renderMaybeLoading();
         window.KMFavorites.refreshList();
+      }).then(function () {
+        // After init resolves, so the cursor from the favorites GET is in hand.
+        renderCatchUpBanner();
+        return computeCatchUp();
+      }).then(function (groups) {
+        data.catchUpGroups = groups;
+        renderCatchUpBanner();
       });
     }).catch(function (err) {
       $("built-at").textContent = "";

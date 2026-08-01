@@ -141,7 +141,23 @@ button{font-family:inherit;cursor:pointer;}
   padding:10px 12px 12px;text-align:left;font-family:inherit;color:inherit;
   display:flex;flex-direction:column;gap:8px;overflow:hidden;
 }
+.scoreboard-tile{cursor:pointer;}
+.scoreboard-tile:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
 .scoreboard-tile.selected{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy) inset;}
+
+/* Replay control, top-right of the tile. Sits above the tile's own click
+   target; app.js stops the event so it never also selects the game. */
+.tile-replay-btn{
+  position:absolute;top:4px;right:4px;z-index:2;
+  width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid transparent;border-radius:5px;background:transparent;
+  color:var(--muted);cursor:pointer;opacity:0.55;
+}
+.tile-replay-btn svg{width:13px;height:13px;fill:currentColor;}
+.tile-replay-btn:hover,.tile-replay-btn:focus-visible{
+  opacity:1;color:var(--navy);background:var(--tint);border-color:var(--border);
+}
+.tile-replay-btn.loading{opacity:0.35;pointer-events:none;}
 @media (hover: hover){
   .scoreboard-tile:hover{border-color:var(--border-hover);}
   .scoreboard-tile.selected:hover{border-color:var(--navy);}
@@ -339,6 +355,321 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .fav-row:last-child{border-bottom:none;}
 .fav-row .fav-team{color:var(--muted);font-size:11.5px;margin-left:auto;}
 .fav-status{font-size:12px;color:var(--muted);min-height:16px;}
+
+/* ---- Catch Me Up ---- */
+.catchup-banner{
+  display:block;width:100%;margin:0 0 10px;padding:10px 14px;border-radius:8px;
+  border:1px solid var(--navy);background:var(--navy);color:#fff;
+  font-size:13.5px;font-weight:700;letter-spacing:0.2px;text-align:left;cursor:pointer;
+}
+.catchup-banner[hidden]{display:none;}
+.catchup-banner:hover{background:var(--navy-2);border-color:var(--navy-2);}
+/* The name prompt is an invitation, not news - it recedes to match the other
+   muted furniture on the page rather than shouting like the real thing. */
+.catchup-banner.quiet{
+  background:var(--tint);border-color:var(--border);color:var(--muted);font-weight:600;
+}
+.catchup-banner.quiet:hover{background:var(--tint);border-color:var(--border-hover);color:var(--text);}
+
+.catchup-modal{padding:12px;}
+/* A fixed height, not auto: title and play slides are different sizes, and a
+   card that resized under each one would jump on every advance. Sized to the
+   content it actually holds (one .moment card) rather than filling the
+   viewport, which just framed a small card in a sea of white. */
+.catchup-card{
+  background:var(--card);border-radius:12px;width:100%;max-width:660px;
+  height:min(86vh,570px);display:flex;flex-direction:column;overflow:hidden;position:relative;
+  box-shadow:0 10px 40px var(--shadow);
+}
+:root[data-theme="dark"] .catchup-card{border:1px solid var(--border);}
+.catchup-card.paused{outline:2px solid var(--navy);outline-offset:-2px;}
+
+.catchup-close{
+  position:absolute;top:8px;right:10px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  font-size:26px;line-height:1;padding:4px 8px;cursor:pointer;border-radius:6px;
+}
+.catchup-close:hover{color:var(--text);background:var(--tint);}
+
+/* Progress doubles as the slide counter and the bar: the ::after strip is
+   driven by --catchup-pct, which showCatchUpSlide() sets per slide. */
+.catchup-progress{
+  position:relative;flex:0 0 auto;padding:14px 44px 10px 18px;
+  font-size:11.5px;font-weight:700;letter-spacing:0.4px;color:var(--muted);min-height:16px;
+}
+.catchup-progress::before{
+  content:"";position:absolute;left:18px;right:18px;bottom:4px;height:3px;
+  background:var(--tint);border-radius:2px;
+}
+/* --catchup-pct is a unitless number, not a percentage: calc() cannot divide
+   by a percentage, and doing so makes the whole width declaration invalid, so
+   the bar silently never renders. */
+.catchup-progress::after{
+  content:"";position:absolute;left:18px;bottom:4px;height:3px;border-radius:2px;
+  width:calc((100% - 36px) * var(--catchup-pct, 0) / 100);
+  background:var(--navy);transition:width 240ms linear;
+}
+
+.catchup-slide{
+  flex:1 1 auto;overflow-y:auto;padding:10px 14px 14px;
+  display:flex;flex-direction:column;justify-content:center;
+  opacity:0;transform:translateY(6px);cursor:pointer;
+}
+.catchup-slide.in{opacity:1;transform:none;transition:opacity 260ms ease,transform 260ms ease;}
+/* The card inside a slide is the same .moment the feed renders - it just gets
+   room to breathe and drops the hover affordances that mean nothing here. */
+.catchup-slide .moment{margin:0;}
+
+.catchup-title{text-align:center;padding:20px 10px;}
+.catchup-title-teams{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;
+  font-size:20px;font-weight:800;letter-spacing:0.3px;line-height:1.3;
+}
+.catchup-title-logo{width:34px;height:34px;object-fit:contain;}
+.catchup-at{color:var(--muted);font-weight:600;}
+.catchup-title-sub{margin-top:10px;font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0.3px;}
+
+/* ---- Play Scene (slideshow play slide) ---- */
+/* The scene fills the slide rather than sitting as a small block centred in
+   it - the card is a stage, and on phone it is the whole viewport. */
+.play-scene{position:relative;display:flex;flex-direction:column;gap:10px;width:100%;}
+.catchup-slide > .play-scene{flex:1 1 auto;justify-content:space-evenly;}
+.scene-top{display:flex;align-items:center;justify-content:center;gap:22px;}
+
+/* position:relative is load-bearing: the watermark below is absolutely
+   positioned and would otherwise resolve against the whole modal card and
+   cover the entire slide. */
+.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(45%,200px);}
+.scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
+.dm-field{fill:var(--tint);stroke:var(--border);stroke-width:2;}
+.dm-base{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
+.dm-base.on{fill:var(--gold);stroke:var(--gold);}
+.dm-plate{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
+
+/* Tokens sit at their DESTINATION by default so the end state is what shows
+   when the animation is skipped (reduced motion) or has finished. */
+.rn{transform:translate(var(--tx),var(--ty));}
+.rn circle{fill:var(--navy);stroke:var(--card);stroke-width:2;}
+.rn.move, .rn:not(.out){animation:rnMove 900ms cubic-bezier(.4,.05,.2,1) forwards;}
+.rn.batter{opacity:1;animation:rnBatter 900ms cubic-bezier(.4,.05,.2,1) forwards;}
+.rn.score circle{fill:var(--green);}
+.rn.score{animation:rnScore 1100ms cubic-bezier(.4,.05,.2,1) forwards;}
+/* An out does not move - it fades in place, leaving a ghost so the viewer can
+   still see where the runner had been. */
+.rn.out{animation:rnOut 700ms ease forwards;}
+.rn.out circle{fill:var(--muted);}
+/* The batter when they never reached base - shown at the plate, then gone, so
+   a strikeout is not an empty diamond with nothing having happened. */
+.rn.batter-out{animation:rnBatterOut 900ms ease forwards;}
+.rn.batter-out circle{fill:var(--muted);}
+
+@keyframes rnMove{
+  from{transform:translate(var(--fx),var(--fy));}
+  to{transform:translate(var(--tx),var(--ty));}
+}
+@keyframes rnBatter{
+  from{transform:translate(var(--fx),var(--fy));opacity:0;}
+  30%{opacity:1;}
+  to{transform:translate(var(--tx),var(--ty));opacity:1;}
+}
+@keyframes rnScore{
+  from{transform:translate(var(--fx),var(--fy)) scale(1);opacity:1;}
+  70%{transform:translate(var(--tx),var(--ty)) scale(1);opacity:1;}
+  85%{transform:translate(var(--tx),var(--ty)) scale(1.9);opacity:1;}
+  to{transform:translate(var(--tx),var(--ty)) scale(1.2);opacity:0;}
+}
+@keyframes rnOut{
+  from{opacity:1;}
+  to{opacity:0.18;}
+}
+@keyframes rnBatterOut{
+  0%{opacity:0;transform:translate(var(--tx),var(--ty)) scale(0.7);}
+  35%{opacity:1;transform:translate(var(--tx),var(--ty)) scale(1);}
+  to{opacity:0.18;transform:translate(var(--tx),var(--ty)) scale(1);}
+}
+
+/* A key moment is why the slideshow slows down here - give it a visible
+   reason, not just a longer pause. */
+.play-scene.is-key .scene-detail{
+  border-left:3px solid var(--red);padding-left:9px;
+}
+
+.scene-side{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0;}
+.scene-inning{display:flex;align-items:center;gap:6px;}
+.scene-inning .tri{
+  width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+}
+.scene-inning .tri.up{border-bottom:7px solid var(--text);}
+.scene-inning .tri.down{border-top:7px solid var(--text);}
+.scene-inning .inning-num{font-size:15px;font-weight:800;}
+.scene-score{font-size:15px;}
+.scene-score .val{transition:none;display:inline-block;}
+.scene-score .val.tick{animation:scoreTick 500ms ease 900ms both;}
+@keyframes scoreTick{
+  0%{transform:scale(1);color:inherit;}
+  40%{transform:scale(1.55);color:var(--green);}
+  to{transform:scale(1);color:inherit;}
+}
+
+.scene-meter{position:relative;width:120px;text-align:center;}
+.scene-meter svg{width:100%;height:auto;display:block;overflow:visible;}
+.mt-track{fill:none;stroke:var(--tint);stroke-width:9;stroke-linecap:round;}
+.mt-redline{
+  fill:none;stroke:var(--tint-red);stroke-width:9;stroke-linecap:round;
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
+}
+.mt-tick{stroke:var(--tint-red-border);stroke-width:2;}
+.mt-fill{
+  fill:none;stroke:var(--navy);stroke-width:9;stroke-linecap:round;
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
+  animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes meterFill{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:var(--off);}}
+.scene-meter.hot .mt-fill{stroke:var(--red);animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both, meterPulse 700ms ease 700ms 2;}
+@keyframes meterPulse{0%,100%{filter:none;}50%{filter:drop-shadow(0 0 7px var(--red));}}
+.scene-meter-val{
+  position:absolute;left:0;right:0;top:38%;font-size:19px;font-weight:800;letter-spacing:-0.3px;
+}
+.scene-meter.hot .scene-meter-val{color:var(--red-dark);}
+.scene-meter-lbl{font-size:8.5px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-top:-6px;}
+
+/* Centred to match the diamond and meter above it - left-aligned, the block
+   stranded a wide empty margin on the right of an otherwise centred scene. */
+.scene-detail{
+  display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;text-align:center;
+}
+
+/* Fixed batter-vs-pitcher pairing. Both sides keep their slot for the whole
+   run so the eye can stay put between slides. */
+.scene-matchup{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;}
+.mu-side{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;}
+.mu-role{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--muted);
+}
+.mu-logo{width:15px;height:15px;object-fit:contain;flex-shrink:0;}
+.mu-name{display:flex;align-items:center;gap:5px;font-size:15px;font-weight:800;min-width:0;}
+.mu-name > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mu-vs{font-size:11px;font-weight:700;color:var(--muted);align-self:flex-end;padding-bottom:3px;}
+
+.scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
+.scene-play-line .player-name{font-weight:800;}
+.scene-score-logo{width:17px;height:17px;object-fit:contain;flex-shrink:0;}
+/* Batting team's mark under the infield - visible enough to place the play,
+   quiet enough that the runner tokens stay the thing you look at. */
+/* Painted on the infield dirt, inside the SVG - see sceneDiamondHtml. */
+.dm-mark{opacity:0.2;}
+:root[data-theme="dark"] .dm-mark{opacity:0.26;}
+.scene-detail .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;}
+
+.scene-ribbon{padding:10px 0 6px;}
+/* Exactly the plot box, and the only positioning context the marker sees. */
+.rb-plot{position:relative;}
+.scene-ribbon svg{width:100%;height:96px;display:block;overflow:visible;}
+.rb-mid{stroke:var(--border);stroke-width:1;stroke-dasharray:3 4;}
+/* Half-inning boundaries. vector-effect keeps them hairline-thin despite the
+   non-uniform scaling this SVG gets stretched by. */
+.rb-div{stroke:var(--border);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0.7;}
+.rb-div.future{opacity:0.3;}
+.rb-axis{position:relative;height:14px;margin-top:6px;}
+.rb-axis-tick{
+  position:absolute;top:0;transform:translateX(-50%);
+  font-size:8.5px;font-weight:700;color:var(--muted);letter-spacing:0.2px;white-space:nowrap;
+}
+/* Half-innings the game has not reached yet - present so the remaining
+   regulation is visible, dimmed so it does not read as already played. */
+.rb-axis-tick.future{opacity:0.4;}
+.rb-seen{fill:none;stroke:var(--muted);stroke-width:1.5;opacity:0.5;
+  vector-effect:non-scaling-stroke;stroke-linejoin:round;}
+.rb-fresh{fill:none;stroke:var(--navy);stroke-width:2.5;
+  vector-effect:non-scaling-stroke;stroke-linejoin:round;}
+.rb-new{
+  stroke:var(--navy);stroke-width:3;vector-effect:non-scaling-stroke;stroke-linecap:round;
+  stroke-dasharray:var(--len);animation:ribbonDraw 650ms ease both;
+}
+@keyframes ribbonDraw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
+/* Marker: the home team's badge riding the newest point, carrying their odds
+   and what this play did to them. Overlaid in HTML because the SVG beneath is
+   stretched with preserveAspectRatio="none". */
+/* A zero-size box pinned exactly on the plotted point, so the badge centres on
+   it rather than the whole badge-plus-readout row being centred (which left
+   the logo sitting well to the left of the play it marks). The readout hangs
+   off to one side without moving the logo. */
+.rb-marker{
+  position:absolute;width:0;height:0;transform:translate(-50%,-50%);
+  animation:ribbonDot 650ms ease both;
+}
+@keyframes ribbonDot{0%,55%{opacity:0;}to{opacity:1;}}
+.rb-marker-logo, .rb-marker-dot{
+  position:absolute;left:0;top:0;transform:translate(-50%,-50%);
+}
+.rb-marker-logo{
+  width:22px;height:22px;object-fit:contain;
+  background:var(--card);border-radius:50%;padding:1.5px;
+  box-shadow:0 0 0 2px var(--navy);
+}
+.rb-marker-dot{
+  width:11px;height:11px;border-radius:50%;background:var(--navy);
+  box-shadow:0 0 0 2px var(--card);
+}
+.rb-readout{
+  position:absolute;left:17px;top:0;transform:translateY(-50%);
+  display:flex;align-items:baseline;gap:5px;white-space:nowrap;
+}
+.rb-marker.flip .rb-readout{left:auto;right:17px;}
+.rb-pct{font-size:15px;font-weight:800;letter-spacing:-0.3px;}
+.rb-readout .wpa-pos, .rb-readout .wpa-neg{font-size:12px;font-weight:700;}
+
+.scene-flash{
+  position:absolute;inset:-12px;border-radius:12px;pointer-events:none;z-index:1;
+  opacity:0;animation:sceneFlash 900ms ease both;
+}
+@keyframes sceneFlash{0%{opacity:0;}25%{opacity:0.22;}to{opacity:0;}}
+
+/* Phone gets the full viewport height, so the diamond goes big and the
+   supporting numbers move underneath it instead of competing for width. */
+@media (max-width:600px){
+  .scene-top{flex-direction:column;gap:12px;}
+  .scene-diamond-wrap{width:min(64vw,250px);}
+  .scene-side{flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
+  .scene-meter{width:112px;}
+  .scene-score{font-size:16px;}
+  .scene-play-line{font-size:14.5px;}
+  .scene-ribbon svg{height:84px;}
+}
+
+.catchup-pause-hint{
+  flex:0 0 auto;text-align:center;padding:8px 12px 12px;
+  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.3px;
+}
+.catchup-pause-hint[hidden]{display:none;}
+
+@media (max-width:600px){
+  .catchup-modal{padding:0;}
+  .catchup-card{height:100vh;max-width:none;border-radius:0;}
+  .catchup-title-teams{font-size:17px;}
+  .catchup-title-logo{width:28px;height:28px;}
+}
+
+/* Honour a reduced-motion preference: the slideshow still advances, it just
+   stops sliding and fading while it does. Every Play Scene component shows its
+   END state instantly here - runners on their final base, the meter at its
+   value, the ribbon fully drawn - rather than being hidden or frozen mid-way.
+   The base (non-animated) rules above are all written to be that end state,
+   so switching the animations off is all this needs to do. */
+@media (prefers-reduced-motion:reduce){
+  .catchup-slide{transform:none;}
+  .catchup-slide.in{transition:none;}
+  .catchup-progress::after{transition:none;}
+  .rn, .rn.move, .rn.batter, .rn.score, .rn.out, .rn.batter-out,
+  .mt-fill, .scene-meter.hot .mt-fill,
+  .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash{animation:none;}
+  .rn.out, .rn.batter-out{opacity:0.18;}
+  .rn.score{opacity:0;}
+  .mt-fill{stroke-dashoffset:var(--off);}
+  .rb-new{stroke-dasharray:none;}
+  .scene-flash{opacity:0;}
+}
 
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600;z-index:30;}
 
