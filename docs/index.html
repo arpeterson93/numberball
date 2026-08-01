@@ -18,6 +18,22 @@
     <h1 id="page-title">KEY MOMENTS</h1>
     <div class="title-actions">
       <select id="session-select" class="session-select" aria-label="Session"></select>
+      <!-- Phone-only shortcuts mirroring #toggle-chips's keymoments/favorites
+           buttons (hidden above 600px via .header-toggle-btn's CSS) - kept in
+           sync with those chips in both directions by app.js. Key Moments
+           defaults on, Favorites defaults off, matching the filters object. -->
+      <button type="button" class="icon-btn header-toggle-btn active" id="header-key-toggle" title="Key Moments only" aria-label="Toggle Key Moments only" aria-pressed="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="7.5" cy="15.5" r="5.5"></circle>
+          <path d="M21 2l-9.6 9.6"></path>
+          <path d="M15.5 7.5l3 3L22 7l-3-3"></path>
+        </svg>
+      </button>
+      <button type="button" class="icon-btn header-toggle-btn" id="header-fav-toggle" title="Favorites only" aria-label="Toggle Favorites only" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+        </svg>
+      </button>
       <!-- Icon-only, borderless, muted - matches .theme-toggle's treatment so
            the two controls read as one family. -->
       <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">

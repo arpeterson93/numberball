@@ -654,6 +654,37 @@
     }
   }
 
+  // ── Key Moments / Favorites toggle - shared between #toggle-chips and the
+  //    phone-only header shortcuts (index.html), kept in sync both ways ──────
+
+  function syncToggleChips(slug, on) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('#toggle-chips [data-toggle="' + slug + '"]'),
+      function (c) { c.classList.toggle("active", on); }
+    );
+  }
+
+  function syncHeaderToggle(id, on) {
+    var btn = $(id);
+    if (!btn) return;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
+  }
+
+  function toggleKeyMoments() {
+    filters.keyMomentsOnly = !filters.keyMomentsOnly;
+    syncToggleChips("keymoments", filters.keyMomentsOnly);
+    syncHeaderToggle("header-key-toggle", filters.keyMomentsOnly);
+    renderMaybeLoading();
+  }
+
+  function toggleFavorites() {
+    filters.favoritesOnly = !filters.favoritesOnly;
+    syncToggleChips("favorites", filters.favoritesOnly);
+    syncHeaderToggle("header-fav-toggle", filters.favoritesOnly);
+    render();
+  }
+
   // ── controls ────────────────────────────────────────────────────────────────
 
   function populateSessionSelect(keepSelection) {
@@ -781,19 +812,22 @@
       if (!chip) return;
       var which = chip.getAttribute("data-toggle");
       if (which === "keymoments") {
-        filters.keyMomentsOnly = !filters.keyMomentsOnly;
-        chip.classList.toggle("active", filters.keyMomentsOnly);
-        renderMaybeLoading();
+        toggleKeyMoments();
       } else if (which === "rookies") {
         filters.rookiesOnly = !filters.rookiesOnly;
         chip.classList.toggle("active", filters.rookiesOnly);
         render();
       } else {
-        filters.favoritesOnly = !filters.favoritesOnly;
-        chip.classList.toggle("active", filters.favoritesOnly);
-        render();
+        toggleFavorites();
       }
     });
+
+    // Phone-only header shortcuts for the same two toggles - see the
+    // markup comment in index.html. syncToggleChips() inside each function
+    // keeps #toggle-chips's keymoments/favorites buttons in sync so the two
+    // controls never disagree, whichever one was clicked.
+    $("header-key-toggle").addEventListener("click", toggleKeyMoments);
+    $("header-fav-toggle").addEventListener("click", toggleFavorites);
 
     // Tag chips multi-select and OR together.
     $("tag-chips").addEventListener("click", function (e) {
@@ -906,6 +940,8 @@
       Array.prototype.forEach.call(document.querySelectorAll("#toggle-chips .chip"), function (c) {
         c.classList.toggle("active", c.getAttribute("data-toggle") === "keymoments");
       });
+      syncHeaderToggle("header-key-toggle", true);
+      syncHeaderToggle("header-fav-toggle", false);
       Array.prototype.forEach.call(document.querySelectorAll("#league-chips .chip"), function (c) {
         c.classList.toggle("active", c.getAttribute("data-league") === "");
       });

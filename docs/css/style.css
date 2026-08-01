@@ -105,6 +105,15 @@ button{font-family:inherit;cursor:pointer;}
 :root[data-theme="dark"] .theme-toggle .icon-moon{display:none;}
 :root[data-theme="dark"] .theme-toggle .icon-sun{display:block;}
 
+/* Phone-only Key Moments / Favorites shortcuts - hidden here, re-shown by
+   the phone breakpoint below. Deliberately subtle: a color change only, no
+   filled background circle (unlike .chip.active's red fill) - the star also
+   fills solid when active, the same outline-vs-filled language stars
+   already carry everywhere else. */
+.header-toggle-btn{display:none;}
+.header-toggle-btn.active{color:var(--navy);}
+#header-fav-toggle.active svg{fill:currentColor;}
+
 /* Reserves no space at all when empty (the common case) - only takes a line
    once app.js actually puts a message in it. */
 .refresh-status{font-size:12px;color:var(--muted);text-align:right;}
@@ -364,15 +373,20 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .sb-score{font-size:13px;}
   .sb-lev{font-size:9px;padding:2px 6px;}
 
-  /* Title + session selector + both icon buttons all share one line -
-     title-actions keeps the base rule's margin-left:auto (no longer
-     overridden to a forced full-width second line), which is what pushes
-     the selector/icons to the right end of the same row the heading is on.
-     Shrinking the heading and the selector is what leaves enough room. */
-  .title-row{gap:8px;flex-wrap:nowrap;}
+  /* Title + session selector + all four icon buttons (Key Moments,
+     Favorites, Refresh, Dark mode) share one line - title-actions keeps the
+     base rule's margin-left:auto (no longer overridden to a forced
+     full-width second line), which is what pushes the selector/icons to the
+     right end of the same row the heading is on. Shrinking the heading, the
+     selector, the icon buttons themselves, and the gaps between them is
+     what leaves enough room now that there are four icons instead of two. */
+  .title-row{gap:6px;flex-wrap:nowrap;}
   .title-row h1{font-size:16px;letter-spacing:normal;white-space:nowrap;}
-  .title-actions{gap:6px;}
-  .session-select{min-width:0;width:auto;padding:5px 7px;font-size:12px;}
+  .title-actions{gap:4px;}
+  .icon-btn{width:24px;height:24px;}
+  .icon-btn svg{width:13px;height:13px;}
+  .header-toggle-btn{display:inline-flex;}
+  .session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
 
   /* 10c: collapsed filters bar and the sort chips share one line. */
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:16px;}
