@@ -1042,13 +1042,19 @@
        above the field fill - as an HTML layer underneath it, the opaque
        .dm-field simply covered it. It sits below the bases and tokens so the
        runners always stay the thing you look at. */
-    var markUrl = teamLogoUrl(m.batting_is_home ? m.home_team_abbr : m.away_team_abbr);
+    var batAbbr = m.batting_is_home ? m.home_team_abbr : m.away_team_abbr;
+    var markUrl = teamLogoUrl(batAbbr);
     var watermark = markUrl
       ? '<image class="dm-mark" href="' + escapeHtml(markUrl) + '" x="52" y="62" ' +
         'width="96" height="96" preserveAspectRatio="xMidYMid meet"></image>'
       : "";
+    // Runners wear the batting team's colour - they are that team's runners.
+    // Scoring and out tokens override it, since those states matter more than
+    // whose they are.
+    var runHex = teamColor(batAbbr);
     return '<div class="scene-diamond-wrap">' +
-      '<svg class="scene-diamond" viewBox="0 0 200 200" aria-hidden="true">' +
+      '<svg class="scene-diamond" viewBox="0 0 200 200" aria-hidden="true"' +
+        (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
         '<path class="dm-field" d="M100,170 L158,110 L100,50 L42,110 Z"></path>' +
         watermark +
         plates +
@@ -1060,31 +1066,48 @@
     "</div>";
   }
 
-  // Values above this read as "off the charts" rather than being plotted
-  // proportionally - real leverage in this data rarely gets near it.
+  /* LI 1.0 sits at the apex of the gauge. That is average leverage by
+     definition - the index divides by the average WP swing - so the top of the
+     arc reading "ordinary" makes the needle's side of centre meaningful on its
+     own. The scale is piecewise: 0 to 1.0 fills the left half, 1.0 up to the
+     ceiling fills the right. In the current data that puts about 80% of plays
+     on the left half and gives the remaining 20% the whole right half to
+     spread across (observed max is 3.8, median 0.56). */
+  var SCENE_LEV_ANCHOR = 1.0;
   var SCENE_LEV_CEILING = 4;
   var SCENE_ARC_LEN = Math.PI * 46;   // matches the r=46 arc path below
+
+  function meterFraction(lev) {
+    if (lev <= 0) return 0;
+    if (lev <= SCENE_LEV_ANCHOR) return 0.5 * (lev / SCENE_LEV_ANCHOR);
+    var over = (lev - SCENE_LEV_ANCHOR) / (SCENE_LEV_CEILING - SCENE_LEV_ANCHOR);
+    return 0.5 + 0.5 * Math.min(1, over);
+  }
 
   function sceneMeterHtml(m) {
     if (m.leverage == null) return "";
     var lev = m.leverage;
-    var frac = Math.max(0, Math.min(1, lev / SCENE_LEV_CEILING));
+    var frac = meterFraction(lev);
     // Same threshold and the same hot/cold rule the scoreboard tile uses, so a
     // play that redlines here is exactly one that shows hot there.
     var threshold = data.meta.leverage_threshold || SCOREBOARD_HOT_LEVERAGE;
     var hot = leverageClass(lev) === " hot";
-    var tFrac = Math.max(0, Math.min(1, threshold / SCENE_LEV_CEILING));
-    var tAngle = Math.PI * (1 - tFrac);
-    var tick = {
-      x1: 60 + Math.cos(tAngle) * 36, y1: 60 - Math.sin(tAngle) * 36,
-      x2: 60 + Math.cos(tAngle) * 56, y2: 60 - Math.sin(tAngle) * 56,
+    var tFrac = meterFraction(threshold);
+    var tickAt = function (f, r1, r2) {
+      var a = Math.PI * (1 - f);
+      return { x1: 60 + Math.cos(a) * r1, y1: 60 - Math.sin(a) * r1,
+               x2: 60 + Math.cos(a) * r2, y2: 60 - Math.sin(a) * r2 };
     };
+    var tick = tickAt(tFrac, 36, 56);
+    var anchor = tickAt(0.5, 38, 54);   // the apex: LI 1.0, average leverage
     return '<div class="scene-meter' + (hot ? " hot" : "") + '">' +
       '<svg viewBox="0 0 120 72" aria-hidden="true">' +
         '<path class="mt-track" d="M14,60 A46,46 0 0 1 106,60"></path>' +
         '<path class="mt-redline" d="M14,60 A46,46 0 0 1 106,60" style="' +
           "--len:" + SCENE_ARC_LEN.toFixed(2) + "px;--off:" +
           (SCENE_ARC_LEN * tFrac).toFixed(2) + 'px"></path>' +
+        '<line class="mt-anchor" x1="' + anchor.x1.toFixed(1) + '" y1="' + anchor.y1.toFixed(1) +
+          '" x2="' + anchor.x2.toFixed(1) + '" y2="' + anchor.y2.toFixed(1) + '"></line>' +
         '<line class="mt-tick" x1="' + tick.x1.toFixed(1) + '" y1="' + tick.y1.toFixed(1) +
           '" x2="' + tick.x2.toFixed(1) + '" y2="' + tick.y2.toFixed(1) + '"></line>' +
         '<path class="mt-fill" d="M14,60 A46,46 0 0 1 106,60" style="' +
@@ -1329,16 +1352,19 @@
      point it belongs to. */
   function sceneDetailHtml(m) {
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
+    /* Result first, then who did it - the same order at every width, so the
+       eye lands in the same place whether the scene is stacked on a phone or
+       split into two columns on a wide screen. */
     return '<div class="scene-detail">' +
-      '<div class="scene-matchup">' +
-        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
-        '<span class="mu-vs">vs</span>' +
-        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr) +
-      "</div>" +
       '<div class="scene-play-line">' +
         '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
           escapeHtml(resultLabel) + "</span>" +
         diffPill(m) +
+      "</div>" +
+      '<div class="scene-matchup">' +
+        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
+        '<span class="mu-vs">vs</span>' +
+        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr) +
       "</div>" +
       scoringLine(m) +
     "</div>";

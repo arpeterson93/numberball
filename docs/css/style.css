@@ -401,8 +401,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 /* Progress doubles as the slide counter and the bar: the ::after strip is
    driven by --catchup-pct, which showCatchUpSlide() sets per slide. */
+/* Sits clear of the close button rather than running the bar underneath it -
+   the X occupies the top ~36px of the card. */
 .catchup-progress{
-  position:relative;flex:0 0 auto;padding:14px 44px 10px 18px;
+  position:relative;flex:0 0 auto;padding:30px 44px 10px 18px;
   font-size:11.5px;font-weight:700;letter-spacing:0.4px;color:var(--muted);min-height:16px;
 }
 .catchup-progress::before{
@@ -459,7 +461,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    and a flash. Tokens sit at their DESTINATION by default so the end state is
    what shows when the animation is skipped (reduced motion) or has finished. */
 .rn{transform:translate(var(--tx),var(--ty));}
-.rn circle{fill:var(--navy);stroke:var(--card);stroke-width:2;}
+.rn circle{fill:var(--rn-fill,var(--navy));stroke:var(--card);stroke-width:2;}
 
 /* Runners follow the basepaths, touching every base on the way: one keyframe
    stop per base passed. Legs are all the same length, so evenly spaced stops
@@ -557,7 +559,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .scene-inning .tri.up{border-bottom:7px solid var(--text);}
 .scene-inning .tri.down{border-top:7px solid var(--text);}
 .scene-inning .inning-num{font-size:15px;font-weight:800;}
-.scene-score{font-size:15px;}
+.scene-score{font-size:15px;min-width:84px;}
+/* space-between alone lets a four-letter abbreviation run into its own score
+   once the row is wide enough to matter. */
+.scene-score .row{gap:10px;}
 .scene-score .val{transition:none;display:inline-block;}
 .scene-score .val.tick{animation:scoreTick 500ms ease 900ms both;}
 @keyframes scoreTick{
@@ -574,6 +579,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
 }
 .mt-tick{stroke:var(--tint-red-border);stroke-width:2;}
+/* The apex of the gauge is LI 1.0 - average leverage - so it gets its own
+   marker, otherwise "which side of centre" has nothing to read against. */
+.mt-anchor{stroke:var(--muted);stroke-width:1.5;opacity:0.55;}
 .mt-fill{
   fill:none;stroke:var(--navy);stroke-width:9;stroke-linecap:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
@@ -609,6 +617,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 .scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
 .scene-play-line .player-name{font-weight:800;}
+/* The result is the headline of the slide - it lands with a bounce rather than
+   just appearing. Scoped to the scene so the main feed's pills stay static. */
+.play-scene .result-pill{
+  font-size:13px;padding:3px 11px;animation:resultPop 460ms cubic-bezier(.2,1.5,.4,1) both;
+}
+@keyframes resultPop{
+  0%{opacity:0;transform:scale(0.55);}
+  60%{opacity:1;transform:scale(1.12);}
+  to{opacity:1;transform:scale(1);}
+}
 .scene-score-logo{width:17px;height:17px;object-fit:contain;flex-shrink:0;}
 /* Batting team's mark under the infield - visible enough to place the play,
    quiet enough that the runner tokens stay the thing you look at. */
@@ -702,15 +720,26 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 @keyframes sceneFlash{0%{opacity:0;}25%{opacity:0.22;}to{opacity:0;}}
 
 /* Phone gets the full viewport height, so the diamond goes big and the
-   supporting numbers move underneath it instead of competing for width. */
+   supporting numbers move underneath it instead of competing for width.
+
+   The reading order also changes here: bases, then what happened, then who did
+   it, then the game state. .scene-top and .scene-detail become display:contents
+   so their children join .play-scene's flex flow directly and can be ordered
+   across what are two separate containers on desktop. */
 @media (max-width:600px){
-  .scene-top{flex-direction:column;gap:12px;}
-  .scene-diamond-wrap{width:min(64vw,250px);}
-  .scene-side{flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
+  .scene-top, .scene-detail{display:contents;}
+  .play-scene{align-items:center;}
+  .scene-diamond-wrap{order:1;width:min(64vw,250px);}
+  .scene-play-line{order:2;font-size:14.5px;}
+  .scene-matchup{order:3;}
+  .scene-detail .scoring-line{order:4;}
+  .scene-side{order:5;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
+  .scene-recap{order:0;}
+  .scene-ribbon{order:6;width:100%;}
   .scene-meter{width:112px;}
-  .scene-score{font-size:16px;}
-  .scene-play-line{font-size:14.5px;}
+  .scene-score{font-size:16px;min-width:92px;}
   .scene-ribbon svg{height:84px;}
+  .play-scene .result-pill{font-size:14px;padding:4px 13px;}
 }
 
 .catchup-pause-hint{
@@ -741,7 +770,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rn.out .rn-inner, .rn.batter-out .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash,
-  .scene-recap, .scene-inning.new-half{animation:none;}
+  .scene-recap, .scene-inning.new-half, .play-scene .result-pill{animation:none;}
   .rn.out .rn-inner, .rn.batter-out .rn-inner{opacity:0.18;}
   .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}
