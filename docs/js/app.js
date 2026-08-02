@@ -2300,6 +2300,13 @@
         c.classList.toggle("active", filters.tags.has(c.getAttribute("data-tag")));
       });
       renderMaybeLoading();
+      // Mirrors boot()'s own post-load step - without this, Catch Me Up's
+      // banner and cursor only ever refresh on a full page load, not after a
+      // manual "Refresh now" that pulls in new plays mid-session.
+      return computeCatchUp().then(function (groups) {
+        data.catchUpGroups = groups;
+        renderCatchUpBanner();
+      });
     });
   }
 
