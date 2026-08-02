@@ -420,8 +420,27 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   background:var(--navy);transition:width 240ms linear;
 }
 
+/* Step controls, carousel style. Pinned to the card's edges and vertically
+   centred; the slide reserves matching horizontal padding so scene content
+   never runs underneath them. */
+.catchup-nav{
+  position:absolute;top:50%;transform:translateY(-50%);z-index:3;
+  width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:50%;background:var(--card);
+  color:var(--muted);cursor:pointer;opacity:0.75;
+}
+.catchup-nav svg{width:16px;height:16px;display:block;}
+.catchup-nav.prev{left:6px;}
+.catchup-nav.next{right:6px;}
+.catchup-nav:hover:not(:disabled){opacity:1;color:var(--navy);border-color:var(--navy);}
+.catchup-nav:disabled{opacity:0.22;cursor:default;}
+
+/* pan-y hands vertical scrolling to the browser and keeps horizontal drags for
+   the swipe handler - without it a sideways drag can trigger the platform's own
+   back-navigation gesture instead of stepping a play. */
 .catchup-slide{
-  flex:1 1 auto;overflow-y:auto;padding:10px 14px 14px;
+  touch-action:pan-y;
+  flex:1 1 auto;overflow-y:auto;padding:10px 46px 14px;
   display:flex;flex-direction:column;justify-content:center;
   opacity:0;transform:translateY(6px);cursor:pointer;
 }
@@ -779,6 +798,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .scene-meter{width:112px;}
   .scene-score{font-size:16px;min-width:92px;}
   .scene-ribbon svg{height:84px;}
+  /* Slightly smaller controls here so the reserved gutters do not squeeze two
+     long player names into an awkward wrap. */
+  .catchup-nav{width:30px;height:30px;}
+  .catchup-nav.prev{left:3px;}
+  .catchup-nav.next{right:3px;}
+  .catchup-slide{padding-left:37px;padding-right:37px;}
+  /* Always stacked here, pitcher over batter, rather than letting it depend on
+     how long the two names happen to be. The role labels carry the pairing, so
+     the "vs" has nothing left to do. */
+  .scene-matchup{flex-direction:column;gap:7px;}
+  .mu-vs{display:none;}
   .play-scene .result-pill{font-size:14px;padding:4px 13px;}
 }
 

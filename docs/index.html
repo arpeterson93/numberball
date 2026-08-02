@@ -200,6 +200,14 @@
     <button type="button" class="catchup-close" id="catchup-close" aria-label="Close">&times;</button>
     <div class="catchup-progress" id="catchup-progress"></div>
     <div class="catchup-slide" id="catchup-slide"></div>
+    <!-- Step controls sit in the card, not the slide, so a click on one never
+         also hits the slide's tap-to-pause handler. -->
+    <button type="button" class="catchup-nav prev" id="catchup-prev" aria-label="Previous play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <button type="button" class="catchup-nav next" id="catchup-next" aria-label="Next play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
     <div class="catchup-pause-hint" id="catchup-pause-hint" hidden>Paused - tap to resume</div>
   </div>
 </div>
@@ -211,6 +219,12 @@
     <button type="button" class="catchup-close" id="replay-close" aria-label="Close">&times;</button>
     <div class="catchup-progress" id="replay-progress"></div>
     <div class="catchup-slide" id="replay-slide"></div>
+    <button type="button" class="catchup-nav prev" id="replay-prev" aria-label="Previous play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <button type="button" class="catchup-nav next" id="replay-next" aria-label="Next play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
     <div class="catchup-pause-hint" id="replay-pause-hint" hidden>Paused - tap to resume</div>
   </div>
 </div>

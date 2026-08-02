@@ -1386,10 +1386,13 @@
           escapeHtml(resultLabel) + "</span>" +
         diffPill(m) +
       "</div>" +
+      // Pitcher first, batter second - the order holds at every width, so when
+      // the row wraps on a phone the pitcher stacks on top rather than the
+      // pairing reversing between breakpoints.
       '<div class="scene-matchup">' +
-        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
-        '<span class="mu-vs">vs</span>' +
         sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr) +
+        '<span class="mu-vs">vs</span>' +
+        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
       "</div>" +
       scoringLine(m) +
     "</div>";
@@ -1598,6 +1601,59 @@
     slideEl.classList.add("in");
   }
 
+  /* Tap to pause and swipe to step both live on the slide, so they have to be
+     told apart: a tap barely moves, a swipe travels horizontally. Drags that
+     are mostly vertical are ignored entirely so the slide can still scroll,
+     and the click the browser synthesises after a swipe is swallowed rather
+     than pausing the show on every gesture.
+
+     Shared by both slideshows - it is pure input plumbing with no state of its
+     own beyond the gesture in flight, unlike the timers each feature keeps
+     separately. */
+  var SWIPE_MIN_PX = 45;
+
+  function wireSlideGestures(el, onTap, onStep) {
+    var x0 = null, y0 = 0, swiped = false;
+    el.addEventListener("touchstart", function (e) {
+      swiped = false;
+      if (e.touches.length !== 1) { x0 = null; return; }
+      x0 = e.touches[0].clientX;
+      y0 = e.touches[0].clientY;
+    }, { passive: true });
+    el.addEventListener("touchend", function (e) {
+      if (x0 == null) return;
+      var t = e.changedTouches[0];
+      var dx = t.clientX - x0, dy = t.clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return;
+      swiped = true;
+      onStep(dx < 0 ? 1 : -1);   // swipe left goes forward, as a carousel does
+    }, { passive: true });
+    el.addEventListener("click", function (e) {
+      if (swiped) { swiped = false; return; }
+      // A star or a link inside a card is a real action - it should not also
+      // pause the show.
+      var star = e.target.closest("[data-fav-id]");
+      if (star) {
+        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
+        star.classList.toggle("on");
+        star.textContent = star.classList.contains("on") ? "★" : "☆";
+        return;
+      }
+      if (e.target.closest("a")) return;
+      onTap();
+    });
+  }
+
+  /* Grey out the step control that has nowhere to go, so the ends of the run
+     are felt rather than met with a dead click. */
+  function syncNav(prefix, state) {
+    var prev = $(prefix + "-prev"), next = $(prefix + "-next");
+    if (!prev || !next) return;
+    prev.disabled = state.index <= 0;
+    next.disabled = state.index >= state.slides.length - 1;
+  }
+
   function clearCatchUpTimer() {
     if (catchUp.timer) {
       window.clearTimeout(catchUp.timer);
@@ -1622,6 +1678,8 @@
     var slide = catchUp.slides[i];
     mountSlide($("catchup-slide"), slide, prev);
 
+    syncNav("catchup", catchUp);
+
     var progress = $("catchup-progress");
     // Unitless on purpose - the CSS divides it by 100 (see .catchup-progress::after).
     if (slide.kind === "play") {
@@ -1641,6 +1699,17 @@
       return;
     }
     if (!catchUp.paused) scheduleCatchUp(slideDwell(slide));
+  }
+
+  /* Manual step. The new slide gets a full dwell rather than whatever was left
+     of the old one, and stepping does not change whether the show is paused -
+     someone paging through a paused run stays paused. */
+  function stepCatchUp(delta) {
+    var i = catchUp.index + delta;
+    if (i < 0 || i >= catchUp.slides.length) return;
+    clearCatchUpTimer();
+    catchUp.remaining = 0;
+    showCatchUpSlide(i);
   }
 
   function setCatchUpPaused(paused) {
@@ -1686,24 +1755,18 @@
     if (!modal) return;
     $("catchup-banner").addEventListener("click", openCatchUp);
     $("catchup-close").addEventListener("click", closeCatchUp);
+    $("catchup-prev").addEventListener("click", function () { stepCatchUp(-1); });
+    $("catchup-next").addEventListener("click", function () { stepCatchUp(1); });
     modal.addEventListener("click", function (e) { if (e.target === modal) closeCatchUp(); });
-    $("catchup-slide").addEventListener("click", function (e) {
-      // A star or a link inside a card is a real action - it should not also
-      // pause the show.
-      var star = e.target.closest("[data-fav-id]");
-      if (star) {
-        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
-        star.classList.toggle("on");
-        star.textContent = star.classList.contains("on") ? "★" : "☆";
-        return;
-      }
-      if (e.target.closest("a")) return;
-      setCatchUpPaused(!catchUp.paused);
-    });
+    wireSlideGestures($("catchup-slide"),
+      function () { setCatchUpPaused(!catchUp.paused); },
+      function (d) { stepCatchUp(d); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeCatchUp();
       else if (e.key === " ") { e.preventDefault(); setCatchUpPaused(!catchUp.paused); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); stepCatchUp(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); stepCatchUp(1); }
     });
   }
 
@@ -1804,6 +1867,8 @@
     var slide = replay.slides[i];
     mountSlide($("replay-slide"), slide, prev);
 
+    syncNav("replay", replay);
+
     var progress = $("replay-progress");
     if (slide.kind === "play") {
       progress.textContent = "Play " + slide.playNo + " of " + slide.total;
@@ -1819,6 +1884,14 @@
        index would run past the end and the overlay would auto-close. */
     if (i === replay.slides.length - 1) { clearReplayTimer(); return; }
     if (!replay.paused) scheduleReplay(slideDwell(slide));
+  }
+
+  function stepReplay(delta) {
+    var i = replay.index + delta;
+    if (i < 0 || i >= replay.slides.length) return;
+    clearReplayTimer();
+    replay.remaining = 0;
+    showReplaySlide(i);
   }
 
   function setReplayPaused(paused) {
@@ -1878,22 +1951,18 @@
     var modal = $("replay-modal");
     if (!modal) return;
     $("replay-close").addEventListener("click", closeReplay);
+    $("replay-prev").addEventListener("click", function () { stepReplay(-1); });
+    $("replay-next").addEventListener("click", function () { stepReplay(1); });
     modal.addEventListener("click", function (e) { if (e.target === modal) closeReplay(); });
-    $("replay-slide").addEventListener("click", function (e) {
-      var star = e.target.closest("[data-fav-id]");
-      if (star) {
-        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
-        star.classList.toggle("on");
-        star.textContent = star.classList.contains("on") ? "★" : "☆";
-        return;
-      }
-      if (e.target.closest("a")) return;
-      setReplayPaused(!replay.paused);
-    });
+    wireSlideGestures($("replay-slide"),
+      function () { setReplayPaused(!replay.paused); },
+      function (d) { stepReplay(d); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeReplay();
       else if (e.key === " ") { e.preventDefault(); setReplayPaused(!replay.paused); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); stepReplay(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); stepReplay(1); }
     });
   }
 
