@@ -1327,6 +1327,30 @@
     "</div>";
   }
 
+  /* Live outs, in the same two-circle format the scorebug uses, filling left
+     to right. Circles the play itself recorded animate in; ones already on the
+     board when the batter stepped up are just there.
+
+     Two circles, not three, because a third out ends the half-inning - there
+     is no steady state to show it in. When this play IS the third out, both
+     circles fill and a badge marks the out that closed the inning, which is
+     also the only animation on a play that started with two already down. */
+  function sceneOutsHtml(m) {
+    var before = Math.max(0, Math.min(2, m.outs_before == null ? 0 : m.outs_before));
+    var after = Math.max(0, Math.min(3, m.outs_after == null ? before : m.outs_after));
+    var shown = Math.min(after, 2);
+    var dots = [0, 1].map(function (i) {
+      var on = i < shown;
+      return '<span class="out-dot' + (on ? " on" : "") +
+        (on && i >= before ? " fresh" : "") + '"></span>';
+    }).join("");
+    return '<div class="scene-outs' + (after >= 3 ? " inning-over" : "") + '">' +
+      '<span class="scene-outs-lbl">OUTS</span>' +
+      '<span class="out-dots">' + dots + "</span>" +
+      (after >= 3 ? '<span class="out-third">3rd</span>' : "") +
+    "</div>";
+  }
+
   /* Batter and pitcher always sit in the same two slots, unlike card(m)'s
      featured/counterpart pair - which one is "featured" flips with the result
      category, so in a slideshow the same name would jump sides play to play.
@@ -1356,6 +1380,7 @@
        eye lands in the same place whether the scene is stacked on a phone or
        split into two columns on a wide screen. */
     return '<div class="scene-detail">' +
+      sceneOutsHtml(m) +
       '<div class="scene-play-line">' +
         '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
           escapeHtml(resultLabel) + "</span>" +
@@ -1370,24 +1395,63 @@
     "</div>";
   }
 
-  /* Score ticker: the run lands as the scoring token reaches home, so the
-     digit's animation-delay is tuned to the token travel time in style.css
-     rather than being driven by a timer that could outlive the slide. */
+  /* When each run actually crosses the plate, derived from the same basepath
+     legs the diamond animates: a runner coming home from third arrives well
+     before one coming all the way from first, and the scoreboard should tick
+     at those moments rather than all at once on a guessed delay. */
+  function scoreArrivals(m) {
+    var moves = deriveRunnerMoves(String(m.obc_before || "000"),
+                                  String(m.obc_after || "000"), m.runs || 0);
+    var times = [];
+    moves.forEach(function (mv) {
+      if (!mv.scored) return;
+      var legs = basepathWaypoints(mv.from, mv.to, true).length;
+      times.push(RUN_LEG_MS[Math.min(legs, RUN_LEG_MS.length - 1)] || 0);
+    });
+    return times.sort(function (a, b) { return a - b; });
+  }
+
+  /* The batting team's score counts up rather than just flashing its final
+     value: each intermediate number is stacked in the same grid cell and shown
+     over the window between one runner touching home and the next. Pure CSS
+     delays, so nothing here can outlive the slide.
+
+     `finalScore` is the score AFTER this play - key_moments_build.py emits
+     `away_score_before + runs` (key_moments_build.py:577-578), verified against
+     cumulative runs across every play in the feed. So the count starts at
+     finalScore - runs, which is the score the play began with, and ends on the
+     value already in the data. Starting from finalScore instead would count
+     this play's runs twice. */
+  function scoreCellHtml(finalScore, runs, arrivals) {
+    if (!runs) return '<span class="val">' + finalScore + "</span>";
+    var steps = "";
+    for (var i = 0; i <= runs; i++) {
+      var at = i === 0 ? 0 : (arrivals[i - 1] != null
+        ? arrivals[i - 1]
+        : (arrivals[arrivals.length - 1] || 0));
+      var until = i === runs ? null : (arrivals[i] != null
+        ? arrivals[i]
+        : (arrivals[arrivals.length - 1] || 0));
+      steps += '<span class="tick-step' + (i === 0 ? " first" : "") + '" style="--at:' +
+        at + "ms" + (until == null ? "" : ";--until:" + until + "ms") + '">' +
+        (finalScore - runs + i) + "</span>";
+    }
+    return '<span class="val counter">' + steps + "</span>";
+  }
+
   function sceneScoreHtml(m) {
     var awayBatting = !m.batting_is_home;
-    var scored = (m.runs || 0) > 0;
-    var tick = function (isThisRow) {
-      return scored && isThisRow ? " tick" : "";
-    };
+    var runs = m.runs || 0;
+    var arrivals = runs ? scoreArrivals(m) : [];
     return '<div class="score-block scene-score">' +
       '<div class="row' + (awayBatting ? " batting" : "") + '">' +
         teamLogoImg(m.away_team_abbr, "scene-score-logo") +
         '<span class="abbr">' + escapeHtml(m.away_team_abbr) + "</span>" +
-        '<span class="val' + tick(awayBatting) + '">' + m.away_score + "</span></div>" +
+        scoreCellHtml(m.away_score, awayBatting ? runs : 0, arrivals) + "</div>" +
       '<div class="row' + (awayBatting ? "" : " batting") + '">' +
         teamLogoImg(m.home_team_abbr, "scene-score-logo") +
         '<span class="abbr">' + escapeHtml(m.home_team_abbr) + "</span>" +
-        '<span class="val' + tick(!awayBatting) + '">' + m.home_score + "</span></div>" +
+        scoreCellHtml(m.home_score, awayBatting ? 0 : runs, arrivals) + "</div>" +
     "</div>";
   }
 
@@ -1492,11 +1556,16 @@
      The key-moment floor also has to clear the Play Scene's own animations
      (diamond travel 900ms, score ticker landing at ~1.3s) - a slide that
      auto-advances mid-animation reads as broken. */
-  var PLAY_DWELL_MS_ROUTINE = 2000;
-  var PLAY_DWELL_MS_KEY = 4500;
+  /* Both numbers cover the scene's own animations first and then leave real
+     reading time on top. The longest run around the bases takes 1700ms and the
+     outs circle lands at ~900ms, so a 2000ms routine dwell was spending most of
+     itself on motion and leaving almost nothing to actually read the matchup,
+     the result and the ribbon. */
+  var PLAY_DWELL_MS_ROUTINE = 2800;
+  var PLAY_DWELL_MS_KEY = 5200;
   // Extra beat on the play that opens a half-inning, so the break between
   // halves registers instead of the reel running straight through it.
-  var HALF_INNING_BONUS_MS = 700;
+  var HALF_INNING_BONUS_MS = 800;
 
   function slideDwell(slide) {
     if (slide.kind !== "play") return TITLE_DWELL_MS;

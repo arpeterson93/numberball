@@ -564,12 +564,28 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    once the row is wide enough to matter. */
 .scene-score .row{gap:10px;}
 .scene-score .val{transition:none;display:inline-block;}
-.scene-score .val.tick{animation:scoreTick 500ms ease 900ms both;}
-@keyframes scoreTick{
-  0%{transform:scale(1);color:inherit;}
-  40%{transform:scale(1.55);color:var(--green);}
-  to{transform:scale(1);color:inherit;}
+/* Counting score: every value the play passes through is stacked in one grid
+   cell, so the column never changes width while it ticks. */
+.scene-score .val.counter{display:inline-grid;justify-items:end;}
+.scene-score .tick-step{grid-area:1/1;opacity:0;}
+/* Two one-shot animations per step: appear at --at, disappear at --until. Both
+   only fill AFTER their delay, so before --at the step is simply invisible and
+   between the two it stays put. The last step has no --until and holds. */
+.scene-score .tick-step{
+  animation:scoreStepIn 420ms cubic-bezier(.2,1.6,.4,1) var(--at) both,
+            scoreStepOut 1ms linear var(--until,600s) forwards;
 }
+/* The value the play started from was already on the board - it shows at once
+   rather than popping in, and only needs the exit. */
+.scene-score .tick-step.first{
+  opacity:1;animation:scoreStepOut 1ms linear var(--until,600s) forwards;
+}
+@keyframes scoreStepIn{
+  0%{opacity:0;transform:translateY(7px) scale(0.75);}
+  55%{opacity:1;transform:translateY(0) scale(1.4);color:var(--green);}
+  to{opacity:1;transform:none;}
+}
+@keyframes scoreStepOut{to{opacity:0;}}
 
 .scene-meter{position:relative;width:120px;text-align:center;}
 .scene-meter svg{width:100%;height:auto;display:block;overflow:visible;}
@@ -614,6 +630,29 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .mu-name{display:flex;align-items:center;gap:5px;font-size:15px;font-weight:800;min-width:0;}
 .mu-name > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mu-vs{font-size:11px;font-weight:700;color:var(--muted);align-self:flex-end;padding-bottom:3px;}
+
+/* Outs tracker: same two-circle language as the scorebug, left to right. */
+.scene-outs{display:flex;align-items:center;gap:7px;}
+.scene-outs-lbl{font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--muted);}
+.out-dots{display:flex;gap:5px;}
+.out-dot{
+  width:9px;height:9px;border-radius:50%;
+  border:1px solid var(--dot-off-stroke);background:var(--dot-off-fill);
+}
+.out-dot.on{background:var(--red);border-color:var(--red);}
+/* Only the outs THIS play recorded animate - the ones already on the board
+   were there before the batter stepped in. Delayed so the circle lands after
+   the play has visibly resolved rather than at slide mount. */
+.out-dot.fresh{animation:outPop 480ms cubic-bezier(.2,1.6,.4,1) 420ms both;}
+@keyframes outPop{
+  0%{transform:scale(0.2);background:var(--dot-off-fill);border-color:var(--dot-off-stroke);}
+  60%{transform:scale(1.45);background:var(--red);border-color:var(--red);}
+  to{transform:scale(1);background:var(--red);border-color:var(--red);}
+}
+.out-third{
+  font-size:9px;font-weight:800;letter-spacing:0.6px;color:#fff;background:var(--red);
+  border-radius:20px;padding:1px 7px;animation:outPop 480ms cubic-bezier(.2,1.6,.4,1) 420ms both;
+}
 
 .scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
 .scene-play-line .player-name{font-weight:800;}
@@ -730,12 +769,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .scene-top, .scene-detail{display:contents;}
   .play-scene{align-items:center;}
   .scene-diamond-wrap{order:1;width:min(64vw,250px);}
-  .scene-play-line{order:2;font-size:14.5px;}
-  .scene-matchup{order:3;}
-  .scene-detail .scoring-line{order:4;}
-  .scene-side{order:5;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
+  .scene-outs{order:2;}
+  .scene-play-line{order:3;font-size:14.5px;}
+  .scene-matchup{order:4;}
+  .scene-detail .scoring-line{order:5;}
+  .scene-side{order:6;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
   .scene-recap{order:0;}
-  .scene-ribbon{order:6;width:100%;}
+  .scene-ribbon{order:7;width:100%;}
   .scene-meter{width:112px;}
   .scene-score{font-size:16px;min-width:92px;}
   .scene-ribbon svg{height:84px;}
@@ -769,8 +809,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rn.batter .rn-inner, .rn.score .rn-inner,
   .rn.out .rn-inner, .rn.batter-out .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
-  .rb-new, .rb-marker, .scene-score .val.tick, .scene-flash,
-  .scene-recap, .scene-inning.new-half, .play-scene .result-pill{animation:none;}
+  .rb-new, .rb-marker, .scene-flash,
+  .scene-recap, .scene-inning.new-half, .play-scene .result-pill,
+  .out-dot.fresh, .out-third{animation:none;}
+  /* End states: the out is recorded and the score is final, just without the
+     pop or the count-up. */
+  .out-dot.fresh{background:var(--red);border-color:var(--red);}
+  .scene-score .tick-step{animation:none;opacity:0;}
+  .scene-score .tick-step:last-child{opacity:1;}
   .rn.out .rn-inner, .rn.batter-out .rn-inner{opacity:0.18;}
   .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}
