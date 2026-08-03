@@ -428,12 +428,21 @@
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
         'aria-label="View this game on MLN Reference">↗︎</a>'
       : "";
+    // Jumps straight into Game Replay at this exact play, left of the
+    // MLN-reference arrow. Needs the same three fields Game Replay's own
+    // scoreboard-tile replay button uses (loadGameReplay's game/session,
+    // play_num to seek within it) - all already on every card.
+    var jumpBtn = (m.game_code && m.session_number != null && m.play_num != null)
+      ? '<button type="button" class="play-jump-btn" data-jump-game="' + escapeHtml(m.game_code) +
+        '" data-jump-session="' + m.session_number + '" data-jump-num="' + m.play_num +
+        '" title="Watch this play" aria-label="Watch this play in the game replay">▶</button>'
+      : "";
     var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
     var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
-      '<div class="corner-actions">' + gameLink + "</div>" +
+      '<div class="corner-actions">' + jumpBtn + gameLink + "</div>" +
       '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
         (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
@@ -1411,6 +1420,52 @@
     }).join("");
   }
 
+  // ── Stolen base / caught stealing throw (B3-c+a) ──────────────────────────
+  // These plays never get a ball flight (they're in FLIGHT_EXCLUDED), so the
+  // batted-ball throw pipeline above never runs for them - this is a small,
+  // parallel one: a catcher-to-base throw, timed against the SAME runner
+  // token the diamond already animates for these plays (a plain legs1 safe
+  // advance for a steal, an out-to-base token for a caught stealing - both
+  // pre-existing, untouched by this addition).
+  var STEAL_SAFE_CODES = { SB: 1, SB2: 1, SB3: 1, SB4: 1 };
+  var STEAL_CAUGHT_CODES = { CS: 1, CS2: 1, CS3: 1, CS4: 1 };
+  var STEAL_THROW_MARGIN_MS = 100;  // CS: throw arrives this early; SB: this late
+
+  // The runner token's own "reaches the base" moment - RUN_LEG_MS[1] (800ms)
+  // is both a plain legs1 advance's full duration AND (per batterFirstArrivalMs's
+  // 47.06%-of-1700ms note above) the out-to-base keyframe's first-leg
+  // checkpoint, so one formula covers both a safe steal and a caught one.
+  function stealRunnerArrivalMs(isCaught, runDelay, outDelay) {
+    return (isCaught ? outDelay : runDelay) + RUN_LEG_MS[1];
+  }
+
+  function stealThrowTarget(m, moves) {
+    var caught = !!STEAL_CAUGHT_CODES[m.result];
+    var safe = !!STEAL_SAFE_CODES[m.result];
+    if (!caught && !safe) return null;
+    var mv = caught
+      ? moves.filter(function (x) { return x.to === "OUT"; })[0]
+      : moves.filter(function (x) { return x.to !== "OUT" && x.to !== x.from; })[0];
+    if (!mv) return null;
+    var base = caught ? BASE_PATH[Math.min(3, BASE_ORDINAL[mv.from] + 1)] : mv.to;
+    return { base: base, caught: caught };
+  }
+
+  function stealThrowHtml(m, moves, runDelay, outDelay) {
+    var target = stealThrowTarget(m, moves);
+    if (!target) return "";
+    var to = target.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[target.base];
+    if (!to) return "";
+    var from = ftToSvg(FIELDER_ANCHORS_FT.C.x, FIELDER_ANCHORS_FT.C.y);
+    var arrival = stealRunnerArrivalMs(target.caught, runDelay, outDelay);
+    var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
+    var start = Math.max(0, arrive - THROW_DRAW_MS);
+    var len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    var vars = "--len:" + len.toFixed(1) + "px;--delay:" + start + "ms;--draw:" + THROW_DRAW_MS + "ms";
+    return '<line class="throw-line steal-throw" x1="' + from.x.toFixed(1) + '" y1="' + from.y.toFixed(1) +
+      '" x2="' + to.x.toFixed(1) + '" y2="' + to.y.toFixed(1) + '" style="' + vars + '"></line>';
+  }
+
   // Exposed for the Playwright pure-function test harness only
   // (ball-flight-plan.md Stage 3b, extended by the refinements round's Stage
   // T) - never read by the page itself. Placed here, after every function and
@@ -1425,6 +1480,7 @@
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
     batterFirstArrivalMs: batterFirstArrivalMs,
+    stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
     THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     GROUNDER_ROLL_MS: GROUNDER_ROLL_MS, RUNNER_LEAD_MS: RUNNER_LEAD_MS,
@@ -1552,6 +1608,15 @@
       }
     }
 
+    // B3: a caught-stealing or stolen-base attempt gets a catcher throw and a
+    // tag-at-the-bag flash on whichever base was in play - it's the one play
+    // type where "the ball beat (or didn't beat) the runner" is the whole
+    // story, and it never gets a ball flight to hang a throw off otherwise.
+    var stealTarget = stealThrowTarget(m, moves);
+    var stealFlashDelay = stealTarget
+      ? stealRunnerArrivalMs(stealTarget.caught, runDelay, outDelay)
+      : 0;
+
     // Base plates show post-play occupancy so the field still reads
     // correctly once the tokens have settled. I7: the gold fill is delayed
     // until maxArrival, the slowest arriving runner - otherwise a base lights
@@ -1559,8 +1624,10 @@
     var plates = ["3B", "2B", "1B"].map(function (b, i) {
       var occupied = after[i] === "1";
       var p = SCENE_BASES[b];
-      return '<rect class="dm-base' + (occupied ? " on" : "") +
-        '" style="--blight:' + maxArrival + 'ms' +
+      var flashCls = stealTarget && stealTarget.base === b
+        ? (stealTarget.caught ? " steal-out" : " steal-safe") : "";
+      return '<rect class="dm-base' + (occupied ? " on" : "") + flashCls +
+        '" style="--blight:' + maxArrival + 'ms;--sflash:' + stealFlashDelay + 'ms' +
         '" x="-' + BASE_R + '" y="-' + BASE_R + '" width="' + (BASE_R * 2) + '" height="' + (BASE_R * 2) +
         '" rx="1.5" transform="translate(' +
         p.x.toFixed(1) + "," + p.y.toFixed(1) + ') rotate(45)"></rect>';
@@ -1617,6 +1684,7 @@
         (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight) : "") +
         ballFlightHtml(m, flight) +
         throwHtml(m, flight, moves) +
+        stealThrowHtml(m, moves, runDelay, outDelay) +
         tokens +
       "</svg>" +
     "</div>";
@@ -1922,6 +1990,150 @@
     "</div>";
   }
 
+  // ── Pitch/swing wheel (debugging readout, refinements round F1) ──────────
+  // Pitch and swing are both marked ON the same arc (Alex's correction - the
+  // earlier build staggered the DOTS, which was wrong; what gets staggered is
+  // the two value LABELS, outside the ring, the first value's label closer in
+  // and the second's further out, so they don't collide when the two values
+  // are angularly close) with an arc connecting them (the shorter way around,
+  // exactly the wheel signedCirc already resolves ties on), and the resulting
+  // number in the middle. Left to right, roughly in order of importance:
+  //   DIFF wheel - raw pitch/swing (or, on a steal attempt, steal_num/
+  //                throw_num - utils.py's steal_color_bar: Safe if
+  //                circular_diff(throw_num, steal_num) <= a per-runner
+  //                safe_range, not threaded through here, so no safe-zone
+  //                shown, just the two values and their diff), mod 1000 - the
+  //                wheel that actually decides the result. Shown on every
+  //                play with either pair available - a walk or strikeout
+  //                still had a real pitch/swing duel, even with no ball in
+  //                play to show a flight for. Shows the result's own diff
+  //                band as a reference arc when one exists (batted balls
+  //                only), anchored at the first dot, swept the same direction
+  //                the actual diff went, so "where does this diff fall on
+  //                the continuum we set up for this result" is a direct
+  //                visual comparison, not a lookup.
+  //   LA wheel   - firstTwo(pitch)/firstTwo(swing), mod 100. Batted balls only.
+  //   HZ wheel   - onesDigit(pitch)/onesDigit(swing), mod 10. Batted balls only.
+  // LA/HZ disappear on anything without a real flight (a walk, strikeout, a
+  // steal attempt) - DIFF alone then centres itself (scene-wheels is already
+  // a centered flex row; one child centers for free).
+  var WHEEL_CX = 50, WHEEL_CY = 50, WHEEL_VB = 100;
+  var WHEEL_RING_R = 26, WHEEL_BAND_R = 20;
+  var WHEEL_LABEL1_R = 34, WHEEL_LABEL2_R = 43;
+  var WHEEL_DOT_R = 3.5;
+
+  function wheelPt(r, angleDeg) {
+    var rad = (angleDeg - 90) * Math.PI / 180;
+    return { x: WHEEL_CX + r * Math.cos(rad), y: WHEEL_CY + r * Math.sin(rad) };
+  }
+
+  // Arc from `startDeg` sweeping `deltaDeg` (signed - positive is clockwise).
+  // Correct for any magnitude, though every caller except the band overlay
+  // passes a signedCirc result, which is never more than half the wheel.
+  function wheelArcD(r, startDeg, deltaDeg) {
+    var p0 = wheelPt(r, startDeg);
+    var p1 = wheelPt(r, startDeg + deltaDeg);
+    var sweep = deltaDeg >= 0 ? 1 : 0;
+    var largeArc = Math.abs(deltaDeg) > 180 ? 1 : 0;
+    return "M" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) +
+      " A" + r.toFixed(2) + "," + r.toFixed(2) + " 0 " + largeArc + " " + sweep + " " +
+      p1.x.toFixed(2) + "," + p1.y.toFixed(2);
+  }
+
+  function wheelAngleOf(v, mod) { return (v % mod) / mod * 360; }
+
+  // The archetype band, anchored at the first dot and swept in the same
+  // direction the actual diff went - so the real arc and the "expected
+  // range for this result" reference both start from the same point and are
+  // directly comparable, not just two numbers to cross-reference by hand.
+  function wheelBandArcHtml(startDeg, dirSign, lo, hi, mod) {
+    var loDeg = dirSign * (lo / mod) * 360;
+    var hiDeg = dirSign * (hi / mod) * 360;
+    return '<path class="wheel-band" d="' + wheelArcD(WHEEL_BAND_R, startDeg + loDeg, hiDeg - loDeg) + '"></path>';
+  }
+
+  /* v1/v2 are the two rolled values in narrative order (pitch-then-swing for
+     a batted ball, runner-then-catcher for a steal) - v1's dot/label always
+     appears first, v2's 650ms later. cls1/cls2 are each "def" or "off"
+     (defense = red, offense = blue) - NOT tied to v1/v2 position, since the
+     defense role goes first for a batted ball (pitcher) but second for a
+     steal (catcher), so colour has to travel with the role, not the slot.
+     arcCls picks the arc's colour: "neutral" (LA/HZ - theme-flipped
+     black/white) or "hit"/"out" (DIFF - green/red, matching the ball
+     marker's own C1 convention). */
+  function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls) {
+    var deg1 = wheelAngleOf(v1, mod);
+    var delta = signedCirc(v1, v2, mod);
+    var deltaDeg = delta / mod * 360;
+    var arcLen = WHEEL_RING_R * Math.abs(deltaDeg) * Math.PI / 180;
+    var dot1Pt = wheelPt(WHEEL_RING_R, deg1);
+    var dot2Pt = wheelPt(WHEEL_RING_R, deg1 + deltaDeg);
+    var label1Pt = wheelPt(WHEEL_LABEL1_R, deg1);
+    var label2Pt = wheelPt(WHEEL_LABEL2_R, deg1 + deltaDeg);
+    var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod) : "";
+    return '<div class="wheel">' +
+      '<div class="wheel-label">' + escapeHtml(label) + "</div>" +
+      '<svg class="wheel-svg" viewBox="0 0 ' + WHEEL_VB + " " + WHEEL_VB + '" aria-hidden="true">' +
+        '<circle class="wheel-ring" cx="' + WHEEL_CX + '" cy="' + WHEEL_CY + '" r="' + WHEEL_RING_R + '"></circle>' +
+        bandHtml +
+        '<path class="wheel-arc wheel-arc-' + arcCls + '" d="' + wheelArcD(WHEEL_RING_R, deg1, deltaDeg) +
+          '" style="--alen:' + arcLen.toFixed(2) + 'px"></path>' +
+        '<circle class="wheel-dot wheel-dot-1 wheel-dot-' + cls1 + '" cx="' + dot1Pt.x.toFixed(2) + '" cy="' + dot1Pt.y.toFixed(2) +
+          '" r="' + WHEEL_DOT_R + '"></circle>' +
+        '<circle class="wheel-dot wheel-dot-2 wheel-dot-' + cls2 + '" cx="' + dot2Pt.x.toFixed(2) + '" cy="' + dot2Pt.y.toFixed(2) +
+          '" r="' + WHEEL_DOT_R + '"></circle>' +
+        '<text class="wheel-val wheel-val-1" x="' + label1Pt.x.toFixed(2) + '" y="' + label1Pt.y.toFixed(2) +
+          '">' + escapeHtml(String(v1)) + "</text>" +
+        '<text class="wheel-val wheel-val-2" x="' + label2Pt.x.toFixed(2) + '" y="' + label2Pt.y.toFixed(2) +
+          '">' + escapeHtml(String(v2)) + "</text>" +
+        '<text class="wheel-center-big" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - (centerSmall ? 1 : -4)) +
+          '">' + escapeHtml(centerBig) + "</text>" +
+        (centerSmall
+          ? '<text class="wheel-center-small" x="' + WHEEL_CX + '" y="' + (WHEEL_CY + 10) + '">' +
+            escapeHtml(centerSmall) + "</text>"
+          : "") +
+      "</svg>" +
+    "</div>";
+  }
+
+  function sceneWheelsHtml(m, flight) {
+    var wheels = "";
+
+    // DIFF: every play with a real pitch/swing or steal_num/throw_num pair -
+    // a walk or strikeout still had a real pitch/swing duel, and a steal
+    // attempt has its own equivalent pair, even with no batted-ball flight.
+    var isSteal = m.pitch == null && m.steal_num != null && m.throw_num != null;
+    if (m.pitch != null && m.swing != null || isSteal) {
+      var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+      if (isSteal) {
+        // Runner (offense, blue) breaks first; catcher (defense, red)
+        // throws second - per Alex's spec, "runner # then progress to
+        // catcher #". No archetype band - steals don't have one.
+        wheels += wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
+          String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
+          wasOut ? "out" : "hit");
+      } else {
+        var bandRow = (data.meta.flight && data.meta.flight.bands || {})[m.result];
+        wheels += wheelHtml("DIFF", m.pitch, m.swing, 1000, "def", "off", String(m.diff),
+          flight ? Math.round(flight.ev) + " mph" : null,
+          bandRow ? { lo: bandRow.lo, hi: bandRow.hi } : null,
+          wasOut ? "out" : "hit");
+      }
+    }
+
+    // LA/HZ: batted balls only (Alex's call) - `flight` truthy is exactly
+    // that gate (flightParams returns null for everything else, the same
+    // set sceneFlightReadoutHtml below already checks against).
+    if (flight) {
+      var f2p = firstTwo(m.pitch), f2s = firstTwo(m.swing);
+      var d1p = onesDigit(m.pitch), d1s = onesDigit(m.swing);
+      wheels += wheelHtml("LA", f2p, f2s, 100, "def", "off", flight.la.toFixed(1) + "°", null, null, "neutral");
+      wheels += wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral");
+    }
+
+    return wheels ? '<div class="scene-wheels">' + wheels + "</div>" : "";
+  }
+
   /* Compact "telemetry" readout beside the result pill (ball-flight-plan.md
      Stage 5): launch angle to 1dp, exit velocity to the nearest mph, matching
      how Statcast broadcasts read. Only rendered when there's a batted ball to
@@ -2087,6 +2299,7 @@
         "</div>" +
       "</div>" +
       sceneDetailHtml(m, flight) +
+      sceneWheelsHtml(m, flight) +
       sceneRibbonHtml(slide) +
     "</div>";
   }
@@ -2208,6 +2421,11 @@
      own beyond the gesture in flight, unlike the timers each feature keeps
      separately. */
   var SWIPE_MIN_PX = 45;
+  // G1: an ordinary swipe steps one play (and now wraps at either end rather
+  // than dead-ending); a swipe at least this long, from anywhere, jumps
+  // straight to the first/last play instead - both readings of "swipe to the
+  // end" that Alex asked for, combined rather than picking one.
+  var SWIPE_LONG_PX = SWIPE_MIN_PX * 3;
 
   function wireSlideGestures(el, onTap, onStep) {
     var x0 = null, y0 = 0, swiped = false;
@@ -2224,7 +2442,8 @@
       x0 = null;
       if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return;
       swiped = true;
-      onStep(dx < 0 ? 1 : -1);   // swipe left goes forward, as a carousel does
+      // swipe left goes forward, as a carousel does
+      onStep(dx < 0 ? 1 : -1, Math.abs(dx) >= SWIPE_LONG_PX);
     }, { passive: true });
     el.addEventListener("click", function (e) {
       if (swiped) { swiped = false; return; }
@@ -2300,10 +2519,20 @@
 
   /* Manual step. The new slide gets a full dwell rather than whatever was left
      of the old one, and stepping does not change whether the show is paused -
-     someone paging through a paused run stays paused. */
-  function stepCatchUp(delta) {
-    var i = catchUp.index + delta;
-    if (i < 0 || i >= catchUp.slides.length) return;
+     someone paging through a paused run stays paused.
+
+     G1: `jump` (a long swipe, or Home/End) goes straight to the first/last
+     slide from wherever the show currently is. Otherwise this wraps at
+     either end rather than the previous dead end - an ordinary swipe past
+     the last play goes to the first, and back again from the first. */
+  function stepCatchUp(delta, jump) {
+    var n = catchUp.slides.length;
+    var i;
+    if (jump) {
+      i = delta > 0 ? n - 1 : 0;
+    } else {
+      i = (catchUp.index + delta + n) % n;
+    }
     clearCatchUpTimer();
     catchUp.remaining = 0;
     showCatchUpSlide(i);
@@ -2338,18 +2567,54 @@
     showCatchUpSlide(0);
   }
 
+  // Closing the modal while the browser is actually in fullscreen must not
+  // leave the tab stuck there behind a hidden, empty modal.
+  function exitFullscreenIfActive() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+  }
+
   function closeCatchUp() {
     // Clearing the timer here is what stops a slide advancing behind an
     // already-hidden modal.
     clearCatchUpTimer();
     catchUp.paused = false;
+    exitFullscreenIfActive();
     $("catchup-modal").hidden = true;
     $("catchup-slide").innerHTML = "";
+  }
+
+  /* Expand button in the slideshow's corner - real browser fullscreen on the
+     modal element (not just a bigger CSS layout), so the browser chrome
+     itself goes away too. A fullscreenchange listener keeps the icon in sync
+     even when fullscreen is left via Esc or the browser's own UI, not just
+     this button. */
+  function wireFullscreenToggle(modalId, btnId) {
+    var modal = $(modalId), btn = $(btnId);
+    if (!modal || !btn) return;
+    btn.addEventListener("click", function () {
+      var active = document.fullscreenElement || document.webkitFullscreenElement;
+      if (active) {
+        (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      } else if (modal.requestFullscreen) {
+        modal.requestFullscreen();
+      } else if (modal.webkitRequestFullscreen) {
+        modal.webkitRequestFullscreen();
+      }
+    });
+    document.addEventListener("fullscreenchange", function () {
+      btn.classList.toggle("is-fullscreen", document.fullscreenElement === modal);
+    });
+    document.addEventListener("webkitfullscreenchange", function () {
+      btn.classList.toggle("is-fullscreen", document.webkitFullscreenElement === modal);
+    });
   }
 
   function wireCatchUp() {
     var modal = $("catchup-modal");
     if (!modal) return;
+    wireFullscreenToggle("catchup-modal", "catchup-fullscreen");
     $("catchup-banner").addEventListener("click", openCatchUp);
     $("catchup-close").addEventListener("click", closeCatchUp);
     $("catchup-prev").addEventListener("click", function () { stepCatchUp(-1); });
@@ -2357,13 +2622,16 @@
     modal.addEventListener("click", function (e) { if (e.target === modal) closeCatchUp(); });
     wireSlideGestures($("catchup-slide"),
       function () { setCatchUpPaused(!catchUp.paused); },
-      function (d) { stepCatchUp(d); });
+      function (d, jump) { stepCatchUp(d, jump); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeCatchUp();
       else if (e.key === " ") { e.preventDefault(); setCatchUpPaused(!catchUp.paused); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); stepCatchUp(-1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); stepCatchUp(1); }
+      // G1: keyboard equivalent of the long-swipe jump.
+      else if (e.key === "Home") { e.preventDefault(); stepCatchUp(-1, true); }
+      else if (e.key === "End") { e.preventDefault(); stepCatchUp(1, true); }
     });
   }
 
@@ -2483,9 +2751,16 @@
     if (!replay.paused) scheduleReplay(slideDwell(slide));
   }
 
-  function stepReplay(delta) {
-    var i = replay.index + delta;
-    if (i < 0 || i >= replay.slides.length) return;
+  // G1: same combo as stepCatchUp - `jump` (long swipe or Home/End) goes
+  // straight to the first/last play; otherwise this wraps at either end.
+  function stepReplay(delta, jump) {
+    var n = replay.slides.length;
+    var i;
+    if (jump) {
+      i = delta > 0 ? n - 1 : 0;
+    } else {
+      i = (replay.index + delta + n) % n;
+    }
     clearReplayTimer();
     replay.remaining = 0;
     showReplaySlide(i);
@@ -2537,9 +2812,54 @@
     });
   }
 
+  // Tune-after-watching, like every other timing constant in this scene.
+  var REPLAY_JUMP_OPEN_DELAY_MS = 120;
+
+  /* Feed card's play button: same Game Replay overlay, but seeks straight to
+     the play that was clicked instead of starting from the top - and opens
+     paused, since the point is to look at this one play, not watch the rest
+     of the game auto-advance past it. */
+  function openReplayAtPlay(gameCode, session, playNum, btn) {
+    if (session == null || isNaN(session)) {
+      toast("Could not determine which session this play belongs to.");
+      return;
+    }
+    btn.classList.add("loading");
+    loadGameReplay(gameCode, session).then(function (plays) {
+      btn.classList.remove("loading");
+      if (!plays.length) { toast("No plays recorded for that game yet."); return; }
+      replay.slides = buildGameReplaySlides(plays);
+      var target = -1;
+      replay.slides.forEach(function (s, i) {
+        if (target === -1 && s.kind === "play" && s.play.play_num === playNum) target = i;
+      });
+      replay.index = -1;
+      replay.paused = true;
+      // A stale leftover from a previous paused session must not leak into
+      // this one - setReplayPaused's resume path falls back to it directly.
+      replay.remaining = 0;
+      $("replay-pause-hint").hidden = false;
+      $("replay-card").classList.add("paused");
+      // The modal itself opens right away (immediate feedback that the click
+      // registered), but the play mounts a beat later - mounting it in the
+      // same tick the modal becomes visible let the scene's animation clock
+      // start before the browser had actually painted the modal open, so the
+      // sequence (pitch dot, arc draw, swing dot...) was already partway
+      // through by the first frame anyone could see it.
+      $("replay-modal").hidden = false;
+      window.setTimeout(function () {
+        showReplaySlide(target >= 0 ? target : 0);
+      }, REPLAY_JUMP_OPEN_DELAY_MS);
+    }).catch(function () {
+      btn.classList.remove("loading");
+      toast("Could not load that game's plays.");
+    });
+  }
+
   function closeReplay() {
     clearReplayTimer();
     replay.paused = false;
+    exitFullscreenIfActive();
     $("replay-modal").hidden = true;
     $("replay-slide").innerHTML = "";
   }
@@ -2547,19 +2867,23 @@
   function wireReplay() {
     var modal = $("replay-modal");
     if (!modal) return;
+    wireFullscreenToggle("replay-modal", "replay-fullscreen");
     $("replay-close").addEventListener("click", closeReplay);
     $("replay-prev").addEventListener("click", function () { stepReplay(-1); });
     $("replay-next").addEventListener("click", function () { stepReplay(1); });
     modal.addEventListener("click", function (e) { if (e.target === modal) closeReplay(); });
     wireSlideGestures($("replay-slide"),
       function () { setReplayPaused(!replay.paused); },
-      function (d) { stepReplay(d); });
+      function (d, jump) { stepReplay(d, jump); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeReplay();
       else if (e.key === " ") { e.preventDefault(); setReplayPaused(!replay.paused); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); stepReplay(-1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); stepReplay(1); }
+      // G1: keyboard equivalent of the long-swipe jump.
+      else if (e.key === "Home") { e.preventDefault(); stepReplay(-1, true); }
+      else if (e.key === "End") { e.preventDefault(); stepReplay(1, true); }
     });
   }
 
@@ -2867,6 +3191,16 @@
     });
 
     $("moments").addEventListener("click", function (e) {
+      var jumpBtn = e.target.closest("[data-jump-game]");
+      if (jumpBtn) {
+        openReplayAtPlay(
+          jumpBtn.getAttribute("data-jump-game"),
+          Number(jumpBtn.getAttribute("data-jump-session")),
+          Number(jumpBtn.getAttribute("data-jump-num")),
+          jumpBtn
+        );
+        return;
+      }
       var btn = e.target.closest("[data-fav-id]");
       if (!btn || !window.KMFavorites) return;
       window.KMFavorites.toggle(btn.getAttribute("data-fav-id"));

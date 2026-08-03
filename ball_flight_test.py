@@ -236,6 +236,24 @@ def main() -> None:
             )
             check(f"outThrowTargets({result} {before}->{after})", got, want)
 
+        print("\nstealThrowTarget (B3-c - catcher throw on steal attempts):")
+        steal_cases = [
+            ("SB2", "001", "010", {"base": "2B", "caught": False}),
+            ("SB3", "010", "100", {"base": "3B", "caught": False}),
+            ("CS2", "001", "000", {"base": "2B", "caught": True}),
+            ("CS", "010", "000", {"base": "3B", "caught": True}),
+            ("GO", "000", "000", None),
+        ]
+        for result, before, after, want in steal_cases:
+            got = page.evaluate(
+                """(a) => {
+                    var moves = KMFlight.deriveRunnerMoves(a.before, a.after, 0);
+                    return KMFlight.stealThrowTarget({result: a.result}, moves);
+                }""",
+                {"before": before, "after": after, "result": result},
+            )
+            check(f"stealThrowTarget({result} {before}->{after})", got, want)
+
         print("\nA4 timing race (every grounder throw must beat the runner to the bag):")
         for result, before, after, runs, outs_before, outs_after, archetype, want in throw_cases:
             if archetype != "grounder" or not want:

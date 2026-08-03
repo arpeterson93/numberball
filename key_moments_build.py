@@ -574,6 +574,14 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "diff": play.get("diff"),
         "pitch": play.get("pitch"),
         "swing": play.get("swing"),
+        # Steal-attempt equivalent of pitch/swing - the runner's roll and the
+        # catcher's roll (sheet columns "Steal"/"Throw"). Real, resolution is
+        # `Safe if circular_diff(throw_num, steal_num) <= safe_range else Out`
+        # (utils.py steal_color_bar), but safe_range is a per-runner speed
+        # rating not threaded through this pipeline - the pitch/swing wheel
+        # (Play Scene) shows the two values and their diff only, no safe-zone.
+        "throw_num": play.get("throw_num"),
+        "steal_num": play.get("steal_num"),
         "runs": state["runs"],
         "scoring_names": scoring_names,
 

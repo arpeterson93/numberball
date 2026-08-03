@@ -275,6 +275,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:12px;color:var(--muted);text-decoration:none;line-height:1;
 }
 .game-link:hover{color:var(--blue);}
+/* Jumps into Game Replay at this exact play - same muted/hover treatment as
+   the MLN-reference arrow it sits beside, so the two read as one family of
+   small corner icons rather than two different affordances. */
+.play-jump-btn{
+  font-size:11px;color:var(--muted);line-height:1;background:none;border:none;
+  padding:0;cursor:pointer;display:flex;align-items:center;
+}
+.play-jump-btn:hover{color:var(--blue);}
+.play-jump-btn.loading{opacity:0.4;pointer-events:none;}
 .lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
 .lev-bar.neutral{background:var(--card);border-right:1px solid var(--border);}
 
@@ -399,6 +408,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 .catchup-close:hover{color:var(--text);background:var(--tint);}
 
+.catchup-fullscreen{
+  position:absolute;top:8px;right:46px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  width:30px;height:30px;padding:5px;cursor:pointer;border-radius:6px;
+}
+.catchup-fullscreen:hover{color:var(--text);background:var(--tint);}
+.catchup-fullscreen svg{width:100%;height:100%;}
+.catchup-fullscreen .icon-compress{display:none;}
+.catchup-fullscreen.is-fullscreen .icon-expand{display:none;}
+.catchup-fullscreen.is-fullscreen .icon-compress{display:block;}
+
 /* Progress doubles as the slide counter and the bar: the ::after strip is
    driven by --catchup-pct, which showCatchUpSlide() sets per slide. */
 /* Sits clear of the close button rather than running the bar underneath it -
@@ -488,6 +508,27 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   from{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
   to{fill:var(--gold);stroke:var(--gold);}
 }
+/* B3-a: tag at the bag - a caught-stealing/stolen-base attempt flashes the
+   target base at the moment the runner token (or the out-to-base token)
+   actually arrives (--sflash, sceneFieldHtml). Declared after .dm-base.on so
+   it wins the cascade on a successful steal's destination base, which is
+   both .on and .steal-safe - the flash IS that base's road to its eventual
+   gold post-play fill, not a separate effect layered on top. No `transform`
+   here deliberately: this element's position/rotation come from an SVG
+   `transform` ATTRIBUTE, and any CSS `transform` on the same element would
+   replace rather than compose with it. */
+.dm-base.steal-safe{animation:baseStealSafe 260ms ease var(--sflash,0s) both;}
+@keyframes baseStealSafe{
+  0%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  40%{fill:var(--green);stroke:var(--green);}
+  100%{fill:var(--gold);stroke:var(--gold);}
+}
+.dm-base.steal-out{animation:baseStealOut 260ms ease var(--sflash,0s) both;}
+@keyframes baseStealOut{
+  0%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  40%{fill:var(--red);stroke:var(--red);}
+  100%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+}
 .dm-plate{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
 
 /* Ball flight (ball-flight-plan.md Stage 4e): the ball itself translates
@@ -521,7 +562,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    batted ball, plus feet on home runs only. Both land after the ball does,
    never before, so they never seem to predict the outcome. */
 .ball-label, .ball-dist{
-  font-size:7px;font-weight:800;fill:var(--fg);paint-order:stroke;
+  font-size:7px;font-weight:800;fill:var(--text);paint-order:stroke;
   stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
   opacity:0;animation:labelIn 260ms ease var(--delay) both;
 }
@@ -822,6 +863,73 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
   color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);
 }
+/* Pitch/swing wheel (refinements round F1) - a debugging readout, deliberately
+   placed outside the field SVG entirely per Alex's call, as its own row below
+   the result/matchup detail. DIFF, LA, HZ, left to right (roughly order of
+   importance) - DIFF shows on every play with a pitch/swing or steal
+   roll, LA/HZ only on a real batted ball; when LA/HZ are absent, DIFF alone
+   still centres itself since scene-wheels is already a centered flex row. */
+.scene-wheels{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:2px;}
+.wheel{display:flex;flex-direction:column;align-items:center;gap:2px;width:76px;}
+.wheel-label{font-size:9px;font-weight:800;letter-spacing:1px;color:var(--muted);}
+.wheel-svg{width:100%;height:auto;overflow:visible;}
+.wheel-ring{fill:none;stroke:var(--border);stroke-width:1.5;}
+/* Reference arc for the result's own diff band (DIFF wheel only) - anchored
+   at the first dot, same direction the real arc swept, so the actual diff
+   and "the range we set up for this result" sit on the same ring and are
+   directly comparable at a glance. */
+.wheel-band{fill:none;stroke:var(--tint-red-border,var(--border));stroke-width:3;stroke-linecap:round;opacity:0.55;}
+/* LA/HZ read as pure mechanics - a neutral, theme-flipped stroke (black on
+   light, white on dark) rather than a colour that could be mistaken for a
+   verdict. DIFF is the wheel that actually produced the result, so its arc
+   takes the same green/red the ball marker uses (C1) - hit or out, at a
+   glance, no need to also read the result pill. */
+.wheel-arc{
+  fill:none;stroke-width:2;stroke-linecap:round;
+  stroke-dasharray:var(--alen);stroke-dashoffset:var(--alen);
+  animation:wheelArcDraw 500ms ease 150ms forwards;
+}
+.wheel-arc-neutral{stroke:var(--text);}
+.wheel-arc-hit{stroke:var(--green);}
+.wheel-arc-out{stroke:var(--red);}
+@keyframes wheelArcDraw{to{stroke-dashoffset:0;}}
+/* Markers sit ON the ring, both at the same radius (Alex's correction - only
+   the value LABELS below are staggered outward). Colour is by role, not by
+   which one appears first: defense (pitcher/catcher) is red, offense
+   (batter/runner) is blue - so a batted ball's pitch dot and a steal's
+   catcher dot are both red even though one goes first and the other second. */
+.wheel-dot{transform-box:fill-box;transform-origin:center;opacity:0;}
+.wheel-dot-def{fill:var(--red);}
+.wheel-dot-off{fill:var(--blue);}
+.wheel-dot-1{animation:wheelDotIn 160ms ease 0ms both;}
+.wheel-dot-2{animation:wheelDotIn 160ms ease 650ms both;}
+@keyframes wheelDotIn{
+  from{opacity:0;transform:scale(0.3);}
+  to{opacity:1;transform:scale(1);}
+}
+/* The raw rolled value next to each dot's position, staggered outward (the
+   first value's label closer to the ring, the second's further out) so two
+   angularly close values don't collide - lands with its dot, not with the
+   centre number. var(--text) for real contrast in both themes, with a
+   card-coloured halo so it stays legible crossing the ring/arc lines
+   underneath it. */
+.wheel-val{
+  font-size:8px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
+  paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
+  opacity:0;
+}
+.wheel-val-1{animation:wheelDotIn 160ms ease 0ms both;}
+.wheel-val-2{animation:wheelDotIn 160ms ease 650ms both;}
+.wheel-center-big{
+  font-size:13px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
+  paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
+  opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
+}
+.wheel-center-small{
+  font-size:7px;font-weight:700;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;
+  opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
+}
+@keyframes wheelFadeIn{to{opacity:1;}}
 .scene-score-logo{width:17px;height:17px;object-fit:contain;flex-shrink:0;}
 /* Batting team's mark under the infield - visible enough to place the play,
    quiet enough that the runner tokens stay the thing you look at. */
@@ -929,9 +1037,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .scene-play-line{order:3;font-size:14.5px;}
   .scene-matchup{order:4;}
   .scene-detail .scoring-line{order:5;}
-  .scene-side{order:6;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
+  /* .scene-wheels is a direct .play-scene child already (never inside the
+     display:contents pair above), but with no explicit order it defaults to
+     0 - tying it with .scene-recap and, on document-order tiebreak, jumping
+     it in front of the diamond. Ordered here like every other piece of this
+     reflow. */
+  .scene-wheels{order:6;}
+  .scene-side{order:7;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
   .scene-recap{order:0;}
-  .scene-ribbon{order:7;width:100%;}
+  .scene-ribbon{order:8;width:100%;}
   .scene-meter{width:112px;}
   .scene-score{font-size:16px;min-width:92px;}
   .scene-ribbon svg{height:84px;}
@@ -980,9 +1094,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-inning.new-half, .play-scene .result-pill,
-  .out-dot.fresh, .dm-base.on,
+  .out-dot.fresh, .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
   .ball, .ball.clear, .ball-trail, .fielder, .throw-line,
-  .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail{animation:none;}
+  .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
+  .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
+  .wheel-center-big, .wheel-center-small{animation:none;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
   .out-dot.fresh{background:var(--red);border-color:var(--red);}
@@ -990,6 +1106,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .ball-label, .ball-dist{opacity:1;}
   .ball-rollout{opacity:0.6;}
   .ball-rollout-trail{stroke-dashoffset:0;}
+  .wheel-arc{stroke-dashoffset:0;}
+  .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
+  .wheel-center-big, .wheel-center-small{opacity:1;transform:scale(1);}
   .scene-score .tick-step{animation:none;opacity:0;}
   .scene-score .tick-step:last-child{opacity:1;}
   /* A put-out token is simply gone at the dugout anchor - no travel, no
@@ -1114,4 +1233,31 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .state-stack svg{width:24px;height:24px;}
   .outs-dots .dot{width:6px;height:6px;}
   .state-badge{font-size:9.5px;padding:4px 7px;letter-spacing:0.4px;}
+}
+
+/* ---- Widescreen slideshow ---- */
+/* The card was sized for a phone-width slide even on a desktop window. On a
+   genuinely wide viewport it gets real room to grow; everything inside
+   (the diamond SVG, the wheels) already scales off percentages/viewBox, so
+   this is only the outer caps plus a few font sizes that were fixed in px. */
+@media (min-width: 900px){
+  .catchup-card{max-width:min(92vw,1080px);height:min(90vh,820px);}
+  .scene-diamond-wrap{width:min(42%,380px);}
+  .scene-play-line{font-size:18px;}
+  .mu-name{font-size:17px;}
+  .scene-wheels{gap:22px;}
+  .wheel{width:92px;}
+}
+
+/* Real browser fullscreen (the expand button in the card's corner) - more
+   room again once the browser chrome itself is gone. Targets the modal
+   element, since that's what requestFullscreen() is called on in app.js;
+   the card inside grows to fill it. -webkit- prefix kept for Safari, which
+   has historically lagged the unprefixed pseudo-class. */
+.catchup-modal:fullscreen, .catchup-modal:-webkit-full-screen{
+  padding:0;background:var(--card);
+}
+.catchup-modal:fullscreen .catchup-card,
+.catchup-modal:-webkit-full-screen .catchup-card{
+  max-width:min(96vw,1500px);height:96vh;border-radius:0;
 }
