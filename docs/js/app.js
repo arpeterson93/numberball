@@ -435,7 +435,9 @@
     var jumpBtn = (m.game_code && m.session_number != null && m.play_num != null)
       ? '<button type="button" class="play-jump-btn" data-jump-game="' + escapeHtml(m.game_code) +
         '" data-jump-session="' + m.session_number + '" data-jump-num="' + m.play_num +
-        '" title="Watch this play" aria-label="Watch this play in the game replay">▶</button>'
+        '" title="Watch this play" aria-label="Watch this play in the game replay">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
+        "</button>"
       : "";
     var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
@@ -704,7 +706,7 @@
   function render() {
     updateFilterSummary();
     updateSideAvailability();
-    $("page-title").textContent = filters.keyMomentsOnly ? "KEY MOMENTS" : "ALL PLAYS";
+    $("page-title").textContent = "MLN GAMEDAY";
     if (loadingPlays) {
       $("moments").innerHTML = "";
       $("empty-state").hidden = false;
@@ -866,7 +868,12 @@
     }
     el.hidden = false;
     el.classList.remove("quiet");
-    el.textContent = "▶ Catch Me Up · " + count + (count === 1 ? " new play" : " new plays");
+    // An SVG triangle, not a "▶" text glyph - iOS renders that glyph with its
+    // own colored emoji presentation, which reads differently there than the
+    // plain monochrome arrow desktop browsers show for the same character.
+    el.innerHTML = '<svg class="catchup-play-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<polygon points="8 5 19 12 8 19 8 5"></polygon></svg> Catch Me Up · ' +
+      count + (count === 1 ? " new play" : " new plays");
   }
 
   // ── Catch Me Up: the slideshow ──────────────────────────────────────────────
@@ -955,15 +962,42 @@
   // is the 90ft square's diagonal.
   var BASE_DIST_FT = 90;
   var BASE_DIAG_FT = BASE_DIST_FT * Math.SQRT2;
-  var SCENE_BASES = {
-    HOME: HOME_SVG,
+  // Token/marker sizes, scaled down from the old hand-placed diamond to match
+  // the now-correctly-scaled (and visually smaller) real-90ft infield.
+  var RUNNER_R = 6, BASE_R = 4.5, BALL_R = 3, FIELDER_R = 4;
+
+  // A real bag sits entirely in fair territory - its outer corner touches the
+  // foul line, not its centre (Alex's correction). These are the exact 90ft
+  // marks ON the foul lines; 1B/3B get nudged inward toward 2B below so the
+  // drawn square's outer corner lands here instead of straddling the line
+  // with its centre.
+  var SCENE_BASES_ON_LINE = {
     "1B": ftToSvg(BASE_DIST_FT * Math.SQRT1_2, BASE_DIST_FT * Math.SQRT1_2),
     "2B": ftToSvg(0, BASE_DIAG_FT),
     "3B": ftToSvg(-BASE_DIST_FT * Math.SQRT1_2, BASE_DIST_FT * Math.SQRT1_2),
   };
-  // Token/marker sizes, scaled down from the old hand-placed diamond to match
-  // the now-correctly-scaled (and visually smaller) real-90ft infield.
-  var RUNNER_R = 6, BASE_R = 4.5, BALL_R = 3, FIELDER_R = 4;
+  function insetTowardSecond(pt) {
+    var second = SCENE_BASES_ON_LINE["2B"];
+    var dx = second.x - pt.x, dy = second.y - pt.y;
+    var len = Math.hypot(dx, dy) || 1;
+    return { x: pt.x + (dx / len) * BASE_R, y: pt.y + (dy / len) * BASE_R };
+  }
+  var SCENE_BASES = {
+    HOME: HOME_SVG,
+    "1B": insetTowardSecond(SCENE_BASES_ON_LINE["1B"]),
+    "2B": SCENE_BASES_ON_LINE["2B"],
+    "3B": insetTowardSecond(SCENE_BASES_ON_LINE["3B"]),
+  };
+
+  // Home plate's own two outer corners - where the foul lines actually start
+  // (Alex's correction), not the plate's centre. side: +1 = the 1B-side
+  // corner, -1 = the 3B-side corner. HOME_PLATE_R matches platePath's own
+  // plateR (sceneFieldHtml) - kept here too since foulLineD/infieldDirtHtml
+  // need it and live outside that function.
+  var HOME_PLATE_R = BASE_R * 0.9;
+  function homePlateCorner(side) {
+    return { x: SCENE_BASES.HOME.x + side * HOME_PLATE_R, y: SCENE_BASES.HOME.y };
+  }
 
   // Nine generic fielder anchors, field-plane feet. No names, no per-play
   // defensive alignment - that data doesn't exist (ball-flight-plan.md
@@ -973,6 +1007,31 @@
     "1B": { x: 75, y: 85 }, "2B": { x: 40, y: 145 }, SS: { x: -40, y: 145 }, "3B": { x: -75, y: 85 },
     LF: { x: -200, y: 260 }, CF: { x: 0, y: 320 }, RF: { x: 200, y: 260 },
   };
+
+  // Ground ball outs, which infielder and how deep (Alex's HZ/depth spec).
+  // The horizontal angle is only ever one of exactly 11 values - bucket
+  // (signedCirc's ones-digit result) is an integer -5..5, and angle is a
+  // linear function of it, so flight.angle always lands on 5, 13, 21, ...,
+  // 85 exactly, for either hand (the hand-mirror just reverses which bucket
+  // maps to which end - the final angle set is identical). That makes this a
+  // plain lookup, not a range/interpolation.
+  var HZ_FIELDER_BY_ANGLE = {
+    5: "3B", 13: "3B",
+    21: "SS", 29: "SS", 37: "SS",
+    45: "P",
+    53: "2B", 61: "2B", 69: "2B",
+    77: "1B", 85: "1B",
+  };
+  var INFIELDER_DEPTH_FT = { "3B": 119, SS: 147, P: 60, "2B": 147, "1B": 111 };
+  // The archetype (from the result's own band row) is the true "is this a
+  // ground ball" signal, not flight.isGrounder - that flag is just LA<4 on a
+  // value computed independently off the pitch/swing wheel, and it can
+  // disagree with the actual play: a real "GO" can compute an LA a hair
+  // above 4 (isGrounder false on a genuine grounder), and a caught line
+  // drive can compute one a hair below it (isGrounder true on a ball that
+  // was never on the ground at all). Anything gating ground-ball-only
+  // behaviour (infielder depth, rollout) keys off archetype instead.
+  var GROUND_ARCHETYPES = { grounder: 1, bunt: 1, infield_single: 1 };
 
   // Uniform fence depth in every direction (Alex's addition to the plan: one
   // constant distance all the way around, not a per-angle profile, for
@@ -995,6 +1054,12 @@
   // it happens too often (ball-flight-plan.md Open Question 1b).
   var FENCE_DEPTH_FT = 375;
   function fenceAt(angleDeg) { return FENCE_DEPTH_FT; }
+
+  // Real-park constants for the infield dirt circle: 60.5ft from home to the
+  // pitcher's plate, and (per usual groundskeeping practice) a 95ft radius
+  // for the dirt circle centred on the plate.
+  var PITCHER_MOUND_FT = 60.5;
+  var INFIELD_DIRT_RADIUS_FT = 95;
 
   // Batting team's dugout, field-plane feet - just foul of each line, behind
   // the bases. Home team uses the 1B-side dugout, away team 3B-side. A
@@ -1134,6 +1199,40 @@
       " A" + r.toFixed(1) + "," + r.toFixed(1) + " 0 0 1 " + b.x.toFixed(1) + "," + b.y.toFixed(1);
   }
 
+  // Foul lines: home plate's own outer corner (Alex's correction - not the
+  // plate's centre) straight out to where the fence starts - the same
+  // landingPoint(FENCE_DEPTH_FT, angle) endpoint fencePathD itself uses, so
+  // the lines visually meet the fence with no separate geometry to drift out
+  // of sync. 1B/3B now sit just inside this line (SCENE_BASES' inset above),
+  // matching how a real bag is entirely in fair territory.
+  function foulLineD(angleDeg) {
+    var pt = landingPoint(FENCE_DEPTH_FT, angleDeg);
+    var end = ftToSvg(pt.x, pt.y);
+    var start = homePlateCorner(angleDeg >= 45 ? 1 : -1);
+    return "M" + start.x.toFixed(1) + "," + start.y.toFixed(1) + " L" + end.x.toFixed(1) + "," + end.y.toFixed(1);
+  }
+
+  // Infield dirt: a circle of radius INFIELD_DIRT_RADIUS_FT centred on the
+  // pitcher's plate (PITCHER_MOUND_FT in front of home), clipped to fair
+  // territory only (Alex's correction) - a full circle that size reaches
+  // well past both foul lines. Just the ARC that stays in fair territory -
+  // no straight edges down to home, which double-drew right on top of the
+  // foul lines themselves (Alex's follow-up correction) and read as one
+  // thick line rather than two separate features. The arc's own two
+  // endpoints already sit exactly on the foul lines (where the circle
+  // intersects them), so it meets them cleanly with no gap and no overlap.
+  function infieldDirtHtml() {
+    var m = PITCHER_MOUND_FT, r = INFIELD_DIRT_RADIUS_FT;
+    // Solving x^2 + (x-m)^2 = r^2 for the intersection of the circle with the
+    // line y=x (the 1B foul line) - the 3B line (y=-x) is the mirror image.
+    var edge = (m + Math.sqrt(2 * r * r - m * m)) / 2;
+    var right = ftToSvg(edge, edge), left = ftToSvg(-edge, edge);
+    var rSvg = r / FT_PER_UNIT;
+    var d = "M" + left.x.toFixed(1) + "," + left.y.toFixed(1) +
+      " A" + rSvg.toFixed(1) + "," + rSvg.toFixed(1) + " 0 0 1 " + right.x.toFixed(1) + "," + right.y.toFixed(1);
+    return '<path class="dm-dirt" d="' + d + '"></path>';
+  }
+
   function nearestFielder(x, y) {
     var best = null, bestD = Infinity;
     for (var key in FIELDER_ANCHORS_FT) {
@@ -1189,6 +1288,34 @@
     };
   }
 
+  /* Ground ball outs: the archetype's depth range (a single 60-150ft band for
+     every grounder) doesn't know a 3B/1B plays shallower than a SS/2B, so
+     the same play could land at a distance that makes sense for one
+     position and not another. This corrects it using the HZ angle, which
+     already tells us exactly which infielder is fielding it: if the
+     archetype distance would carry the ball past that fielder's normal
+     depth, it's capped there (fielded on the way through, same as a real
+     infielder never lets a ball get all the way to the track); if it's
+     short, left alone - the fielder charges in and fields a weak roller
+     closer to home, which is exactly Alex's "still have ground ball outs
+     that aren't hit very far." Hits are untouched: a grounder that gets past
+     the fielder's depth is precisely what makes it a hit, not an out. Called
+     once, right after flightParams, so every consumer of `flight` (the ball
+     trail, the throw origin, the rollout) sees the corrected distance/x/y
+     with no separate plumbing. */
+  function applyGroundBallFielderDepth(m, flight) {
+    if (!GROUND_ARCHETYPES[flight.archetype]) return;
+    if (!((m.outs_after || 0) > (m.outs_before || 0))) return;
+    var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
+    var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
+    if (depth == null || flight.distance <= depth) return;
+    flight.distance = depth;
+    var pt = landingPoint(depth, flight.angle);
+    flight.x = pt.x;
+    flight.y = pt.y;
+    flight.fielder = pos;
+  }
+
   // ── Ball flight rendering (ball-flight-plan.md Stage 4) ───────────────────
   // Timing constants below are animation-feel judgment calls, not derived
   // from anything physical - flagged as tune-after-watching in the plan
@@ -1221,14 +1348,85 @@
   // How far past the landing point a hit that stayed in play carries before
   // being fielded (C4/Item 16) - Alex's ask, read as "where it landed" and
   // "where it was fielded" should be two different things on screen, not
-  // just a formula. Capped as a fraction of distance so it never reads as a
-  // second, unrelated hop on a short bloop single.
-  var ROLLOUT_FT = 34, ROLLOUT_FRAC = 0.14;
+  // just a formula. A function of both inputs, not distance alone (Alex's
+  // second-round correction): harder contact (higher EV) rolls out further,
+  // and a flatter trajectory (lower LA) rolls out further too - a scorched
+  // liner skids and keeps going, a towering fly drops closer to dead. Low LA
+  // doesn't just add to the effect, it amplifies EV's contribution (evFrac
+  // alone still contributes a floor via the 0.4 term, so a hard-hit ball at
+  // a high launch angle still rolls some, just not as much as the same exit
+  // velo at a grounder-level angle).
+  var ROLLOUT_FT = 34;
+  var ROLLOUT_EV_LOW = 40, ROLLOUT_EV_HIGH = 115;     // mph, weak contact to max
+  var ROLLOUT_LA_LOW = -15, ROLLOUT_LA_HIGH = 50;     // degrees, steepest grounder to a high fly
   var ROLLOUT_MS = 320;
 
-  function rolloutHtml(flight, landEnd, dur) {
-    var rollFt = Math.min(ROLLOUT_FT, ROLLOUT_FRAC * flight.distance);
-    if (rollFt <= 0) return "";
+  function rolloutFraction(ev, la) {
+    var evFrac = clamp((ev - ROLLOUT_EV_LOW) / (ROLLOUT_EV_HIGH - ROLLOUT_EV_LOW), 0, 1);
+    var laFrac = clamp(1 - (la - ROLLOUT_LA_LOW) / (ROLLOUT_LA_HIGH - ROLLOUT_LA_LOW), 0, 1);
+    return evFrac * (0.4 + 0.6 * laFrac);
+  }
+
+  // The infield dirt's edge, in feet from home, along a given HZ angle - the
+  // far intersection of the ray from home with the dirt circle (centred
+  // PITCHER_MOUND_FT out, radius INFIELD_DIRT_RADIUS_FT). Same law-of-cosines
+  // form infieldDirtHtml uses for the foul-line intersections, generalised to
+  // an arbitrary angle instead of just the two 45 degrees-off-center foul lines.
+  var DIRT_CLEAR_MARGIN_FT = 3;   // a safe grounder rolls at least this far past the dirt's edge
+  // These two archetypes are deliberately short (bunt: 5-25ft, infield_single:
+  // 45-90ft, from ball_flight_archetypes.csv) - a legged-out infield hit that
+  // stays on the dirt is the realistic outcome there, not a bug to floor away.
+  var STAYS_IN_INFIELD_ARCHETYPES = { bunt: 1, infield_single: 1 };
+  function dirtEdgeFt(angleDeg) {
+    var offset = (angleDeg - 45) * Math.PI / 180;
+    var m = PITCHER_MOUND_FT, r = INFIELD_DIRT_RADIUS_FT;
+    var s = Math.sin(offset);
+    return m * Math.cos(offset) + Math.sqrt(Math.max(0, r * r - m * m * s * s));
+  }
+
+  // How far, in feet, a batted ball rolls past its bounce point before
+  // anyone picks it up - shared by rolloutHtml (draws it) and throwHtml (an
+  // infielder throws from where they fielded the ball, not from the bounce
+  // point the ball trail happens to end its "land" keyframe at). Applies to
+  // any ball still in play, not just grounders - a line-drive single that
+  // lands well short of the fence still skids/bounces on before an
+  // outfielder has it, same idea as a grounder's roll, just a smaller EV/LA
+  // contribution at a higher launch angle.
+  function groundBallRolloutFt(m, flight) {
+    if (!flight) return 0;
+    var isOut = (m.outs_after || 0) > (m.outs_before || 0);
+    // Caught in the air, full stop - the ball was never on the ground to
+    // begin with, so there's nothing to roll (isGrounder is a raw LA<4
+    // threshold and unreliable here; see GROUND_ARCHETYPES above).
+    if (isOut && CAUGHT_IN_AIR[flight.archetype]) return 0;
+    var rollFt = rolloutFraction(flight.ev, flight.la) * ROLLOUT_FT;
+    // Never let the rollout carry the ball past the fence - an inside-the-
+    // park home run can land within ROLLOUT_FT of the wall, and the roll
+    // distance alone doesn't know that.
+    var maxReachFt = fenceAt(flight.angle) - 2;
+    if (GROUND_ARCHETYPES[flight.archetype] && isOut) {
+      // Nor past the fielder assigned to this HZ angle, on a ground ball out -
+      // applyGroundBallFielderDepth already capped flight.distance itself if
+      // the archetype distance alone overshot; this catches the case where
+      // the base distance was short but distance+rollout would still
+      // overshoot.
+      var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
+      var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
+      if (depth != null) maxReachFt = Math.min(maxReachFt, depth);
+    } else if (GROUND_ARCHETYPES[flight.archetype] && !isOut && !STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
+      // A grounder that reaches base safely, and isn't meant to be a short
+      // infield hit, is a real single/double/etc. - it has to visibly clear
+      // the infield dirt, even when its bounce point (the archetype distance
+      // alone) landed short of the dirt's edge or right on it. The bounce
+      // point itself is left alone (a squibber landing on the dirt is
+      // realistic); only the roll-out is floored.
+      var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
+      if (need > rollFt) rollFt = need;
+    }
+    return Math.max(0, Math.min(rollFt, maxReachFt - flight.distance));
+  }
+
+  function rolloutHtml(flight, landEnd, dur, rollFt) {
     var rollPt = landingPoint(flight.distance + rollFt, flight.angle);
     var end = ftToSvg(rollPt.x, rollPt.y);
     var len = Math.hypot(end.x - landEnd.x, end.y - landEnd.y) || 1;
@@ -1261,23 +1459,42 @@
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     var cls = (cleared ? " clear" : " land") + (flight.isGrounder ? " ground" : " air") +
               (wasOut ? " out" : " hit");
+    // C4: any hit that stayed in the park carries a bit further than where
+    // it landed before the fielder gets to it - a home run's a dead ball at
+    // the wall, so it never rolls, like everything else that cleared the
+    // fence. A ground ball out also gets a rollout (a fielded grounder still
+    // bounces/skids up to the fielder), capped by
+    // applyGroundBallFielderDepth/groundBallRolloutFt's own fielder-depth
+    // logic so it never rolls the ball past whoever's actually fielding it.
+    // A caught fly, line drive or pop out never rolls - it was caught in the
+    // air, nothing to bounce - checked by archetype (CAUGHT_IN_AIR), not
+    // flight.isGrounder, which is an independently-computed LA<4 flag that
+    // can disagree with what the play actually was.
+    var caughtInAir = wasOut && CAUGHT_IN_AIR[flight.archetype];
+    var rollFt = (!cleared && !caughtInAir) ? groundBallRolloutFt(m, flight) : 0;
+    var rollout = rollFt > 0 ? rolloutHtml(flight, end, dur, rollFt) : "";
+
+    // Labels sit next to wherever the ball actually ends up: the rollout's
+    // endpoint when there is one, otherwise the landing/catch point itself -
+    // and only pop in once that rollout has actually finished playing, not
+    // mid-roll. A cleared HR's true distance is often well off-canvas, so its
+    // anchor is capped at the same fence+15 fade point the ball itself stops
+    // at (targetFt/end above), not the real number.
     var short = (data.meta.result_short || {})[m.result] || m.result;
-    var labelPt = landingPoint(flight.distance + 14, flight.angle);
+    var labelBaseDist = cleared ? FENCE_DEPTH_FT + 15 : flight.distance;
+    var labelPt = landingPoint(labelBaseDist + rollFt, flight.angle);
     var labelSvg = ftToSvg(labelPt.x, labelPt.y);
-    // C2: a short abbreviation next to wherever the ball ended up (not the
-    // rollout point) - lands after the ball does, same delay as the trail.
-    var label = cleared ? "" :
-      '<text class="ball-label" x="' + end.x.toFixed(1) + '" y="' + end.y.toFixed(1) +
-        '" dx="7" dy="-4" style="--delay:' + dur + 'ms">' + escapeHtml(short) + "</text>";
-    // C3: distance next to home run landing points only, including
-    // inside-the-park ones, where the marker sits inside the field.
-    var distLabel = m.result === "HR" && !cleared ?
+    var labelDelay = dur + (rollFt > 0 ? ROLLOUT_MS : 0);
+    // C2: a short abbreviation next to wherever the ball ended up.
+    var label = '<text class="ball-label" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
+        '" dx="7" dy="-4" style="--delay:' + labelDelay + 'ms">' + escapeHtml(short) + "</text>";
+    // C3: distance next to every home run's landing point, cleared-the-fence
+    // ones included (the true number, even though the marker itself stops
+    // at the wall for those) - stacked below the result label at the same
+    // anchor, not on top of it.
+    var distLabel = m.result === "HR" ?
       '<text class="ball-dist" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
-        '" style="--delay:' + dur + 'ms">' + Math.round(flight.distance) + " ft</text>" : "";
-    // C4: any hit that stayed in the park carries a bit further than where it
-    // landed before the fielder gets to it - a home run's a dead ball at the
-    // wall, so it is excluded like everything else that clears the fence.
-    var rollout = (!wasOut && !cleared) ? rolloutHtml(flight, end, dur) : "";
+        '" dx="7" dy="11" style="--delay:' + labelDelay + 'ms">' + Math.round(flight.distance) + " ft</text>" : "";
     return '<line class="ball-trail' + cls + '" x1="' + home.x + '" y1="' + home.y +
         '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) +
         '" style="' + trailVars + '"></line>' +
@@ -1329,6 +1546,10 @@
   // emits a BATTER move - the batter token would otherwise be missing
   // entirely and the play would render completely static (A3).
   var BATTER_REACHES_FIRST = { FC: 1, FC3rd: 1, FCH: 1, FCLead: 1 };
+  // A strikeout has no ball flight to hang a result label off (ballFlightHtml
+  // never runs), so its "K" gets drawn directly next to the batter token
+  // instead, at the same beat the out itself resolves.
+  var STRIKEOUT_RESULTS = { K: 1, AutoK: 1 };
 
   /* Every base a throw goes to, in real fielding order (A2/A3/B6). Which
      runner is out still comes entirely from obc_before/obc_after/outs_* via
@@ -1361,28 +1582,35 @@
       targets.push(BATTER_REACHES_FIRST[m.result] ? (forced || "1B") : "1B");
     }
 
-    // A caught-in-air play with a runner tagging up gets the tag-up throw -
-    // the whole drama of a sac fly (A1/F2).
-    if (!targets.length && caught && moves.some(function (mv) { return mv.scored; })) {
-      targets.push("HOME");
-    }
-
+    // Ground-truth invariant, restated for throws: never show more OUT-bound
+    // throws than outs actually recorded, less the batter's own out on a
+    // caught ball. deriveRunnerMoves never models that catch as a move at
+    // all (a caught batter never "reaches", so it tracks nothing for them) -
+    // without subtracting it here, a routine fly/pop out that happens to end
+    // the half-inning "spent" its one real out on a phantom stranded-runner
+    // OUT move instead (the same half-inning-ending obc-reset artifact noted
+    // above), throwing to a base nobody was actually forced at. deriveRunnerMoves'
+    // own documented limitation (its docstring - tangled force plays, not
+    // always the furthest-back runner) is a separate, pre-existing thing;
+    // capping here is the fix that belongs in throw logic, not there.
+    var battersOwnOut = caught ? 1 : 0;
     var seen = {};
     var sorted = targets.filter(function (b) {
       if (seen[b]) return false;
       seen[b] = 1;
       return true;
-    }).sort(function (a, b) { return THROW_ORDER.indexOf(a) - THROW_ORDER.indexOf(b); });
+    }).sort(function (a, b) { return THROW_ORDER.indexOf(a) - THROW_ORDER.indexOf(b); })
+      .slice(0, Math.max(0, recorded - battersOwnOut));
 
-    // Ground-truth invariant, restated for throws: never show more throws
-    // than outs actually recorded. deriveRunnerMoves' own documented
-    // limitation (its docstring above - tangled force plays, not always the
-    // furthest-back runner) occasionally invents an extra OUT move on a
-    // half-inning-ending play where a stranded (not actually out) runner's
-    // obc bit simply resets to empty - capping here, lead-runner-first order
-    // already established, is the fix that belongs in throw logic rather than
-    // in deriveRunnerMoves itself (out of scope to touch).
-    return sorted.slice(0, recorded);
+    // A caught-in-air play with a runner tagging up gets the tag-up throw -
+    // the whole drama of a sac fly (A1/F2). Added after the cap above: the
+    // run scores safely, so this throw is never one of "the outs recorded"
+    // and must not be capped away by it.
+    if (!sorted.length && caught && moves.some(function (mv) { return mv.scored; })) {
+      sorted.push("HOME");
+    }
+
+    return sorted;
   }
 
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
@@ -1390,7 +1618,11 @@
      rendering so the timing race against the runner can be asserted rather
      than eyeballed - see ball_flight_test.py. */
   function throwSchedule(m, moves, flight) {
-    var base = ballTravelMs(flight) + THROW_DELAY_MS;
+    // A rolling grounder isn't fielded until it stops rolling - the throw
+    // has to wait out that extra beat too, or it'd draw from a spot the ball
+    // hasn't visibly reached yet (see throwHtml's fieldPt).
+    var rollMs = groundBallRolloutFt(m, flight) > 0 ? ROLLOUT_MS : 0;
+    var base = ballTravelMs(flight) + rollMs + THROW_DELAY_MS;
     return outThrowTargets(m, moves, flight).map(function (b, i) {
       var start = base + i * THROW_STAGGER_MS;
       return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
@@ -1407,7 +1639,12 @@
   function throwHtml(m, flight, moves) {
     var schedule = throwSchedule(m, moves, flight);
     if (!schedule.length) return "";
-    var origin = ftToSvg(flight.x, flight.y);
+    // A grounder is fielded wherever it stops rolling, not at its bounce
+    // point - the throw has to originate there, or it visibly starts from
+    // empty grass short of the fielder.
+    var rollFt = groundBallRolloutFt(m, flight);
+    var fieldPt = rollFt > 0 ? landingPoint(flight.distance + rollFt, flight.angle) : flight;
+    var origin = ftToSvg(fieldPt.x, fieldPt.y);
     return schedule.map(function (t) {
       var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
       if (!to) return "";
@@ -1484,6 +1721,10 @@
     THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     GROUNDER_ROLL_MS: GROUNDER_ROLL_MS, RUNNER_LEAD_MS: RUNNER_LEAD_MS,
+    groundBallRolloutFt: groundBallRolloutFt,
+    applyGroundBallFielderDepth: applyGroundBallFielderDepth,
+    dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
+    GROUND_ARCHETYPES: GROUND_ARCHETYPES,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -1499,6 +1740,16 @@
     var dugoutFt = dugoutFor(m);
     var dugoutSvg = ftToSvg(dugoutFt.x, dugoutFt.y);
 
+    // Which OUT-bound moves are corroborated by an actual throw, batted-ball
+    // (outThrowTargets, already capped to real outs) or steal (stealThrowTarget) -
+    // used below to tell a real force/tag-out from a runner simply stranded
+    // when the half-inning ended (deriveRunnerMoves' obc-reset artifact,
+    // already noted above outThrowTargets - on a strikeout or walk this was
+    // showing stranded runners advancing toward a base before "being out",
+    // when nothing actually happened to them at all).
+    var realOutTargets = outThrowTargets(m, moves, flight);
+    var stealOut = stealThrowTarget(m, moves);
+
     // Safe/scoring runners lead off 150ms after slide mount, behind the ball
     // (Stage 4e) - but only when there was a ball to lead them. An out's walk
     // to the dugout begins on its own later beat, plus however long the ball
@@ -1508,6 +1759,15 @@
     var runDelay = flight ? RUNNER_LEAD_MS : 0;
     var outDelay = (flight ? ballTravelMs(flight) : 0) + OUT_BEAT_MS;
     var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+    // A caught stealing that ends the half inning strands whoever else was on
+    // base at that moment - deriveRunnerMoves' obc-reset artifact turns their
+    // move into an uncorroborated "OUT" too (falls back to the plain
+    // out-walk below, forcedBase stays null), but they weren't actually
+    // caught on this play and must not start for the dugout until the
+    // runner who WAS caught is actually tagged, not on the same beat.
+    var stealOutResolveMs = stealOut && stealOut.caught
+      ? stealRunnerArrivalMs(true, runDelay, outDelay) + TAG_UP_MS
+      : 0;
     // I7: the slowest arriving safe/scoring runner - the base plates' gold
     // "post-play occupancy" fill is delayed until this moment, so a base
     // does not light up before any runner has actually reached it.
@@ -1524,23 +1784,31 @@
       if (!from || (!isOut && !SCENE_BASES[mv.to] && !mv.scored)) return "";
       // I8: an out-bound runner travels toward the base the throw actually
       // targeted before turning red, same override table outThrowTargets
-      // uses. basepathWaypoints' own end<=start guard naturally suppresses
-      // this for a backward-relative target (a doubled-off runner on a
-      // caught line drive, B6 - deferred) or one already at that base
-      // (DPH1's heuristic mismatch) - those fall back to the plain
-      // straight-to-dugout walk, not a bug.
+      // uses - but only when a real throw actually corroborates it (realOutTargets/
+      // stealOut above). A move that isn't corroborated is a runner simply
+      // stranded when the half-inning ended, not one who was forced or
+      // tagged out, and falls back to the plain straight-to-dugout walk.
+      // basepathWaypoints' own end<=start guard separately suppresses the
+      // partial advance for a backward-relative target (a doubled-off runner
+      // on a caught line drive, B6 - deferred) or one already at that base
+      // (DPH1's heuristic mismatch) - those are real outs, just ones with no
+      // forward leg to show.
       var forcedBase = null;
       if (isOut) {
         var forced = FORCED_OUT_BASE[m.result];
-        forcedBase = forced === "OWN" ? mv.from
+        var candidate = forced === "OWN" ? mv.from
           : (forced || BASE_PATH[Math.min(3, BASE_ORDINAL[mv.from] + 1)]);
+        var corroborated = realOutTargets.indexOf(candidate) !== -1 ||
+          (stealOut && stealOut.caught && candidate === stealOut.base);
+        forcedBase = corroborated ? candidate : null;
       }
       var path = isOut
         ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, false) : [])
         : basepathWaypoints(mv.from, mv.to, mv.scored);
       var end = isOut ? dugoutSvg : (path.length ? path[path.length - 1] : from);
       var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
-      var mvDelay = isOut ? outDelay
+      var mvDelay = isOut
+        ? (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs))
         : (catchMs && mv.scored ? catchMs + TAG_UP_MS : runDelay);
       if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (RUN_LEG_MS[legs] || 0));
       var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
@@ -1605,6 +1873,11 @@
                      "--rdelay:" + outDelay + "ms";
         tokens += '<g class="rn out-walk batter" style="' + owVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
+        if (STRIKEOUT_RESULTS[m.result]) {
+          var kShort = (data.meta.result_short || {})[m.result] || m.result;
+          tokens += '<text class="ball-label" x="' + h.x + '" y="' + h.y +
+            '" dx="10" dy="-6" style="--delay:' + outDelay + 'ms">' + escapeHtml(kShort) + "</text>";
+        }
       }
     }
 
@@ -1657,7 +1930,7 @@
     // whose they are.
     var runHex = teamColor(batAbbr);
     var h = SCENE_BASES.HOME;
-    var plateR = BASE_R * 0.9;
+    var plateR = HOME_PLATE_R;
     // Point down, toward the backstop - a home plate seen from above has its
     // flat edge facing the pitcher, not its apex. Sized off BASE_R so it
     // scales with everything else on the infield.
@@ -1666,18 +1939,22 @@
       " L" + (h.x + plateR).toFixed(1) + "," + h.y.toFixed(1) +
       " L" + h.x.toFixed(1) + "," + (h.y + plateR * 1.15).toFixed(1) +
       " L" + (h.x - plateR).toFixed(1) + "," + h.y.toFixed(1) + " Z";
-    // Layering bottom to top, per Stage 4c: grass, fence, infield dirt, base
-    // plates, watermark, fielder, ball trail + ball, throw, runner tokens.
-    // Runner tokens stay on top - they're what the viewer follows.
+    // Layering bottom to top, per Stage 4c: grass, fence, infield dirt circle,
+    // infield fill, foul lines, base plates, watermark, fielder, ball trail +
+    // ball, throw, runner tokens. Runner tokens stay on top - they're what
+    // the viewer follows.
     return '<div class="scene-diamond-wrap">' +
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
         (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
         '<rect class="dm-grass" x="0" y="0" width="' + FIELD_W + '" height="' + FIELD_H + '"></rect>' +
         '<path class="dm-fence" d="' + fencePathD() + '"></path>' +
+        infieldDirtHtml() +
         '<path class="dm-field" d="M' + h.x.toFixed(1) + "," + h.y.toFixed(1) +
           " L" + SCENE_BASES["1B"].x.toFixed(1) + "," + SCENE_BASES["1B"].y.toFixed(1) +
           " L" + SCENE_BASES["2B"].x.toFixed(1) + "," + SCENE_BASES["2B"].y.toFixed(1) +
           " L" + SCENE_BASES["3B"].x.toFixed(1) + "," + SCENE_BASES["3B"].y.toFixed(1) + ' Z"></path>' +
+        '<path class="dm-foul-line" d="' + foulLineD(0) + '"></path>' +
+        '<path class="dm-foul-line" d="' + foulLineD(90) + '"></path>' +
         plates +
         watermark +
         '<path class="dm-plate" d="' + platePath + '"></path>' +
@@ -1708,6 +1985,13 @@
     return 0.5 + 0.5 * Math.min(1, over);
   }
 
+  // Only the 1.5 (hot-threshold) tick survives as a marking (Alex's call -
+  // the gauge previously also carried a gray dash at the LI 1.0 apex and a
+  // soft red background band from the threshold onward; both removed as
+  // clutter). The fill itself now carries the granularity instead, as a
+  // 4-stop gradient - deep blue (calm) through light blue, light red, to a
+  // vivid red (hot) - so intensity reads continuously along the bar rather
+  // than a single flat colour that only ever flips at the hot threshold.
   function sceneMeterHtml(m) {
     if (m.leverage == null) return "";
     var lev = m.leverage;
@@ -1723,15 +2007,15 @@
                x2: 60 + Math.cos(a) * r2, y2: 60 - Math.sin(a) * r2 };
     };
     var tick = tickAt(tFrac, 36, 56);
-    var anchor = tickAt(0.5, 38, 54);   // the apex: LI 1.0, average leverage
     return '<div class="scene-meter' + (hot ? " hot" : "") + '">' +
       '<svg viewBox="0 0 120 72" aria-hidden="true">' +
+        "<defs><linearGradient id=\"levGradient\" x1=\"14\" y1=\"60\" x2=\"106\" y2=\"60\" gradientUnits=\"userSpaceOnUse\">" +
+          '<stop offset="0%" class="mt-stop-cold"></stop>' +
+          '<stop offset="50%" class="mt-stop-cool"></stop>' +
+          '<stop offset="' + (tFrac * 100).toFixed(1) + '%" class="mt-stop-warm"></stop>' +
+          '<stop offset="100%" class="mt-stop-hot"></stop>' +
+        "</linearGradient></defs>" +
         '<path class="mt-track" d="M14,60 A46,46 0 0 1 106,60"></path>' +
-        '<path class="mt-redline" d="M14,60 A46,46 0 0 1 106,60" style="' +
-          "--len:" + SCENE_ARC_LEN.toFixed(2) + "px;--off:" +
-          (SCENE_ARC_LEN * tFrac).toFixed(2) + 'px"></path>' +
-        '<line class="mt-anchor" x1="' + anchor.x1.toFixed(1) + '" y1="' + anchor.y1.toFixed(1) +
-          '" x2="' + anchor.x2.toFixed(1) + '" y2="' + anchor.y2.toFixed(1) + '"></line>' +
         '<line class="mt-tick" x1="' + tick.x1.toFixed(1) + '" y1="' + tick.y1.toFixed(1) +
           '" x2="' + tick.x2.toFixed(1) + '" y2="' + tick.y2.toFixed(1) + '"></line>' +
         '<path class="mt-fill" d="M14,60 A46,46 0 0 1 106,60" style="' +
@@ -2252,7 +2536,7 @@
   function sceneRecapHtml(r) {
     if (!r) return "";
     if (!r.isFinal) {
-      return '<div class="scene-recap live">Caught up · the game is still going</div>';
+      return '<div class="scene-recap live">Caught up on all the plays in this game</div>';
     }
     var head = "FINAL · " + escapeHtml(r.away) + " " + r.awayScore + ", " +
                escapeHtml(r.home) + " " + r.homeScore;
@@ -2267,6 +2551,7 @@
   function playSceneHtml(slide) {
     var m = slide.play;
     var flight = flightParams(m, data.meta.flight);
+    if (flight) applyGroundBallFielderDepth(m, flight);
     // A lead change gets a one-shot wash of the new leader's colour - cheap,
     // and it makes the one tag that changes the game's story feel different.
     var flash = "";
@@ -2421,11 +2706,6 @@
      own beyond the gesture in flight, unlike the timers each feature keeps
      separately. */
   var SWIPE_MIN_PX = 45;
-  // G1: an ordinary swipe steps one play (and now wraps at either end rather
-  // than dead-ending); a swipe at least this long, from anywhere, jumps
-  // straight to the first/last play instead - both readings of "swipe to the
-  // end" that Alex asked for, combined rather than picking one.
-  var SWIPE_LONG_PX = SWIPE_MIN_PX * 3;
 
   function wireSlideGestures(el, onTap, onStep) {
     var x0 = null, y0 = 0, swiped = false;
@@ -2442,8 +2722,9 @@
       x0 = null;
       if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return;
       swiped = true;
-      // swipe left goes forward, as a carousel does
-      onStep(dx < 0 ? 1 : -1, Math.abs(dx) >= SWIPE_LONG_PX);
+      // swipe left goes forward, as a carousel does - wraps at either end
+      // (stepCatchUp/stepReplay) rather than a long swipe jumping there.
+      onStep(dx < 0 ? 1 : -1);
     }, { passive: true });
     el.addEventListener("click", function (e) {
       if (swiped) { swiped = false; return; }
@@ -2521,18 +2802,11 @@
      of the old one, and stepping does not change whether the show is paused -
      someone paging through a paused run stays paused.
 
-     G1: `jump` (a long swipe, or Home/End) goes straight to the first/last
-     slide from wherever the show currently is. Otherwise this wraps at
-     either end rather than the previous dead end - an ordinary swipe past
+     G1: wraps at either end rather than a dead stop - an ordinary swipe past
      the last play goes to the first, and back again from the first. */
-  function stepCatchUp(delta, jump) {
+  function stepCatchUp(delta) {
     var n = catchUp.slides.length;
-    var i;
-    if (jump) {
-      i = delta > 0 ? n - 1 : 0;
-    } else {
-      i = (catchUp.index + delta + n) % n;
-    }
+    var i = (catchUp.index + delta + n) % n;
     clearCatchUpTimer();
     catchUp.remaining = 0;
     showCatchUpSlide(i);
@@ -2622,16 +2896,13 @@
     modal.addEventListener("click", function (e) { if (e.target === modal) closeCatchUp(); });
     wireSlideGestures($("catchup-slide"),
       function () { setCatchUpPaused(!catchUp.paused); },
-      function (d, jump) { stepCatchUp(d, jump); });
+      function (d) { stepCatchUp(d); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeCatchUp();
       else if (e.key === " ") { e.preventDefault(); setCatchUpPaused(!catchUp.paused); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); stepCatchUp(-1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); stepCatchUp(1); }
-      // G1: keyboard equivalent of the long-swipe jump.
-      else if (e.key === "Home") { e.preventDefault(); stepCatchUp(-1, true); }
-      else if (e.key === "End") { e.preventDefault(); stepCatchUp(1, true); }
     });
   }
 
@@ -2751,16 +3022,10 @@
     if (!replay.paused) scheduleReplay(slideDwell(slide));
   }
 
-  // G1: same combo as stepCatchUp - `jump` (long swipe or Home/End) goes
-  // straight to the first/last play; otherwise this wraps at either end.
-  function stepReplay(delta, jump) {
+  // G1: wraps at either end, same as stepCatchUp.
+  function stepReplay(delta) {
     var n = replay.slides.length;
-    var i;
-    if (jump) {
-      i = delta > 0 ? n - 1 : 0;
-    } else {
-      i = (replay.index + delta + n) % n;
-    }
+    var i = (replay.index + delta + n) % n;
     clearReplayTimer();
     replay.remaining = 0;
     showReplaySlide(i);
@@ -2874,16 +3139,13 @@
     modal.addEventListener("click", function (e) { if (e.target === modal) closeReplay(); });
     wireSlideGestures($("replay-slide"),
       function () { setReplayPaused(!replay.paused); },
-      function (d, jump) { stepReplay(d, jump); });
+      function (d) { stepReplay(d); });
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeReplay();
       else if (e.key === " ") { e.preventDefault(); setReplayPaused(!replay.paused); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); stepReplay(-1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); stepReplay(1); }
-      // G1: keyboard equivalent of the long-swipe jump.
-      else if (e.key === "Home") { e.preventDefault(); stepReplay(-1, true); }
-      else if (e.key === "End") { e.preventDefault(); stepReplay(1, true); }
     });
   }
 

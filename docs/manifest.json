@@ -1,0 +1,11 @@
+{
+  "name": "MLN Gameday",
+  "short_name": "MLN Gameday",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a2029",
+  "icons": [
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

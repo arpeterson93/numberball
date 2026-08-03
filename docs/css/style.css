@@ -75,7 +75,7 @@ button{font-family:inherit;cursor:pointer;}
 
 /* ---- Title row ---- */
 .title-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
-.title-row h1{font-size:24px;margin:0;letter-spacing:0.5px;}
+.title-row h1{font-size:24px;margin:0;letter-spacing:normal;}
 .session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
@@ -267,7 +267,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .moment{
   position:relative;
   background:var(--card);border:1px solid var(--border);border-radius:8px;
-  margin-bottom:10px;padding:14px 18px 14px 0;
+  margin-bottom:10px;padding:14px 18px 14px 17px;
   display:flex;align-items:stretch;gap:18px;overflow:hidden;
 }
 .corner-actions{position:absolute;top:8px;right:10px;display:flex;align-items:center;gap:6px;}
@@ -275,16 +275,26 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:12px;color:var(--muted);text-decoration:none;line-height:1;
 }
 .game-link:hover{color:var(--blue);}
-/* Jumps into Game Replay at this exact play - same muted/hover treatment as
-   the MLN-reference arrow it sits beside, so the two read as one family of
-   small corner icons rather than two different affordances. */
+/* Jumps into Game Replay at this exact play - same round icon-badge format
+   as .tile-replay-btn on the scoreboard cards, so the two read as the same
+   affordance. An SVG polygon, not a "▶" text glyph: iOS renders that glyph
+   with its own colored emoji presentation, which doesn't match the app's
+   monochrome icon set. */
 .play-jump-btn{
-  font-size:11px;color:var(--muted);line-height:1;background:none;border:none;
-  padding:0;cursor:pointer;display:flex;align-items:center;
+  position:relative;z-index:2;
+  width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:20px;background:var(--tint);
+  color:var(--muted);cursor:pointer;flex-shrink:0;
 }
-.play-jump-btn:hover{color:var(--blue);}
+.play-jump-btn svg{width:9px;height:9px;fill:currentColor;margin-left:1px;}
+.play-jump-btn:hover,.play-jump-btn:focus-visible{color:var(--blue);border-color:var(--blue);}
 .play-jump-btn.loading{opacity:0.4;pointer-events:none;}
-.lev-bar{width:6px;border-radius:4px 0 0 4px;flex-shrink:0;}
+/* Absolutely positioned, not a flex child - a flex item stretched with
+   align-items:stretch only fills the flex line's content-box height, which
+   sits inset by .moment's own top/bottom padding, so the bar fell short of
+   the card's actual top and bottom edges. top:0/bottom:0 against .moment's
+   position:relative spans the full card height at every width instead. */
+.lev-bar{position:absolute;left:0;top:0;bottom:0;width:6px;border-radius:4px 0 0 4px;}
 .lev-bar.neutral{background:var(--card);border-right:1px solid var(--border);}
 
 /* Featured team's logo, inline to the left of the scorebug at every width. */
@@ -380,6 +390,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:13.5px;font-weight:700;letter-spacing:0.2px;text-align:left;cursor:pointer;
 }
 .catchup-banner[hidden]{display:none;}
+.catchup-play-icon{width:9px;height:9px;fill:currentColor;vertical-align:-1px;margin-right:1px;}
 .catchup-banner:hover{background:var(--navy-2);border-color:var(--navy-2);}
 /* The name prompt is an invitation, not news - it recedes to match the other
    muted furniture on the page rather than shouting like the real thing. */
@@ -497,6 +508,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    direction, for simplicity) - drawn once as a single arc, see fencePathD in
    app.js. */
 .dm-fence{fill:none;stroke:var(--border);stroke-width:3;stroke-linecap:round;opacity:0.8;}
+/* Infield dirt: a plain 95ft-radius circle from the pitcher's plate, outlined
+   only (no fill) - theme-flipped black/white like the on-field result text,
+   for the same reason: needs to read against both a light and dark grass
+   fill. */
+.dm-dirt{fill:none;stroke:var(--text);stroke-width:1;opacity:0.55;}
+/* Foul lines: home through the 1B/3B anchor out to the fence - drawn after
+   the infield fill so they stay visible on top of it. */
+.dm-foul-line{stroke:var(--text);stroke-width:1;opacity:0.55;}
 .dm-field{fill:var(--tint);stroke:var(--border);stroke-width:2;}
 .dm-base{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
 /* I7: post-play occupancy is real, but painting it at slide mount lit bases
@@ -566,7 +585,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
   opacity:0;animation:labelIn 260ms ease var(--delay) both;
 }
-.ball-dist{font-size:6.5px;font-weight:700;fill:var(--muted);text-anchor:middle;}
+.ball-dist{font-size:8.5px;font-weight:700;fill:var(--muted);}
 @keyframes labelIn{to{opacity:1;}}
 
 /* C4: a hit that stayed in the park carries a bit further before the fielder
@@ -780,21 +799,25 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .scene-meter{position:relative;width:120px;text-align:center;}
 .scene-meter svg{width:100%;height:auto;display:block;overflow:visible;}
 .mt-track{fill:none;stroke:var(--tint);stroke-width:9;stroke-linecap:round;}
-.mt-redline{
-  fill:none;stroke:var(--tint-red);stroke-width:9;stroke-linecap:round;
-  stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
-}
+/* Only marking left on the gauge (Alex's call - was also a gray dash at the
+   LI 1.0 apex and a soft red background band from here onward; both removed
+   as clutter). This is the hot threshold (1.5 today). */
 .mt-tick{stroke:var(--tint-red-border);stroke-width:2;}
-/* The apex of the gauge is LI 1.0 - average leverage - so it gets its own
-   marker, otherwise "which side of centre" has nothing to read against. */
-.mt-anchor{stroke:var(--muted);stroke-width:1.5;opacity:0.55;}
+/* Granularity lives in the fill's colour now, not in extra markings: a
+   4-stop gradient across the gauge's full width - deep blue (calm) through
+   light blue, light red, to a vivid red (hot) - so intensity reads
+   continuously as the bar grows rather than flipping once at the threshold. */
+.mt-stop-cold{stop-color:var(--navy);}
+.mt-stop-cool{stop-color:var(--blue);}
+.mt-stop-warm{stop-color:var(--tint-red-border);}
+.mt-stop-hot{stop-color:var(--red);}
 .mt-fill{
-  fill:none;stroke:var(--navy);stroke-width:9;stroke-linecap:round;
+  fill:none;stroke:url(#levGradient);stroke-width:9;stroke-linecap:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
   animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both;
 }
 @keyframes meterFill{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:var(--off);}}
-.scene-meter.hot .mt-fill{stroke:var(--red);animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both, meterPulse 700ms ease 700ms 2;}
+.scene-meter.hot .mt-fill{animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both, meterPulse 700ms ease 700ms 2;}
 @keyframes meterPulse{0%,100%{filter:none;}50%{filter:drop-shadow(0 0 7px var(--red));}}
 .scene-meter-val{
   position:absolute;left:0;right:0;top:38%;font-size:19px;font-weight:800;letter-spacing:-0.3px;
@@ -934,8 +957,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Batting team's mark under the infield - visible enough to place the play,
    quiet enough that the runner tokens stay the thing you look at. */
 /* Painted on the infield dirt, inside the SVG - see sceneDiamondHtml. */
-.dm-mark{opacity:0.2;}
-:root[data-theme="dark"] .dm-mark{opacity:0.26;}
+.dm-mark{opacity:0.32;}
+:root[data-theme="dark"] .dm-mark{opacity:0.4;}
 .scene-detail .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;}
 
 .scene-ribbon{padding:10px 0 6px;}
@@ -1141,10 +1164,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 @media (max-width: 900px){
   .filter-row{gap:18px;}
   .chip-row{flex-wrap:wrap;}
-  /* Once the card can wrap, the leverage bar has to leave the flex flow or it
-     would be stranded alone on the first line instead of edging the card. */
-  .moment{position:relative;flex-wrap:wrap;padding-left:17px;}
-  .lev-bar{position:absolute;left:0;top:0;bottom:0;width:6px;border-radius:4px 0 0 4px;}
+  /* Card content wraps once it's this narrow - the leverage bar is already
+     out of the flex flow (base rule, all widths) so wrapping doesn't strand
+     it on the first line. */
+  .moment{flex-wrap:wrap;}
 }
 
 /* Above the phone breakpoint the filters panel is always open, whatever
