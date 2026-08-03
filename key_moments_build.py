@@ -120,6 +120,20 @@ RESULT_LABELS = {
     "pAuto": "Auto (Pitcher)",
 }
 
+# Terse on-field marker labels for the ball-flight landing point (C2) -
+# RESULT_LABELS is display copy ("Fielder's Choice at Third") and far too long
+# at marker size. Anything absent from this table falls back to the raw
+# result code, which is already terse for most (1B, 2B, GO, FO, HR, ...).
+RESULT_SHORT = {
+    "1BWH": "1B", "1BWH2": "1B", "B1B": "1B", "B1BWH": "1B",
+    "2BWH": "2B",
+    "GORA": "GO", "BGO": "GO",
+    "DP21": "DP", "DP31": "DP", "DPH1": "DP", "DPRun": "DP",
+    "FC3rd": "FC3", "FCH": "FCH", "FCLead": "FCL",
+    "SacF": "SF", "DSacF": "SF", "SacB": "SH",
+    "LOTP": "TP", "LCO": "LO",
+}
+
 # The complete, closed set of tag slugs. The page renders one filter chip per
 # entry, in this order, and a card's own tag pills render in this same order
 # (moment_tags() below appends in exactly this sequence) - reordering this
@@ -142,6 +156,16 @@ TAG_LABELS = {
 # RISP play still needs leverage/WPA (or one of the other real triggers) to
 # qualify. Every other tag in TAG_LABELS is a real inclusion trigger.
 FILTER_ONLY_TAGS = {"risp"}
+
+# Results with no batted ball to animate in the Play Scene ball-flight layer -
+# the diamond-only runner animation (deriveRunnerMoves in app.js) still covers
+# these unchanged. Must match compute_result_diff_bands.py's NO_FLIGHT set
+# exactly; kept as a separate constant (not imported) since that script isn't
+# a dependency of the build pipeline.
+FLIGHT_EXCLUDED = [
+    "K", "BB", "IBB", "AutoBB", "AutoK", "CS", "CS2", "CS3", "CS4",
+    "SB", "SB2", "SB3", "SB4", "AutoSB", "Balk", "pAuto", "bAuto",
+]
 
 
 # ── small helpers ─────────────────────────────────────────────────────────────
@@ -285,18 +309,19 @@ def _team_view(ref: dict, key: str | None) -> dict:
 
 def _player_view(ref: dict, player_id: int | None) -> dict:
     if not player_id:
-        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": ""}
+        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": "", "hand": ""}
     p = ref["player_by_id"].get(player_id)
     if not p:
         # Traded, released, or otherwise off the current roster tab.
         return {"id": player_id, "name": f"Player {player_id}", "last_name": f"Player {player_id}",
-                "rookie": False, "team": ""}
+                "rookie": False, "team": "", "hand": ""}
     return {
         "id": player_id,
         "name": p.get("name") or f"Player {player_id}",
         "last_name": p.get("last_name") or p.get("name") or f"Player {player_id}",
         "rookie": bool(p.get("is_rookie")),
         "team": p.get("team") or "",
+        "hand": p.get("hand") or "",
     }
 
 
@@ -547,11 +572,14 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "result": result,
         "result_category": _effective_category(result, state["runs"]),
         "diff": play.get("diff"),
+        "pitch": play.get("pitch"),
+        "swing": play.get("swing"),
         "runs": state["runs"],
         "scoring_names": scoring_names,
 
         "batter_name": feat["batter"]["name"],
         "batter_id": feat["batter"]["id"],
+        "batter_hand": feat["batter"]["hand"],
         "pitcher_name": feat["pitcher"]["name"],
         "pitcher_id": feat["pitcher"]["id"],
         "runner_name": feat["runner"]["name"],
@@ -609,7 +637,10 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
     by_game: dict[str, list[dict]] = {}
     for p in plays:
         pitch, swing = p.get("pitch"), p.get("swing")
-        p["diff"] = utils.circular_diff(int(pitch), int(swing)) if pitch is not None and swing is not None else None
+        pitch = int(pitch) if pitch is not None else None
+        swing = int(swing) if swing is not None else None
+        p["pitch"], p["swing"] = pitch, swing
+        p["diff"] = utils.circular_diff(pitch, swing) if pitch is not None and swing is not None else None
         by_game.setdefault(p["game_code"], []).append(p)
 
     # Every play is scored and tagged; is_key_moment records which ones qualify.
@@ -661,8 +692,10 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
             for abbr in teams_seen
         },
         "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows})},
+        "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted({m["result"] for m in rows})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
+        "flight": _flight_meta(),
         # One scoreboard per session, keyed by session number as a string
         # (JSON object keys are always strings) - the page shows whichever
         # one matches its session selector and hides the section entirely
@@ -670,6 +703,33 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         "games": {str(s): _scoreboard(rows, s) for s in sessions},
     }
     return rows, roster, meta
+
+
+def _flight_meta() -> dict:
+    """meta.flight: the two ball-flight staging tables, read through utils'
+    loaders (utils._DIFF_BANDS / utils._FLIGHT_ARCHETYPES) the same way every
+    other precomputed CSV reaches this build, plus the exclusion list as data
+    so app.js has one definition of in-scope-for-flight rather than a second
+    hardcoded copy of FLIGHT_EXCLUDED.
+
+    no_pa is the subset of FLIGHT_EXCLUDED where the batter never had a plate
+    appearance at all (a steal, a caught stealing, a balk) - app.js uses it to
+    suppress the batter token fallback entirely on those plays, rather than
+    walking a batter who did nothing to the dugout."""
+    bands = {
+        result: {"archetype": row["archetype"], "lo": row["band_lo"], "hi": row["band_hi"]}
+        for result, row in utils._DIFF_BANDS.items()
+    }
+    archetypes = {
+        archetype: {
+            "laMin": row["la_min"], "laMax": row["la_max"],
+            "evMin": row["ev_min"], "evMax": row["ev_max"],
+            "depthMin": row["depth_min"], "depthMax": row["depth_max"],
+        }
+        for archetype, row in utils._FLIGHT_ARCHETYPES.items()
+    }
+    no_pa = sorted(STEAL_SUCCESS_CODES | CAUGHT_STEALING_CODES | {"Balk"})
+    return {"bands": bands, "archetypes": archetypes, "excluded": FLIGHT_EXCLUDED, "no_pa": no_pa}
 
 
 def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, away_score: int) -> bool:

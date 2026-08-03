@@ -29,7 +29,8 @@
       "Bash(grep -nE '#[0-9a-fA-F]{3,6}|rgba?\\\\\\(' /c/Users/Alex/PycharmProjects/numberball/docs/css/style.css)",
       "Bash(awk -F: '$1>62')",
       "Bash(awk 'NR>=1480 && NR<=1560 && /^ *\\(with|if|for|else|elif|def\\) /' pages/2_Scouting.py)",
-      "Bash(awk -F: '$1>1450 && $1<2320')"
+      "Bash(awk -F: '$1>1450 && $1<2320')",
+      "Bash(git status *)"
     ]
   }
 }

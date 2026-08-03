@@ -451,9 +451,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 .catchup-title{text-align:center;padding:20px 10px;}
 .catchup-title-teams{
-  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
   font-size:20px;font-weight:800;letter-spacing:0.3px;line-height:1.3;
 }
+.catchup-title-team{display:flex;align-items:center;gap:10px;}
 .catchup-title-logo{width:34px;height:34px;object-fit:contain;}
 .catchup-at{color:var(--muted);font-weight:600;}
 .catchup-title-sub{margin-top:10px;font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0.3px;}
@@ -468,12 +469,106 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* position:relative is load-bearing: the watermark below is absolutely
    positioned and would otherwise resolve against the whole modal card and
    cover the entire slide. */
-.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(45%,200px);}
+.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(50%,230px);}
 .scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
+.dm-grass{fill:var(--tint);opacity:0.55;}
+:root[data-theme="dark"] .dm-grass{opacity:0.4;}
+/* Uniform-depth fence (Alex's addition to the plan: one distance in every
+   direction, for simplicity) - drawn once as a single arc, see fencePathD in
+   app.js. */
+.dm-fence{fill:none;stroke:var(--border);stroke-width:3;stroke-linecap:round;opacity:0.8;}
 .dm-field{fill:var(--tint);stroke:var(--border);stroke-width:2;}
 .dm-base{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
-.dm-base.on{fill:var(--gold);stroke:var(--gold);}
+/* I7: post-play occupancy is real, but painting it at slide mount lit bases
+   up before any runner had visibly reached them. Delayed to --blight (the
+   slowest arriving safe/scoring runner, computed in sceneFieldHtml) so the
+   gold fill lands after the tokens do. */
+.dm-base.on{animation:baseLight 200ms ease var(--blight,0s) both;}
+@keyframes baseLight{
+  from{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  to{fill:var(--gold);stroke:var(--gold);}
+}
 .dm-plate{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
+
+/* Ball flight (ball-flight-plan.md Stage 4e): the ball itself translates
+   home->landing exactly like a runner token; the trail is a real line with
+   its own pixel length (app.js computes --len) drawn in via
+   stroke-dashoffset. Both lead the runners, which start RUNNER_LEAD_MS behind
+   them (see --rdelay below). */
+.ball{fill:#fff;stroke:var(--navy);stroke-width:1.5;transform:translate(var(--tx),var(--ty));}
+.ball-trail{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3;opacity:0.6;}
+.ball.air, .ball.ground, .ball.land, .ball.clear{
+  animation:ballFly var(--dur) ease-out forwards, ballSettle 350ms ease var(--dur) forwards;
+}
+.ball.clear{animation:ballFly var(--dur) ease-out forwards, ballClearFade 300ms ease forwards;
+  animation-delay:0s, calc(var(--dur) - 300ms);}
+@keyframes ballFly{from{transform:translate(var(--fx),var(--fy));}to{transform:translate(var(--tx),var(--ty));}}
+@keyframes ballSettle{to{opacity:0.85;}}
+@keyframes ballClearFade{to{opacity:0;}}
+.ball-trail.air, .ball-trail.ground, .ball-trail.land, .ball-trail.clear{
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+  animation:trailDraw var(--dur) ease-out forwards;
+}
+@keyframes trailDraw{to{stroke-dashoffset:0;}}
+/* C1: the ball's own colour tells the story - the stroke (never the white
+   fill, which stays visible against the grass in both themes) goes green for
+   a hit, red for an out. A play that is both (a sac fly) reads as an out -
+   the ball itself was caught. */
+.ball.hit, .ball-trail.hit{stroke:var(--green);}
+.ball.out, .ball-trail.out{stroke:var(--red);}
+
+/* C2/C3: small landing-point labels - a terse result abbreviation on every
+   batted ball, plus feet on home runs only. Both land after the ball does,
+   never before, so they never seem to predict the outcome. */
+.ball-label, .ball-dist{
+  font-size:7px;font-weight:800;fill:var(--fg);paint-order:stroke;
+  stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
+  opacity:0;animation:labelIn 260ms ease var(--delay) both;
+}
+.ball-dist{font-size:6.5px;font-weight:700;fill:var(--muted);text-anchor:middle;}
+@keyframes labelIn{to{opacity:1;}}
+
+/* C4: a hit that stayed in the park carries a bit further before the fielder
+   gets to it - a second, dimmer trail past the landing point, so "where it
+   landed" and "where it was fielded" read as two different things. Base
+   transform sits at the already-correct final (rolled-out) position, same
+   paint-then-move convention as every other token here - only opacity needs
+   to change on reduced motion. */
+.ball-rollout{fill:#fff;stroke:var(--muted);stroke-width:1.2;opacity:0;
+  transform:translate(var(--tx),var(--ty));
+  animation:ballRoll var(--rdur) ease-out var(--rdelay) forwards;}
+@keyframes ballRoll{
+  from{transform:translate(var(--fx),var(--fy));opacity:0.6;}
+  to{transform:translate(var(--tx),var(--ty));opacity:0.6;}
+}
+.ball-rollout-trail{fill:none;stroke:var(--muted);stroke-width:1;opacity:0.35;
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+  animation:trailDraw var(--rdur) ease-out var(--rdelay) forwards;}
+
+/* Fielder convergence (Stage 4e) - sits at the landing point by default (the
+   reduced-motion/finished end state), animates in from its fixed anchor after
+   the ball's travel time. No fielder on a ball that cleared the fence -
+   app.js's fielderTokensHtml already omits the element in that case. */
+.fielder{transform:translate(var(--tx),var(--ty));opacity:1;}
+.fielder circle{fill:var(--muted);stroke:var(--card);stroke-width:1.5;}
+.fielder{animation:fielderIn 350ms ease var(--delay) both;}
+@keyframes fielderIn{
+  from{transform:translate(var(--fx),var(--fy));opacity:0;}
+  20%{opacity:1;}
+  to{transform:translate(var(--tx),var(--ty));opacity:1;}
+}
+
+/* Throws (Stage 4e/A2-A5) - drawn in after the ball is fielded, same
+   dashoffset technique as the ball trail. A multi-throw play (a double play)
+   renders one .throw-line per out, each relaying from the previous throw's
+   target base, staggered by --delay. Duration is per-line (--draw) rather
+   than hardcoded, so THROW_DRAW_MS stays the single source of truth. */
+.throw-line{
+  fill:none;stroke:var(--gold);stroke-width:2;stroke-linecap:round;
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+  animation:throwDraw var(--draw,180ms) ease var(--delay) forwards;
+}
+@keyframes throwDraw{to{stroke-dashoffset:0;}}
 
 /* Position lives on .rn, opacity/scale on .rn-inner - one element cannot run
    two competing transform animations, and a scoring runner needs both a path
@@ -481,13 +576,19 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    what shows when the animation is skipped (reduced motion) or has finished. */
 .rn{transform:translate(var(--tx),var(--ty));}
 .rn circle{fill:var(--rn-fill,var(--navy));stroke:var(--card);stroke-width:2;}
+/* Dark mode's card stroke is nearly the same value as the field fill, so the
+   token has no visible edge there - a lighter ring, scoped to dark mode only,
+   fixes contrast without touching the team-colour fill. */
+:root[data-theme="dark"] .rn circle{stroke:rgba(232,234,237,0.88);stroke-width:1.6;}
 
 /* Runners follow the basepaths, touching every base on the way: one keyframe
    stop per base passed. Legs are all the same length, so evenly spaced stops
    plus linear timing means constant speed - easing per stop would read as
-   pausing on each bag. */
+   pausing on each bag. Delayed by --rdelay so they lead off behind the ball
+   on a batted-ball play (0 on an excluded play - Stage 4e). */
 .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4{
-  animation-duration:var(--dur);animation-timing-function:linear;animation-fill-mode:forwards;
+  animation-duration:var(--dur);animation-timing-function:linear;animation-fill-mode:both;
+  animation-delay:var(--rdelay,0s);
 }
 .rn.legs1{animation-name:rnLegs1;}
 .rn.legs2{animation-name:rnLegs2;}
@@ -518,18 +619,56 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 
 .rn-inner{transform-box:fill-box;transform-origin:center;}
-.rn.batter .rn-inner{animation:rnBatter 380ms ease both;}
+.rn.batter .rn-inner{animation:rnBatter 380ms ease var(--rdelay,0s) both;}
 .rn.score circle{fill:var(--green);}
-/* Flash on arrival, so the delay is however long the run itself took. */
-.rn.score .rn-inner{animation:rnScore 460ms ease var(--dur) both;}
-/* An out does not move - it fades in place, leaving a ghost so the viewer can
-   still see where the runner had been. */
-.rn.out .rn-inner{animation:rnOut 700ms ease forwards;}
-.rn.out circle{fill:var(--muted);}
-/* The batter when they never reached base - shown at the plate, then gone, so
-   a strikeout is not an empty diamond with nothing having happened. */
-.rn.batter-out .rn-inner{animation:rnBatterOut 900ms ease forwards;}
-.rn.batter-out circle{fill:var(--muted);}
+/* Flash on arrival, so the delay is however long the run itself took (plus
+   the shared lead-off delay the runner started from). */
+.rn.score .rn-inner{animation:rnScore 460ms ease calc(var(--rdelay,0s) + var(--dur)) both;}
+
+/* Out choreography (ball-flight-plan.md Stage 6, generalised by the
+   refinements round's I8/A2): a put-out token turns red in place, THEN walks
+   a straight line to the dugout, fading on arrival - a person leaving, not a
+   token quietly fading. Two shapes:
+     .out-walk       - runner put out with no partial advance to show (a
+                        strikeout and friends, or a backward-relative throw
+                        target like a doubled-off runner - see basepathWaypoints'
+                        end<=start guard) - one leg, straight to the dugout.
+     .out-to-first,
+     .out-to-base    - reaches partway toward the base the throw targeted on
+                        the normal basepath timing FIRST, then red, then
+                        dugout - two legs, so the out reads as "thrown out
+                        going somewhere" rather than "vanished in place."
+                        .out-to-first is the batter-specific case (always to
+                        1B); .out-to-base is the same shape for any other
+                        forced/tag runner, waypoint supplied per play.
+   Both rules come after .rn.batter above deliberately: an out token that also
+   carries the .batter class (the batter-out fallback) needs THIS animation to
+   win the cascade, not the plain appear-in-place one. */
+.rn.out-walk, .rn.out-to-first, .rn.out-to-base{animation-fill-mode:both;animation-timing-function:linear;}
+.rn.out-walk{animation-name:rnOutWalk;animation-duration:650ms;animation-delay:calc(var(--rdelay,0s) + 250ms);}
+.rn.out-to-first, .rn.out-to-base{animation-name:rnOutToBase;animation-duration:1700ms;animation-delay:var(--rdelay,0s);}
+@keyframes rnOutWalk{
+  from{transform:translate(var(--fx),var(--fy));}
+  to{transform:translate(var(--tx),var(--ty));}
+}
+@keyframes rnOutToBase{
+  from{transform:translate(var(--fx),var(--fy));}
+  47.06%{transform:translate(var(--p1x),var(--p1y));}
+  61.76%{transform:translate(var(--p1x),var(--p1y));}
+  to{transform:translate(var(--tx),var(--ty));}
+}
+/* Team colour until the flash, matching every other token - the base fill
+   must NOT be red here, or the animation below has nothing to animate from
+   (an explicit `to` with no `from` interpolates from whatever the property
+   would otherwise be, which would make it red from t=0). Reduced motion
+   overrides this to red directly, with no animation, in the media block
+   below. */
+.rn.out-walk circle{animation:rnTurnRed 250ms ease var(--rdelay,0s) forwards;}
+.rn.out-to-first circle, .rn.out-to-base circle{animation:rnTurnRed 250ms ease calc(var(--rdelay,0s) + 800ms) forwards;}
+@keyframes rnTurnRed{from{fill:var(--rn-fill,var(--navy));}to{fill:var(--red);}}
+.rn.out-walk .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 500ms) forwards;}
+.rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
+@keyframes rnFadeOut{to{opacity:0;}}
 
 @keyframes rnBatter{
   from{opacity:0;transform:scale(0.6);}
@@ -539,15 +678,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   0%{transform:scale(1);opacity:1;}
   40%{transform:scale(1.9);opacity:1;}
   to{transform:scale(1.2);opacity:0;}
-}
-@keyframes rnOut{
-  from{opacity:1;}
-  to{opacity:0.18;}
-}
-@keyframes rnBatterOut{
-  0%{opacity:0;transform:scale(0.7);}
-  35%{opacity:1;transform:scale(1);}
-  to{opacity:0.18;transform:scale(1);}
 }
 
 .scene-side{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0;}
@@ -650,7 +780,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .mu-name > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mu-vs{font-size:11px;font-weight:700;color:var(--muted);align-self:flex-end;padding-bottom:3px;}
 
-/* Outs tracker: same two-circle language as the scorebug, left to right. */
+/* Outs tracker: same circle language as the scorebug, left to right. Unlike
+   the scorebug's live state, this is a replay of a completed play, so it
+   shows all three outs rather than routing the third to a separate badge. */
 .scene-outs{display:flex;align-items:center;gap:7px;}
 .scene-outs-lbl{font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--muted);}
 .out-dots{display:flex;gap:5px;}
@@ -668,11 +800,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   60%{transform:scale(1.45);background:var(--red);border-color:var(--red);}
   to{transform:scale(1);background:var(--red);border-color:var(--red);}
 }
-.out-third{
-  font-size:9px;font-weight:800;letter-spacing:0.6px;color:#fff;background:var(--red);
-  border-radius:20px;padding:1px 7px;animation:outPop 480ms cubic-bezier(.2,1.6,.4,1) 420ms both;
-}
-
 .scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
 .scene-play-line .player-name{font-weight:800;}
 /* The result is the headline of the slide - it lands with a bounce rather than
@@ -684,6 +811,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   0%{opacity:0;transform:scale(0.55);}
   60%{opacity:1;transform:scale(1.12);}
   to{opacity:1;transform:scale(1);}
+}
+/* Launch angle / exit velo readout (ball-flight-plan.md Stage 5) - muted,
+   monospace-ish chips so they read as telemetry rather than another tag. */
+.scene-flight-readout{
+  display:inline-flex;gap:7px;font-family:ui-monospace,"SF Mono",Consolas,monospace;
+  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
+}
+.itp-pill{
+  font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
+  color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);
 }
 .scene-score-logo{width:17px;height:17px;object-fit:contain;flex-shrink:0;}
 /* Batting team's mark under the infield - visible enough to place the play,
@@ -837,21 +974,40 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-progress::after{transition:none;}
   .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
   .rn.batter .rn-inner, .rn.score .rn-inner,
-  .rn.out .rn-inner, .rn.batter-out .rn-inner,
+  .rn.out-walk, .rn.out-to-first, .rn.out-to-base,
+  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle,
+  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-inning.new-half, .play-scene .result-pill,
-  .out-dot.fresh, .out-third{animation:none;}
+  .out-dot.fresh, .dm-base.on,
+  .ball, .ball.clear, .ball-trail, .fielder, .throw-line,
+  .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail{animation:none;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
   .out-dot.fresh{background:var(--red);border-color:var(--red);}
+  .dm-base.on{fill:var(--gold);stroke:var(--gold);}
+  .ball-label, .ball-dist{opacity:1;}
+  .ball-rollout{opacity:0.6;}
+  .ball-rollout-trail{stroke-dashoffset:0;}
   .scene-score .tick-step{animation:none;opacity:0;}
   .scene-score .tick-step:last-child{opacity:1;}
-  .rn.out .rn-inner, .rn.batter-out .rn-inner{opacity:0.18;}
+  /* A put-out token is simply gone at the dugout anchor - no travel, no
+     colour transition (ball-flight-plan.md Stage 6, "Reduced motion" note).
+     .rn's base rule already places it at --tx/--ty (the dugout), so only the
+     visibility needs to change here. */
+  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{opacity:0;}
+  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle{fill:var(--red);}
   .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}
   .rb-new{stroke-dasharray:none;}
   .scene-flash{opacity:0;}
+  /* Ball at its landing point, fielder there, throw line drawn - never
+     hidden, never frozen mid-flight (ball-flight-plan.md Stage 7b). */
+  .ball-trail{stroke-dashoffset:0;}
+  .throw-line{stroke-dashoffset:0;}
+  .fielder{opacity:1;}
+  .ball.clear{opacity:0;}
 }
 
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600;z-index:30;}

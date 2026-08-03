@@ -304,9 +304,56 @@ def _load_state_frequencies() -> None:
         pass
 
 
+# Ball-flight staging data (Play Scene animation, docs/js/app.js). Neither
+# table has anything to do with win probability/leverage - they live here
+# only because this module is where every other precomputed-CSV loader lives.
+# result -> {archetype, band_lo, band_hi, source}, from result_diff_bands.csv
+# (compute_result_diff_bands.py).
+_DIFF_BANDS: dict[str, dict] = {}
+# archetype -> {la_min, la_max, ev_min, ev_max, depth_min, depth_max}, from
+# ball_flight_archetypes.csv (hand-authored, not generated - see
+# ball-flight-plan.md Stage 1b).
+_FLIGHT_ARCHETYPES: dict[str, dict] = {}
+
+
+def _load_result_diff_bands() -> None:
+    global _DIFF_BANDS
+    try:
+        _bdf = pd.read_csv("result_diff_bands.csv")
+        _DIFF_BANDS = {
+            str(r["result"]): {
+                "archetype": str(r["archetype"]),
+                "band_lo": int(r["band_lo"]),
+                "band_hi": int(r["band_hi"]),
+                "source": str(r["source"]),
+            }
+            for _, r in _bdf.iterrows()
+        }
+    except FileNotFoundError:
+        pass
+
+
+def _load_flight_archetypes() -> None:
+    global _FLIGHT_ARCHETYPES
+    try:
+        _adf = pd.read_csv("ball_flight_archetypes.csv")
+        _FLIGHT_ARCHETYPES = {
+            str(r["archetype"]): {
+                "la_min": float(r["la_min"]), "la_max": float(r["la_max"]),
+                "ev_min": float(r["ev_min"]), "ev_max": float(r["ev_max"]),
+                "depth_min": float(r["depth_min"]), "depth_max": float(r["depth_max"]),
+            }
+            for _, r in _adf.iterrows()
+        }
+    except FileNotFoundError:
+        pass
+
+
 _load_re24_ranges()
 _load_sim_state_weights()
 _load_state_frequencies()
+_load_result_diff_bands()
+_load_flight_archetypes()
 
 
 def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead: int) -> float:

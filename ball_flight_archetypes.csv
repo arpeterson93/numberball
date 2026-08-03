@@ -1,0 +1,11 @@
+archetype,la_min,la_max,ev_min,ev_max,depth_min,depth_max
+grounder,-15,8,70,100,60,150
+bunt,-10,5,20,45,5,25
+infield_single,-10,8,60,85,45,90
+line_drive,8,20,90,105,120,250
+pop_up,50,75,60,85,40,120
+fly_ball,25,50,80,98,250,380
+single,6,20,75,98,130,230
+double,12,25,92,104,300,350
+triple,15,30,95,108,340,380
+home_run,25,35,98,115,370,420
