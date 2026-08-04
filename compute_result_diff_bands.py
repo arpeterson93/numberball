@@ -43,6 +43,7 @@ ARCHETYPE_OF = {
     "TP": "grounder",
 
     "SacB": "bunt", "BGO": "bunt", "BFC": "bunt", "B1B": "bunt", "B1BWH": "bunt",
+    "BDP": "bunt",
 
     "IF1B": "infield_single",
 
@@ -67,6 +68,7 @@ ARCHETYPE_OF = {
 NO_FLIGHT = {
     "K", "BB", "IBB", "AutoBB", "AutoK", "CS", "CS2", "CS3", "CS4",
     "SB", "SB2", "SB3", "SB4", "AutoSB", "Balk", "pAuto", "bAuto",
+    "KCS", "SB32", "SB42", "SB43", "SB432",
 }
 
 

@@ -127,15 +127,63 @@ _load_wp_table()
 # (result, before_obc, outs) -> (runs_scored, new_obc, eouts)
 _BRC_RUN_LOOKUP: dict[tuple[str, str, int], tuple[float, str, int]] = {}
 
+# (result, before_obc, outs) -> raw ThrowOrder string, e.g. "1234" (throw to
+# 1B, then 2B, then 3B, then home). Column is optional - a CSV without it
+# (every one that exists today) just leaves this dict empty, and every
+# consumer (get_throw_order below) treats "no entry" as "no explicit throw
+# order for this situation," not an error.
+_BRC_THROW_ORDER: dict[tuple[str, str, int], str] = {}
+
+# (result, before_obc, outs) -> {"excluded": [...], "default": "SS"}. Lets a
+# situation say "if the physics-computed fielder for this play is one of
+# these positions, it doesn't make sense - use this one instead." "OF" in
+# excluded is a wildcard for any of LF/CF/RF. Both columns optional, same
+# no-entry-means-nothing-to-override contract as everything else here.
+_BRC_POSITION_OVERRIDE: dict[tuple[str, str, int], dict] = {}
+
+# (result, before_obc, outs) -> {"P": "...", "C": "...", "1B": "...", ...}.
+# Per-position throw sequences - which one applies depends on which fielder
+# actually ends up credited (after any position override above), not just
+# the situation alone, so this stays a dict-of-positions per key rather than
+# a single string like the generic ThrowOrder column.
+_BRC_THROW_ORDER_BY_POSITION: dict[tuple[str, str, int], dict] = {}
+
+_THROW_ORDER_POSITION_COLUMNS = {
+    "P": "ThrowOrder_P", "C": "ThrowOrder_C",
+    "1B": "ThrowOrder_1B", "2B": "ThrowOrder_2B", "3B": "ThrowOrder_3B", "SS": "ThrowOrder_SS",
+    "OF": "ThrowOrder_OF",
+}
+
+
+def _clean_csv_cell(raw) -> str:
+    """A column that's all digits with some blanks reads back from pandas as
+    float64 (blanks become NaN) - "1234" round-trips through that as 1234.0.
+    Strips that artifact so a digit string (ThrowOrder and friends) survives
+    intact instead of shipping "1234.0" down to app.js's parser."""
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return "" if s.lower() == "nan" else s
+
 
 def _load_brc_table() -> None:
-    global _BRC_RUN_LOOKUP
+    global _BRC_RUN_LOOKUP, _BRC_THROW_ORDER, _BRC_POSITION_OVERRIDE, _BRC_THROW_ORDER_BY_POSITION
     try:
         _bdf = pd.read_csv("import_BRC.csv")
         if "Situation" not in _bdf.columns or "Runs" not in _bdf.columns:
             return
         cols = list(_bdf.columns)
+        has_throw_order = "ThrowOrder" in cols
+        has_excluded = "ExcludedPositions" in cols and "DefaultPosition" in cols
+        position_cols = {pos: col for pos, col in _THROW_ORDER_POSITION_COLUMNS.items() if col in cols}
+
         lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
+        throw_lookup: dict[tuple[str, str, int], str] = {}
+        override_lookup: dict[tuple[str, str, int], dict] = {}
+        by_position_lookup: dict[tuple[str, str, int], dict] = {}
+
         for _, row in _bdf.iterrows():
             situation = str(row["Situation"]).strip()
             parts = situation.split("_")
@@ -151,13 +199,65 @@ def _load_brc_table() -> None:
                 new_obc    = _BRC_TO_OBC.get(int(float(row["OBC"])), "000")
             except (ValueError, TypeError, KeyError):
                 continue
-            lookup[(result, before_obc, outs)] = (runs, new_obc, eouts)
+            key = (result, before_obc, outs)
+            lookup[key] = (runs, new_obc, eouts)
+
+            if has_throw_order:
+                throw_order = _clean_csv_cell(row.get("ThrowOrder"))
+                if throw_order:
+                    throw_lookup[key] = throw_order
+
+            if has_excluded:
+                excluded_raw = _clean_csv_cell(row.get("ExcludedPositions"))
+                default_raw = _clean_csv_cell(row.get("DefaultPosition")).upper()
+                excluded = [p.strip().upper() for p in excluded_raw.split(",") if p.strip()]
+                if excluded and default_raw:
+                    override_lookup[key] = {"excluded": excluded, "default": default_raw}
+
+            by_position = {}
+            for pos, col in position_cols.items():
+                val = _clean_csv_cell(row.get(col))
+                if val:
+                    by_position[pos] = val
+            if by_position:
+                by_position_lookup[key] = by_position
+
         _BRC_RUN_LOOKUP = lookup
+        _BRC_THROW_ORDER = throw_lookup
+        _BRC_POSITION_OVERRIDE = override_lookup
+        _BRC_THROW_ORDER_BY_POSITION = by_position_lookup
     except FileNotFoundError:
         pass
 
 
 _load_brc_table()
+
+
+def get_throw_order(result: str, obc: str, outs: int) -> str | None:
+    """Explicit throw sequence for this (result, before_obc, outs) situation,
+    straight from import_BRC.csv's optional ThrowOrder column - e.g. "1234"
+    for 1B, then 2B, then 3B, then home. None when the column doesn't exist
+    yet, or this particular situation row hasn't been filled in - callers
+    (key_moments_build.py) treat that as "no explicit order," not an error.
+    """
+    return _BRC_THROW_ORDER.get((result, obc, outs))
+
+
+def get_position_override(result: str, obc: str, outs: int) -> dict | None:
+    """{"excluded": [...], "default": "SS"} for this situation, from the
+    optional ExcludedPositions/DefaultPosition columns - None when either
+    column doesn't exist yet or this situation hasn't been filled in.
+    """
+    return _BRC_POSITION_OVERRIDE.get((result, obc, outs))
+
+
+def get_throw_order_by_position(result: str, obc: str, outs: int) -> dict | None:
+    """{"P": "...", "1B": "...", ...} for this situation, from the optional
+    per-position ThrowOrder_* columns - only positions actually filled in are
+    present. None when none of those columns exist yet, or none of them has
+    a value for this situation.
+    """
+    return _BRC_THROW_ORDER_BY_POSITION.get((result, obc, outs))
 
 
 def get_win_probability(

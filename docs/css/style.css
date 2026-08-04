@@ -512,7 +512,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Uniform-depth fence (Alex's addition to the plan: one distance in every
    direction, for simplicity) - drawn once as a single arc, see fencePathD in
    app.js. */
-.dm-fence{fill:none;stroke:var(--border);stroke-width:3;stroke-linecap:round;opacity:0.8;}
+.dm-fence{fill:none;stroke:var(--text);stroke-width:3;stroke-linecap:round;opacity:0.55;}
 /* Infield dirt: a plain 95ft-radius circle from the pitcher's plate, outlined
    only (no fill) - theme-flipped black/white like the on-field result text,
    for the same reason: needs to read against both a light and dark grass

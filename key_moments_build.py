@@ -165,6 +165,7 @@ FILTER_ONLY_TAGS = {"risp"}
 FLIGHT_EXCLUDED = [
     "K", "BB", "IBB", "AutoBB", "AutoK", "CS", "CS2", "CS3", "CS4",
     "SB", "SB2", "SB3", "SB4", "AutoSB", "Balk", "pAuto", "bAuto",
+    "KCS", "SB32", "SB42", "SB43", "SB432",
 ]
 
 
@@ -550,6 +551,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
 
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
     scoring_names = _scoring_names(ref, play, feat["batter"]["id"])
+    position_override = utils.get_position_override(result, state["obc_before"], state["outs_before"])
 
     # Anything derivable from a small closed set (team names, sub-league,
     # result labels, tag labels, base-diamond SVG) lives in meta.json instead of
@@ -582,6 +584,27 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         # (Play Scene) shows the two values and their diff only, no safe-zone.
         "throw_num": play.get("throw_num"),
         "steal_num": play.get("steal_num"),
+        # Explicit fielding-throw sequence for this (result, obc_before,
+        # outs_before) situation, straight from import_BRC.csv's optional
+        # ThrowOrder column (e.g. "1234" = throw to 1B, then 2B, then 3B,
+        # then home) - None on every row until that column exists and this
+        # situation has one filled in. app.js's outThrowTargets() prefers
+        # this over its own before/after-diff heuristic whenever it's set.
+        "throw_order": utils.get_throw_order(result, state["obc_before"], state["outs_before"]),
+        # If import_BRC.csv's ExcludedPositions/DefaultPosition columns say
+        # the physics-computed fielder for this situation doesn't make
+        # sense, app.js relocates the landing point to default_position's
+        # own real spot on the field instead (both direction and depth).
+        # None/None on every row until those columns exist and this
+        # situation has them filled in.
+        "excluded_positions": position_override["excluded"] if position_override else None,
+        "default_position": position_override["default"] if position_override else None,
+        # Per-position throw sequences - e.g. {"SS": "21", "P": "41"} - keyed
+        # by whichever fielder ends up credited (after the override above),
+        # not just the situation alone. Takes priority over throw_order.
+        "throw_order_by_position": utils.get_throw_order_by_position(
+            result, state["obc_before"], state["outs_before"]
+        ),
         "runs": state["runs"],
         "scoring_names": scoring_names,
 

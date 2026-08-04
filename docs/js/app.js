@@ -1109,6 +1109,18 @@
   var BASE_PATH = ["HOME", "1B", "2B", "3B"];
   var BASE_ORDINAL = { HOME: 0, "1B": 1, "2B": 2, "3B": 3 };
 
+  // The next base a runner reaches past the one they're leaving - NOT
+  // BASE_PATH[Math.min(3, BASE_ORDINAL[x] + 1)], which capped at index 3
+  // ("3B") for a runner already ON 3B, wrongly implying "forced to stay at
+  // 3rd" instead of "forced home." That formula was fine for 1B->2B and
+  // 2B->3B (ordinals 1/2, one past never exceeds 3), but wrong the moment a
+  // runner starts at 3B itself - and a runner stranded on 3B when a
+  // half-inning-ending out resets obc_after to "000" looks, to
+  // deriveRunnerMoves, exactly like one who was genuinely forced there, so
+  // this was live on any final out with a runner on 3rd (not just a rare
+  // edge case). Explicit map instead of that arithmetic.
+  var NEXT_BASE = { "1B": "2B", "2B": "3B", "3B": "HOME" };
+
   /* Every base a runner actually touches getting from one place to another.
      Runners follow the basepaths - a triple is home to 1st to 2nd to 3rd, not
      a diagonal across the infield - so a move is a sequence of legs, one per
@@ -1340,6 +1352,37 @@
      once, right after flightParams, so every consumer of `flight` (the ball
      trail, the throw origin, the rollout) sees the corrected distance/x/y
      with no separate plumbing. */
+  var OF_POSITIONS = { LF: 1, CF: 1, RF: 1 };
+
+  /* import_BRC.csv's optional ExcludedPositions/DefaultPosition columns -
+     "the physics-computed fielder for this situation doesn't make sense,
+     use this one instead." Positions occupy genuinely different places on
+     the field, not just different depths along the same line out from home
+     (a shortstop and a pitcher aren't on the same line at different
+     depths) - so this snaps the landing point to the default position's own
+     real anchor (FIELDER_ANCHORS_FT), both direction and depth, rather than
+     nudging the physics-computed point along its original angle. Returns
+     true if it fired, so the caller can skip the physics-angle-based ground
+     ball depth cap below - the two are mutually exclusive corrections for
+     the same kind of problem, not meant to stack. */
+  function applyPositionOverride(m, flight) {
+    var excluded = m.excluded_positions;
+    var def = m.default_position;
+    if (!excluded || !excluded.length || !def) return false;
+    var isOF = !!OF_POSITIONS[flight.fielder];
+    var isExcluded = excluded.indexOf(flight.fielder) !== -1 ||
+      (isOF && excluded.indexOf("OF") !== -1);
+    if (!isExcluded) return false;
+    var anchor = FIELDER_ANCHORS_FT[def];
+    if (!anchor) return false;
+    flight.fielder = def;
+    flight.x = anchor.x;
+    flight.y = anchor.y;
+    flight.distance = Math.hypot(anchor.x, anchor.y);
+    flight.angle = Math.atan2(anchor.x, anchor.y) * 180 / Math.PI + 45;
+    return true;
+  }
+
   function applyGroundBallFielderDepth(m, flight) {
     if (!GROUND_ARCHETYPES[flight.archetype]) return;
     if (!((m.outs_after || 0) > (m.outs_before || 0))) return;
@@ -1578,6 +1621,29 @@
     LODP: "OWN", LOTP: "OWN",
   };
 
+  // Ground-ball-family results where a genuinely forced runner leaves on
+  // contact, same beat as a safe runner on a hit - not on the fielding beat
+  // every other out-bound runner waits for. Fly-ball/tag-up results (SacF,
+  // DFO, ...) are deliberately excluded: those runners wait for the catch
+  // (catchMs below), the opposite of a force runner who has no choice but
+  // to go immediately.
+  var FORCE_TIMING_RESULTS = {
+    BDP: 1, BFC: 1, BGO: 1, DP: 1, DP21: 1, DP31: 1, DPH1: 1, DPRun: 1,
+    FC: 1, FC3rd: 1, FCH: 1, GO: 1, GORA: 1, SacB: 1,
+  };
+
+  // Whether a runner leaving fromBase is genuinely forced to the next base,
+  // from the base-occupancy rule itself (obcBefore), not from the play's
+  // result code: 1B is always forced (the batter always fills it behind
+  // them); 2B only if 1B was occupied too; 3B only if both 1B and 2B were -
+  // the force has to chain unbroken all the way back to the batter.
+  function isForcedRunner(fromBase, obcBefore) {
+    if (fromBase === "1B") return true;
+    if (fromBase === "2B") return obcBefore.charAt(2) === "1";
+    if (fromBase === "3B") return obcBefore.charAt(1) === "1" && obcBefore.charAt(2) === "1";
+    return false;
+  }
+
   // The FC family reaches first but deriveRunnerMoves pairs before/after
   // like-for-like for these codes (obc_before === obc_after), so it never
   // emits a BATTER move - the batter token would otherwise be missing
@@ -1586,14 +1652,53 @@
   // A strikeout has no ball flight to hang a result label off (ballFlightHtml
   // never runs), so its "K" gets drawn directly next to the batter token
   // instead, at the same beat the out itself resolves.
-  var STRIKEOUT_RESULTS = { K: 1, AutoK: 1 };
+  // KCS is a strikeout that also caught a runner stealing on the same pitch -
+  // the batter half of that combo gets the same "K" treatment as a plain K.
+  var STRIKEOUT_RESULTS = { K: 1, AutoK: 1, KCS: 1 };
+
+  // import_BRC.csv's optional ThrowOrder column (e.g. "1,2,3,4" or bare
+  // "1234") - a base-by-base fielding sequence for one (result, obc_before,
+  // outs_before) situation, straight from the data instead of guessed from
+  // before/after diffing. Digits only: 1=1B, 2=2B, 3=3B, 4=home. Anything
+  // that isn't one of those four characters (a comma, a space, a dash) is
+  // just a separator and gets stripped, so "1,2,3,4" and "1234" parse
+  // identically - no format the sheet ends up using is wrong.
+  var THROW_ORDER_DIGIT_TO_BASE = { "1": "1B", "2": "2B", "3": "3B", "4": "HOME" };
+  function parseThrowOrder(raw) {
+    if (raw == null) return null;
+    var digits = String(raw).replace(/[^1234]/g, "");
+    if (!digits) return null;
+    var bases = [];
+    for (var i = 0; i < digits.length; i++) bases.push(THROW_ORDER_DIGIT_TO_BASE[digits.charAt(i)]);
+    return bases;
+  }
+
+  // import_BRC.csv's optional per-position ThrowOrder_* columns key on "OF"
+  // for any outfielder rather than LF/CF/RF individually - a play's throw
+  // sequence rarely needs to distinguish which outfield third fielded it,
+  // just infield vs outfield vs battery. flight.fielder is always a specific
+  // LF/CF/RF, so this collapses those three down to the one column to check.
+  function throwOrderKeyForPosition(pos) {
+    return OF_POSITIONS[pos] ? "OF" : pos;
+  }
 
   /* Every base a throw goes to, in real fielding order (A2/A3/B6). Which
      runner is out still comes entirely from obc_before/obc_after/outs_* via
      deriveRunnerMoves - this only decides the throw count and sequencing on
-     top of that ground truth, never who is actually out. */
+     top of that ground truth, never who is actually out. An explicit
+     sequence from import_BRC.csv is authoritative and skips all the
+     before/after-diff guessing below entirely - the heuristic is a fallback
+     for situations that haven't been given an explicit sequence yet, not a
+     second opinion to reconcile against one that has. Checked most-specific
+     first: a per-position ThrowOrder_* (which fielder ends up credited,
+     after any ExcludedPositions/DefaultPosition override, decides which
+     column) beats the generic ThrowOrder column, which beats the heuristic. */
   function outThrowTargets(m, moves, flight) {
     if (!flight || flight.clearedFence) return [];
+    var byPosition = m.throw_order_by_position;
+    var posKey = throwOrderKeyForPosition(flight.fielder);
+    var explicit = parseThrowOrder(byPosition && byPosition[posKey]) || parseThrowOrder(m.throw_order);
+    if (explicit) return explicit;
     var caught = !!CAUGHT_IN_AIR[flight.archetype];
     var forced = FORCED_OUT_BASE[m.result];
     var targets = [];
@@ -1602,7 +1707,7 @@
       if (mv.to !== "OUT") return;
       if (forced === "OWN") { targets.push(mv.from); return; }
       if (forced) { targets.push(forced); return; }
-      targets.push(BASE_PATH[Math.min(3, BASE_ORDINAL[mv.from] + 1)]);
+      targets.push(NEXT_BASE[mv.from] || mv.from);
     });
 
     // Outs the data records that no move accounts for are the batter's -
@@ -1701,8 +1806,11 @@
   // token the diamond already animates for these plays (a plain legs1 safe
   // advance for a steal, an out-to-base token for a caught stealing - both
   // pre-existing, untouched by this addition).
-  var STEAL_SAFE_CODES = { SB: 1, SB2: 1, SB3: 1, SB4: 1 };
-  var STEAL_CAUGHT_CODES = { CS: 1, CS2: 1, CS3: 1, CS4: 1 };
+  // SB32/SB42/SB43/SB432: multi-runner steals, safe (e.g. SB42 = steal of
+  // home and 2nd on the same play). KCS: a strikeout that also caught a
+  // runner stealing on the same pitch - caught, not safe.
+  var STEAL_SAFE_CODES = { SB: 1, SB2: 1, SB3: 1, SB4: 1, SB32: 1, SB42: 1, SB43: 1, SB432: 1 };
+  var STEAL_CAUGHT_CODES = { CS: 1, CS2: 1, CS3: 1, CS4: 1, KCS: 1 };
   var STEAL_THROW_MARGIN_MS = 100;  // CS: throw arrives this early; SB: this late
 
   // The runner token's own "reaches the base" moment - RUN_LEG_MS[1] (800ms)
@@ -1721,8 +1829,25 @@
       ? moves.filter(function (x) { return x.to === "OUT"; })[0]
       : moves.filter(function (x) { return x.to !== "OUT" && x.to !== x.from; })[0];
     if (!mv) return null;
-    var base = caught ? BASE_PATH[Math.min(3, BASE_ORDINAL[mv.from] + 1)] : mv.to;
+    var base = caught ? (NEXT_BASE[mv.from] || mv.from) : mv.to;
     return { base: base, caught: caught };
+  }
+
+  // The catcher, unless import_BRC.csv's ExcludedPositions/DefaultPosition
+  // say otherwise for this situation - e.g. excluding "C" with a default of
+  // "P" for a steal of home, where the pitcher (not the catcher) makes the
+  // throw. Same two columns the batted-ball position override reads
+  // (applyPositionOverride above), just checked against steals' fixed
+  // "the catcher starts with the ball" baseline instead of a physics-
+  // computed fielder - there's no ball flight on a steal to compute one from.
+  function stealThrowOrigin(m) {
+    var basePos = "C";
+    var excluded = m.excluded_positions;
+    var def = m.default_position;
+    if (excluded && excluded.length && def && excluded.indexOf(basePos) !== -1) {
+      return def;
+    }
+    return basePos;
   }
 
   function stealThrowHtml(m, moves, runDelay, outDelay) {
@@ -1730,7 +1855,8 @@
     if (!target) return "";
     var to = target.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[target.base];
     if (!to) return "";
-    var from = ftToSvg(FIELDER_ANCHORS_FT.C.x, FIELDER_ANCHORS_FT.C.y);
+    var originAnchor = FIELDER_ANCHORS_FT[stealThrowOrigin(m)] || FIELDER_ANCHORS_FT.C;
+    var from = ftToSvg(originAnchor.x, originAnchor.y);
     var arrival = stealRunnerArrivalMs(target.caught, runDelay, outDelay);
     var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
     var start = Math.max(0, arrive - THROW_DRAW_MS);
@@ -1755,6 +1881,7 @@
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
     batterFirstArrivalMs: batterFirstArrivalMs,
     stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
+    stealThrowOrigin: stealThrowOrigin,
     THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     GROUNDER_ROLL_MS: GROUNDER_ROLL_MS, RUNNER_LEAD_MS: RUNNER_LEAD_MS,
@@ -1762,6 +1889,10 @@
     applyGroundBallFielderDepth: applyGroundBallFielderDepth,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
     GROUND_ARCHETYPES: GROUND_ARCHETYPES,
+    parseThrowOrder: parseThrowOrder,
+    applyPositionOverride: applyPositionOverride,
+    throwOrderKeyForPosition: throwOrderKeyForPosition,
+    OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -1834,7 +1965,7 @@
       if (isOut) {
         var forced = FORCED_OUT_BASE[m.result];
         var candidate = forced === "OWN" ? mv.from
-          : (forced || BASE_PATH[Math.min(3, BASE_ORDINAL[mv.from] + 1)]);
+          : (forced || NEXT_BASE[mv.from] || mv.from);
         var corroborated = realOutTargets.indexOf(candidate) !== -1 ||
           (stealOut && stealOut.caught && candidate === stealOut.base);
         forcedBase = corroborated ? candidate : null;
@@ -1844,9 +1975,21 @@
         : basepathWaypoints(mv.from, mv.to, mv.scored);
       var end = isOut ? dugoutSvg : (path.length ? path[path.length - 1] : from);
       var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
+      // A genuinely forced runner (isForcedRunner, on one of the ground-ball
+      // results where that applies) leaves on contact - same beat as a safe
+      // runner on a hit - because they have no choice but to vacate the
+      // base immediately, regardless of how the play develops. Every other
+      // out-bound runner waits for the ball to actually be fielded first.
+      var forcedOnContact = forcedBase && FORCE_TIMING_RESULTS[m.result] &&
+        isForcedRunner(mv.from, before);
+      // B5: a runner tagging up on a caught fly cannot leave before the
+      // catch, whether they end up scoring (a sac fly) or just advancing a
+      // base (e.g. 2nd to 3rd on a deep flyout with nobody home) - catchMs
+      // is already 0/falsy for anything not caught in the air, so this
+      // applies to every safe move on those plays, not scoring ones only.
       var mvDelay = isOut
-        ? (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs))
-        : (catchMs && mv.scored ? catchMs + TAG_UP_MS : runDelay);
+        ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
+        : (catchMs ? catchMs + TAG_UP_MS : runDelay);
       if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (RUN_LEG_MS[legs] || 0));
       var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
                  "--tx:" + end.x + "px;--ty:" + end.y + "px;" +
@@ -2588,7 +2731,7 @@
   function playSceneHtml(slide) {
     var m = slide.play;
     var flight = flightParams(m, data.meta.flight);
-    if (flight) applyGroundBallFielderDepth(m, flight);
+    if (flight && !applyPositionOverride(m, flight)) applyGroundBallFielderDepth(m, flight);
     // A lead change gets a one-shot wash of the new leader's colour - cheap,
     // and it makes the one tag that changes the game's story feel different.
     var flash = "";

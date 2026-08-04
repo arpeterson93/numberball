@@ -215,7 +215,10 @@ def main() -> None:
             ("PO", "001", "001", 0, 0, 1, "pop_up", []),
             ("SacF", "101", "001", 1, 0, 1, "fly_ball", ["HOME"]),
             ("DP", "001", "000", 0, 0, 2, "grounder", ["2B", "1B"]),
-            ("DP", "101", "000", 0, 0, 2, "grounder", ["3B", "2B"]),
+            # NEXT_BASE fix: a runner already on 3B who's OUT was headed
+            # home, not "forced to stay at 3rd" (BASE_PATH's old
+            # Math.min(3, ...) capping bug - see docs/js/app.js's NEXT_BASE).
+            ("DP", "101", "000", 0, 0, 2, "grounder", ["HOME", "2B"]),
             ("DPH1", "111", "110", 0, 0, 2, "grounder", ["HOME", "1B"]),
             ("LODP", "010", "000", 0, 0, 2, "line_drive", ["2B"]),
             ("FC", "001", "001", 0, 0, 1, "grounder", ["2B"]),
