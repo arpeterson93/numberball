@@ -876,6 +876,43 @@
       count + (count === 1 ? " new play" : " new plays");
   }
 
+  // ── Playback speed: a per-browser preference (same "device identity" as the
+  //    favorites name), not synced anywhere - it only ever changes what
+  //    slideDwell() hands back, so every slideshow (Catch Me Up, Game Replay,
+  //    the filtered-plays reel) picks it up for free. ──────────────────────────
+  var PLAYBACK_SPEED_KEY = "km_playback_speed";
+  var PLAYBACK_SPEED_MIN = 0.25, PLAYBACK_SPEED_MAX = 2;
+
+  function clampSpeed(v) {
+    v = Number(v);
+    if (!isFinite(v)) return 1;
+    return Math.min(PLAYBACK_SPEED_MAX, Math.max(PLAYBACK_SPEED_MIN, v));
+  }
+
+  function getPlaybackSpeed() {
+    try {
+      var raw = window.localStorage.getItem(PLAYBACK_SPEED_KEY);
+      return raw == null ? 1 : clampSpeed(raw);
+    } catch (e) {
+      return 1;
+    }
+  }
+
+  function setPlaybackSpeed(v) {
+    var speed = clampSpeed(v);
+    try { window.localStorage.setItem(PLAYBACK_SPEED_KEY, speed.toFixed(2)); } catch (e) { /* private browsing */ }
+    return speed;
+  }
+
+  function wirePlaybackSpeed() {
+    var input = $("playback-speed");
+    if (!input) return;
+    input.value = getPlaybackSpeed().toFixed(2);
+    function commit() { input.value = setPlaybackSpeed(input.value).toFixed(2); }
+    input.addEventListener("change", commit);
+    input.addEventListener("blur", commit);
+  }
+
   // ── Catch Me Up: the slideshow ──────────────────────────────────────────────
 
   var TITLE_DWELL_MS = 1800;
@@ -2666,9 +2703,10 @@
   var HALF_INNING_BONUS_MS = 800;
 
   function slideDwell(slide) {
-    if (slide.kind !== "play") return TITLE_DWELL_MS;
+    var speed = getPlaybackSpeed();
+    if (slide.kind !== "play") return TITLE_DWELL_MS / speed;
     var base = slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
-    return base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0);
+    return (base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0)) / speed;
   }
 
   /* Whole-card fades are for structural changes only - title to play, one game
@@ -2979,6 +3017,71 @@
     return slides;
   }
 
+  /* A slideshow of exactly what's currently filtered/visible in the feed -
+     reuses the same replay modal/state machine as Game Replay (no separate
+     third slideshow to maintain), just fed a different slide list: plain
+     "play" slides only, no title card, since a filtered set can span any
+     number of different games and there is no one game to title it after.
+     Each play still gets its own game's ribbon context (gamePlaysFor), same
+     as every other slideshow. */
+  function buildFilteredPlaysSlides(plays) {
+    var total = plays.length;
+    return plays.map(function (p, i) {
+      var gamePlays = gamePlaysFor(p.session_number, p.game_code);
+      var byNum = {};
+      gamePlays.forEach(function (gp, gi) { byNum[gp.play_num] = gi; });
+      return {
+        kind: "play", play: p, playNo: i + 1, total: total,
+        gamePlays: gamePlays,
+        gameIdx: byNum[p.play_num] == null ? -1 : byNum[p.play_num],
+        ribbonFrom: 0,
+        homeAbbr: p.home_team_abbr, awayAbbr: p.away_team_abbr,
+      };
+    });
+  }
+
+  /* Ascending on purpose, the reverse of the feed's own "most important at
+     the top" sort (sorted() above) - a slideshow plays forward in time and
+     builds toward a finale, so the oldest/least dramatic play leads and the
+     most recent/most dramatic one closes the show. */
+  function filteredPlaysOrdered(orderBy) {
+    var rows = pool().filter(matches).slice();
+    if (orderBy === "wpa") {
+      rows.sort(function (a, b) { return Math.abs(a.wpa || 0) - Math.abs(b.wpa || 0); });
+    } else if (orderBy === "leverage") {
+      rows.sort(function (a, b) { return (a.leverage || 0) - (b.leverage || 0); });
+    } else {
+      rows.sort(function (a, b) {
+        var ta = a.timestamp || "", tb = b.timestamp || "";
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return a.play_num - b.play_num;
+      });
+    }
+    return rows;
+  }
+
+  // Exposed for the Playwright test harness only, same convention as the
+  // ball-flight KMFlight object above - window.KMFlight already exists by
+  // the time this line runs (assigned earlier in execution order).
+  window.KMFlight.filteredPlaysOrdered = filteredPlaysOrdered;
+
+  function openFilteredPlaysSlideshow(orderBy) {
+    var rows = filteredPlaysOrdered(orderBy);
+    if (!rows.length) { toast("No plays match these filters."); return; }
+    // Ribbon context can reach into any game a filtered play belongs to, not
+    // just whichever sessions happen to be loaded for the current filter -
+    // same "load everything" guarantee Catch Me Up's own reel relies on.
+    loadAllSessions().then(function () {
+      replay.slides = buildFilteredPlaysSlides(rows);
+      replay.index = -1;   // no previous slide, so slide 0 gets the full fade in
+      replay.paused = false;
+      $("replay-pause-hint").hidden = true;
+      $("replay-card").classList.remove("paused");
+      $("replay-modal").hidden = false;
+      showReplaySlide(0);
+    });
+  }
+
   function clearReplayTimer() {
     if (replay.timer) {
       window.clearTimeout(replay.timer);
@@ -3147,6 +3250,12 @@
       else if (e.key === "ArrowLeft") { e.preventDefault(); stepReplay(-1); }
       else if (e.key === "ArrowRight") { e.preventDefault(); stepReplay(1); }
     });
+    var filteredBtn = $("play-filtered-btn");
+    if (filteredBtn) {
+      filteredBtn.addEventListener("click", function () {
+        openFilteredPlaysSlideshow(filters.sort);
+      });
+    }
   }
 
   function renderMaybeLoading() {
@@ -3472,6 +3581,25 @@
 
     wireCatchUp();
     wireReplay();
+    wireSettings();
+    wirePlaybackSpeed();
+  }
+
+  // Gear icon: Manage Favorites, Dark/Light Mode, Slideshow speed - same
+  // simple open/close pattern as the Favorites panel itself.
+  function wireSettings() {
+    var modal = $("settings-modal");
+    var openBtn = $("settings-btn");
+    if (!modal || !openBtn) return;
+    function closeSettings() { modal.hidden = true; }
+    openBtn.addEventListener("click", function () { modal.hidden = false; });
+    $("settings-close").addEventListener("click", closeSettings);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeSettings(); });
+    // Favorites' own click handler (favorites.js) opens #fav-modal on this
+    // same button - this just closes Settings out of the way first so the
+    // two panels don't end up stacked on top of each other.
+    var favBtn = $("favorites-btn");
+    if (favBtn) favBtn.addEventListener("click", closeSettings);
   }
 
   // ── refresh ─────────────────────────────────────────────────────────────────

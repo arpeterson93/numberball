@@ -257,6 +257,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .footer-actions{display:flex;gap:16px;align-items:center;}
 .link-btn{font-size:13px;color:var(--muted);font-weight:600;background:none;border:none;padding:0;}
 .link-btn:hover{color:var(--text);}
+.play-filtered-btn{margin-right:8px;}
 
 /* ---- Sort bar ---- */
 .sort-bar{display:flex;align-items:center;justify-content:flex-end;margin-bottom:16px;padding:0 2px;}
@@ -377,6 +378,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .modal-note{margin:0;font-size:12px;color:var(--muted);line-height:1.5;}
 .name-row{display:flex;gap:8px;}
 .name-row input{flex:1;}
+.settings-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;}
+.speed-field{display:flex;align-items:center;gap:6px;}
+.speed-field input{width:64px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--tint);color:var(--text);font-size:13px;text-align:right;}
+.speed-field .speed-x{color:var(--muted);font-size:13px;}
 .fav-list{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:6px;max-height:320px;overflow-y:auto;}
 .fav-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px;}
 .fav-row:last-child{border-bottom:none;}

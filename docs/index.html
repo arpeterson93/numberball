@@ -44,7 +44,7 @@
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
         </svg>
       </button>
-      <!-- Icon-only, borderless, muted - matches .theme-toggle's treatment so
+      <!-- Icon-only, borderless, muted - matches .settings-btn's treatment so
            the two controls read as one family. -->
       <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -53,15 +53,14 @@
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
         </svg>
       </button>
-      <!-- Both icons ship in the markup; CSS shows the one matching data-theme.
-           theme.js only keeps the label in sync. -->
-      <button type="button" class="icon-btn theme-toggle" id="theme-toggle" title="Switch to dark mode" aria-label="Switch to dark mode">
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-        </svg>
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5"></circle>
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+      <!-- Opens the Settings panel - Manage Favorites, Dark/Light Mode and
+           Slideshow speed all live there now instead of as separate header
+           controls (theme-toggle keeps its id so theme.js's own wiring, which
+           looks it up directly, still finds it wherever it lives in the DOM). -->
+      <button type="button" class="icon-btn settings-btn" id="settings-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
       </button>
     </div>
@@ -152,7 +151,6 @@
     <div class="filters-footer">
       <div class="count-text" id="count-text">0 key moments</div>
       <div class="footer-actions">
-        <button type="button" class="link-btn" id="favorites-btn">☆ Manage favorites</button>
         <button type="button" class="link-btn" id="reset-btn">↻ Reset filters</button>
       </div>
     </div>
@@ -160,6 +158,16 @@
   </div>
 
   <div class="sort-bar">
+    <!-- Plays a slideshow of exactly what's currently filtered/visible below,
+         in whichever order is active in the chips to the right - ascending,
+         not the feed's own descending sort, so the show builds toward the
+         most recent/most dramatic play as its finale. No per-game title
+         cards between plays, since a filtered set can span any number of
+         different games. Same round icon format as the scoreboard/play-card
+         replay buttons, not a "▶" text glyph. -->
+    <button type="button" class="tile-replay-btn play-filtered-btn" id="play-filtered-btn" title="Play these plays" aria-label="Play these plays">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>
+    </button>
     <div class="sort-chip-row" id="sort-chips">
       <button type="button" class="chip active" data-sort="chrono">Time ↓</button>
       <button type="button" class="chip" data-sort="wpa">WPA</button>
@@ -171,6 +179,48 @@
   <div id="moments"></div>
   <div id="empty-state" class="empty-state" hidden>No plays match these filters.</div>
 
+</div>
+
+<!-- Settings panel - same simple modal-card treatment as Favorites, and now
+     the one hub for Manage Favorites, Dark/Light Mode and Slideshow speed. -->
+<div class="modal" id="settings-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <strong>Settings</strong>
+      <button type="button" class="link-btn" id="settings-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-row">
+        <span>Favorites</span>
+        <!-- Keeps the id favorites.js already wires its open-panel click
+             handler to directly - works unchanged wherever this button lives. -->
+        <button type="button" class="chip" id="favorites-btn">Manage favorites</button>
+      </div>
+      <div class="settings-row">
+        <span>Appearance</span>
+        <!-- Both icons ship in the markup; CSS shows the one matching
+             data-theme. theme.js only keeps the label in sync - it looks this
+             button up by id directly, so it works here unchanged. -->
+        <button type="button" class="icon-btn theme-toggle" id="theme-toggle" title="Switch to dark mode" aria-label="Switch to dark mode">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="settings-row">
+        <span>Slideshow speed</span>
+        <div class="speed-field">
+          <input type="number" id="playback-speed" min="0.25" max="2" step="0.01" value="1.00" inputmode="decimal">
+          <span class="speed-x">x</span>
+        </div>
+      </div>
+      <p class="modal-note">Speed applies to Catch Me Up, Game Replay and the filtered-plays slideshow. Range 0.25x-2x.</p>
+    </div>
+  </div>
 </div>
 
 <!-- Favorites panel -->
