@@ -1493,11 +1493,16 @@
       var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
       var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
       if (depth != null) maxReachFt = Math.min(maxReachFt, depth);
-    } else if (GROUND_ARCHETYPES[flight.archetype] && !isOut && !STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
-      // A grounder that reaches base safely, and isn't meant to be a short
-      // infield hit, is a real single/double/etc. - it has to visibly clear
-      // the infield dirt, even when its bounce point (the archetype distance
-      // alone) landed short of the dirt's edge or right on it. The bounce
+    } else if (!isOut && !STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
+      // Any hit that reaches base safely, and isn't meant to be a short
+      // infield hit, has to visibly clear the infield dirt, even when its
+      // bounce point (the archetype distance alone) landed short of the
+      // dirt's edge or right on it. Deliberately NOT gated on
+      // GROUND_ARCHETYPES here - "grounder" itself only ever appears on OUT
+      // results (every result mapped to it records at least one out), so
+      // that gate meant this branch could never fire for any hit at all: a
+      // "single" with a low, grounder-ish LA (like the one that exposed
+      // this) was falling through with no floor whatsoever. The bounce
       // point itself is left alone (a squibber landing on the dirt is
       // realistic); only the roll-out is floored.
       var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
@@ -1905,6 +1910,23 @@
     var before = String(m.obc_before || "000");
     var after = String(m.obc_after || "000");
     var moves = deriveRunnerMoves(before, after, m.runs || 0);
+    // DPH1 always starts from bases loaded (forcing a runner out at home
+    // requires 1B/2B/3B all occupied) and always removes the MOST advanced
+    // runner (3B, out at home), not the least advanced one - the opposite of
+    // deriveRunnerMoves' most-advanced-pairs-with-most-advanced assumption,
+    // which instead pairs 3B->3B and 2B->2B as if neither runner moved at
+    // all and blames the 1B runner for an out that never involved them
+    // ("DPH1's heuristic mismatch", already flagged where forcedBase is
+    // computed below). The real shape is unambiguous from the result code
+    // itself: 3B is out at home, and every other occupied base advances
+    // exactly one base.
+    if (m.result === "DPH1" && before === "111") {
+      moves = [
+        { from: "3B", to: "OUT", scored: false },
+        { from: "2B", to: "3B", scored: false },
+        { from: "1B", to: "2B", scored: false },
+      ];
+    }
     var dugoutFt = dugoutFor(m);
     var dugoutSvg = ftToSvg(dugoutFt.x, dugoutFt.y);
 
@@ -1958,9 +1980,8 @@
       // tagged out, and falls back to the plain straight-to-dugout walk.
       // basepathWaypoints' own end<=start guard separately suppresses the
       // partial advance for a backward-relative target (a doubled-off runner
-      // on a caught line drive, B6 - deferred) or one already at that base
-      // (DPH1's heuristic mismatch) - those are real outs, just ones with no
-      // forward leg to show.
+      // on a caught line drive, B6 - deferred) or one already at that base -
+      // those are real outs, just ones with no forward leg to show.
       var forcedBase = null;
       if (isOut) {
         var forced = FORCED_OUT_BASE[m.result];
@@ -1970,8 +1991,14 @@
           (stealOut && stealOut.caught && candidate === stealOut.base);
         forcedBase = corroborated ? candidate : null;
       }
+      // basepathWaypoints' own ordinal math treats HOME as 0 - "before" every
+      // other base - so an out-bound path whose forcedBase is HOME needs the
+      // same end=4 wraparound a genuine score gets, or it reads as
+      // end(0)<=start and returns no path at all. Passing forcedBase==="HOME"
+      // here only feeds that ordinal - mv.scored (used for the CSS "score"
+      // flash below) is untouched, since this runner didn't actually score.
       var path = isOut
-        ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, false) : [])
+        ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
         : basepathWaypoints(mv.from, mv.to, mv.scored);
       var end = isOut ? dugoutSvg : (path.length ? path[path.length - 1] : from);
       var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
