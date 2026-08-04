@@ -58,6 +58,7 @@ RUN_EXPECTANCY = {
 
 # BRC int -> OBC string (sequential encoding: 0=empty,1=1B,2=2B,3=3B,4=1&2B,5=1&3B,6=2&3B,7=BL)
 _BRC_TO_OBC = {0: "000", 1: "001", 2: "010", 3: "100", 4: "011", 5: "101", 6: "110", 7: "111"}
+_OBC_STRING_TO_CODE = {v: k for k, v in _BRC_TO_OBC.items()}
 
 # _re_dist[(outs, obc)] = {runs_scored: probability}
 _re_dist: dict[tuple[int, str], dict[int, float]] = {}
@@ -155,6 +156,111 @@ _THROW_ORDER_POSITION_COLUMNS = {
 }
 
 
+# (result, before_obc, outs) -> [{"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|
+# "2B"|"3B"|"HOME"|"OUT", "scored": bool}, ...] - the exact per-runner outcome
+# for this situation, decoded from B/r1/r2/r3 (Alex's briefing: b1/b2/b3 = ends
+# up there - same number as their own starting base means they held - b4 =
+# scores, 0 = out). Trusted completely when present; None when the situation
+# isn't in the table, or its own numbers don't reconcile (see
+# _build_runner_moves_for_row) - app.js falls back to its diff-based guess
+# either way, same contract as everything else in this file.
+_BRC_RUNNER_MOVES: dict[tuple[str, str, int], list[dict]] = {}
+
+_MOVE_DEST_BASE = {"b1": "1B", "b2": "2B", "b3": "3B"}
+
+
+def _decode_move_destination(raw) -> tuple[str, bool] | None:
+    """(to, scored) for one B/r1/r2/r3 cell, or None if it's blank or not one
+    of the recognised tokens (e.g. pAuto's "g" - a ghost-runner placement,
+    not an existing runner's transition, which this whole table shape
+    assumes). None is the "don't know" case - callers turn that into either
+    "not present" (batter) or "OUT" (a base runner, since deriveRunnerMoves'
+    own stranded-runner convention already treats an unresolved base runner
+    that way and every downstream consumer already knows what to do with it).
+    """
+    s = _clean_csv_cell(raw)
+    if not s:
+        return None
+    if s == "0":
+        return ("OUT", False)
+    if s == "b4":
+        return ("HOME", True)
+    base = _MOVE_DEST_BASE.get(s)
+    return (base, False) if base else None
+
+
+# (obc_before string index, column name, base label) - obc_before is
+# [3B,2B,1B] (index 0/1/2), matching _BRC_TO_OBC's own string convention.
+_RUNNER_SLOT_DEFS = [(2, "r1", "1B"), (1, "r2", "2B"), (0, "r3", "3B")]
+
+
+def _build_runner_moves_for_row(row, before_obc: str) -> list[dict] | None:
+    """Decodes one row into an explicit move list, or None if this row's
+    columns aren't trustworthy enough to use - either the runner-tracking
+    columns aren't there at all, or the per-runner destinations don't add up
+    to the row's own OBC/Runs (a handful of rows have "held" filled in for
+    r1/r2 without the OBC column being updated to match, and a few auto/
+    ghost-runner codes don't describe an existing runner's move at all).
+    Skipping those and falling back to the diff-based heuristic is safer
+    than rendering something the row's own numbers disagree with.
+    """
+    moves: list[dict] = []
+    runs_from_moves = 0
+    occ_after = {"1B": False, "2B": False, "3B": False}
+
+    b_dest = _decode_move_destination(row.get("B"))
+    if b_dest is not None and b_dest[0] != "OUT":
+        # A batter who's out is deliberately NOT added here - the existing
+        # out-to-first choreography (sceneFieldHtml's "no BATTER move" branch)
+        # already handles that case correctly, and giving it a raw isOut
+        # move here would route it through the base-runner force/corroboration
+        # path instead, which has no idea what to do with "from": "BATTER".
+        moves.append({"from": "BATTER", "to": b_dest[0], "scored": b_dest[1]})
+        if b_dest[1]:
+            runs_from_moves += 1
+        elif b_dest[0] in occ_after:
+            occ_after[b_dest[0]] = True
+
+    for obc_idx, col, base in _RUNNER_SLOT_DEFS:
+        if before_obc[obc_idx] != "1":
+            continue
+        dest = _decode_move_destination(row.get(col))
+        if dest is None:
+            # Blank/unrecognised for a runner obc_before says WAS there -
+            # not "assume they're out," just not enough to trust this row at
+            # all. Blank here is usually the "inning ended, doesn't matter"
+            # shortcut (Alex's briefing) - if it were defaulted to OUT
+            # instead of bailing, an inning-ending row with every base
+            # runner blank would predict bases-empty-after and could
+            # coincidentally match a genuinely-reset OBC column, wrongly
+            # validating a fabricated "everyone's out" move list. Bailing
+            # out entirely leaves it to the diff-based heuristic, which
+            # already has its own established stranded/uncorroborated
+            # handling for exactly this ambiguity.
+            return None
+        to, scored = dest
+        moves.append({"from": base, "to": to, "scored": scored})
+        if scored:
+            runs_from_moves += 1
+        elif to in occ_after:
+            occ_after[to] = True
+
+    try:
+        predicted_obc_str = (
+            ("1" if occ_after["3B"] else "0") +
+            ("1" if occ_after["2B"] else "0") +
+            ("1" if occ_after["1B"] else "0")
+        )
+        if _OBC_STRING_TO_CODE[predicted_obc_str] != int(row["OBC"]):
+            return None
+        if runs_from_moves != float(row["Runs"]):
+            return None
+    except (KeyError, ValueError, TypeError):
+        return None
+
+    return moves
+
+
 def _clean_csv_cell(raw) -> str:
     """A column that's all digits with some blanks reads back from pandas as
     float64 (blanks become NaN) - "1234" round-trips through that as 1234.0.
@@ -169,7 +275,7 @@ def _clean_csv_cell(raw) -> str:
 
 
 def _load_brc_table() -> None:
-    global _BRC_RUN_LOOKUP, _BRC_THROW_ORDER, _BRC_POSITION_OVERRIDE, _BRC_THROW_ORDER_BY_POSITION
+    global _BRC_RUN_LOOKUP, _BRC_THROW_ORDER, _BRC_POSITION_OVERRIDE, _BRC_THROW_ORDER_BY_POSITION, _BRC_RUNNER_MOVES
     try:
         _bdf = pd.read_csv("import_BRC.csv")
         if "Situation" not in _bdf.columns or "Runs" not in _bdf.columns:
@@ -177,12 +283,14 @@ def _load_brc_table() -> None:
         cols = list(_bdf.columns)
         has_throw_order = "ThrowOrder" in cols
         has_excluded = "ExcludedPositions" in cols and "DefaultPosition" in cols
+        has_runner_cols = all(c in cols for c in ("B", "r1", "r2", "r3"))
         position_cols = {pos: col for pos, col in _THROW_ORDER_POSITION_COLUMNS.items() if col in cols}
 
         lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
         throw_lookup: dict[tuple[str, str, int], str] = {}
         override_lookup: dict[tuple[str, str, int], dict] = {}
         by_position_lookup: dict[tuple[str, str, int], dict] = {}
+        moves_lookup: dict[tuple[str, str, int], list[dict]] = {}
 
         for _, row in _bdf.iterrows():
             situation = str(row["Situation"]).strip()
@@ -222,10 +330,16 @@ def _load_brc_table() -> None:
             if by_position:
                 by_position_lookup[key] = by_position
 
+            if has_runner_cols:
+                moves = _build_runner_moves_for_row(row, before_obc)
+                if moves is not None:
+                    moves_lookup[key] = moves
+
         _BRC_RUN_LOOKUP = lookup
         _BRC_THROW_ORDER = throw_lookup
         _BRC_POSITION_OVERRIDE = override_lookup
         _BRC_THROW_ORDER_BY_POSITION = by_position_lookup
+        _BRC_RUNNER_MOVES = moves_lookup
     except FileNotFoundError:
         pass
 
@@ -258,6 +372,19 @@ def get_throw_order_by_position(result: str, obc: str, outs: int) -> dict | None
     a value for this situation.
     """
     return _BRC_THROW_ORDER_BY_POSITION.get((result, obc, outs))
+
+
+def get_runner_moves(result: str, obc: str, outs: int) -> list[dict] | None:
+    """Explicit per-runner outcome for this (result, before_obc, outs)
+    situation, decoded from import_BRC.csv's B/r1/r2/r3 columns - each entry
+    is {"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|"2B"|"3B"|"HOME"|"OUT",
+    "scored": bool}. Trusted completely by callers when present, in place of
+    guessing from obc_before/obc_after/runs. None when the columns don't
+    exist yet, this situation hasn't been filled in, or the row's own
+    numbers didn't reconcile (see _build_runner_moves_for_row) - callers
+    fall back to that same diff-based guess either way.
+    """
+    return _BRC_RUNNER_MOVES.get((result, obc, outs))
 
 
 def get_win_probability(

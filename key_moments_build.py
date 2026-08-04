@@ -605,6 +605,15 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "throw_order_by_position": utils.get_throw_order_by_position(
             result, state["obc_before"], state["outs_before"]
         ),
+        # Explicit per-runner outcome for this (result, obc_before,
+        # outs_before) situation, decoded straight from import_BRC.csv's B/
+        # r1/r2/r3 columns - e.g. [{"from":"1B","to":"2B","scored":false},
+        # {"from":"3B","to":"OUT","scored":false}]. None until this situation
+        # has those columns filled in and internally consistent (see
+        # utils.get_runner_moves) - app.js's deriveRunnerMoves() before/
+        # after-diff guess is the fallback either way, same contract as
+        # throw_order above.
+        "runner_moves": utils.get_runner_moves(result, state["obc_before"], state["outs_before"]),
         "runs": state["runs"],
         "scoring_names": scoring_names,
 

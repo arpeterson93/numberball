@@ -1909,18 +1909,23 @@
   function sceneFieldHtml(m, flight) {
     var before = String(m.obc_before || "000");
     var after = String(m.obc_after || "000");
-    var moves = deriveRunnerMoves(before, after, m.runs || 0);
-    // DPH1 always starts from bases loaded (forcing a runner out at home
-    // requires 1B/2B/3B all occupied) and always removes the MOST advanced
-    // runner (3B, out at home), not the least advanced one - the opposite of
-    // deriveRunnerMoves' most-advanced-pairs-with-most-advanced assumption,
-    // which instead pairs 3B->3B and 2B->2B as if neither runner moved at
-    // all and blames the 1B runner for an out that never involved them
-    // ("DPH1's heuristic mismatch", already flagged where forcedBase is
-    // computed below). The real shape is unambiguous from the result code
-    // itself: 3B is out at home, and every other occupied base advances
-    // exactly one base.
-    if (m.result === "DPH1" && before === "111") {
+    // import_BRC.csv's B/r1/r2/r3 columns, decoded server-side into the
+    // exact per-runner outcome for this situation (key_moments_build.py's
+    // runner_moves) - trusted completely over the diff-based guess below
+    // whenever it's present. deriveRunnerMoves only runs at all for
+    // situations that haven't been given explicit data yet.
+    var moves = m.runner_moves || deriveRunnerMoves(before, after, m.runs || 0);
+    // Fallback for the one still-common gap: DPH1 always starts from bases
+    // loaded and always removes the MOST advanced runner (3B, out at home),
+    // not the least advanced one - the opposite of deriveRunnerMoves' most-
+    // advanced-pairs-with-most-advanced assumption, which instead pairs
+    // 3B->3B and 2B->2B as if neither runner moved and blames the 1B runner
+    // for an out that never involved them ("DPH1's heuristic mismatch",
+    // already flagged where forcedBase is computed below). Only applies
+    // when m.runner_moves is missing (the inning-ending DPH1 variant's
+    // r1/r2/r3 aren't filled in yet) - once that row is completed too, this
+    // becomes dead code on its own, no flag to flip.
+    if (!m.runner_moves && m.result === "DPH1" && before === "111") {
       moves = [
         { from: "3B", to: "OUT", scored: false },
         { from: "2B", to: "3B", scored: false },
@@ -2007,8 +2012,11 @@
       // runner on a hit - because they have no choice but to vacate the
       // base immediately, regardless of how the play develops. Every other
       // out-bound runner waits for the ball to actually be fielded first.
-      var forcedOnContact = forcedBase && FORCE_TIMING_RESULTS[m.result] &&
-        isForcedRunner(mv.from, before);
+      // Deliberately independent of forcedBase (corroboration/path): a
+      // forced runner starts running the instant the ball is hit whether or
+      // not the data tells us exactly where they ended up - not knowing
+      // their fate for certain doesn't mean they didn't react to the force.
+      var forcedOnContact = FORCE_TIMING_RESULTS[m.result] && isForcedRunner(mv.from, before);
       // B5: a runner tagging up on a caught fly cannot leave before the
       // catch, whether they end up scoring (a sac fly) or just advancing a
       // base (e.g. 2nd to 3rd on a deep flyout with nobody home) - catchMs
@@ -2680,7 +2688,7 @@
      (see sceneFieldHtml's matching mvDelay logic) - this must add the same
      offset or the scoreboard ticks before the runner visibly arrives. */
   function scoreArrivals(m, flight) {
-    var moves = deriveRunnerMoves(String(m.obc_before || "000"),
+    var moves = m.runner_moves || deriveRunnerMoves(String(m.obc_before || "000"),
                                   String(m.obc_after || "000"), m.runs || 0);
     var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
     var times = [];
