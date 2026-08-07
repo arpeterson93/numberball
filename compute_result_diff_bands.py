@@ -27,10 +27,15 @@ OUT_CSV = "result_diff_bands.csv"
 LEAGUE = "MLN"
 MIN_SAMPLE = 30
 
-# Result code -> ball-flight archetype (must match ball_flight_archetypes.csv's
-# archetype column exactly). This is the one place the mapping is defined -
-# key_moments_build.py and app.js both read it from this script's output
-# rather than carrying a second copy.
+# Result code -> ball-flight archetype - a plain category label read by
+# app.js's CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES (grounder/
+# bunt/infield_single/fly_ball/pop_up/line_drive/single/double/triple/
+# home_run), not a lookup key into a separate numeric table (the old
+# ball_flight_archetypes.csv is retired - every result gets its own
+# Statcast-derived LA/EV/depth numbers now, see result_diff_bands.csv).
+# This is the one place the mapping is defined - key_moments_build.py and
+# app.js both read it from this script's output rather than carrying a
+# second copy.
 #
 # TP -> grounder is low confidence (n=11 in the real feed, median diff ~497 -
 # the worst-contact end of the whole range, closer to a badly-mishit
@@ -173,6 +178,22 @@ def main() -> None:
             })
 
     out = pd.DataFrame(rows).sort_values(["archetype", "result"])
+
+    # Preserve the Statcast-derived flight columns (laMin/laIdeal/laMax/
+    # evMin/evMax/depthMin/depthMax/flight_source) already sitting in the
+    # existing output file - this script only ever recomputes band_lo/
+    # band_hi/n/source from MLN's own diff history, so a plain overwrite
+    # would silently wipe those out from underneath it. Rows this script
+    # adds/drops (a new/retired result code) just carry blank flight columns
+    # until someone reruns the separate Statcast pull for them.
+    try:
+        prev = pd.read_csv(args.out)
+        flight_cols = [c for c in prev.columns if c not in out.columns]
+        if flight_cols:
+            out = out.merge(prev[["result"] + flight_cols], on="result", how="left")
+    except FileNotFoundError:
+        pass
+
     out.to_csv(args.out, index=False)
     print(f"\nSaved {len(out)} result rows ({len(kept):,} plays) to {args.out}")
 

@@ -104,7 +104,7 @@
         </div>
       </div>
       <div class="filter-group">
-        <label class="group-label">Result</label>
+        <label class="group-label">Type</label>
         <div class="chip-row" id="result-chips">
           <button type="button" class="chip" data-result="hitting">Hitting</button>
           <button type="button" class="chip" data-result="pitching">Pitching</button>
@@ -138,6 +138,30 @@
         <label class="group-label">Player</label>
         <input type="text" id="player-input" placeholder="Player name" autocomplete="off">
         <div id="player-suggest" class="player-suggest" hidden></div>
+      </div>
+    </div>
+
+    <!-- Exact-result/outs/OBC: debugging-oriented filters (Alex's ask) -
+         narrower and more literal than the Hitting/Pitching/HR category chips
+         above, since debugging a specific situation needs the raw result
+         code, not its category. -->
+    <div class="filter-row fields-row">
+      <div class="filter-group player-search-group">
+        <label class="group-label">Result</label>
+        <input type="text" id="result-code-input" placeholder="Search e.g. GO, Double" autocomplete="off">
+        <div id="result-code-suggest" class="player-suggest" hidden></div>
+      </div>
+      <div class="filter-group compact">
+        <label class="group-label">Outs (before)</label>
+        <div class="chip-row" id="outs-chips">
+          <button type="button" class="chip" data-outs="0">0</button>
+          <button type="button" class="chip" data-outs="1">1</button>
+          <button type="button" class="chip" data-outs="2">2</button>
+        </div>
+      </div>
+      <div class="filter-group compact">
+        <label class="group-label">On base (before)</label>
+        <div class="chip-row obc-chip-row" id="obc-chips"></div>
       </div>
     </div>
 

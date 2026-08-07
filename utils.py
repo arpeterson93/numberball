@@ -194,7 +194,7 @@ def _decode_move_destination(raw) -> tuple[str, bool] | None:
 _RUNNER_SLOT_DEFS = [(2, "r1", "1B"), (1, "r2", "2B"), (0, "r3", "3B")]
 
 
-def _build_runner_moves_for_row(row, before_obc: str) -> list[dict] | None:
+def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[dict] | None:
     """Decodes one row into an explicit move list, or None if this row's
     columns aren't trustworthy enough to use - either the runner-tracking
     columns aren't there at all, or the per-runner destinations don't add up
@@ -203,6 +203,16 @@ def _build_runner_moves_for_row(row, before_obc: str) -> list[dict] | None:
     ghost-runner codes don't describe an existing runner's move at all).
     Skipping those and falling back to the diff-based heuristic is safer
     than rendering something the row's own numbers disagree with.
+
+    OBC agreement is skipped (not just relaxed) when this play's own eOuts
+    shows it reaches 3 - a half-inning-ending play's OBC column means
+    "reset to empty for the next half-inning," not "every runner's
+    individual fate reconciles to this," so a row that fills in a truthful
+    destination for a runner who was simply stranded (e.g. safely advanced
+    one base, then the frame ended) would otherwise fail this check for
+    disagreeing with a column that was never describing that runner at all.
+    Runs still has to reconcile regardless - scoring isn't affected by the
+    reset convention.
     """
     moves: list[dict] = []
     runs_from_moves = 0
@@ -246,13 +256,16 @@ def _build_runner_moves_for_row(row, before_obc: str) -> list[dict] | None:
             occ_after[to] = True
 
     try:
-        predicted_obc_str = (
-            ("1" if occ_after["3B"] else "0") +
-            ("1" if occ_after["2B"] else "0") +
-            ("1" if occ_after["1B"] else "0")
-        )
-        if _OBC_STRING_TO_CODE[predicted_obc_str] != int(row["OBC"]):
-            return None
+        eouts = int(float(row["eOuts"])) if "eOuts" in row.index else outs_before
+        ends_half_inning = eouts >= 3
+        if not ends_half_inning:
+            predicted_obc_str = (
+                ("1" if occ_after["3B"] else "0") +
+                ("1" if occ_after["2B"] else "0") +
+                ("1" if occ_after["1B"] else "0")
+            )
+            if _OBC_STRING_TO_CODE[predicted_obc_str] != int(row["OBC"]):
+                return None
         if runs_from_moves != float(row["Runs"]):
             return None
     except (KeyError, ValueError, TypeError):
@@ -331,7 +344,7 @@ def _load_brc_table() -> None:
                 by_position_lookup[key] = by_position
 
             if has_runner_cols:
-                moves = _build_runner_moves_for_row(row, before_obc)
+                moves = _build_runner_moves_for_row(row, before_obc, outs)
                 if moves is not None:
                     moves_lookup[key] = moves
 
@@ -537,12 +550,23 @@ def _load_state_frequencies() -> None:
 # result -> {archetype, band_lo, band_hi, source}, from result_diff_bands.csv
 # (compute_result_diff_bands.py).
 _DIFF_BANDS: dict[str, dict] = {}
-# archetype -> {la_min, la_max, ev_min, ev_max, depth_min, depth_max}, from
-# ball_flight_archetypes.csv (hand-authored, not generated - see
-# ball-flight-plan.md Stage 1b).
-_FLIGHT_ARCHETYPES: dict[str, dict] = {}
-
-
+# result_diff_bands.csv is now the single source for everything ball-flight
+# needs per result - the old separate ball_flight_archetypes.csv (la_min/
+# la_max/ev_min/ev_max/depth_min/depth_max shared by archetype) is retired:
+# every result got its own Statcast-derived la/ev numbers instead of sharing
+# one archetype-wide range (real MLB data, filtered per MLN result - see
+# result_diff_bands.csv's own flight_source column for which results are
+# directly computed ("own") vs too rare to trust and borrowed from a
+# similar result ("borrowed:X")). depth_min/depth_max are the one exception
+# for grounder/infield_single/bunt-family results: Statcast's hit_distance_sc
+# measures where a ground ball first touches the ground, not where it's
+# fielded (verified against real hit_location - even shortstop/2B groundouts,
+# fielded 111-147ft out per INFIELDER_DEPTH_FT, showed hit_distance_sc medians
+# under 15ft), so those specific rows keep the old hand-tuned, real-infield-
+# depth-based ranges instead (flagged in their own flight_source entry).
+# `archetype` is kept as a plain category
+# label - app.js's CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES
+# still branch on it - not as a lookup key into a second numeric table.
 def _load_result_diff_bands() -> None:
     global _DIFF_BANDS
     try:
@@ -553,24 +577,11 @@ def _load_result_diff_bands() -> None:
                 "band_lo": int(r["band_lo"]),
                 "band_hi": int(r["band_hi"]),
                 "source": str(r["source"]),
-            }
-            for _, r in _bdf.iterrows()
-        }
-    except FileNotFoundError:
-        pass
-
-
-def _load_flight_archetypes() -> None:
-    global _FLIGHT_ARCHETYPES
-    try:
-        _adf = pd.read_csv("ball_flight_archetypes.csv")
-        _FLIGHT_ARCHETYPES = {
-            str(r["archetype"]): {
-                "la_min": float(r["la_min"]), "la_max": float(r["la_max"]),
+                "la_min": float(r["la_min"]), "la_ideal": float(r["la_ideal"]), "la_max": float(r["la_max"]),
                 "ev_min": float(r["ev_min"]), "ev_max": float(r["ev_max"]),
                 "depth_min": float(r["depth_min"]), "depth_max": float(r["depth_max"]),
             }
-            for _, r in _adf.iterrows()
+            for _, r in _bdf.iterrows()
         }
     except FileNotFoundError:
         pass
@@ -580,7 +591,6 @@ _load_re24_ranges()
 _load_sim_state_weights()
 _load_state_frequencies()
 _load_result_diff_bands()
-_load_flight_archetypes()
 
 
 def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead: int) -> float:

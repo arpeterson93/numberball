@@ -74,7 +74,18 @@ button{font-family:inherit;cursor:pointer;}
 .page{max-width:1180px;margin:0 auto;padding:24px 20px 60px;}
 
 /* ---- Title row ---- */
-.title-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
+/* Sticky (Alex's ask): stays reachable while scrolling through a long plays
+   list - the session selector and Key Moments/Favorites/Refresh/Settings
+   controls are the things you'd actually want mid-scroll, not just the
+   title text. An opaque background is required, not decorative - without
+   one, scrolled-past content would show straight through once this is
+   pinned above it. z-index sits below .modal/.toast (20/30) so those still
+   layer correctly on top of a stuck header. */
+.title-row{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;
+  position:sticky;top:0;z-index:15;background:var(--bg);
+  padding:10px 0;margin-top:-10px;border-bottom:1px solid var(--border);
+}
 .title-row h1{font-size:24px;margin:0;letter-spacing:normal;}
 .session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
@@ -219,6 +230,12 @@ button{font-family:inherit;cursor:pointer;}
 .filter-row{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:16px;}
 .filter-row:last-of-type{margin-bottom:0;}
 .fields-row .filter-group{flex:1;min-width:200px;max-width:320px;}
+/* Outs/On-base don't want an equal flex share the way Result/Team/Player do -
+   forcing them to the same min-width as a search box or select just stretches
+   their box past what a handful of small chips actually need, leaving dead
+   space to their right (Alex's catch). Sized to content instead, which also
+   frees up room for the row to actually fit on one line on a wide screen. */
+.fields-row .filter-group.compact{flex:0 0 auto;min-width:0;max-width:none;}
 .player-search-group{position:relative;}
 .player-suggest{
   position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;
@@ -251,6 +268,16 @@ button{font-family:inherit;cursor:pointer;}
 .chip.multi{border-radius:20px;}
 .chip.multi.active{background:var(--navy);border-color:var(--navy);}
 .chip.multi.active::before{content:"\2713\00a0";}
+/* On-base filter chips reuse the same mini-diamond markup the play cards
+   already draw (data.meta.bases_svg, .base-diamond.on/.off) rather than a
+   second hand-drawn icon - "aesthetic" here means visually identical to how
+   OBC already reads everywhere else in the app, not a new symbol to learn.
+   Scaled down slightly (30x30 native) to sit at the same height as the text
+   chips beside it. */
+.obc-chip-row{flex-wrap:wrap;}
+.obc-chip{padding:4px;line-height:0;}
+.obc-chip svg{width:22px;height:22px;display:block;}
+.obc-chip.active{background:var(--red);border-color:var(--red);}
 select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);background:var(--card);}
 .filters-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
 .count-text{font-weight:700;font-size:13.5px;}
@@ -441,7 +468,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    the X occupies the top ~36px of the card. */
 .catchup-progress{
   position:relative;flex:0 0 auto;padding:30px 44px 10px 18px;
-  font-size:11.5px;font-weight:700;letter-spacing:0.4px;color:var(--muted);min-height:16px;
+  font-size:11.5px;font-weight:700;letter-spacing:0.4px;color:var(--muted);
+  /* border-box min-height must cover the 40px of padding plus a text line, or
+     an empty counter (the "done" slide has no "Play x of y") collapses to just
+     the padding and the bar underneath sits ~15px too high. */
+  min-height:56px;
 }
 .catchup-progress::before{
   content:"";position:absolute;left:18px;right:18px;bottom:4px;height:3px;
@@ -735,6 +766,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
 @keyframes rnFadeOut{to{opacity:0;}}
 
+/* A safe runner (reached or held their forced base, never put out) whose
+   half-inning ends on this very play: nobody's left on the bases between
+   innings, so after reaching/holding they walk off to the dugout same as an
+   out would - just never turning red, since they were never retired. Reuses
+   rnOutToBase's exact run-pause-then-leave shape (a single forced advance is
+   always one leg, identical to the out choreography's own timing), with
+   --p1x/--p1y set to the runner's own current position when there's no real
+   advance to show (a true hold, not a forced move) - a same-point "run" is a
+   harmless no-op on this keyframe. */
+.rn.stranded-to-dugout{
+  animation-fill-mode:both;animation-timing-function:linear;
+  animation-name:rnOutToBase;animation-duration:1700ms;animation-delay:var(--rdelay,0s);
+}
+.rn.stranded-to-dugout .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
+
 @keyframes rnBatter{
   from{opacity:0;transform:scale(0.6);}
   to{opacity:1;transform:scale(1);}
@@ -922,13 +968,20 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wheel-arc-out{stroke:var(--red);}
 @keyframes wheelArcDraw{to{stroke-dashoffset:0;}}
 /* Markers sit ON the ring, both at the same radius (Alex's correction - only
-   the value LABELS below are staggered outward). Colour is by role, not by
-   which one appears first: defense (pitcher/catcher) is red, offense
-   (batter/runner) is blue - so a batted ball's pitch dot and a steal's
-   catcher dot are both red even though one goes first and the other second. */
+   the value LABELS below are staggered outward). Shape is by role, not by
+   which one appears first: defense (pitcher/catcher) is a baseball, offense
+   (batter/runner) is a bat - so a batted ball's pitch dot and a steal's
+   catcher dot are both a baseball even though one goes first and the other
+   second. Both use fixed, real-life colours rather than theme variables -
+   a baseball and a bat look the same regardless of light/dark mode; a fixed
+   mid-grey/dark-brown outline (rather than var(--border), which is nearly
+   invisible against a light card) keeps both readable in both themes. */
 .wheel-dot{transform-box:fill-box;transform-origin:center;opacity:0;}
-.wheel-dot-def{fill:var(--red);}
-.wheel-dot-off{fill:var(--blue);}
+.wheel-dot-def{fill:#ffffff;stroke:#9aa1ab;stroke-width:0.7;}
+.wheel-dot-off{fill:#8b5a2b;stroke:#4a2f14;stroke-width:0.35;stroke-linejoin:round;}
+/* Baseball seam curves on the defense marker - real stitch red, overriding
+   the ball body's stroke so they read as seams, not another outline. */
+.wheel-dot-seam{fill:none;stroke:var(--red);stroke-width:0.6;stroke-linecap:round;}
 .wheel-dot-1{animation:wheelDotIn 160ms ease 0ms both;}
 .wheel-dot-2{animation:wheelDotIn 160ms ease 650ms both;}
 @keyframes wheelDotIn{
@@ -1116,9 +1169,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-progress::after{transition:none;}
   .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
   .rn.batter .rn-inner, .rn.score .rn-inner,
-  .rn.out-walk, .rn.out-to-first, .rn.out-to-base,
+  .rn.out-walk, .rn.out-to-first, .rn.out-to-base, .rn.stranded-to-dugout,
   .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle,
   .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner,
+  .rn.stranded-to-dugout .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-inning.new-half, .play-scene .result-pill,
@@ -1143,7 +1197,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      colour transition (ball-flight-plan.md Stage 6, "Reduced motion" note).
      .rn's base rule already places it at --tx/--ty (the dugout), so only the
      visibility needs to change here. */
-  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{opacity:0;}
+  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner,
+  .rn.stranded-to-dugout .rn-inner{opacity:0;}
   .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle{fill:var(--red);}
   .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}

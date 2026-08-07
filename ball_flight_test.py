@@ -48,25 +48,46 @@ def main() -> None:
         check("firstTwo(1000)", page.evaluate("KMFlight.firstTwo(1000)"), 99)
         check("onesDigit(1)", page.evaluate("KMFlight.onesDigit(1)"), 0)
         check("onesDigit(1000)", page.evaluate("KMFlight.onesDigit(1000)"), 9)
+        # lastDigit: HZ's own digit extraction, deliberately NOT shifted like
+        # onesDigit - 1000 lands on 0 (not 9), so a raw pitch/swing pair reads
+        # as a literal digit subtraction (Alex's ask).
+        check("lastDigit(1)", page.evaluate("KMFlight.lastDigit(1)"), 1)
+        check("lastDigit(9)", page.evaluate("KMFlight.lastDigit(9)"), 9)
+        check("lastDigit(10)", page.evaluate("KMFlight.lastDigit(10)"), 0)
+        check("lastDigit(1000)", page.evaluate("KMFlight.lastDigit(1000)"), 0)
+        check("lastDigit(220)", page.evaluate("KMFlight.lastDigit(220)"), 0)
+        check("lastDigit(225)", page.evaluate("KMFlight.lastDigit(225)"), 5)
+        # The exact case Alex raised: pitch=220, swing=225 should read as a
+        # plain "+5" (swing 5 to the right of pitch), not silently flip sign
+        # at the wheel's halfway tie the way onesDigit's -1 shift would.
+        check(
+            "signedCirc(lastDigit(220), lastDigit(225), 10) reads as literal +5",
+            page.evaluate("KMFlight.signedCirc(KMFlight.lastDigit(220), KMFlight.lastDigit(225), 10)"),
+            5,
+        )
 
         tables = {
             "excluded": [
                 "K", "BB", "IBB", "AutoBB", "AutoK", "CS", "CS2", "CS3", "CS4",
                 "SB", "SB2", "SB3", "SB4", "AutoSB", "Balk", "pAuto", "bAuto",
             ],
-            "archetypes": {
-                "home_run": {"laMin": 25, "laMax": 35, "evMin": 98, "evMax": 115, "depthMin": 370, "depthMax": 420},
-                "grounder": {"laMin": -15, "laMax": 8, "evMin": 70, "evMax": 100, "depthMin": 60, "depthMax": 150},
-                "fly_ball": {"laMin": 25, "laMax": 50, "evMin": 80, "evMax": 98, "depthMin": 250, "depthMax": 380},
+            # Each band carries its own laMin/laIdeal/laMax/evMin/evMax/
+            # depthMin/depthMax directly (result_diff_bands.csv's real shape -
+            # the old separate archetype-keyed range table is retired). These
+            # illustrative mock numbers aren't the real Statcast-derived ones;
+            # they only need to be internally consistent enough to validate
+            # the formula's own mechanics.
+            "bands": {
+                "HR": {"archetype": "home_run", "lo": 2, "hi": 21,
+                       "laMin": 25, "laIdeal": 28, "laMax": 35, "evMin": 98, "evMax": 115, "depthMin": 370, "depthMax": 420},
+                "GO": {"archetype": "grounder", "lo": 180, "hi": 470,
+                       "laMin": -15, "laIdeal": 8, "laMax": 8, "evMin": 70, "evMax": 100, "depthMin": 60, "depthMax": 150},
+                "FO": {"archetype": "fly_ball", "lo": 55, "hi": 240,
+                       "laMin": 25, "laIdeal": 28, "laMax": 50, "evMin": 80, "evMax": 98, "depthMin": 250, "depthMax": 380},
                 # C5 recalibration: was -5,10,...,60,160 - half of real singles
                 # landed on the infield dirt. See the infield-dirt sweep below.
-                "single": {"laMin": 6, "laMax": 20, "evMin": 75, "evMax": 98, "depthMin": 130, "depthMax": 230},
-            },
-            "bands": {
-                "HR": {"archetype": "home_run", "lo": 2, "hi": 21},
-                "GO": {"archetype": "grounder", "lo": 180, "hi": 470},
-                "FO": {"archetype": "fly_ball", "lo": 55, "hi": 240},
-                "1B": {"archetype": "single", "lo": 20, "hi": 150},
+                "1B": {"archetype": "single", "lo": 20, "hi": 150,
+                       "laMin": 6, "laIdeal": 12, "laMax": 20, "evMin": 75, "evMax": 98, "depthMin": 130, "depthMax": 230},
             },
         }
 
@@ -85,19 +106,26 @@ def main() -> None:
 
         cases = [
             {
+                # la: q = 1 - clamp((5-2)/(21-2)) = 16/19 = 0.8421 (close to the
+                # band's low end, i.e. well-timed contact); onTop (swing > pitch,
+                # all digits) -> LA = 28 - (1-q)*(28-25) = 27.53, close to but
+                # not quite laIdeal since this diff isn't AT the band's floor.
                 "label": "HR pulled RHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "R", "diff": 5},
-                "want": {"la": 29.90, "angle": 5.00, "ev": 112.32, "distance": 412.1, "x": -264.9, "y": 315.7, "hangMs": 5100},
+                "want": {"la": 27.53, "angle": 5.00, "ev": 112.32, "distance": 412.1, "x": -264.9, "y": 315.7, "hangMs": 4728.73},
             },
             {
                 "label": "HR same numbers LHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "L", "diff": 5},
-                "want": {"la": 29.90, "angle": 85.00, "x": 264.9},
+                "want": {"la": 27.53, "angle": 85.00, "x": 264.9},
             },
             {
+                # la: q clamps to 0 (diff 481 is past the GO band's own hi=470),
+                # so LA bottoms out at grounder's laMin (-15) regardless of
+                # direction - the "least ideal" end of the formula's range.
                 "label": "Groundout RHH",
                 "play": {"result": "GO", "pitch": 150, "swing": 631, "batter_hand": "R", "diff": 481},
-                "want": {"la": -14.77, "angle": 53.00, "ev": 70.00, "distance": 60.0, "isGrounder": True, "hangMs": None},
+                "want": {"la": -15.0, "angle": 53.00, "ev": 70.00, "distance": 60.0, "isGrounder": True, "hangMs": None},
             },
             {
                 # Raw (pre-clamp) distance would be 380.0 ft per the plan's Stage 3a
@@ -107,18 +135,24 @@ def main() -> None:
                 # 375ft wall. Expected values below are post-clamp:
                 # min(380, 375-12)=363, with x/y recomputed from D=363 at the same
                 # 29 degree angle.
+                # la: diff 48 is below the FO band's own lo=55, so q clamps to 1 -
+                # LA lands exactly on fly_ball's laIdeal (28), independent of
+                # direction (the (1-q) deviation term is zero at q=1).
                 "label": "Flyout RHH",
                 "play": {"result": "FO", "pitch": 220, "swing": 268, "batter_hand": "R", "diff": 48},
-                "want": {"la": 36.25, "angle": 29.00, "ev": 98.00, "distance": 363.0, "x": -100.06, "y": 348.94},
+                "want": {"la": 28.0, "angle": 29.00, "ev": 98.00, "distance": 363.0, "x": -100.06, "y": 348.94},
             },
             {
                 # Recomputed for C5's recalibrated single archetype (was
                 # -5,10,...,60,160 - la/distance/isGrounder below reflect the
                 # new 6,20,...,130,230 band; angle/ev are archetype-independent
                 # and unchanged from the original worked example.
+                # la: q = 1 - clamp((87-20)/(150-20)) = 1 - 67/130 = 0.4846; swing
+                # (801) < pitch (888) on the full 1000-wheel -> "below" the pitch
+                # (uppercut) -> LA = 12 + (1-q)*(20-12) = 16.12.
                 "label": "Single LHH",
                 "play": {"result": "1B", "pitch": 888, "swing": 801, "batter_hand": "L", "diff": 87},
-                "want": {"la": 14.12, "angle": 21.00, "ev": 86.15, "distance": 178.46, "isGrounder": False},
+                "want": {"la": 16.12, "angle": 21.00, "ev": 86.15, "distance": 178.46, "isGrounder": False},
             },
         ]
 
@@ -274,6 +308,35 @@ def main() -> None:
             )
             check(f"throw beats runner by >=0ms ({result} {before}->{after})", margin >= 0, True)
 
+        print("\nTag-throw timing (no outfield-assist scenario exists yet, so a fly")
+        print("ball/pop-up's throw - SacF's decorative 'throw home anyway' - must")
+        print("never beat the safe runner it's chasing):")
+        for result, before, after, runs, outs_before, outs_after, archetype, want in throw_cases:
+            if archetype not in ("fly_ball", "pop_up") or not want:
+                continue
+            m = {"result": result, "outs_before": outs_before, "outs_after": outs_after}
+            flight = {"archetype": archetype, "clearedFence": False, "hangMs": None}
+            margin = page.evaluate(
+                """(a) => {
+                    var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
+                    var schedule = KMFlight.throwSchedule(a.m, moves, a.flight);
+                    var catchMs = KMFlight.ballTravelMs(a.flight);
+                    var runnerArrival = 0;
+                    moves.forEach(function (mv) {
+                        if (mv.to === "OUT") return;
+                        var startOrd = mv.from === "BATTER" ? 0 : KMFlight.BASE_ORDINAL[mv.from];
+                        var endOrd = mv.scored ? 4 : KMFlight.BASE_ORDINAL[mv.to];
+                        if (startOrd == null || endOrd == null || endOrd <= startOrd) return;
+                        var legs = Math.min(endOrd - startOrd, KMFlight.RUN_LEG_MS.length - 1);
+                        runnerArrival = Math.max(runnerArrival, catchMs + KMFlight.TAG_UP_MS + (KMFlight.RUN_LEG_MS[legs] || 0));
+                    });
+                    var lastEnd = Math.max.apply(null, schedule.map(t => t.endMs));
+                    return lastEnd - (runnerArrival + KMFlight.TAG_THROW_MARGIN_MS);
+                }""",
+                {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
+            )
+            check(f"runner beats throw by >=0ms ({result} {before}->{after})", margin >= 0, True)
+
         print("\nThrow-target sweep (ground-truth invariant restated for throws):")
         meta_fp = pathlib.Path("docs/data/meta.json")
         real_plays: list[dict] = []
@@ -309,6 +372,48 @@ def main() -> None:
                 print(f"    - {bad}")
         else:
             print("  [skip] no real feed data / meta.json found on disk")
+
+        print("\nGrounder depth sanity (regression guard): Statcast's hit_distance_sc")
+        print("measures a ground ball's first bounce, not its fielding depth - a naive")
+        print("re-derivation would collapse depthMax back down near that bounce point")
+        print("(observed ~78ft for GO) instead of a realistic infield depth (INFIELDER_")
+        print("DEPTH_FT tops out at 147ft for SS/2B):")
+        if meta_fp.exists():
+            bands = json.loads(meta_fp.read_text(encoding="utf-8"))["flight"]["bands"]
+            GROUND_TOUCHING_MIN_DEPTH_MAX = {
+                "GO": 100, "GORA": 100, "FC": 100, "FC3rd": 100, "FCH": 100,
+                "DP": 100, "DP21": 100, "DP31": 100, "DPH1": 100, "DPRun": 100, "TP": 100,
+                "IF1B": 60,
+            }
+            for result, floor in GROUND_TOUCHING_MIN_DEPTH_MAX.items():
+                band = bands.get(result)
+                if not band:
+                    continue
+                check(f"{result} depthMax >= {floor}ft (real infield depth, not bounce point)",
+                      band["depthMax"] >= floor, True)
+        else:
+            print("  [skip] no meta.json found on disk")
+
+        print("\nGrounder rollout sanity (regression guard): a flat ROLLOUT_FT max can't")
+        print("bridge the gap between a modest landing point and a real infield depth -")
+        print("a moderate-contact GO assigned to shortstop (147ft, the deepest infield")
+        print("position) must roll out to noticeably more than half that depth, not just")
+        print("its own short landing point plus a small constant:")
+        moderate_go_flight = page.evaluate(
+            """() => {
+                var flight = {ev: 74.8, la: -15, distance: 87, angle: 29, archetype: 'grounder'};
+                var m = {outs_before: 0, outs_after: 1};
+                var roll = KMFlight.groundBallRolloutFt(m, flight);
+                return {roll: roll, total: flight.distance + roll};
+            }"""
+        )
+        # Old flat-ROLLOUT_FT formula gave this exact contact quality only
+        # 0.463*34 =~ 15.7ft of roll (total ~102.8ft) - well short of a real
+        # shortstop's 147ft. The gap-scaled fix should meaningfully beat that.
+        check("moderate-contact GO (SS-assigned) rolls out further than the old flat-max formula would",
+              moderate_go_flight["roll"] > 20, True)
+        check("moderate-contact GO (SS-assigned) total distance closes meaningfully more of the gap to SS's real 147ft depth",
+              moderate_go_flight["total"] > 110, True)
 
         print("\nC5 infield-dirt regression: no real 1B/1BWH/1BWH2 may land on the dirt")
         real_singles = []

@@ -746,30 +746,38 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
 
 
 def _flight_meta() -> dict:
-    """meta.flight: the two ball-flight staging tables, read through utils'
-    loaders (utils._DIFF_BANDS / utils._FLIGHT_ARCHETYPES) the same way every
-    other precomputed CSV reaches this build, plus the exclusion list as data
-    so app.js has one definition of in-scope-for-flight rather than a second
-    hardcoded copy of FLIGHT_EXCLUDED.
+    """meta.flight: the ball-flight staging table, read through utils._DIFF_BANDS
+    the same way every other precomputed CSV reaches this build, plus the
+    exclusion list as data so app.js has one definition of in-scope-for-flight
+    rather than a second hardcoded copy of FLIGHT_EXCLUDED.
+
+    Each band now carries its own laMin/laIdeal/laMax/evMin/evMax/depthMin/
+    depthMax directly (real, per-MLN-result Statcast-derived numbers, with
+    one exception - see result_diff_bands.csv's own comment on depthMin/
+    depthMax for grounder/infield_single/bunt-family results, which keep a
+    hand-tuned real-infield-depth range instead of Statcast's hit_distance_sc,
+    since that column measures first ground contact, not fielding depth)
+    instead of a level of indirection through a separate archetype-keyed
+    table - the old ball_flight_archetypes.csv is retired. `archetype` stays
+    on the band as a plain category label: app.js's CAUGHT_IN_AIR/
+    GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES still branch on it, just no longer
+    use it to look up numbers.
 
     no_pa is the subset of FLIGHT_EXCLUDED where the batter never had a plate
     appearance at all (a steal, a caught stealing, a balk) - app.js uses it to
     suppress the batter token fallback entirely on those plays, rather than
     walking a batter who did nothing to the dugout."""
     bands = {
-        result: {"archetype": row["archetype"], "lo": row["band_lo"], "hi": row["band_hi"]}
-        for result, row in utils._DIFF_BANDS.items()
-    }
-    archetypes = {
-        archetype: {
-            "laMin": row["la_min"], "laMax": row["la_max"],
+        result: {
+            "archetype": row["archetype"], "lo": row["band_lo"], "hi": row["band_hi"],
+            "laMin": row["la_min"], "laIdeal": row["la_ideal"], "laMax": row["la_max"],
             "evMin": row["ev_min"], "evMax": row["ev_max"],
             "depthMin": row["depth_min"], "depthMax": row["depth_max"],
         }
-        for archetype, row in utils._FLIGHT_ARCHETYPES.items()
+        for result, row in utils._DIFF_BANDS.items()
     }
     no_pa = sorted(STEAL_SUCCESS_CODES | CAUGHT_STEALING_CODES | {"Balk"})
-    return {"bands": bands, "archetypes": archetypes, "excluded": FLIGHT_EXCLUDED, "no_pa": no_pa}
+    return {"bands": bands, "excluded": FLIGHT_EXCLUDED, "no_pa": no_pa}
 
 
 def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, away_score: int) -> bool:

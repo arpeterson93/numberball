@@ -30,7 +30,12 @@
       "Bash(awk -F: '$1>62')",
       "Bash(awk 'NR>=1480 && NR<=1560 && /^ *\\(with|if|for|else|elif|def\\) /' pages/2_Scouting.py)",
       "Bash(awk -F: '$1>1450 && $1<2320')",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash('C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe' -c ' *)",
+      "Bash(rm -f \".~lock.import_BRC.csv#\")",
+      "Bash(git pull *)",
+      "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" \"C:\\\\Users\\\\Alex\\\\.claude\\\\jobs\\\\4731015e\\\\tmp\\\\compute_ranges.py\")",
+      "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" ball_flight_test.py)"
     ]
   }
 }

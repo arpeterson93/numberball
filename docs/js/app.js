@@ -38,6 +38,9 @@
     player: "",         // free-text substring, used only when playerId is null
     playerId: null,     // set by picking a row from the suggestion dropdown
     tags: new Set(),    // multi-select, OR'd together
+    resultCode: "",     // exact result code (e.g. "GO", "1BWH") - debugging/search, distinct from the broad `result` category above
+    outs: null,         // 0 | 1 | 2 | null for all - outs_before
+    obc: "",            // "" | "000".."111" - obc_before
     sort: "chrono",
     selectedGame: null, // game_code, set by clicking a scoreboard tile - display only, not a real filter
     side: "all",        // "all" | "for" | "against" - see sideVerdicts() below
@@ -123,16 +126,14 @@
     if (!iso) return "Data as of -";
     var d = new Date(iso);
     if (isNaN(d.getTime())) return "Data as of " + iso;
-    var mins = Math.round((Date.now() - d.getTime()) / 60000);
-    var ago;
-    if (mins < 1) ago = "just now";
-    else if (mins < 60) ago = mins + " min ago";
-    else if (mins < 1440) ago = Math.round(mins / 60) + " hr ago";
-    else {
-      var days = Math.round(mins / 1440);
-      ago = days + (days === 1 ? " day ago" : " days ago");
-    }
-    return "Updated " + ago;
+    // built_at is a real UTC "...Z" string (key_moments_build.py), so these
+    // getters already report back in the viewer's own local timezone with no
+    // extra reinterpretation needed - unlike formatMomentTime's naive Central
+    // strings above, this one is properly zoned already.
+    var h = d.getHours();
+    var ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return "Updated " + MONTHS[d.getMonth()] + " " + d.getDate() + ", " + h + ":" + pad2(d.getMinutes()) + " " + ampm;
   }
 
   function toast(msg) {
@@ -275,6 +276,9 @@
     } else if (filters.result && m.result_category !== filters.result) {
       return false;
     }
+    if (filters.resultCode && m.result !== filters.resultCode) return false;
+    if (filters.outs !== null && (m.outs_before || 0) !== filters.outs) return false;
+    if (filters.obc && String(m.obc_before || "000") !== filters.obc) return false;
     if (filters.league) {
       var teams = data.meta.teams || {};
       var off = (teams[m.off_team_abbr] || {}).sub_league;
@@ -347,7 +351,7 @@
     var cls = delta >= 0 ? "wpa-pos" : "wpa-neg";
     var sign = delta >= 0 ? "+" : "";
     return "<span>" + escapeHtml(m.featured_team_abbr) + " win probability " +
-      '<span class="' + cls + '">' + pct + "% · " + sign + delta.toFixed(1) + "</span></span>";
+      '<span class="' + cls + '">' + pct + "% " + sign + delta.toFixed(1) + "</span></span>";
   }
 
   function scoreBlock(m) {
@@ -674,6 +678,9 @@
     if (filters.team) n += 1;
     if (filters.player) n += 1;
     if (filters.side !== "all") n += 1;
+    if (filters.resultCode) n += 1;
+    if (filters.outs !== null) n += 1;
+    if (filters.obc) n += 1;
     return n + filters.tags.size;
   }
 
@@ -1087,8 +1094,8 @@
   // contact still classified HR, landing near depth_min=370) now lands
   // inside the park regardless of direction. Expect a meaningfully higher
   // inside-the-park rate than the plan's 0.9% estimate; watch real plays and
-  // raise this or the archetype's depth_min in ball_flight_archetypes.csv if
-  // it happens too often (ball-flight-plan.md Open Question 1b).
+  // raise this or HR's own depth_min in result_diff_bands.csv if it happens
+  // too often (ball-flight-plan.md Open Question 1b).
   var FENCE_DEPTH_FT = 375;
   function fenceAt(angleDeg) { return FENCE_DEPTH_FT; }
 
@@ -1210,6 +1217,18 @@
   function firstTwo(v) { return Math.floor((v - 1) / 10); }   // 0..99
   function onesDigit(v) { return (v - 1) % 10; }               // 0..9
 
+  // The HZ bucket's own digit extraction (Alex's call): literally v's last
+  // decimal digit, with 1000 landing on 0 rather than 9 - unlike onesDigit's
+  // -1 shift (needed to decompose the 1-1000 wheel into consistent
+  // decade/ones components for LA), this is deliberately NOT shifted, so a
+  // raw pitch/swing pair can be read by eye as a plain digit subtraction:
+  // 220 vs 225 is "swing is 5 to the right of pitch," not off by one from
+  // what the numbers themselves say. Only differs from onesDigit at the exact
+  // wheel-halfway tie (a bucket delta of precisely +-5) - away from that tie
+  // the two conventions agree, since the wraparound in signedCirc absorbs a
+  // uniform shift everywhere except right at that boundary.
+  function lastDigit(v) { return v % 10; }                    // 0..9, 1000->0
+
   // Pitcher hand is not threaded into the JSON (real roster data has zero
   // switch hitters today - ball-flight-plan.md Finding 4 - so this path is
   // dead on real data). A blank/unexpected batter hand, including "S" with
@@ -1294,7 +1313,37 @@
 
   var GROUND_LA_THRESHOLD = 4;   // degrees; below this a batted ball is a grounder, not airborne
 
-  // tables is data.meta.flight: { bands, archetypes, excluded }.
+  // Launch angle anchors on this specific MLN result's own real, Statcast-
+  // derived "ideal" LA (band.laIdeal - the median LA of real MLB plays
+  // matching this result's own filter, e.g. events='home_run', or bb_type=
+  // 'ground_ball' & events IN ('field_out','force_out') for GO - see
+  // result_diff_bands.csv) rather than a flat laMin-to-laMax sweep or a
+  // single borrowed physics constant. Reuses the SAME diff/band q that
+  // already drives EV/depth below - q=1 at the band's low end (the
+  // best-timed, hardest contact) is already "closest to ideal" for EV and
+  // depth, so LA rides the same curve instead of a second, disconnected
+  // timing signal: at q=1 this collapses to exactly laIdeal regardless of
+  // direction; at q=0 it bottoms/tops out at this result's own laMin/laMax.
+  // laIdeal is itself a real percentile (the 50th) of the same distribution
+  // laMin/laMax come from (the 10th/90th), so it always sits meaningfully
+  // inside the range with room on both sides - the old approach (an
+  // externally-sourced physics ideal clamped into an archetype-wide range)
+  // could put ideal exactly AT laMin or laMax for a result whose real range
+  // never reaches the physics optimum, collapsing one whole direction's
+  // adjustment to zero (Alex's catch - a mistimed swing that's still always
+  // reported as "ideal" makes no sense).
+  function launchAngleFor(band, q, onTop) {
+    var ideal = band.laIdeal;
+    return onTop
+      ? ideal - (1 - q) * (ideal - band.laMin)
+      : ideal + (1 - q) * (band.laMax - ideal);
+  }
+
+  // tables is data.meta.flight: { bands, excluded }. Each band now carries
+  // its own laMin/laIdeal/laMax/evMin/evMax/depthMin/depthMax directly (see
+  // result_diff_bands.csv) - no separate archetype-keyed range table to look
+  // up; `band.archetype` is still a plain category label for
+  // CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES below.
   function flightParams(play, tables) {
     var result = play.result;
     if (!tables || (tables.excluded || []).indexOf(result) !== -1) return null;
@@ -1302,23 +1351,25 @@
     if (pitch == null || swing == null) return null;
     var band = (tables.bands || {})[result];
     if (!band) return null;
-    var arche = (tables.archetypes || {})[band.archetype];
-    if (!arche) return null;
 
-    var dLA = signedCirc(firstTwo(pitch), firstTwo(swing), 100);
-    var bucket = signedCirc(onesDigit(pitch), onesDigit(swing), 10);
+    var bucket = signedCirc(lastDigit(pitch), lastDigit(swing), 10);
 
-    var pLaunch = (1 - dLA / 50) / 2;
-    var LA = arche.laMin + pLaunch * (arche.laMax - arche.laMin);
+    var diff = play.diff;
+    var q = diff == null ? 0 : 1 - clamp((diff - band.lo) / (band.hi - band.lo), 0, 1);
+
+    // "On top" of the pitch (bat path above the ball - a topped, lower-LA
+    // swing) vs "below" it (an uppercut, higher LA) - the sign of the FULL
+    // pitch/swing circular delta over all three digits, not just the first
+    // two the old dLA used - signedCirc already generalises to any modulus.
+    var onTop = signedCirc(pitch, swing, 1000) > 0;
+    var LA = launchAngleFor(band, q, onTop);
 
     var hand = effectiveHand(play.batter_hand);
     var frac = bucket / 5;
     var angle = hand === "L" ? 45 - frac * 40 : 45 + frac * 40;
 
-    var diff = play.diff;
-    var q = diff == null ? 0 : 1 - clamp((diff - band.lo) / (band.hi - band.lo), 0, 1);
-    var EV = arche.evMin + q * (arche.evMax - arche.evMin);
-    var D = arche.depthMin + q * (arche.depthMax - arche.depthMin);
+    var EV = band.evMin + q * (band.evMax - band.evMin);
+    var D = band.depthMin + q * (band.depthMax - band.depthMin);
 
     var isHomeRun = result === "HR";
     D = clampToFence(D, angle, isHomeRun);
@@ -1410,9 +1461,21 @@
   // throw beats the runner to the bag (refinements plan A4/F10).
   var THROW_DELAY_MS = 60;          // throw draws in this long after the ball is fielded
   var THROW_DRAW_MS = 180;          // how long one throw takes to draw in
-  var THROW_STAGGER_MS = 150;       // gap between successive throws on a multi-throw play
-  var THROW_LEAD_MS = 100;          // required margin: every throw must land at least this early
+  // Gap between successive throws on a multi-throw play (a DP's relay).
+  // Tightened from 150 when THROW_LEAD_MS went 100->200: a 2-throw relay's
+  // schedule (THROW_DELAY_MS + this + THROW_DRAW_MS, stacked on top of the
+  // ball's own travel time) only had ~10ms of slack against the batter's
+  // fixed first-to-base arrival time at the old margin, so doubling that
+  // margin without also tightening this pushed the relay's second throw
+  // past the runner outright. This restores the same ~10ms slack.
+  var THROW_STAGGER_MS = 50;
+  var THROW_LEAD_MS = 200;          // required margin: every throw must land at least this early
   var TAG_UP_MS = 80;               // a tagging runner leaves this long after the catch (B5)
+  // A caught-ball throw that isn't chasing a real out (SacF/DSacF/FO's "the
+  // drama of a sac fly" throw - see throwSchedule) is chasing a runner who's
+  // already safe, same convention as STEAL_THROW_MARGIN_MS: the runner beats
+  // the throw home by at least this much, instead of racing it.
+  var TAG_THROW_MARGIN_MS = 200;
   // Off for now (Item 15) - Alex found the converging dot in the outfield an
   // unnecessary touch. The function, its CSS and its reduced-motion entry are
   // all still correct; this is a one-word revert if it comes back, e.g. as a
@@ -1453,9 +1516,10 @@
   // form infieldDirtHtml uses for the foul-line intersections, generalised to
   // an arbitrary angle instead of just the two 45 degrees-off-center foul lines.
   var DIRT_CLEAR_MARGIN_FT = 3;   // a safe grounder rolls at least this far past the dirt's edge
-  // These two archetypes are deliberately short (bunt: 5-25ft, infield_single:
-  // 45-90ft, from ball_flight_archetypes.csv) - a legged-out infield hit that
-  // stays on the dirt is the realistic outcome there, not a bug to floor away.
+  // These two archetypes are deliberately short (every bunt/infield_single
+  // result's own depthMin/depthMax in result_diff_bands.csv stays well under
+  // INFIELD_DIRT_RADIUS_FT) - a legged-out infield hit that stays on the
+  // dirt is the realistic outcome there, not a bug to floor away.
   var STAYS_IN_INFIELD_ARCHETYPES = { bunt: 1, infield_single: 1 };
   function dirtEdgeFt(angleDeg) {
     var offset = (angleDeg - 45) * Math.PI / 180;
@@ -1492,7 +1556,21 @@
       // overshoot.
       var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
       var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
-      if (depth != null) maxReachFt = Math.min(maxReachFt, depth);
+      if (depth != null) {
+        maxReachFt = Math.min(maxReachFt, depth);
+        // A grounder out's roll bounds toward the REAL fielder standing at
+        // `depth` (60ft for the pitcher up to 147ft for SS/2B), not a flat
+        // ROLLOUT_FT - real infield depths span too wide a range for one
+        // constant max to ever bridge the gap for a deep position (Alex's
+        // catch: a modest shortstop-side grounder landed at ~87ft, could
+        // only add another 34ft at best, stopping 44ft short of a real
+        // 147ft-deep shortstop no matter how well it was hit). Scaling the
+        // same contact-quality fraction against the gap-to-the-fielder
+        // instead of a flat constant keeps weak contact fielded well in
+        // front (charged in, still "not hit very far") while well-hit
+        // contact closes most of the way to where the fielder actually is.
+        rollFt = rolloutFraction(flight.ev, flight.la) * Math.max(0, depth - flight.distance);
+      }
     } else if (!isOut && !STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
       // Any hit that reaches base safely, and isn't meant to be a short
       // infield hit, has to visibly clear the infield dirt, even when its
@@ -1607,6 +1685,15 @@
   // flight.isGrounder: isGrounder is an LA threshold and would misclassify a
   // low line drive as a grounder for this purpose.
   var CAUGHT_IN_AIR = { fly_ball: 1, pop_up: 1, line_drive: 1 };
+
+  // Fly balls and pop-ups whose throw is scheduled anyway (SacF/DSacF/FO's
+  // decorative "throw home" - see throwSchedule) never beat anyone: there is
+  // no outfield-assist scenario in the situation list, so any runner shown
+  // advancing on one of these already beat the throw, full stop - not an
+  // inference, a fact about the current finite scenario set. Line drives are
+  // excluded: LODP/LOTP are real outs off the caught ball (doubled off) and
+  // must keep racing the runner like any other out.
+  var TAG_THROW_ARCHETYPES = { fly_ball: 1, pop_up: 1 };
 
   // Lead-runner-first: real defensive priority always tries for the runner
   // furthest around the bases first (A2).
@@ -1765,12 +1852,40 @@
      rendering so the timing race against the runner can be asserted rather
      than eyeballed - see ball_flight_test.py. */
   function throwSchedule(m, moves, flight) {
+    var targets = outThrowTargets(m, moves, flight);
+    if (!targets.length) return [];
+
+    // A fly ball/pop-up's throw (SacF/DSacF/FO's decorative "throw home
+    // anyway" - outThrowTargets appends it, or an explicit ThrowOrder
+    // describes the same throw) never beats anyone - see TAG_THROW_ARCHETYPES.
+    // The ball-fielding-only schedule below has no idea the runner had to
+    // wait out the catch/tag-up before moving at all, so it drew the throw
+    // in a good 600ms+ before the runner had actually crossed the plate.
+    // Anchor this one on the slowest safe runner's own arrival instead.
+    if (flight && TAG_THROW_ARCHETYPES[flight.archetype]) {
+      var catchMs = ballTravelMs(flight);
+      var runnerArrival = 0;
+      moves.forEach(function (mv) {
+        if (mv.to === "OUT") return;
+        var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
+        var endOrd = mv.scored ? 4 : BASE_ORDINAL[mv.to];
+        if (startOrd == null || endOrd == null || endOrd <= startOrd) return;
+        var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
+        runnerArrival = Math.max(runnerArrival, catchMs + TAG_UP_MS + (RUN_LEG_MS[legs] || 0));
+      });
+      var tagStart = Math.max(0, runnerArrival + TAG_THROW_MARGIN_MS - THROW_DRAW_MS);
+      return targets.map(function (b, i) {
+        var start = tagStart + i * THROW_STAGGER_MS;
+        return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
+      });
+    }
+
     // A rolling grounder isn't fielded until it stops rolling - the throw
     // has to wait out that extra beat too, or it'd draw from a spot the ball
     // hasn't visibly reached yet (see throwHtml's fieldPt).
     var rollMs = groundBallRolloutFt(m, flight) > 0 ? ROLLOUT_MS : 0;
     var base = ballTravelMs(flight) + rollMs + THROW_DELAY_MS;
-    return outThrowTargets(m, moves, flight).map(function (b, i) {
+    return targets.map(function (b, i) {
       var start = base + i * THROW_STAGGER_MS;
       return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
     });
@@ -1816,7 +1931,7 @@
   // runner stealing on the same pitch - caught, not safe.
   var STEAL_SAFE_CODES = { SB: 1, SB2: 1, SB3: 1, SB4: 1, SB32: 1, SB42: 1, SB43: 1, SB432: 1 };
   var STEAL_CAUGHT_CODES = { CS: 1, CS2: 1, CS3: 1, CS4: 1, KCS: 1 };
-  var STEAL_THROW_MARGIN_MS = 100;  // CS: throw arrives this early; SB: this late
+  var STEAL_THROW_MARGIN_MS = 200;  // CS: throw arrives this early; SB: this late
 
   // The runner token's own "reaches the base" moment - RUN_LEG_MS[1] (800ms)
   // is both a plain legs1 advance's full duration AND (per batterFirstArrivalMs's
@@ -1878,9 +1993,10 @@
   // execution - var bindings (unlike function declarations) are not
   // initialised until their own assignment runs.
   window.KMFlight = {
-    signedCirc: signedCirc, firstTwo: firstTwo, onesDigit: onesDigit,
+    signedCirc: signedCirc, firstTwo: firstTwo, onesDigit: onesDigit, lastDigit: lastDigit,
     effectiveHand: effectiveHand, landingPoint: landingPoint, clampToFence: clampToFence,
     nearestFielder: nearestFielder, flightParams: flightParams, fenceAt: fenceAt,
+    launchAngleFor: launchAngleFor,
     FENCE_DEPTH_FT: FENCE_DEPTH_FT,
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
@@ -1893,11 +2009,15 @@
     groundBallRolloutFt: groundBallRolloutFt,
     applyGroundBallFielderDepth: applyGroundBallFielderDepth,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
+    TAG_THROW_ARCHETYPES: TAG_THROW_ARCHETYPES,
     GROUND_ARCHETYPES: GROUND_ARCHETYPES,
     parseThrowOrder: parseThrowOrder,
     applyPositionOverride: applyPositionOverride,
     throwOrderKeyForPosition: throwOrderKeyForPosition,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
+    TAG_UP_MS: TAG_UP_MS, TAG_THROW_MARGIN_MS: TAG_THROW_MARGIN_MS,
+    RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
+    ballTravelMs: ballTravelMs,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -2005,7 +2125,16 @@
       var path = isOut
         ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
         : basepathWaypoints(mv.from, mv.to, mv.scored);
-      var end = isOut ? dugoutSvg : (path.length ? path[path.length - 1] : from);
+      // A safe runner (reached or held their forced base, never put out)
+      // whose own half-inning ends on this very play has nobody left on the
+      // bases between innings either - after reaching/holding, they walk
+      // off to the dugout too, same as an out would, just without ever
+      // turning red. A true "hold" (no real advance, path empty) still
+      // needs a --p1 waypoint for the shared keyframe - their own current
+      // position is a harmless no-op "leg".
+      var strandedSafe = !isOut && !mv.scored && !!m.is_half_inning_final;
+      if (strandedSafe && !path.length) path = [from];
+      var end = isOut ? dugoutSvg : (strandedSafe ? dugoutSvg : (path.length ? path[path.length - 1] : from));
       var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
       // A genuinely forced runner (isForcedRunner, on one of the ground-ball
       // results where that applies) leaves on contact - same beat as a safe
@@ -2025,7 +2154,12 @@
       var mvDelay = isOut
         ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
         : (catchMs ? catchMs + TAG_UP_MS : runDelay);
-      if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (RUN_LEG_MS[legs] || 0));
+      // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
+      // matching the out choreography's own run-then-leave timing exactly)
+      // - RUN_LEG_MS[legs] here would understate how long the token is
+      // actually on screen for maxArrival's "don't light a base up before
+      // everyone's actually arrived" purpose.
+      if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (strandedSafe ? 1700 : (RUN_LEG_MS[legs] || 0)));
       var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
                  "--tx:" + end.x + "px;--ty:" + end.y + "px;" +
                  "--rdelay:" + mvDelay + "ms;";
@@ -2039,7 +2173,8 @@
       // out choreography's own keyframe owns --p1 instead, so isOut never
       // gets a legsN class alongside it.
       var outCls = isOut ? (path.length ? " out-to-base" : " out-walk") : "";
-      var cls = "rn" + (legs && !isOut ? " legs" + legs : "") + outCls +
+      var cls = "rn" + (legs && !isOut && !strandedSafe ? " legs" + legs : "") + outCls +
+                (strandedSafe ? " stranded-to-dugout" : "") +
                 (mv.scored ? " score" : "") + (mv.from === "BATTER" ? " batter" : "");
       return '<g class="' + cls + '" style="' + vars + '">' +
         '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
@@ -2308,7 +2443,10 @@
       pts.push({
         i: i,
         x: xByIdx[i],
-        y: RIBBON_PAD + (1 - hw) * (RIBBON_H - RIBBON_PAD * 2),
+        // Home team on the bottom (Alex's ask): higher home win% -> larger y
+        // -> lower on screen, since SVG y grows downward. Was (1 - hw),
+        // putting a home-favored line near the top instead.
+        y: RIBBON_PAD + hw * (RIBBON_H - RIBBON_PAD * 2),
       });
     }
     if (!pts.length) return "";
@@ -2341,7 +2479,8 @@
       }
     }
     subs.forEach(function (s) {
-      s.hex = ((s.a.y + s.b.y) / 2 <= midY) ? homeHex : awayHex;
+      // Below the midline (larger y) is now home's half, matching the y-flip above.
+      s.hex = ((s.a.y + s.b.y) / 2 <= midY) ? awayHex : homeHex;
       s.len = Math.sqrt(Math.pow(s.b.x - s.a.x, 2) + Math.pow(s.b.y - s.a.y, 2)) || 1;
     });
     var fills = subs.map(function (s) {
@@ -2443,8 +2582,8 @@
       // Which end of the y-axis belongs to whom. Without this the line's
       // direction is ambiguous - up is good for someone, but you cannot tell
       // who from the curve alone.
-      '<div class="rb-y rb-y-top"><span>' + escapeHtml(slide.homeAbbr || "") + " 100%</span></div>" +
-      '<div class="rb-y rb-y-bot"><span>' + escapeHtml(slide.awayAbbr || "") + " 100%</span></div>" +
+      '<div class="rb-y rb-y-top"><span>' + escapeHtml(slide.awayAbbr || "") + " 100%</span></div>" +
+      '<div class="rb-y rb-y-bot"><span>' + escapeHtml(slide.homeAbbr || "") + " 100%</span></div>" +
       marker + "</div>" +
       '<div class="rb-axis">' + axis + "</div>" +
     "</div>";
@@ -2511,9 +2650,13 @@
   //                the actual diff went, so "where does this diff fall on
   //                the continuum we set up for this result" is a direct
   //                visual comparison, not a lookup.
-  //   LA wheel   - firstTwo(pitch)/firstTwo(swing), mod 100. Batted balls only.
-  //   HZ wheel   - onesDigit(pitch)/onesDigit(swing), mod 10. Batted balls only.
-  // LA/HZ disappear on anything without a real flight (a walk, strikeout, a
+  //   HZ wheel   - lastDigit(pitch)/lastDigit(swing), mod 10. Batted balls only.
+  // There is no separate LA wheel: launch angle is now driven by the same
+  // diff/band the DIFF wheel already shows (its on-top/below direction is
+  // the DIFF arc's own sign, its "how close to ideal" is the DIFF band
+  // overlay) - a firstTwo-only wheel would just be a second, disconnected
+  // number with no bearing on the actual result (see launchAngleFor).
+  // HZ disappears on anything without a real flight (a walk, strikeout, a
   // steal attempt) - DIFF alone then centres itself (scene-wheels is already
   // a centered flex row; one child centers for free).
   var WHEEL_CX = 50, WHEEL_CY = 50, WHEEL_VB = 100;
@@ -2541,6 +2684,47 @@
 
   function wheelAngleOf(v, mod) { return (v % mod) / mod * 360; }
 
+  // Role markers on the ring: a baseball for defense (pitcher/catcher) and a
+  // bat for offense (batter/runner), shaped/coloured like the real things
+  // rather than a plain dot. Positioning/rotation goes on an un-animated
+  // outer <g> via the "transform" attribute; the CSS scale-in animation
+  // lands on the inner <g class="wheel-dot ..."> instead, since a CSS
+  // `transform` animation replaces (rather than composes with) an element's
+  // own transform attribute - nesting keeps the two from fighting.
+  function wheelBallIconSvg() {
+    return '<circle r="' + WHEEL_DOT_R + '"></circle>' +
+      '<path class="wheel-dot-seam" d="M -2.4,-1.7 Q -0.8,0 -2.4,1.7"></path>' +
+      '<path class="wheel-dot-seam" d="M 2.4,-1.7 Q 0.8,0 2.4,1.7"></path>';
+  }
+
+  // Drawn barrel-down (positive local y) so the caller's rotation can point
+  // that barrel straight out along the ring's radius - see wheelMarkerHtml.
+  // A single tapered silhouette (round knob, thin straight handle, angled
+  // shoulder, straight-sided barrel, rounded tip) rather than stacked
+  // primitives - those read as a lollipop/bowling pin at this size, this
+  // reads as a bat.
+  var WHEEL_BAT_PATH = "M0,-4.6C0.55,-4.6 0.55,-4.15 0.3,-3.9L0.35,-1.3L1.25,0.9L1.25,3.6" +
+    "C1.25,4.05 0.9,4.4 0.4,4.55C0.25,4.6 0.1,4.6 0,4.6C-0.1,4.6 -0.25,4.6 -0.4,4.55" +
+    "C-0.9,4.4 -1.25,4.05 -1.25,3.6L-1.25,0.9L-0.35,-1.3L-0.3,-3.9C-0.55,-4.15 -0.55,-4.6 0,-4.6Z";
+  function wheelBatIconSvg() {
+    return '<path d="' + WHEEL_BAT_PATH + '"></path>';
+  }
+
+  // angleDeg is the marker's own position on the ring, in wheelPt's
+  // convention (0 = straight up from centre, clockwise). The bat is drawn
+  // barrel-down/handle-up in its own local coordinates, so rotating it by
+  // angleDeg+180 swings the handle to point straight in at the wheel's
+  // centre and the barrel straight out - perpendicular to the ring at that
+  // point, every time, regardless of where the marker lands.
+  function wheelMarkerHtml(pt, angleDeg, cls, dotIdxCls) {
+    var isOff = cls === "off";
+    var xf = "translate(" + pt.x.toFixed(2) + "," + pt.y.toFixed(2) + ")" +
+      (isOff ? " rotate(" + (angleDeg + 180).toFixed(1) + ")" : "");
+    return '<g transform="' + xf + '"><g class="wheel-dot ' + dotIdxCls + ' wheel-dot-' + cls + '">' +
+      (isOff ? wheelBatIconSvg() : wheelBallIconSvg()) +
+      "</g></g>";
+  }
+
   // The archetype band, anchored at the first dot and swept in the same
   // direction the actual diff went - so the real arc and the "expected
   // range for this result" reference both start from the same point and are
@@ -2554,9 +2738,9 @@
   /* v1/v2 are the two rolled values in narrative order (pitch-then-swing for
      a batted ball, runner-then-catcher for a steal) - v1's dot/label always
      appears first, v2's 650ms later. cls1/cls2 are each "def" or "off"
-     (defense = red, offense = blue) - NOT tied to v1/v2 position, since the
-     defense role goes first for a batted ball (pitcher) but second for a
-     steal (catcher), so colour has to travel with the role, not the slot.
+     (defense = baseball, offense = bat) - NOT tied to v1/v2 position, since
+     the defense role goes first for a batted ball (pitcher) but second for a
+     steal (catcher), so shape has to travel with the role, not the slot.
      arcCls picks the arc's colour: "neutral" (LA/HZ - theme-flipped
      black/white) or "hit"/"out" (DIFF - green/red, matching the ball
      marker's own C1 convention). */
@@ -2577,10 +2761,8 @@
         bandHtml +
         '<path class="wheel-arc wheel-arc-' + arcCls + '" d="' + wheelArcD(WHEEL_RING_R, deg1, deltaDeg) +
           '" style="--alen:' + arcLen.toFixed(2) + 'px"></path>' +
-        '<circle class="wheel-dot wheel-dot-1 wheel-dot-' + cls1 + '" cx="' + dot1Pt.x.toFixed(2) + '" cy="' + dot1Pt.y.toFixed(2) +
-          '" r="' + WHEEL_DOT_R + '"></circle>' +
-        '<circle class="wheel-dot wheel-dot-2 wheel-dot-' + cls2 + '" cx="' + dot2Pt.x.toFixed(2) + '" cy="' + dot2Pt.y.toFixed(2) +
-          '" r="' + WHEEL_DOT_R + '"></circle>' +
+        wheelMarkerHtml(dot1Pt, deg1, cls1, "wheel-dot-1") +
+        wheelMarkerHtml(dot2Pt, deg1 + deltaDeg, cls2, "wheel-dot-2") +
         '<text class="wheel-val wheel-val-1" x="' + label1Pt.x.toFixed(2) + '" y="' + label1Pt.y.toFixed(2) +
           '">' + escapeHtml(String(v1)) + "</text>" +
         '<text class="wheel-val wheel-val-2" x="' + label2Pt.x.toFixed(2) + '" y="' + label2Pt.y.toFixed(2) +
@@ -2605,9 +2787,9 @@
     if (m.pitch != null && m.swing != null || isSteal) {
       var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
       if (isSteal) {
-        // Runner (offense, blue) breaks first; catcher (defense, red)
-        // throws second - per Alex's spec, "runner # then progress to
-        // catcher #". No archetype band - steals don't have one.
+        // Runner (offense, bat marker) breaks first; catcher (defense,
+        // baseball marker) throws second - per Alex's spec, "runner # then
+        // progress to catcher #". No archetype band - steals don't have one.
         wheels += wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
           String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
           wasOut ? "out" : "hit");
@@ -2620,13 +2802,11 @@
       }
     }
 
-    // LA/HZ: batted balls only (Alex's call) - `flight` truthy is exactly
-    // that gate (flightParams returns null for everything else, the same
-    // set sceneFlightReadoutHtml below already checks against).
+    // HZ: batted balls only (Alex's call) - `flight` truthy is exactly that
+    // gate (flightParams returns null for everything else, the same set
+    // sceneFlightReadoutHtml below already checks against).
     if (flight) {
-      var f2p = firstTwo(m.pitch), f2s = firstTwo(m.swing);
-      var d1p = onesDigit(m.pitch), d1s = onesDigit(m.swing);
-      wheels += wheelHtml("LA", f2p, f2s, 100, "def", "off", flight.la.toFixed(1) + "°", null, null, "neutral");
+      var d1p = lastDigit(m.pitch), d1s = lastDigit(m.swing);
       wheels += wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral");
     }
 
@@ -3535,6 +3715,67 @@
     box.hidden = false;
   }
 
+  var RESULT_CODE_SUGGEST_LIMIT = 8;
+
+  // Every distinct raw result code (not the collapsed "Hitting"/"Pitching"
+  // category, and not result_short's grouping - e.g. 1B/1BWH/1BWH2 are three
+  // separate options here) - result_labels' own keys are already the
+  // complete set the build ships, so no separate list to keep in sync.
+  function renderResultCodeSuggest(query) {
+    var box = $("result-code-suggest");
+    var needle = query.trim().toLowerCase();
+    if (!needle) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    var labels = data.meta.result_labels || {};
+    var matches = Object.keys(labels).filter(function (code) {
+      return code.toLowerCase().indexOf(needle) !== -1 ||
+        (labels[code] || "").toLowerCase().indexOf(needle) !== -1;
+    }).sort().slice(0, RESULT_CODE_SUGGEST_LIMIT);
+    if (!matches.length) {
+      box.innerHTML = '<div class="player-suggest-empty">No results match.</div>';
+      box.hidden = false;
+      return;
+    }
+    box.innerHTML = matches.map(function (code) {
+      return '<div class="player-suggest-row" data-result-code="' + escapeHtml(code) + '">' +
+        "<strong>" + escapeHtml(code) + "</strong>" +
+        '<span class="team">' + escapeHtml(labels[code] || "") + "</span></div>";
+    }).join("");
+    box.hidden = false;
+  }
+
+  // On-base filter chips: one per real OBC code, drawn from the exact same
+  // mini-diamond markup the play cards already use (data.meta.bases_svg) -
+  // reusing that rather than a second hand-drawn icon set. Ordered 0-7 per
+  // Alex's explicit spec, matching the project's own _BRC_TO_OBC numbering
+  // used elsewhere (000,001,010,100,011,101,110,111) - not plain ascending
+  // binary value of the string.
+  //
+  // An explicit ORDER array, not Object.keys() on a lookup object - a plain
+  // object silently reorders any own key that happens to be a canonical
+  // integer string (no leading zero) to the front, sorted numerically, ahead
+  // of every other string key's insertion order. "100"/"101"/"110"/"111" all
+  // qualify (ToString(ToUint32(k)) === k) but "000"/"001"/"010"/"011" don't
+  // (their canonical form drops the leading zeros), so Object.keys() was
+  // silently splitting this into two groups - the four without a leading
+  // zero first, numerically, then the four with one, in insertion order -
+  // instead of the single 0-7 sequence actually written below.
+  var OBC_ORDER = ["000", "001", "010", "100", "011", "101", "110", "111"];
+  var OBC_LABELS = {
+    "000": "Bases empty", "001": "Runner on 1st", "010": "Runner on 2nd", "100": "Runner on 3rd",
+    "011": "1st & 2nd", "101": "1st & 3rd", "110": "2nd & 3rd", "111": "Bases loaded",
+  };
+  function populateObcChips() {
+    var svgs = data.meta.bases_svg || {};
+    $("obc-chips").innerHTML = OBC_ORDER.map(function (obc) {
+      return '<button type="button" class="chip obc-chip" data-obc="' + obc + '" title="' +
+        escapeHtml(OBC_LABELS[obc]) + '">' + (svgs[obc] || "") + "</button>";
+    }).join("");
+  }
+
   function populateTagChips() {
     var labels = data.meta.tag_labels || {};
     $("tag-chips").innerHTML = Object.keys(labels).map(function (slug) {
@@ -3708,6 +3949,59 @@
       render();
     });
 
+    // Exact result code search - same interaction shape as the player search
+    // above (type to filter, click a row to pick), but resultCode is a single
+    // exact match rather than a substring, so there's no separate "typed but
+    // unconfirmed" text state to debounce-apply the way player search has.
+    $("result-code-input").addEventListener("input", function (e) {
+      filters.resultCode = "";
+      renderResultCodeSuggest(e.target.value);
+      render();
+    });
+
+    $("result-code-input").addEventListener("focus", function (e) {
+      if (e.target.value.trim()) renderResultCodeSuggest(e.target.value);
+    });
+
+    $("result-code-input").addEventListener("blur", function () {
+      window.setTimeout(function () { $("result-code-suggest").hidden = true; }, 120);
+    });
+
+    $("result-code-suggest").addEventListener("mousedown", function (e) {
+      var row = e.target.closest(".player-suggest-row");
+      if (!row) return;
+      e.preventDefault();
+      var code = row.getAttribute("data-result-code");
+      filters.resultCode = code;
+      $("result-code-input").value = code;
+      $("result-code-suggest").hidden = true;
+      render();
+    });
+
+    // Outs/OBC: radio-with-off, same click-the-active-one-to-clear pattern
+    // result-chips already uses above.
+    $("outs-chips").addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip) return;
+      var outs = Number(chip.getAttribute("data-outs"));
+      filters.outs = (filters.outs === outs) ? null : outs;
+      Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (c) {
+        c.classList.toggle("active", Number(c.getAttribute("data-outs")) === filters.outs);
+      });
+      render();
+    });
+
+    $("obc-chips").addEventListener("click", function (e) {
+      var chip = e.target.closest(".chip");
+      if (!chip) return;
+      var obc = chip.getAttribute("data-obc");
+      filters.obc = (filters.obc === obc) ? "" : obc;
+      Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (c) {
+        c.classList.toggle("active", c.getAttribute("data-obc") === filters.obc);
+      });
+      render();
+    });
+
     $("reset-btn").addEventListener("click", function () {
       filters.result = "";
       filters.league = "";
@@ -3719,10 +4013,14 @@
       filters.playerId = null;
       filters.tags.clear();
       filters.side = "all";
+      filters.resultCode = "";
+      filters.outs = null;
+      filters.obc = "";
       deselectScoreboardTile();
       $("player-suggest").hidden = true;
+      $("result-code-suggest").hidden = true;
       Array.prototype.forEach.call(
-        document.querySelectorAll("#result-chips .chip, #tag-chips .chip"),
+        document.querySelectorAll("#result-chips .chip, #tag-chips .chip, #outs-chips .chip, #obc-chips .chip"),
         function (c) { c.classList.remove("active"); }
       );
       // Key Moments defaults active, unlike Rookies/Favorites - not a blanket clear.
@@ -3736,6 +4034,7 @@
       });
       $("team-select").value = "";
       $("player-input").value = "";
+      $("result-code-input").value = "";
       renderMaybeLoading();
     });
 
@@ -3797,6 +4096,10 @@
       populateTagChips();
       Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
         c.classList.toggle("active", filters.tags.has(c.getAttribute("data-tag")));
+      });
+      populateObcChips();
+      Array.prototype.forEach.call(document.querySelectorAll("#obc-chips .chip"), function (c) {
+        c.classList.toggle("active", c.getAttribute("data-obc") === filters.obc);
       });
       renderMaybeLoading();
       // Mirrors boot()'s own post-load step - without this, Catch Me Up's
@@ -3883,6 +4186,7 @@
       renderScoreboard();
       populateTeamSelect();
       populateTagChips();
+      populateObcChips();
       render();
       window.KMFavorites.init(data.players, function () {
         renderMaybeLoading();
