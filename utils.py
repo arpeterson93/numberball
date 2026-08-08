@@ -235,15 +235,16 @@ def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[
     reset convention.
 
     A blank rN cell on an inning-ending row (eOuts >= 3) is the sheet's own
-    "doesn't matter, the frame resets" shorthand - not missing data. On such
-    a row this decodes to a held-their-base move (from == to, safe, not
-    scored) rather than bailing on the whole row: sceneFieldHtml's own
-    is_half_inning_final/strandedSafe handling already knows to walk a
-    runner like that off to the dugout without crediting them a real advance
-    they may never have completed before the half-inning ended (e.g. the
-    trailing runner on a KCS double-steal attempt whose own out wasn't the
-    one that ended the inning - Alex's briefing). Off an inning-ending row,
-    "blank" and "held" are the same fact; off any other row a blank stays
+    "the final base doesn't matter, the frame resets" shorthand - but aN
+    (Alex's briefing) still describes a real fact about the play: where that
+    runner should be shown attempting to advance, chosen with eOuts in mind,
+    even though it's never credited. So a blank rN defers to aN first (the
+    runner is animated running for that base, never scored - Runs/the OBC
+    reconciliation below still governs actual credit, unaffected by this)
+    and only falls all the way back to a held-their-base move when aN is
+    ALSO blank, with nothing at all to go on (e.g. the trailing runner on a
+    KCS double-steal attempt whose own out wasn't the one that ended the
+    inning). Off any other (non-inning-ending) row a blank rN stays
     untrustworthy and still bails, same as before.
     """
     moves: list[dict] = []
@@ -274,7 +275,8 @@ def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[
         dest = _decode_move_destination(row.get(col))
         if dest is None:
             if ends_half_inning:
-                dest = (base, False)
+                assist_dest = _decode_assist_base(row.get(acol))
+                dest = (assist_dest, False) if assist_dest else (base, False)
             else:
                 # Blank/unrecognised for a runner obc_before says WAS there,
                 # on a play that ISN'T inning-ending - not "assume they're

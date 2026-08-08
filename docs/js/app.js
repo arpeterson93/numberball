@@ -979,27 +979,59 @@
   // rAF dance, no timers to leak, and one place (the reduced-motion block in
   // style.css) that can switch all of them off at once.
 
-  // Field canvas: 460x370, home at (230,330).
-  var FIELD_W = 460, FIELD_H = 370;
-  var HOME_SVG = { x: 230, y: 330 };
-  // Feet per SVG unit for the WHOLE field - infield included. A real infield
-  // (90ft basepaths) and the outfield/fence/ball-flight geometry all share
-  // this one scale; the diamond used to be hand-placed at a different,
-  // stylized size, which made batted-ball distances look wrong relative to
-  // it (a 380ft flyout reading as barely past the infield). Chosen so a
-  // 420ft home run and a 375ft uniform fence both fit the canvas with margin
-  // (see fenceAt/FENCE_DEPTH_FT below) - a proposal, not a relayed decision
-  // (ball-flight-plan.md Open Question 1).
-  var FT_PER_UNIT = 1.4;
+  // Field canvas, widened toward the reference image's ~460x300 aspect
+  // (physics-redesign plan Part 6.1/OQ-4).
+  var FIELD_W = 460, FIELD_H = 300;
+
+  // ── Perspective projection (physics-redesign plan Part 6.1) ───────────────
+  // A single analytic pinhole projection, JS-side, replacing the old flat
+  // ft/unit scale - the ball needs true z rendering (a point off the field
+  // plane), which a 2D scale factor can never produce. World: x ft toward
+  // 1B, y ft toward CF, z ft up, origin = home plate. Camera sits behind and
+  // above home at (0, -CAM_BACK, CAM_UP), looking at (0, LOOK_Y, 0), no
+  // roll/yaw - so screen X is always a pure function of world x (the
+  // 2B-to-home line is guaranteed vertical on screen by construction) and
+  // the camera-space "up" axis is a fixed rotation of world (y,z) by the
+  // camera's pitch. Feel knobs, tuned against baseballflightsim.jpg per the
+  // plan's acceptance criteria (whole fence arc in view with margin for a
+  // 428ft HR's fade point; home plate bottom-center; dirt circle visibly
+  // elliptical; a 100ft-apex fly ball's arc reads above the fence) - revisit
+  // in Stage E.
+  var CAM_BACK = 180, CAM_UP = 250, LOOK_Y = 170, FOCAL = 300;
+  var SCREEN_CX = 230;
+  // Desired screen y for home plate (bottom-center, with room below for the
+  // plate marker/dugouts) - SCREEN_CY itself is solved from this below so
+  // the camera constants above stay the only real tunables.
+  var HOME_SCREEN_Y = 285;
+
+  var CAM_L = Math.hypot(LOOK_Y + CAM_BACK, CAM_UP);
+  var FWD_Y = (LOOK_Y + CAM_BACK) / CAM_L, FWD_Z = -CAM_UP / CAM_L;
+  var UP_Y = -FWD_Z, UP_Z = FWD_Y;   // camera "up" = right(1,0,0) x forward, no roll
+  var SCREEN_CY = (function () {
+    var dy0 = 0 + CAM_BACK, dz0 = 0 - CAM_UP;
+    var depth0 = FWD_Y * dy0 + FWD_Z * dz0;
+    var up0 = UP_Y * dy0 + UP_Z * dz0;
+    return HOME_SCREEN_Y + FOCAL * up0 / depth0;
+  })();
 
   // The single conversion point from field-plane feet (home at the origin,
-  // +y = depth into the outfield, +x toward 1B) to SVG coordinates. Every
+  // +y = depth into the outfield, +x toward 1B, +z up) to SVG pixels. Every
   // field element - infield, outfield, fielders, fence, ball flight - renders
-  // through this, on this one scale (ball-flight-plan.md Stage 4a: this
-  // codebase's bug history is mostly coordinate-space confusion).
-  function ftToSvg(xFt, yFt) {
-    return { x: HOME_SVG.x + xFt / FT_PER_UNIT, y: HOME_SVG.y - yFt / FT_PER_UNIT };
+  // through this (ball-flight-plan.md Stage 4a / physics-redesign Part 6:
+  // this codebase's bug history is mostly coordinate-space confusion, so
+  // there is exactly one ft->px mapping, full stop).
+  function projectFt(x, y, z) {
+    var dy = y + CAM_BACK, dz = z - CAM_UP;
+    var depth = FWD_Y * dy + FWD_Z * dz;
+    var upComp = UP_Y * dy + UP_Z * dz;
+    return {
+      x: SCREEN_CX + FOCAL * x / depth,
+      y: SCREEN_CY - FOCAL * upComp / depth,
+      depth: depth,
+    };
   }
+  function ftToSvg(xFt, yFt) { return projectFt(xFt, yFt, 0); }
+  var HOME_SVG = ftToSvg(0, 0);
 
   // Real MLB basepaths: 90ft square, so home-to-1B/3B is 90ft along the foul
   // lines (angle 90/0, i.e. offset +-45deg from dead centre) and home-to-2B
@@ -1272,19 +1304,59 @@
     return Math.min(D, fenceAt(angleDeg) - 12);
   }
 
-  // The fence as one SVG arc, drawn once per field render but built from the
-  // same landingPoint/ftToSvg functions everything else uses - no separate
-  // hand-derived geometry to get out of sync with the actual math. Since the
-  // fence is uniform, this is exactly a circular arc of radius FENCE_DEPTH_FT
-  // from the 3B foul line (angle 0) to the 1B foul line (angle 90).
-  function fencePathD() {
-    var aFt = landingPoint(FENCE_DEPTH_FT, 0);
-    var bFt = landingPoint(FENCE_DEPTH_FT, 90);
-    var a = ftToSvg(aFt.x, aFt.y);
-    var b = ftToSvg(bFt.x, bFt.y);
-    var r = FENCE_DEPTH_FT / FT_PER_UNIT;
-    return "M" + a.x.toFixed(1) + "," + a.y.toFixed(1) +
-      " A" + r.toFixed(1) + "," + r.toFixed(1) + " 0 0 1 " + b.x.toFixed(1) + "," + b.y.toFixed(1);
+  // The fence as one SVG polyline, drawn once per field render but built
+  // from the same landingPoint/ftToSvg (now projectFt) functions everything
+  // else uses - no separate hand-derived geometry to get out of sync with
+  // the actual math. Since the fence is uniform, it's a circular arc of
+  // radius FENCE_DEPTH_FT from the 3B foul line (angle 0) to the 1B foul
+  // line (angle 90) in world feet - but under perspective a world circle no
+  // longer projects to a circular SVG arc, so it's sampled instead
+  // (physics-redesign plan Part 6.2).
+  var FENCE_SAMPLE_STEP_DEG = 3;
+  function fenceArcPoints() {
+    var pts = [];
+    for (var a = 0; a <= 90; a += FENCE_SAMPLE_STEP_DEG) {
+      var ft = landingPoint(FENCE_DEPTH_FT, a);
+      pts.push(ftToSvg(ft.x, ft.y));
+    }
+    return pts;
+  }
+  function polylineD(pts) {
+    return pts.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+  }
+  function fencePathD() { return polylineD(fenceArcPoints()); }
+
+  // Grass as a polygon ringing the projected field (fence arc + foul
+  // territory), not a flat rect over the whole canvas (Part 6.2) - the area
+  // above the horizon is left as page background, matching the reference
+  // image. A flat back edge behind home stands in for the backstop/dugout
+  // line; real dimensions there don't matter, just enough width/depth to
+  // cover foul territory in view.
+  var GRASS_BACK_MARGIN_FT = 25, GRASS_HALF_WIDTH_FT = 100;
+  function grassPathD() {
+    var pts = [ftToSvg(-GRASS_HALF_WIDTH_FT, -GRASS_BACK_MARGIN_FT)]
+      .concat(fenceArcPoints())
+      .concat([ftToSvg(GRASS_HALF_WIDTH_FT, -GRASS_BACK_MARGIN_FT)]);
+    return polylineD(pts) + " Z";
+  }
+
+  // The fence drawn as a short wall rather than a flat line (Part 6.1/OQ-8) -
+  // the same ground-level arc duplicated at FENCE_WALL_HEIGHT_FT and filled
+  // between, so an over-the-fence home run visibly crosses above it instead
+  // of just touching a line.
+  var FENCE_WALL_HEIGHT_FT = 8;
+  function fenceWallPathD() {
+    var ground = fenceArcPoints();
+    var top = [];
+    for (var a = 0; a <= 90; a += FENCE_SAMPLE_STEP_DEG) {
+      var ft = landingPoint(FENCE_DEPTH_FT, a);
+      top.push(projectFt(ft.x, ft.y, FENCE_WALL_HEIGHT_FT));
+    }
+    var d = polylineD(ground);
+    for (var i = top.length - 1; i >= 0; i--) {
+      d += " L" + top[i].x.toFixed(1) + "," + top[i].y.toFixed(1);
+    }
+    return d + " Z";
   }
 
   // Foul lines: home plate's own outer corner (Alex's correction - not the
@@ -1314,11 +1386,20 @@
     // Solving x^2 + (x-m)^2 = r^2 for the intersection of the circle with the
     // line y=x (the 1B foul line) - the 3B line (y=-x) is the mirror image.
     var edge = (m + Math.sqrt(2 * r * r - m * m)) / 2;
-    var right = ftToSvg(edge, edge), left = ftToSvg(-edge, edge);
-    var rSvg = r / FT_PER_UNIT;
-    var d = "M" + left.x.toFixed(1) + "," + left.y.toFixed(1) +
-      " A" + rSvg.toFixed(1) + "," + rSvg.toFixed(1) + " 0 0 1 " + right.x.toFixed(1) + "," + right.y.toFixed(1);
-    return '<path class="dm-dirt" d="' + d + '"></path>';
+    // Sampled instead of a single SVG circular arc (Part 6.2, same reasoning
+    // as the fence): the world-space dirt circle, centred on the mound, no
+    // longer projects to a circular arc under perspective. Parametrized by
+    // angle phi around the mound (phi=0 pointing away from home, phi=PI the
+    // deepest point of the dirt circle straight out from home) from the 3B
+    // intersection to the 1B one, through the deep point.
+    var phiEdge = Math.atan2(edge, m - edge);
+    var steps = 16;
+    var pts = [];
+    for (var i = 0; i <= steps; i++) {
+      var phi = phiEdge + (2 * Math.PI - 2 * phiEdge) * i / steps;
+      pts.push(ftToSvg(r * Math.sin(phi), m - r * Math.cos(phi)));
+    }
+    return '<path class="dm-dirt" d="' + polylineD(pts) + '"></path>';
   }
 
   function nearestFielder(x, y) {
@@ -1370,6 +1451,41 @@
     });
   }
 
+  // Sidespin drift (Part 1's "tail" - real, workbook-original physics) can
+  // push a batted ball's true landing bearing past a foul line even though
+  // its HZ bucket sits safely in [5,85]. Fine for a ball caught in the air -
+  // a foul fly/pop out is a real, common outcome, and a neat side effect of
+  // modeling the drift at all - never fine for anything that stays in play:
+  // a "single" that lands foul is a foul ball, not a hit. Rotates every
+  // sample (and contactVel) rigidly about home by whatever's needed to bring
+  // the LANDING point's bearing back to the nearest foul line - preserves
+  // distance/hang time/apex exactly, and since sidespin drift accumulates
+  // monotonically over the flight, the landing point is always the
+  // most-drifted point on the path, so clamping just that point guarantees
+  // every earlier sample is already inside the lines too.
+  var FAIR_OFFSET_MAX_DEG = 45;   // landingPoint's own convention: angle = 45 +- this
+  function clampFairTerritory(sim, archetype) {
+    if (CAUGHT_IN_AIR[archetype]) return sim;
+    var offsetDeg = Math.atan2(sim.landing.x, sim.landing.y) * 180 / Math.PI;
+    var over = offsetDeg > FAIR_OFFSET_MAX_DEG ? offsetDeg - FAIR_OFFSET_MAX_DEG
+      : offsetDeg < -FAIR_OFFSET_MAX_DEG ? offsetDeg + FAIR_OFFSET_MAX_DEG : 0;
+    if (!over) return sim;
+    var deltaRad = -over * Math.PI / 180;
+    var cosD = Math.cos(deltaRad), sinD = Math.sin(deltaRad);
+    function rot(x, y) { return { x: x * cosD + y * sinD, y: y * cosD - x * sinD }; }
+    var landing = rot(sim.landing.x, sim.landing.y);
+    var samples = sim.samples.map(function (s) {
+      var r = rot(s.x, s.y);
+      return { t: s.t, x: r.x, y: r.y, z: s.z };
+    });
+    var cv = rot(sim.contactVel.vx, sim.contactVel.vy);
+    return {
+      distance: sim.distance, hangS: sim.hangS, apexFt: sim.apexFt,
+      landing: landing, samples: samples,
+      contactVel: { vx: cv.x, vy: cv.y, vz: sim.contactVel.vz },
+    };
+  }
+
   // Re-run the integrator at a new HZ angle, same LA/EV/hand - the direction
   // override mechanism shared by the grounder resolver (Part 4.2) and the
   // caught-in-air BRC override (Part 4.3). Mutates `flight` in place so
@@ -1377,7 +1493,7 @@
   // hangS/hangMs/clamped) reflects the new direction; la/ev/archetype never
   // change - only where the ball goes.
   function applyAngleOverride(flight, newAngleDeg, hand, isHomeRun) {
-    var sim = KMTraj.simulateFlight(flight.ev, flight.la, newAngleDeg - 45, hand);
+    var sim = clampFairTerritory(KMTraj.simulateFlight(flight.ev, flight.la, newAngleDeg - 45, hand), flight.archetype);
     var D = clampToFence(sim.distance, newAngleDeg, isHomeRun);
     var scale = D / sim.distance;
     flight.angle = newAngleDeg;
@@ -1430,7 +1546,7 @@
     // phi = HZ - 45 (physics-redesign plan Part 1, verified); the resolved
     // hand goes into the spin formulas unchanged, not folded into phi a
     // second time - the HZ angle above already carries the hand mirror.
-    var sim = KMTraj.simulateFlight(EV, LA, angle - 45, hand);
+    var sim = clampFairTerritory(KMTraj.simulateFlight(EV, LA, angle - 45, hand), band.archetype);
     var D = clampToFence(sim.distance, angle, isHomeRun);
     var scale = D / sim.distance;
 
@@ -1678,23 +1794,6 @@
     flight.groundPath = gp;
   }
 
-  // rollMs is the scaled ground time itself (fieldedMs - ballTravelMs), not
-  // a flat constant - the roll animation now takes as long as the physics
-  // says it should, same as everything else Part 7 touches.
-  function rolloutHtml(flight, landEnd, dur, rollFt, rollMs) {
-    var rollPt = groundDirPoint(flight, rollFt);
-    var end = ftToSvg(rollPt.x, rollPt.y);
-    var len = Math.hypot(end.x - landEnd.x, end.y - landEnd.y) || 1;
-    var vars = "--fx:" + landEnd.x.toFixed(1) + "px;--fy:" + landEnd.y.toFixed(1) + "px;" +
-               "--tx:" + end.x.toFixed(1) + "px;--ty:" + end.y.toFixed(1) + "px;" +
-               "--rdelay:" + dur + "ms;--rdur:" + rollMs + "ms";
-    var trailVars = "--len:" + len.toFixed(1) + "px;--rdelay:" + dur + "ms;--rdur:" + rollMs + "ms";
-    return '<line class="ball-rollout-trail" x1="' + landEnd.x.toFixed(1) + '" y1="' + landEnd.y.toFixed(1) +
-        '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) +
-        '" style="' + trailVars + '"></line>' +
-      '<circle class="ball-rollout" r="' + BALL_R + '" style="' + vars + '"></circle>';
-  }
-
   // A physically low trajectory reads as "ground" for CSS purposes - the old
   // isGrounder flag (a raw LA<4 threshold, independently computed off the
   // pitch/swing wheel) is gone (F7); apexFt is a real output of the
@@ -1709,50 +1808,135 @@
     return groundDirPoint(flight, flight.fieldedDistFt - flight.distance);
   }
 
+  // An over-the-fence home run clears and fades near the wall (Part 6.3 item
+  // 6) rather than animating on to its full, often far-off-canvas true
+  // landing point - cut the sample list at the first point that crosses
+  // fence+15ft.
+  function fenceTruncatedSamples(samples) {
+    var maxD = FENCE_DEPTH_FT + 15;
+    for (var i = 0; i < samples.length; i++) {
+      if (Math.hypot(samples[i].x, samples[i].y) >= maxD) return samples.slice(0, i + 1);
+    }
+    return samples;
+  }
+
+  // Ground-phase samples (Part 6.3 item 5: hops flatten into decaying bounces
+  // then a straight roll, joining the same keyframe timeline as the flight)
+  // - sampled at even time steps from flight.groundPath (Part 3), along the
+  // ball's real ground-contact direction (Part 1), not the HZ launch bearing.
+  var GROUND_SAMPLE_STEPS = 10;
+  function groundPhaseSamples(flight) {
+    var gp = flight.groundPath;
+    if (!gp || flight.groundTimeS == null) return [];
+    var vx = flight.contactVel.vx, vy = flight.contactVel.vy;
+    var sh = Math.hypot(vx, vy) || 1;
+    var ux = vx / sh, uy = vy / sh;
+    var pts = [];
+    for (var i = 1; i <= GROUND_SAMPLE_STEPS; i++) {
+      var t = flight.groundTimeS * i / GROUND_SAMPLE_STEPS;
+      var d = gp.distAt(t);
+      pts.push({ t: t, x: flight.x + ux * d, y: flight.y + uy * d, z: gp.heightAt(t) });
+    }
+    return pts;
+  }
+
+  // Every sample from contact to the ball's final resting/fielded/fade
+  // point, field-plane feet and real seconds since contact - one continuous
+  // timeline, not a separate flight + rollout (Part 6.3 item 5). The last
+  // air sample is always the exact interpolated landing point (KMTraj's own
+  // contract); ground samples continue from there.
+  function flightSampleSeries(flight) {
+    var air = flight.clearedFence ? fenceTruncatedSamples(flight.samples) : flight.samples;
+    var hangS = flight.hangS;
+    if (flight.clearedFence || flight.fieldedDistFt == null) return { samples: air, totalS: hangS };
+    var ground = groundPhaseSamples(flight).map(function (s) {
+      return { t: hangS + s.t, x: s.x, y: s.y, z: s.z };
+    });
+    return { samples: air.concat(ground), totalS: hangS + (flight.groundTimeS || 0) };
+  }
+
+  var kmArcCounter = 0;
+  function kmArcId(m) {
+    var raw = m.moment_id != null ? m.moment_id : "n" + (kmArcCounter++);
+    return "kmArc-" + String(raw).replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  /* Per-play generated CSS keyframes (physics-redesign plan Part 6.3): one
+     stop per real sample, offset = t/totalS, so the ball follows its true
+     speed profile (fast off the bat, hanging at apex, decelerating through
+     the roll) under plain linear interpolation between stops - no easing
+     curve to keep in sync with the physics. Returns the <style> block, the
+     trail's polyline `d` + pixel length, and the final projected point
+     (the base .ball rule's --tx/--ty fallback for when animations are off).
+
+     The trail gets its OWN time-correct keyframes too (a second @keyframes
+     stepping stroke-dashoffset down by each sample's real cumulative arc
+     length, at the same t/totalS offsets as the ball) - style.css's generic
+     trailDraw (a flat ease-out over the whole path length) doesn't know
+     about the physical hang time near a fly ball's apex, so the dashed line
+     used to visibly outrun the ball there, reaching the ground before the
+     ball token did (most obvious on a high PO/FO arc). Same offsets, same
+     linear timing-function as the ball's own keyframes, so the two can never
+     drift apart. */
+  function ballArcHtml(m, flight) {
+    var series = flightSampleSeries(flight);
+    var totalS = series.totalS > 0 ? series.totalS : 1e-6;
+    var projected = series.samples.map(function (s) { return projectFt(s.x, s.y, s.z); });
+    var cumLen = [0];
+    for (var i = 1; i < projected.length; i++) {
+      cumLen.push(cumLen[i - 1] + Math.hypot(projected[i].x - projected[i - 1].x, projected[i].y - projected[i - 1].y));
+    }
+    var len = cumLen[cumLen.length - 1] || 1;
+    var stops = "", trailStops = "";
+    series.samples.forEach(function (s, i) {
+      var off = clamp(s.t / totalS, 0, 1) * 100;
+      stops += off.toFixed(3) + "% { transform: translate(" + projected[i].x.toFixed(1) + "px," + projected[i].y.toFixed(1) + "px); } ";
+      trailStops += off.toFixed(3) + "% { stroke-dashoffset: " + (len - cumLen[i]).toFixed(1) + "px; } ";
+    });
+    var name = kmArcId(m);
+    // Mirrors style.css's own .ball.air/.ball.clear composite rules exactly
+    // (ballSettle/ballClearFade untouched there), just swapping the primary
+    // movement animation for this play's own generated keyframes - equal
+    // specificity, later in the cascade (this <style> block is appended
+    // fresh into the DOM after style.css loads), so it wins outright. The
+    // reduced-motion block adds `animation:none!important` to outrank this.
+    var settleRule = flight.clearedFence
+      ? "animation: " + name + " var(--dur) linear forwards, ballClearFade 300ms ease forwards; animation-delay: 0s, calc(var(--dur) - 300ms);"
+      : "animation: " + name + " var(--dur) linear forwards, ballSettle 350ms ease var(--dur) forwards;";
+    var style = "<style>" +
+      "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
+      "@keyframes " + name + "-trail { " + trailStops + "} " +
+      ".ball-trail." + name + " { animation: " + name + "-trail var(--dur) linear forwards; }" +
+      "</style>";
+    var pathD = projected.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+    return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1] };
+  }
+
   function ballFlightHtml(m, flight) {
     if (!flight) return "";
-    var home = SCENE_BASES.HOME;
     var cleared = flight.clearedFence;
-    // An over-the-fence home run clears and fades near the wall rather than
-    // continuing on to its full (often far off-canvas) computed distance.
-    var targetFt = cleared ? landingPoint(FENCE_DEPTH_FT + 15, flight.angle) : { x: flight.x, y: flight.y };
-    var end = ftToSvg(targetFt.x, targetFt.y);
     var dur = ballTravelMs(flight);
-    var len = Math.hypot(end.x - home.x, end.y - home.y) || 1;
-    var moveVars = "--fx:" + home.x + "px;--fy:" + home.y + "px;" +
-                   "--tx:" + end.x.toFixed(1) + "px;--ty:" + end.y.toFixed(1) + "px;" +
-                   "--dur:" + dur + "ms";
-    var trailVars = "--len:" + len.toFixed(1) + "px;--dur:" + dur + "ms";
+    var arc = ballArcHtml(m, flight);
+    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms";
+    var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms";
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
     // and the ball itself having been caught wins that tie.
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     var cls = (cleared ? " clear" : " land") + (flight.apexFt < GROUND_APEX_THRESHOLD_FT ? " ground" : " air") +
               (wasOut ? " out" : " hit");
-    // C4: any hit that stayed in the park carries a bit further than where
-    // it landed before the fielder gets to it - a home run's a dead ball at
-    // the wall, so it never rolls, like everything else that cleared the
-    // fence. A ground ball out also gets a rollout (a fielded grounder still
-    // bounces/skids up to the fielder), capped by resolveGrounderInterception's
-    // own fielder-depth logic so it never rolls the ball past whoever's
-    // actually fielding it. A caught fly, line drive or pop out never rolls -
-    // it was caught in the air, nothing to bounce (CAUGHT_IN_AIR); those
-    // never get a fieldedDistFt in the first place.
-    var caughtInAir = wasOut && CAUGHT_IN_AIR[flight.archetype];
-    var rollFt = (!cleared && !caughtInAir && flight.fieldedDistFt != null)
-      ? Math.max(0, flight.fieldedDistFt - flight.distance) : 0;
-    var rollMs = rollFt > 0 ? (fieldedMs(flight) - dur) : 0;
-    var rollout = rollFt > 0 ? rolloutHtml(flight, end, dur, rollFt, rollMs) : "";
 
-    // Labels sit next to wherever the ball actually ends up: the rollout's
-    // endpoint when there is one, otherwise the landing/catch point itself -
-    // and only pop in once that rollout has actually finished playing, not
-    // mid-roll. A cleared HR's true distance is often well off-canvas, so its
-    // anchor is capped at the same fence+15 fade point the ball itself stops
-    // at (targetFt/end above), not the real number.
+    // Labels sit next to wherever the ball actually ends up - the fielded/
+    // rest point when there is a ground phase, otherwise the landing/catch
+    // point itself - and only pop in once the ball has actually arrived
+    // there, not mid-flight. A cleared HR's true distance is often well
+    // off-canvas, so its anchor is capped at the same fence+15 fade point
+    // the ball itself stops at, not the real number.
     var short = (data.meta.result_short || {})[m.result] || m.result;
-    var labelPtFt = cleared ? targetFt : (rollFt > 0 ? groundDirPoint(flight, rollFt) : { x: flight.x, y: flight.y });
+    var hasGroundPhase = !cleared && flight.fieldedDistFt != null && flight.fieldedDistFt > flight.distance;
+    var labelPtFt = cleared ? landingPoint(FENCE_DEPTH_FT + 15, flight.angle)
+      : (hasGroundPhase ? fieldedPoint(flight) : { x: flight.x, y: flight.y });
     var labelSvg = ftToSvg(labelPtFt.x, labelPtFt.y);
-    var labelDelay = rollFt > 0 ? fieldedMs(flight) : dur;
+    var labelDelay = hasGroundPhase ? fieldedMs(flight) : dur;
     // C2: a short abbreviation next to wherever the ball ended up.
     var label = '<text class="ball-label" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
         '" dx="7" dy="-4" style="--delay:' + labelDelay + 'ms">' + escapeHtml(short) + "</text>";
@@ -1763,11 +1947,9 @@
     var distLabel = m.result === "HR" ?
       '<text class="ball-dist" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
         '" dx="7" dy="11" style="--delay:' + labelDelay + 'ms">' + Math.round(flight.distance) + " ft</text>" : "";
-    return '<line class="ball-trail' + cls + '" x1="' + home.x + '" y1="' + home.y +
-        '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) +
-        '" style="' + trailVars + '"></line>' +
-      rollout +
-      '<circle class="ball' + cls + '" r="' + BALL_R + '" style="' + moveVars + '"></circle>' +
+    return arc.style +
+      '<path class="ball-trail' + cls + " " + arc.name + '" d="' + arc.pathD + '" style="' + trailVars + '"></path>' +
+      '<circle class="ball' + cls + " " + arc.name + '" r="' + BALL_R + '" style="' + moveVars + '"></circle>' +
       label + distLabel;
   }
 
@@ -2134,7 +2316,7 @@
     resolveGrounderInterception: resolveGrounderInterception,
     applyAirPositionOverride: applyAirPositionOverride,
     resolveHitPickup: resolveHitPickup,
-    applyAngleOverride: applyAngleOverride,
+    applyAngleOverride: applyAngleOverride, clampFairTerritory: clampFairTerritory,
     groundDirPoint: groundDirPoint, fieldedPoint: fieldedPoint,
     throwOrderKeyForPosition: throwOrderKeyForPosition,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
@@ -2144,6 +2326,9 @@
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
     ballTravelMs: ballTravelMs, fieldedMs: fieldedMs,
     ANIM_TIME_SCALE: ANIM_TIME_SCALE, GROUND_TIME_SCALE: GROUND_TIME_SCALE,
+    projectFt: projectFt, ftToSvg: ftToSvg, FIELD_W: FIELD_W, FIELD_H: FIELD_H,
+    fencePathD: fencePathD, fenceWallPathD: fenceWallPathD, grassPathD: grassPathD,
+    HOME_SVG: HOME_SVG,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -2269,11 +2454,18 @@
       // end(0)<=start and returns no path at all. Passing forcedBase==="HOME"
       // here only feeds that ordinal - mv.scored (used for the CSS "score"
       // flash below) is untouched, since this runner didn't actually score.
+      // Same HOME-wraparound fix as the isOut branch above, for the safe
+      // side: a runner who's animated running for home without it counting
+      // (import_BRC.csv's aN fallback on an inning-ending force play - see
+      // utils._build_runner_moves_for_row) still needs the end=4 wraparound
+      // or basepathWaypoints reads HOME's ordinal(0) <= their own and
+      // renders no path at all. mv.scored (the CSS "score" flash below)
+      // stays untouched - this runner didn't actually score.
       var path = useRetreat
         ? [{ x: (from.x + assistBase.x) / 2, y: (from.y + assistBase.y) / 2 }]
         : isOut
           ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
-          : basepathWaypoints(mv.from, mv.to, mv.scored);
+          : basepathWaypoints(mv.from, mv.to, mv.scored || mv.to === "HOME");
       // A safe runner (reached or held their forced base, never put out)
       // whose own half-inning ends on this very play has nobody left on the
       // bases between innings either - after reaching/holding, they walk
@@ -2419,7 +2611,10 @@
       x: (SCENE_BASES.HOME.x + SCENE_BASES["1B"].x + SCENE_BASES["2B"].x + SCENE_BASES["3B"].x) / 4,
       y: (SCENE_BASES.HOME.y + SCENE_BASES["1B"].y + SCENE_BASES["2B"].y + SCENE_BASES["3B"].y) / 4,
     };
-    var markSize = BASE_DIST_FT / FT_PER_UNIT;   // roughly one basepath-length square
+    // Roughly one basepath-length, in projected screen px rather than a flat
+    // ft/unit scale (Part 6.2) - perspective-correct since it's derived from
+    // the same projected bases the diamond itself is drawn from.
+    var markSize = Math.hypot(SCENE_BASES["1B"].x - SCENE_BASES.HOME.x, SCENE_BASES["1B"].y - SCENE_BASES.HOME.y);
     var watermark = markUrl
       ? '<image class="dm-mark" href="' + escapeHtml(markUrl) +
         '" x="' + (centroid.x - markSize / 2).toFixed(1) + '" y="' + (centroid.y - markSize / 2).toFixed(1) +
@@ -2447,7 +2642,8 @@
     return '<div class="scene-diamond-wrap">' +
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
         (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
-        '<rect class="dm-grass" x="0" y="0" width="' + FIELD_W + '" height="' + FIELD_H + '"></rect>' +
+        '<path class="dm-grass" d="' + grassPathD() + '"></path>' +
+        '<path class="dm-fence-wall" d="' + fenceWallPathD() + '"></path>' +
         '<path class="dm-fence" d="' + fencePathD() + '"></path>' +
         infieldDirtHtml() +
         '<path class="dm-field" d="M' + h.x.toFixed(1) + "," + h.y.toFixed(1) +
@@ -2740,26 +2936,6 @@
     "</div>";
   }
 
-  /* Live outs, in the same three-circle format the scorebug uses, filling
-     left to right. Circles the play itself recorded animate in; ones already
-     on the board when the batter stepped up are just there. This is a replay
-     of a completed play, not the scorebug's live state, so the third out gets
-     its own dot rather than a separate "ends the half-inning" badge - the
-     .inning-over class still marks that outcome on the container. */
-  function sceneOutsHtml(m) {
-    var before = Math.max(0, Math.min(2, m.outs_before == null ? 0 : m.outs_before));
-    var after = Math.max(0, Math.min(3, m.outs_after == null ? before : m.outs_after));
-    var dots = [0, 1, 2].map(function (i) {
-      var on = i < after;
-      return '<span class="out-dot' + (on ? " on" : "") +
-        (on && i >= before ? " fresh" : "") + '"></span>';
-    }).join("");
-    return '<div class="scene-outs' + (after >= 3 ? " inning-over" : "") + '">' +
-      '<span class="scene-outs-lbl">OUTS</span>' +
-      '<span class="out-dots">' + dots + "</span>" +
-    "</div>";
-  }
-
   /* Batter and pitcher always sit in the same two slots, unlike card(m)'s
      featured/counterpart pair - which one is "featured" flips with the result
      category, so in a slideshow the same name would jump sides play to play.
@@ -2810,10 +2986,32 @@
   // HZ disappears on anything without a real flight (a walk, strikeout, a
   // steal attempt) - DIFF alone then centres itself (scene-wheels is already
   // a centered flex row; one child centers for free).
-  var WHEEL_CX = 50, WHEEL_CY = 50, WHEEL_VB = 100;
-  var WHEEL_RING_R = 26, WHEEL_BAND_R = 20;
-  var WHEEL_LABEL1_R = 34, WHEEL_LABEL2_R = 43;
-  var WHEEL_DOT_R = 3.5;
+  var WHEEL_CX = 75, WHEEL_CY = 75, WHEEL_VB = 150;
+  var WHEEL_RING_R = 30, WHEEL_BAND_R = 23;
+  var WHEEL_DOT_R = 4;
+  // The two value labels collide when their dots land angularly close
+  // together (a small DIFF, i.e. good contact - exactly the common,
+  // interesting case) even at different radii. Below this separation, push
+  // each label's ANGLE (not its dot, which stays exactly on the wheel) apart
+  // symmetrically so they never sit on top of each other or the ring.
+  var WHEEL_LABEL_MIN_SEP_DEG = 26;
+  // Radial placement, computed rather than a flat radius (Alex's catch: a
+  // fixed radius overlapped the ring/dot whenever the label landed near the
+  // wheel's left or right, where SVG text - always horizontal - runs
+  // straight along the radius instead of across it, so its own half-width
+  // eats into the "gap" a flat offset assumed). WHEEL_LABEL_GAP is the
+  // clearance at the safest angles (top/bottom, where text runs tangential
+  // to the ring); horizontalFactor scales in the extra padding a label
+  // actually needs as it approaches the 3/9 o'clock positions, where the
+  // danger is greatest.
+  var WHEEL_LABEL_GAP = 6;
+  var WHEEL_LABEL_CHAR_W = 3.4;   // rough half-glyph-width at this font size, viewBox units
+  var WHEEL_LABEL_STAGGER = 13;   // label2 always sits at least this far past label1's own safe radius
+  function wheelLabelRadius(angleDeg, text) {
+    var horizontalFactor = Math.abs(Math.sin(angleDeg * Math.PI / 180));
+    var halfWidth = String(text).length * WHEEL_LABEL_CHAR_W;
+    return WHEEL_RING_R + WHEEL_DOT_R + WHEEL_LABEL_GAP + horizontalFactor * halfWidth;
+  }
 
   function wheelPt(r, angleDeg) {
     var rad = (angleDeg - 90) * Math.PI / 180;
@@ -2902,8 +3100,19 @@
     var arcLen = WHEEL_RING_R * Math.abs(deltaDeg) * Math.PI / 180;
     var dot1Pt = wheelPt(WHEEL_RING_R, deg1);
     var dot2Pt = wheelPt(WHEEL_RING_R, deg1 + deltaDeg);
-    var label1Pt = wheelPt(WHEEL_LABEL1_R, deg1);
-    var label2Pt = wheelPt(WHEEL_LABEL2_R, deg1 + deltaDeg);
+    // Labels stay anchored to their own dot's angle when there's room; below
+    // WHEEL_LABEL_MIN_SEP_DEG of separation, each is nudged apart along the
+    // ring by half the shortfall - away from the other dot's direction for
+    // label1, further past it for label2 - so the two texts (and the ring
+    // itself) never collide even when v1 and v2 are nearly equal.
+    var pushSign = deltaDeg >= 0 ? 1 : -1;
+    var extraPush = Math.max(0, (WHEEL_LABEL_MIN_SEP_DEG - Math.abs(deltaDeg)) / 2);
+    var label1Deg = deg1 - extraPush * pushSign;
+    var label2Deg = deg1 + deltaDeg + extraPush * pushSign;
+    var label1R = wheelLabelRadius(label1Deg, v1);
+    var label2R = Math.max(wheelLabelRadius(label2Deg, v2), label1R + WHEEL_LABEL_STAGGER);
+    var label1Pt = wheelPt(label1R, label1Deg);
+    var label2Pt = wheelPt(label2R, label2Deg);
     var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod) : "";
     return '<div class="wheel">' +
       '<div class="wheel-label">' + escapeHtml(label) + "</div>" +
@@ -2918,10 +3127,10 @@
           '">' + escapeHtml(String(v1)) + "</text>" +
         '<text class="wheel-val wheel-val-2" x="' + label2Pt.x.toFixed(2) + '" y="' + label2Pt.y.toFixed(2) +
           '">' + escapeHtml(String(v2)) + "</text>" +
-        '<text class="wheel-center-big" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - (centerSmall ? 1 : -4)) +
+        '<text class="wheel-center-big" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - (centerSmall ? 1 : -5)) +
           '">' + escapeHtml(centerBig) + "</text>" +
         (centerSmall
-          ? '<text class="wheel-center-small" x="' + WHEEL_CX + '" y="' + (WHEEL_CY + 10) + '">' +
+          ? '<text class="wheel-center-small" x="' + WHEEL_CX + '" y="' + (WHEEL_CY + 12) + '">' +
             escapeHtml(centerSmall) + "</text>"
           : "") +
       "</svg>" +
@@ -2987,7 +3196,6 @@
        eye lands in the same place whether the scene is stacked on a phone or
        split into two columns on a wide screen. */
     return '<div class="scene-detail">' +
-      sceneOutsHtml(m) +
       '<div class="scene-play-line">' +
         '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
           escapeHtml(resultLabel) + "</span>" +
@@ -3061,19 +3269,50 @@
     return '<span class="val counter">' + steps + "</span>";
   }
 
-  function sceneScoreHtml(m, flight) {
+  // Outs as plain dots, no "OUTS" label (the header scorebug's own inning
+  // row already reads as game state at a glance). Three dots, not the live
+  // feed's up-to-two-then-a-badge-swap convention (stateStack) - this is a
+  // replay of a completed play, not a live scoreboard, so the third out
+  // gets its own dot same as the old sceneOutsHtml did.
+  function scorebugOutsHtml(m) {
+    var after = Math.max(0, Math.min(3, m.outs_after == null ? (m.outs_before || 0) : m.outs_after));
+    var dots = [0, 1, 2].map(function (i) {
+      return '<span class="dot' + (i < after ? " on" : "") + '"></span>';
+    }).join("");
+    return '<div class="outs-dots">' + dots + "</div>";
+  }
+
+  /* Horizontal MLB-style scorebug (physics-redesign-adjacent UI pass, not
+     part of the ball-flight plan): away team on the left, home on the right,
+     each logo+abbr+score - replaces the old vertical away/home stack that
+     used to sit in a side column next to the diamond. The middle column
+     carries the inning indicator and outs (no OBC mini-diamond - the
+     animated diamond right below already shows base runners) on top, with
+     the leverage meter underneath. Sits above `.scene-top` as the slide's
+     own header, beneath the modal's progress bar. */
+  function sceneScorebugHtml(m, flight, newHalf) {
     var awayBatting = !m.batting_is_home;
     var runs = m.runs || 0;
     var arrivals = runs ? scoreArrivals(m, flight) : [];
-    return '<div class="score-block scene-score">' +
-      '<div class="row' + (awayBatting ? " batting" : "") + '">' +
-        teamLogoImg(m.away_team_abbr, "scene-score-logo") +
+    return '<div class="scene-scorebug">' +
+      '<div class="scene-scorebug-team' + (awayBatting ? " batting" : "") + '">' +
+        teamLogoImg(m.away_team_abbr, "scene-scorebug-logo") +
         '<span class="abbr">' + escapeHtml(m.away_team_abbr) + "</span>" +
-        scoreCellHtml(m.away_score, awayBatting ? runs : 0, arrivals) + "</div>" +
-      '<div class="row' + (awayBatting ? "" : " batting") + '">' +
-        teamLogoImg(m.home_team_abbr, "scene-score-logo") +
+        scoreCellHtml(m.away_score, awayBatting ? runs : 0, arrivals) +
+      "</div>" +
+      '<div class="scene-scorebug-mid">' +
+        '<div class="scene-scorebug-state' + (newHalf ? " new-half" : "") + '">' +
+          '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
+          '<div class="inning-num">' + m.inning + "</div>" +
+          scorebugOutsHtml(m) +
+        "</div>" +
+        sceneMeterHtml(m) +
+      "</div>" +
+      '<div class="scene-scorebug-team home' + (!awayBatting ? " batting" : "") + '">' +
+        teamLogoImg(m.home_team_abbr, "scene-scorebug-logo") +
         '<span class="abbr">' + escapeHtml(m.home_team_abbr) + "</span>" +
-        scoreCellHtml(m.home_score, awayBatting ? 0 : runs, arrivals) + "</div>" +
+        scoreCellHtml(m.home_score, awayBatting ? 0 : runs, arrivals) +
+      "</div>" +
     "</div>";
   }
 
@@ -3128,16 +3367,9 @@
       (isKey ? "1" : "0") + '" data-new-half="' + (newHalf ? "1" : "0") +
       '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
       sceneRecapHtml(slide.recap) +
+      sceneScorebugHtml(m, flight, newHalf) +
       '<div class="scene-top">' +
         sceneFieldHtml(m, flight) +
-        '<div class="scene-side">' +
-          '<div class="scene-inning' + (newHalf ? " new-half" : "") + '">' +
-            '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
-            '<div class="inning-num">' + m.inning + "</div>" +
-          "</div>" +
-          sceneScoreHtml(m, flight) +
-          sceneMeterHtml(m) +
-        "</div>" +
       "</div>" +
       sceneDetailHtml(m, flight) +
       sceneWheelsHtml(m, flight) +

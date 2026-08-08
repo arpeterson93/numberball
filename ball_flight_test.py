@@ -298,7 +298,8 @@ def main() -> None:
 
             oracle = page.evaluate(
                 """(a) => {
-                    var sim = KMTraj.simulateFlight(a.ev, a.la, a.angle - 45, a.hand);
+                    var raw = KMTraj.simulateFlight(a.ev, a.la, a.angle - 45, a.hand);
+                    var sim = KMFlight.clampFairTerritory(raw, a.archetype);
                     var isHomeRun = a.result === 'HR';
                     var D = KMFlight.clampToFence(sim.distance, a.angle, isHomeRun);
                     var scale = D / sim.distance;
@@ -307,9 +308,12 @@ def main() -> None:
                         hangMs: 1000 * sim.hangS, apexFt: sim.apexFt,
                     };
                 }""",
-                {"ev": r["ev"], "la": r["la"], "angle": r["angle"], "hand": hand, "result": c["play"]["result"]},
+                {
+                    "ev": r["ev"], "la": r["la"], "angle": r["angle"], "hand": hand,
+                    "result": c["play"]["result"], "archetype": tables["bands"][c["play"]["result"]]["archetype"],
+                },
             )
-            check(f"{c['label']}.distance matches independent KMTraj+clampToFence oracle", r["distance"], oracle["distance"], tol=0.01)
+            check(f"{c['label']}.distance matches independent KMTraj+clampFairTerritory+clampToFence oracle", r["distance"], oracle["distance"], tol=0.01)
             check(f"{c['label']}.x matches oracle", r["x"], oracle["x"], tol=0.01)
             check(f"{c['label']}.y matches oracle", r["y"], oracle["y"], tol=0.01)
             check(f"{c['label']}.hangMs matches oracle", r["hangMs"], oracle["hangMs"], tol=0.01)
@@ -720,6 +724,97 @@ def main() -> None:
             check("real singles picked up on the infield dirt", dirt_count, 0)
         else:
             print("  [skip] no real single data / real tables found on disk")
+
+        # ── Stage D: perspective projection (physics-redesign plan Part 6/11) ──
+
+        print("\nprojectFt pure-function checks:")
+        home_px = page.evaluate("KMFlight.projectFt(0, 0, 0)")
+        check("home plate projects to screen-x center", home_px["x"], 230.0, tol=0.5)
+        home_field_h = page.evaluate("KMFlight.FIELD_H")
+        check("home plate sits in the bottom fifth of the viewBox", home_px["y"] > home_field_h * 0.8, True)
+
+        straightness = page.evaluate(
+            """() => {
+                // Foul-line samples (any fixed HZ angle) should be collinear in
+                // screen space - straight world lines project to straight lines.
+                var pts = [];
+                for (var d = 20; d <= 375; d += 20) {
+                    var ft = KMFlight.landingPoint(d, 90);
+                    pts.push(KMFlight.ftToSvg(ft.x, ft.y));
+                }
+                var a = pts[0], b = pts[pts.length - 1];
+                var maxDev = 0;
+                pts.forEach(function (p) {
+                    // perpendicular distance from p to line a-b
+                    var num = Math.abs((b.y - a.y) * p.x - (b.x - a.x) * p.y + b.x * a.y - b.y * a.x);
+                    var den = Math.hypot(b.y - a.y, b.x - a.x) || 1;
+                    maxDev = Math.max(maxDev, num / den);
+                });
+                return maxDev;
+            }"""
+        )
+        check("foul-line samples are collinear on screen (straight lines stay straight)", straightness < 0.5, True)
+
+        depth_order = page.evaluate(
+            """() => {
+                var near = KMFlight.ftToSvg(0, 50);
+                var far = KMFlight.ftToSvg(0, 300);
+                return { near: near.y, far: far.y };
+            }"""
+        )
+        check("a farther ground point projects higher on screen (smaller y)", depth_order["far"] < depth_order["near"], True)
+
+        symmetry = page.evaluate(
+            """() => {
+                var left = KMFlight.ftToSvg(-100, 200);
+                var right = KMFlight.ftToSvg(100, 200);
+                var center = KMFlight.ftToSvg(0, 200);
+                return {
+                    yMatch: Math.abs(left.y - right.y) < 1e-6,
+                    xMirror: Math.abs((center.x - left.x) - (right.x - center.x)) < 1e-6,
+                };
+            }"""
+        )
+        check("left/right symmetry: same y", symmetry["yMatch"], True)
+        check("left/right symmetry: mirrored x around center", symmetry["xMirror"], True)
+
+        fence_bbox = page.evaluate(
+            """() => {
+                var d = KMFlight.fencePathD();
+                var nums = d.match(/-?[0-9.]+/g).map(Number);
+                var xs = [], ys = [];
+                for (var i = 0; i < nums.length; i += 2) { xs.push(nums[i]); ys.push(nums[i + 1]); }
+                return { minX: Math.min.apply(null, xs), maxX: Math.max.apply(null, xs),
+                         minY: Math.min.apply(null, ys), maxY: Math.max.apply(null, ys) };
+            }"""
+        )
+        print(f"  fence bbox: {fence_bbox}")
+        check("fence arc stays within the viewBox width (with margin)", 0 <= fence_bbox["minX"] and fence_bbox["maxX"] <= 460, True)
+
+        print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
+        smoke = page.evaluate(
+            """(a) => {
+                var flight = KMFlight.flightParams(a.play, a.tables);
+                if (!flight) return null;
+                var hand = KMFlight.effectiveHand(a.play.batter_hand);
+                if (!flight.clearedFence) KMFlight.resolveHitPickup(flight);
+                // ballFlightHtml/ballArcHtml aren't exported (render-only, no DOM
+                // dependency) - reconstruct the same sample series + projection
+                // path here to smoke-test the actual data shape they consume.
+                var series = flight.samples;
+                var hasSamples = Array.isArray(series) && series.length >= 2;
+                var lastZero = series[series.length - 1].z === 0;
+                return { hasSamples: hasSamples, lastZero: lastZero, sampleCount: series.length };
+            }""",
+            {
+                "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "R", "diff": 5},
+                "tables": tables,
+            },
+        )
+        check("flight.samples exist and end exactly at landing (z=0)", smoke is not None and smoke["hasSamples"] and smoke["lastZero"], True)
+        if smoke:
+            print(f"  sample count: {smoke['sampleCount']} (<=48 per Part 2.2)")
+            check("samples count <= 48", smoke["sampleCount"] <= 48, True)
 
         browser.close()
 

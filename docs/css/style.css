@@ -536,14 +536,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* position:relative is load-bearing: the watermark below is absolutely
    positioned and would otherwise resolve against the whole modal card and
    cover the entire slide. */
-.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(50%,230px);}
+.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(78%,340px);}
 .scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
 .dm-grass{fill:var(--tint);opacity:0.55;}
 :root[data-theme="dark"] .dm-grass{opacity:0.4;}
 /* Uniform-depth fence (Alex's addition to the plan: one distance in every
-   direction, for simplicity) - drawn once as a single arc, see fencePathD in
-   app.js. */
+   direction, for simplicity) - sampled as a polyline under perspective, see
+   fencePathD in app.js. */
 .dm-fence{fill:none;stroke:var(--text);stroke-width:3;stroke-linecap:round;opacity:0.55;}
+/* The fence drawn as a short wall (fenceWallPathD, physics-redesign plan
+   Part 6.1/OQ-8) - the ground-level arc duplicated at z=8ft and filled
+   between, so an over-the-fence home run visibly clears it. Drawn under the
+   .dm-fence stroke above so the wall's own top edge doesn't need a second
+   outline. */
+.dm-fence-wall{fill:var(--border);stroke:none;opacity:0.3;}
+:root[data-theme="dark"] .dm-fence-wall{opacity:0.22;}
 /* Infield dirt: a plain 95ft-radius circle from the pitcher's plate, outlined
    only (no fill) - theme-flipped black/white like the on-field result text,
    for the same reason: needs to read against both a light and dark grass
@@ -808,7 +815,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   to{transform:scale(1.2);opacity:0;}
 }
 
-.scene-side{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0;}
 /* Replaces the removed replay closing card - the final score and the game's
    biggest play, pinned to the play the replay rests on. */
 .scene-recap{
@@ -822,39 +828,31 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .scene-recap-top{font-size:10.5px;font-weight:600;opacity:0.82;}
 @keyframes recapIn{from{opacity:0;transform:translateY(-5px);}to{opacity:1;transform:none;}}
 
-.scene-inning{display:flex;align-items:center;gap:6px;}
-/* The beat that marks a new half-inning starting. */
-.scene-inning.new-half{animation:newHalf 900ms ease both;}
-@keyframes newHalf{
-  0%{transform:scale(1);opacity:0.35;}
-  35%{transform:scale(1.35);opacity:1;}
-  to{transform:scale(1);opacity:1;}
-}
-.scene-inning .tri{
-  width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
-}
-.scene-inning .tri.up{border-bottom:7px solid var(--text);}
-.scene-inning .tri.down{border-top:7px solid var(--text);}
-.scene-inning .inning-num{font-size:15px;font-weight:800;}
-.scene-score{font-size:15px;min-width:84px;}
-/* space-between alone lets a four-letter abbreviation run into its own score
-   once the row is wide enough to matter. */
-.scene-score .row{gap:10px;}
-.scene-score .val{transition:none;display:inline-block;}
+/* Horizontal MLB-style scorebug, the slide's own header beneath the modal's
+   progress bar - away team left, home team right (mirrored via row-reverse,
+   not a second markup order, so DOM/reading order stays logo-abbr-score for
+   both sides). Replaces the old vertical away/home stack that lived in a
+   side column next to the diamond. */
+.scene-scorebug{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+.scene-scorebug-team{display:flex;align-items:center;gap:7px;font-size:19px;font-weight:800;min-width:0;color:var(--muted);}
+.scene-scorebug-team.home{flex-direction:row-reverse;}
+.scene-scorebug-team.batting{color:var(--text);}
+.scene-scorebug-logo{width:28px;height:28px;object-fit:contain;flex-shrink:0;}
+.scene-scorebug-team .val{transition:none;display:inline-block;}
 /* Counting score: every value the play passes through is stacked in one grid
    cell, so the column never changes width while it ticks. */
-.scene-score .val.counter{display:inline-grid;justify-items:end;}
-.scene-score .tick-step{grid-area:1/1;opacity:0;}
+.scene-scorebug-team .val.counter{display:inline-grid;justify-items:end;}
+.scene-scorebug-team .tick-step{grid-area:1/1;opacity:0;}
 /* Two one-shot animations per step: appear at --at, disappear at --until. Both
    only fill AFTER their delay, so before --at the step is simply invisible and
    between the two it stays put. The last step has no --until and holds. */
-.scene-score .tick-step{
+.scene-scorebug-team .tick-step{
   animation:scoreStepIn 420ms cubic-bezier(.2,1.6,.4,1) var(--at) both,
             scoreStepOut 1ms linear var(--until,600s) forwards;
 }
 /* The value the play started from was already on the board - it shows at once
    rather than popping in, and only needs the exit. */
-.scene-score .tick-step.first{
+.scene-scorebug-team .tick-step.first{
   opacity:1;animation:scoreStepOut 1ms linear var(--until,600s) forwards;
 }
 @keyframes scoreStepIn{
@@ -864,7 +862,25 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 @keyframes scoreStepOut{to{opacity:0;}}
 
-.scene-meter{position:relative;width:120px;text-align:center;}
+/* Middle column: inning + outs on top, leverage meter underneath - no OBC
+   mini-diamond, the animated diamond right below already shows runners. */
+.scene-scorebug-mid{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto;}
+.scene-scorebug-state{display:flex;align-items:center;gap:8px;}
+/* The beat that marks a new half-inning starting. */
+.scene-scorebug-state.new-half{animation:newHalf 900ms ease both;}
+@keyframes newHalf{
+  0%{transform:scale(1);opacity:0.35;}
+  35%{transform:scale(1.35);opacity:1;}
+  to{transform:scale(1);opacity:1;}
+}
+.scene-scorebug-state .tri{
+  width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+}
+.scene-scorebug-state .tri.up{border-bottom:7px solid var(--text);}
+.scene-scorebug-state .tri.down{border-top:7px solid var(--text);}
+.scene-scorebug-state .inning-num{font-size:15px;font-weight:800;}
+
+.scene-meter{position:relative;width:100px;text-align:center;}
 .scene-meter svg{width:100%;height:auto;display:block;overflow:visible;}
 .mt-track{fill:none;stroke:var(--tint);stroke-width:9;stroke-linecap:round;}
 /* Only marking left on the gauge (Alex's call - was also a gray dash at the
@@ -912,26 +928,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .mu-name > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mu-vs{font-size:11px;font-weight:700;color:var(--muted);align-self:flex-end;padding-bottom:3px;}
 
-/* Outs tracker: same circle language as the scorebug, left to right. Unlike
-   the scorebug's live state, this is a replay of a completed play, so it
-   shows all three outs rather than routing the third to a separate badge. */
-.scene-outs{display:flex;align-items:center;gap:7px;}
-.scene-outs-lbl{font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--muted);}
-.out-dots{display:flex;gap:5px;}
-.out-dot{
-  width:9px;height:9px;border-radius:50%;
-  border:1px solid var(--dot-off-stroke);background:var(--dot-off-fill);
-}
-.out-dot.on{background:var(--red);border-color:var(--red);}
-/* Only the outs THIS play recorded animate - the ones already on the board
-   were there before the batter stepped in. Delayed so the circle lands after
-   the play has visibly resolved rather than at slide mount. */
-.out-dot.fresh{animation:outPop 480ms cubic-bezier(.2,1.6,.4,1) 420ms both;}
-@keyframes outPop{
-  0%{transform:scale(0.2);background:var(--dot-off-fill);border-color:var(--dot-off-stroke);}
-  60%{transform:scale(1.45);background:var(--red);border-color:var(--red);}
-  to{transform:scale(1);background:var(--red);border-color:var(--red);}
-}
 .scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
 .scene-play-line .player-name{font-weight:800;}
 /* The result is the headline of the slide - it lands with a bounce rather than
@@ -961,8 +957,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    roll, LA/HZ only on a real batted ball; when LA/HZ are absent, DIFF alone
    still centres itself since scene-wheels is already a centered flex row. */
 .scene-wheels{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:2px;}
-.wheel{display:flex;flex-direction:column;align-items:center;gap:2px;width:76px;}
-.wheel-label{font-size:9px;font-weight:800;letter-spacing:1px;color:var(--muted);}
+.wheel{display:flex;flex-direction:column;align-items:center;gap:2px;width:125px;}
+.wheel-label{font-size:10px;font-weight:800;letter-spacing:1px;color:var(--muted);}
 .wheel-svg{width:100%;height:auto;overflow:visible;}
 .wheel-ring{fill:none;stroke:var(--border);stroke-width:1.5;}
 /* Reference arc for the result's own diff band (DIFF wheel only) - anchored
@@ -1012,23 +1008,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    card-coloured halo so it stays legible crossing the ring/arc lines
    underneath it. */
 .wheel-val{
-  font-size:8px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
+  font-size:9.5px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
   opacity:0;
 }
 .wheel-val-1{animation:wheelDotIn 160ms ease 0ms both;}
 .wheel-val-2{animation:wheelDotIn 160ms ease 650ms both;}
 .wheel-center-big{
-  font-size:13px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
+  font-size:15px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
   opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
 }
 .wheel-center-small{
-  font-size:7px;font-weight:700;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;
+  font-size:8px;font-weight:700;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;
   opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
 }
 @keyframes wheelFadeIn{to{opacity:1;}}
-.scene-score-logo{width:17px;height:17px;object-fit:contain;flex-shrink:0;}
 /* Batting team's mark under the infield - visible enough to place the play,
    quiet enough that the runner tokens stay the thing you look at. */
 /* Painted on the infield dirt, inside the SVG - see sceneDiamondHtml. */
@@ -1130,8 +1125,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 @media (max-width:600px){
   .scene-top, .scene-detail{display:contents;}
   .play-scene{align-items:center;}
-  .scene-diamond-wrap{order:1;width:min(64vw,250px);}
-  .scene-outs{order:2;}
+  .scene-diamond-wrap{order:1;width:min(90vw,340px);}
   .scene-play-line{order:3;font-size:14.5px;}
   .scene-matchup{order:4;}
   .scene-detail .scoring-line{order:5;}
@@ -1141,11 +1135,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      it in front of the diamond. Ordered here like every other piece of this
      reflow. */
   .scene-wheels{order:6;}
-  .scene-side{order:7;flex-direction:row;align-items:center;justify-content:center;gap:22px;width:100%;}
   .scene-recap{order:0;}
+  .scene-scorebug{order:0;}
   .scene-ribbon{order:8;width:100%;}
-  .scene-meter{width:112px;}
-  .scene-score{font-size:16px;min-width:92px;}
+  .scene-meter{width:92px;}
+  .scene-scorebug-team{font-size:17px;}
   .scene-ribbon svg{height:84px;}
   /* Slightly smaller controls here so the reserved gutters do not squeeze two
      long player names into an awkward wrap. */
@@ -1192,15 +1186,20 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rn.stranded-to-dugout .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-flash,
-  .scene-recap, .scene-inning.new-half, .play-scene .result-pill,
-  .out-dot.fresh, .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
-  .ball, .ball.clear, .ball-trail, .fielder, .throw-line,
+  .scene-recap, .scene-scorebug-state.new-half, .play-scene .result-pill,
+  .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
+  .fielder, .throw-line,
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small{animation:none;}
+  /* !important (physics-redesign plan Part 6.3 item 3): each play generates
+     its own .ball.kmArc-<id> rule with the same 2-class specificity as
+     .ball.clear here, inserted later in document order (a fresh <style>
+     block per slide) - without !important that per-play rule would win and
+     defeat this preference. */
+  .ball, .ball.clear, .ball-trail{animation:none!important;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
-  .out-dot.fresh{background:var(--red);border-color:var(--red);}
   .dm-base.on{fill:var(--gold);stroke:var(--gold);}
   .ball-label, .ball-dist{opacity:1;}
   .ball-rollout{opacity:0.6;}
@@ -1208,8 +1207,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .wheel-arc{stroke-dashoffset:0;}
   .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small{opacity:1;transform:scale(1);}
-  .scene-score .tick-step{animation:none;opacity:0;}
-  .scene-score .tick-step:last-child{opacity:1;}
+  .scene-scorebug-team .tick-step{animation:none;opacity:0;}
+  .scene-scorebug-team .tick-step:last-child{opacity:1;}
   /* A put-out token is simply gone at the dugout anchor - no travel, no
      colour transition (ball-flight-plan.md Stage 6, "Reduced motion" note).
      .rn's base rule already places it at --tx/--ty (the dugout), so only the
@@ -1342,11 +1341,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    this is only the outer caps plus a few font sizes that were fixed in px. */
 @media (min-width: 900px){
   .catchup-card{max-width:min(92vw,1080px);height:min(90vh,820px);}
-  .scene-diamond-wrap{width:min(42%,380px);}
+  .scene-diamond-wrap{width:min(50%,460px);}
   .scene-play-line{font-size:18px;}
   .mu-name{font-size:17px;}
   .scene-wheels{gap:22px;}
-  .wheel{width:92px;}
+  .wheel{width:145px;}
 }
 
 /* Real browser fullscreen (the expand button in the card's corner) - more

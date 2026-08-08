@@ -149,7 +149,7 @@
     var rollDecel = opts.rollDecel != null ? opts.rollDecel : ROLL_DECEL;
 
     var hops = [];
-    var segments = [];   // {kind, t0, d0, speed, dur}
+    var segments = [];   // {kind, t0, d0, speed, dur, vzUp (hops only)}
     var shI = sh, vzDown = Math.abs(vz);
     var tCursor = 0, dCursor = 0;
 
@@ -160,7 +160,7 @@
       var tI = 2 * vzUp / G;
       var lenI = shI * tI;
       hops.push({ lenFt: lenI, apexFt: apex, tS: tI });
-      segments.push({ kind: "hop", t0: tCursor, d0: dCursor, speed: shI, dur: tI });
+      segments.push({ kind: "hop", t0: tCursor, d0: dCursor, speed: shI, dur: tI, vzUp: vzUp });
       tCursor += tI; dCursor += lenI;
       shI = fRetainH * shI;
       vzDown = vzUp;
@@ -207,7 +207,23 @@
       return totalS;
     }
 
-    return { restFt: restFt, totalS: totalS, distAt: distAt, timeAt: timeAt, hops: hops };
+    // Height above ground at real time tS since landing - the vacuum
+    // parabola during a hop, 0 while rolling. Used only for rendering
+    // (Part 6.3's hop arcs); distAt/timeAt never need it.
+    function heightAt(tS) {
+      tS = Math.max(0, tS);
+      for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+        if (tS <= seg.t0 + seg.dur) {
+          if (seg.kind !== "hop") return 0;
+          var dtLocal = tS - seg.t0;
+          return Math.max(0, seg.vzUp * dtLocal - 0.5 * G * dtLocal * dtLocal);
+        }
+      }
+      return 0;
+    }
+
+    return { restFt: restFt, totalS: totalS, distAt: distAt, timeAt: timeAt, heightAt: heightAt, hops: hops };
   }
 
   window.KMTraj = {
