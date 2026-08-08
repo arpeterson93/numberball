@@ -538,29 +538,40 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    cover the entire slide. */
 .scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(78%,340px);}
 .scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
-.dm-grass{fill:var(--tint);opacity:0.55;}
-:root[data-theme="dark"] .dm-grass{opacity:0.4;}
+/* Real field colors, sampled directly from Alex's reference photo (grass
+   rgb(54,123,68), dirt/warning-track rgb(199,165,128), fence rgb(38,85,48))
+   - fixed, not theme-adaptive: a real broadcast graphic never re-themes the
+   field itself for light/dark mode. */
+.dm-grass{fill:#367b44;}
+/* Tan warning-track band, one continuous loop around the whole field
+   boundary - behind home, down both foul territories, around the outfield
+   curve (Alex's reference photo) - see warningTrackPathD in app.js. */
+.dm-warning-track{fill:#c7a580;stroke:none;}
 /* Uniform-depth fence (Alex's addition to the plan: one distance in every
    direction, for simplicity) - sampled as a polyline under perspective, see
    fencePathD in app.js. */
-.dm-fence{fill:none;stroke:var(--text);stroke-width:3;stroke-linecap:round;opacity:0.55;}
+.dm-fence{fill:none;stroke:#265530;stroke-width:3;stroke-linecap:round;}
 /* The fence drawn as a short wall (fenceWallPathD, physics-redesign plan
    Part 6.1/OQ-8) - the ground-level arc duplicated at z=8ft and filled
    between, so an over-the-fence home run visibly clears it. Drawn under the
    .dm-fence stroke above so the wall's own top edge doesn't need a second
    outline. */
-.dm-fence-wall{fill:var(--border);stroke:none;opacity:0.3;}
-:root[data-theme="dark"] .dm-fence-wall{opacity:0.22;}
-/* Infield dirt: a plain 95ft-radius circle from the pitcher's plate, outlined
-   only (no fill) - theme-flipped black/white like the on-field result text,
-   for the same reason: needs to read against both a light and dark grass
-   fill. */
-.dm-dirt{fill:none;stroke:var(--text);stroke-width:1;opacity:0.55;}
-/* Foul lines: home through the 1B/3B anchor out to the fence - drawn after
-   the infield fill so they stay visible on top of it. */
-.dm-foul-line{stroke:var(--text);stroke-width:1;opacity:0.55;}
-.dm-field{fill:var(--tint);stroke:var(--border);stroke-width:2;}
-.dm-base{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
+.dm-fence-wall{fill:#265530;stroke:none;}
+/* Modified dirt cutout (Alex's reference photo): a wide dirt arc over the
+   mound down to each foul line, with the actual basepath square left as a
+   grass island in the middle (fill-rule=evenodd, two subpaths in one
+   <path> - see infieldSkinHtml in app.js), rounded bulges at 1B/3B instead
+   of plain corners, plus small separate circles for home plate and the
+   mound (the mound reads as its own patch surrounded by grass, not merged
+   into the big cutout). */
+.dm-infield-dirt, .dm-home-dirt, .dm-mound-dirt{fill:#c7a580;stroke:none;}
+.dm-rubber{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:1;}
+/* Foul lines/bases/plate: white against the grass/dirt, same as a real
+   field - these used to be theme-flipped text-colored lines against a pale
+   neutral background; the background is real green/tan now, so white reads
+   the way an actual painted line does. */
+.dm-foul-line{stroke:#f2f0e6;stroke-width:1.5;opacity:0.9;}
+.dm-base{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:2;}
 /* I7: post-play occupancy is real, but painting it at slide mount lit bases
    up before any runner had visibly reached them. Delayed to --blight (the
    slowest arriving safe/scoring runner, computed in sceneFieldHtml) so the
@@ -591,7 +602,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   40%{fill:var(--red);stroke:var(--red);}
   100%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
 }
-.dm-plate{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);stroke-width:2;}
+.dm-plate{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:2;}
 
 /* Ball flight (ball-flight-plan.md Stage 4e): the ball itself translates
    home->landing exactly like a runner token; the trail is a real line with
@@ -1024,11 +1035,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
 }
 @keyframes wheelFadeIn{to{opacity:1;}}
-/* Batting team's mark under the infield - visible enough to place the play,
-   quiet enough that the runner tokens stay the thing you look at. */
-/* Painted on the infield dirt, inside the SVG - see sceneDiamondHtml. */
-.dm-mark{opacity:0.32;}
-:root[data-theme="dark"] .dm-mark{opacity:0.4;}
+/* Batting team's mark, painted on the center-field grass (Alex's call - was
+   the infield centroid). Opacity raised substantially (was 0.4) - Alex's
+   ask was clearly visible/saturated, not faded into the grass, while still
+   reading as painted onto the turf rather than floating above it (hence
+   still short of fully opaque). Same value in both themes: the grass it
+   sits on is a fixed real-field green, not a theme-adaptive tint, so
+   there's no light/dark contrast difference left to compensate for. */
+.dm-mark{opacity:0.75;}
 .scene-detail .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;}
 
 .scene-ribbon{padding:10px 0 6px;}

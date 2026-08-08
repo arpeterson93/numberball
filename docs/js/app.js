@@ -997,12 +997,16 @@
   // 428ft HR's fade point; home plate bottom-center; dirt circle visibly
   // elliptical; a 100ft-apex fly ball's arc reads above the fence) - revisit
   // in Stage E.
-  var CAM_BACK = 180, CAM_UP = 250, LOOK_Y = 170, FOCAL = 300;
+  // Steeper, wider-angle than the first pass (Alex's reference photo: the
+  // fence spans nearly the full frame width and sits close to the top, home
+  // plate close to the bottom - a higher, closer camera with a wider FOCAL
+  // than a "normal" broadcast lens).
+  var CAM_BACK = 145, CAM_UP = 275, LOOK_Y = 145, FOCAL = 360;
   var SCREEN_CX = 230;
   // Desired screen y for home plate (bottom-center, with room below for the
   // plate marker/dugouts) - SCREEN_CY itself is solved from this below so
   // the camera constants above stay the only real tunables.
-  var HOME_SCREEN_Y = 285;
+  var HOME_SCREEN_Y = 282;
 
   var CAM_L = Math.hypot(LOOK_Y + CAM_BACK, CAM_UP);
   var FWD_Y = (LOOK_Y + CAM_BACK) / CAM_L, FWD_Z = -CAM_UP / CAM_L;
@@ -1116,6 +1120,11 @@
     C: { x: 0, y: -5 },
     LF: { x: -200, y: 260 }, CF: { x: 0, y: 320 }, RF: { x: 200, y: 260 },
   };
+  // Deep enough to read as center field grass, clear of the infield dirt
+  // skin and mound, but shallow enough that the mark's own box doesn't
+  // reach the fence, where the batting team's watermark is painted
+  // (sceneFieldHtml).
+  var CF_MARK_DEPTH_FT = 245;
   ["3B", "SS", "P", "2B", "1B"].forEach(function (pos) {
     var pt = landingPoint(INFIELDER_DEPTH_FT[pos], CANONICAL_ANGLE[pos]);
     FIELDER_ANCHORS_FT[pos] = { x: pt.x, y: pt.y };
@@ -1313,13 +1322,27 @@
   // longer projects to a circular SVG arc, so it's sampled instead
   // (physics-redesign plan Part 6.2).
   var FENCE_SAMPLE_STEP_DEG = 3;
-  function fenceArcPoints() {
-    var pts = [];
-    for (var a = 0; a <= 90; a += FENCE_SAMPLE_STEP_DEG) {
-      var ft = landingPoint(FENCE_DEPTH_FT, a);
-      pts.push(ftToSvg(ft.x, ft.y));
+  // A small rounding pad past each foul line (Alex's reference photo: the
+  // fence/warning-track corner reads as a smooth cap, not a pinched point) -
+  // purely cosmetic, the same uniform-radius circle just sampled a few
+  // degrees further each way. Never touches gameplay: fenceAt/clampToFence
+  // are only ever called with real HZ angles in [5,85], well inside this
+  // padded range.
+  var FENCE_VISUAL_PAD_DEG = 5;
+  // Every angle the fence/wall/warning-track arcs sample, shared so all
+  // three stay corner-for-corner consistent with each other.
+  function fenceSampleAngles() {
+    var angles = [];
+    for (var a = -FENCE_VISUAL_PAD_DEG; a <= 90 + FENCE_VISUAL_PAD_DEG; a += FENCE_SAMPLE_STEP_DEG) {
+      angles.push(a);
     }
-    return pts;
+    return angles;
+  }
+  function fenceArcPoints() {
+    return fenceSampleAngles().map(function (a) {
+      var ft = landingPoint(FENCE_DEPTH_FT, a);
+      return ftToSvg(ft.x, ft.y);
+    });
   }
   function polylineD(pts) {
     return pts.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
@@ -1347,14 +1370,48 @@
   var FENCE_WALL_HEIGHT_FT = 8;
   function fenceWallPathD() {
     var ground = fenceArcPoints();
-    var top = [];
-    for (var a = 0; a <= 90; a += FENCE_SAMPLE_STEP_DEG) {
+    var top = fenceSampleAngles().map(function (a) {
       var ft = landingPoint(FENCE_DEPTH_FT, a);
-      top.push(projectFt(ft.x, ft.y, FENCE_WALL_HEIGHT_FT));
-    }
+      return projectFt(ft.x, ft.y, FENCE_WALL_HEIGHT_FT);
+    });
     var d = polylineD(ground);
     for (var i = top.length - 1; i >= 0; i--) {
       d += " L" + top[i].x.toFixed(1) + "," + top[i].y.toFixed(1);
+    }
+    return d + " Z";
+  }
+
+  // A point pulled toward home by insetFt along its own bearing from home -
+  // a radial (not perpendicular) inset, but for a roughly fan-shaped field
+  // boundary radiating from home that's a close enough approximation for a
+  // clean, stylized warning track (Alex's reference photo), not worth a
+  // true polygon-offset algorithm for.
+  function radialInsetFt(pt, insetFt) {
+    var d = Math.hypot(pt.x, pt.y);
+    if (d <= insetFt) return { x: 0, y: 0 };
+    var f = (d - insetFt) / d;
+    return { x: pt.x * f, y: pt.y * f };
+  }
+
+  // The warning track as ONE continuous band around the WHOLE field
+  // boundary (Alex's reference photo) - behind home plate, down both foul
+  // territories, around the outfield curve, and back - not just the curved
+  // fence arc. Outer edge is exactly grassPathD's own boundary (so the
+  // track never floats free of the grass edge); inner edge is the same
+  // boundary radially inset toward home.
+  var WARNING_TRACK_WIDTH_FT = 15;
+  function warningTrackPathD() {
+    var boundaryFt = [{ x: -GRASS_HALF_WIDTH_FT, y: -GRASS_BACK_MARGIN_FT }]
+      .concat(fenceSampleAngles().map(function (a) { return landingPoint(FENCE_DEPTH_FT, a); }))
+      .concat([{ x: GRASS_HALF_WIDTH_FT, y: -GRASS_BACK_MARGIN_FT }]);
+    var outer = boundaryFt.map(function (p) { return ftToSvg(p.x, p.y); });
+    var inner = boundaryFt.map(function (p) {
+      var q = radialInsetFt(p, WARNING_TRACK_WIDTH_FT);
+      return ftToSvg(q.x, q.y);
+    });
+    var d = polylineD(outer);
+    for (var i = inner.length - 1; i >= 0; i--) {
+      d += " L" + inner[i].x.toFixed(1) + "," + inner[i].y.toFixed(1);
     }
     return d + " Z";
   }
@@ -1372,34 +1429,93 @@
     return "M" + start.x.toFixed(1) + "," + start.y.toFixed(1) + " L" + end.x.toFixed(1) + "," + end.y.toFixed(1);
   }
 
-  // Infield dirt: a circle of radius INFIELD_DIRT_RADIUS_FT centred on the
-  // pitcher's plate (PITCHER_MOUND_FT in front of home), clipped to fair
-  // territory only (Alex's correction) - a full circle that size reaches
-  // well past both foul lines. Just the ARC that stays in fair territory -
-  // no straight edges down to home, which double-drew right on top of the
-  // foul lines themselves (Alex's follow-up correction) and read as one
-  // thick line rather than two separate features. The arc's own two
-  // endpoints already sit exactly on the foul lines (where the circle
-  // intersects them), so it meets them cleanly with no gap and no overlap.
-  function infieldDirtHtml() {
-    var m = PITCHER_MOUND_FT, r = INFIELD_DIRT_RADIUS_FT;
-    // Solving x^2 + (x-m)^2 = r^2 for the intersection of the circle with the
-    // line y=x (the 1B foul line) - the 3B line (y=-x) is the mirror image.
-    var edge = (m + Math.sqrt(2 * r * r - m * m)) / 2;
-    // Sampled instead of a single SVG circular arc (Part 6.2, same reasoning
-    // as the fence): the world-space dirt circle, centred on the mound, no
-    // longer projects to a circular arc under perspective. Parametrized by
-    // angle phi around the mound (phi=0 pointing away from home, phi=PI the
-    // deepest point of the dirt circle straight out from home) from the 3B
-    // intersection to the 1B one, through the deep point.
-    var phiEdge = Math.atan2(edge, m - edge);
-    var steps = 16;
+  // A world-space circle (any centre/radius), sampled into a polyline the
+  // same way the fence/dirt arcs are (Part 6.2 - a circle doesn't project to
+  // a circular SVG arc under perspective).
+  function circlePathD(cxFt, cyFt, rFt, steps) {
     var pts = [];
     for (var i = 0; i <= steps; i++) {
-      var phi = phiEdge + (2 * Math.PI - 2 * phiEdge) * i / steps;
-      pts.push(ftToSvg(r * Math.sin(phi), m - r * Math.cos(phi)));
+      var a = 2 * Math.PI * i / steps;
+      pts.push(ftToSvg(cxFt + rFt * Math.sin(a), cyFt + rFt * Math.cos(a)));
     }
-    return '<path class="dm-dirt" d="' + polylineD(pts) + '"></path>';
+    return polylineD(pts) + " Z";
+  }
+
+  // "Modified" dirt cutout (Alex's second reference photo) - a wide dirt
+  // arc over the mound down to each foul line, with the actual basepath
+  // square left as a grass island in the middle, rather than the thinner
+  // basepath-only strips the first pass drew. One <path> with two subpaths
+  // (the outer cutout, then the inner grass diamond) and fill-rule=evenodd
+  // (CSS) does the hole - simpler and more robust than boolean path ops.
+  // INFIELD_SKIN_DIRT_R_FT is purely decorative, deliberately separate from
+  // INFIELD_DIRT_RADIUS_FT/PITCHER_MOUND_FT's own 95ft dirt-edge circle
+  // (dirtEdgeFt, Part 4.6's rollout floor) - that one is a gameplay constant
+  // a real infielder's dirt-clearing rollout is measured against, this one
+  // never touches physics.
+  var INFIELD_SKIN_DIRT_R_FT = 115;
+  var HOME_DIRT_R_FT = 16;
+  // The mound reads as its own small dirt patch surrounded by grass (Alex's
+  // reference photo), not merged into the big cutout - true regardless of
+  // INFIELD_SKIN_DIRT_R_FT, since the mound point always sits well inside
+  // the grass-diamond hole below.
+  var MOUND_DIRT_R_FT = 11;
+  // How far the grass-diamond hole pulls back from home plate along the
+  // centerline, so a dirt apron survives around the plate itself instead of
+  // grass cutting all the way up to it.
+  var SKIN_HOLE_HOME_INSET_FT = 24;
+  // How far past 1B/3B the grass bulges outward into the dirt (a rounded,
+  // organic cutout instead of the diamond's plain sharp corner there) -
+  // home and 2B stay plain corners, matching the reference photo.
+  var GRASS_CUTOUT_BULGE_FT = 16;
+
+  // A quadratic-bezier bulge at `corner` (feet), pulled outward along its
+  // own bearing from home, blended in from `approachFrom` and back out
+  // toward `exitTo` (also feet) - returns projected {a, ctrl, e} ready to
+  // drop into an SVG "L a  Q ctrl e" sequence.
+  function grassBulge(corner, approachFrom, exitTo) {
+    var len = Math.hypot(corner.x, corner.y) || 1;
+    var ctrl = {
+      x: corner.x + corner.x / len * GRASS_CUTOUT_BULGE_FT,
+      y: corner.y + corner.y / len * GRASS_CUTOUT_BULGE_FT,
+    };
+    var a = { x: corner.x + 0.65 * (approachFrom.x - corner.x), y: corner.y + 0.65 * (approachFrom.y - corner.y) };
+    var e = { x: corner.x + 0.65 * (exitTo.x - corner.x), y: corner.y + 0.65 * (exitTo.y - corner.y) };
+    return { a: ftToSvg(a.x, a.y), ctrl: ftToSvg(ctrl.x, ctrl.y), e: ftToSvg(e.x, e.y) };
+  }
+
+  function infieldSkinHtml() {
+    var m = PITCHER_MOUND_FT, r = INFIELD_SKIN_DIRT_R_FT;
+    var edge = (m + Math.sqrt(2 * r * r - m * m)) / 2;
+    var phiEdge = Math.atan2(edge, m - edge);
+    var steps = 16;
+    var arcPts = [];
+    for (var i = 0; i <= steps; i++) {
+      var phi = phiEdge + (2 * Math.PI - 2 * phiEdge) * i / steps;
+      arcPts.push(ftToSvg(r * Math.sin(phi), m - r * Math.cos(phi)));
+    }
+    var homeL = homePlateCorner(-1), homeR = homePlateCorner(1);
+    var outer = polylineD([homeL].concat(arcPts).concat([homeR])) + " Z";
+
+    // Rounded grass-diamond hole: sharp at home/2B, a smooth outward bulge
+    // at 1B/3B instead of a plain vertex (Part 2 of Alex's reference photo).
+    var homeIn = { x: 0, y: SKIN_HOLE_HOME_INSET_FT };
+    var b1 = { x: BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 };
+    var b2 = { x: 0, y: BASE_DIAG_FT };
+    var b3 = { x: -BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 };
+    var bulge1 = grassBulge(b1, homeIn, b2);
+    var bulge3 = grassBulge(b3, b2, homeIn);
+    var homeInPx = ftToSvg(homeIn.x, homeIn.y), b2Px = ftToSvg(b2.x, b2.y);
+    var hole = "M" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) +
+      " L" + bulge1.a.x.toFixed(1) + "," + bulge1.a.y.toFixed(1) +
+      " Q" + bulge1.ctrl.x.toFixed(1) + "," + bulge1.ctrl.y.toFixed(1) + " " + bulge1.e.x.toFixed(1) + "," + bulge1.e.y.toFixed(1) +
+      " L" + b2Px.x.toFixed(1) + "," + b2Px.y.toFixed(1) +
+      " L" + bulge3.a.x.toFixed(1) + "," + bulge3.a.y.toFixed(1) +
+      " Q" + bulge3.ctrl.x.toFixed(1) + "," + bulge3.ctrl.y.toFixed(1) + " " + bulge3.e.x.toFixed(1) + "," + bulge3.e.y.toFixed(1) +
+      " L" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) + " Z";
+
+    return '<path class="dm-infield-dirt" fill-rule="evenodd" d="' + outer + " " + hole + '"></path>' +
+      '<path class="dm-home-dirt" d="' + circlePathD(0, 0, HOME_DIRT_R_FT, 20) + '"></path>' +
+      '<path class="dm-mound-dirt" d="' + circlePathD(0, PITCHER_MOUND_FT, MOUND_DIRT_R_FT, 20) + '"></path>';
   }
 
   function nearestFielder(x, y) {
@@ -2599,22 +2715,16 @@
         p.x.toFixed(1) + "," + p.y.toFixed(1) + ') rotate(45)"></rect>';
     }).join("");
 
-    /* The batting team's mark is painted ON the infield, inside the SVG and
-       above the field fill - as an HTML layer underneath it, the opaque
-       .dm-field simply covered it. It sits below the bases and tokens so the
-       runners always stay the thing you look at. Centred on the diamond's
-       own centroid so it scales with the (real 90ft-basepath-scaled)
-       infield rather than a hardcoded position. */
+    /* The batting team's mark is painted in center field (Alex's call - was
+       the infield centroid, moved out to sit on open grass where it doesn't
+       compete with the basepath dirt skin or the bases). Sized off the same
+       projected-basepath-length as before so it stays perspective-correct
+       (bigger when the camera reads the field bigger) without a flat
+       ft/unit scale. */
     var batAbbr = m.batting_is_home ? m.home_team_abbr : m.away_team_abbr;
     var markUrl = teamLogoUrl(batAbbr);
-    var centroid = {
-      x: (SCENE_BASES.HOME.x + SCENE_BASES["1B"].x + SCENE_BASES["2B"].x + SCENE_BASES["3B"].x) / 4,
-      y: (SCENE_BASES.HOME.y + SCENE_BASES["1B"].y + SCENE_BASES["2B"].y + SCENE_BASES["3B"].y) / 4,
-    };
-    // Roughly one basepath-length, in projected screen px rather than a flat
-    // ft/unit scale (Part 6.2) - perspective-correct since it's derived from
-    // the same projected bases the diamond itself is drawn from.
-    var markSize = Math.hypot(SCENE_BASES["1B"].x - SCENE_BASES.HOME.x, SCENE_BASES["1B"].y - SCENE_BASES.HOME.y);
+    var centroid = ftToSvg(0, CF_MARK_DEPTH_FT);
+    var markSize = Math.hypot(SCENE_BASES["1B"].x - SCENE_BASES.HOME.x, SCENE_BASES["1B"].y - SCENE_BASES.HOME.y) * 0.68;
     var watermark = markUrl
       ? '<image class="dm-mark" href="' + escapeHtml(markUrl) +
         '" x="' + (centroid.x - markSize / 2).toFixed(1) + '" y="' + (centroid.y - markSize / 2).toFixed(1) +
@@ -2635,25 +2745,31 @@
       " L" + (h.x + plateR).toFixed(1) + "," + h.y.toFixed(1) +
       " L" + h.x.toFixed(1) + "," + (h.y + plateR * 1.15).toFixed(1) +
       " L" + (h.x - plateR).toFixed(1) + "," + h.y.toFixed(1) + " Z";
-    // Layering bottom to top, per Stage 4c: grass, fence, infield dirt circle,
-    // infield fill, foul lines, base plates, watermark, fielder, ball trail +
-    // ball, throw, runner tokens. Runner tokens stay on top - they're what
-    // the viewer follows.
+    // The pitcher's rubber (both reference photos show it) - a small flat
+    // marker, screen-px sized same as the bases/plate rather than a
+    // ft-scaled rectangle (Part 6.2: token sizes stay constant-px).
+    var moundPt = ftToSvg(0, PITCHER_MOUND_FT);
+    var rubberW = BASE_R * 2.1, rubberH = BASE_R * 0.65;
+    var rubberMarker = '<rect class="dm-rubber" x="' + (moundPt.x - rubberW / 2).toFixed(1) +
+      '" y="' + (moundPt.y - rubberH / 2).toFixed(1) + '" width="' + rubberW.toFixed(1) +
+      '" height="' + rubberH.toFixed(1) + '" rx="0.8"></rect>';
+    // Layering bottom to top, per Stage 4c: grass, fence, CF watermark,
+    // basepath/mound/home dirt skin, foul lines, base plates, plate marker,
+    // fielder, ball trail + ball, throw, runner tokens. Runner tokens stay
+    // on top - they're what the viewer follows.
     return '<div class="scene-diamond-wrap">' +
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
         (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
         '<path class="dm-grass" d="' + grassPathD() + '"></path>' +
+        '<path class="dm-warning-track" d="' + warningTrackPathD() + '"></path>' +
         '<path class="dm-fence-wall" d="' + fenceWallPathD() + '"></path>' +
         '<path class="dm-fence" d="' + fencePathD() + '"></path>' +
-        infieldDirtHtml() +
-        '<path class="dm-field" d="M' + h.x.toFixed(1) + "," + h.y.toFixed(1) +
-          " L" + SCENE_BASES["1B"].x.toFixed(1) + "," + SCENE_BASES["1B"].y.toFixed(1) +
-          " L" + SCENE_BASES["2B"].x.toFixed(1) + "," + SCENE_BASES["2B"].y.toFixed(1) +
-          " L" + SCENE_BASES["3B"].x.toFixed(1) + "," + SCENE_BASES["3B"].y.toFixed(1) + ' Z"></path>' +
+        watermark +
+        infieldSkinHtml() +
+        rubberMarker +
         '<path class="dm-foul-line" d="' + foulLineD(0) + '"></path>' +
         '<path class="dm-foul-line" d="' + foulLineD(90) + '"></path>' +
         plates +
-        watermark +
         '<path class="dm-plate" d="' + platePath + '"></path>' +
         (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight) : "") +
         ballFlightHtml(m, flight) +
