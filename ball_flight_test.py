@@ -275,10 +275,10 @@ def main() -> None:
 
         print("\nstealThrowTarget (B3-c - catcher throw on steal attempts):")
         steal_cases = [
-            ("SB2", "001", "010", {"base": "2B", "caught": False}),
-            ("SB3", "010", "100", {"base": "3B", "caught": False}),
-            ("CS2", "001", "000", {"base": "2B", "caught": True}),
-            ("CS", "010", "000", {"base": "3B", "caught": True}),
+            ("SB2", "001", "010", {"base": "2B", "caught": False, "delay": False}),
+            ("SB3", "010", "100", {"base": "3B", "caught": False, "delay": False}),
+            ("CS2", "001", "000", {"base": "2B", "caught": True, "delay": False}),
+            ("CS", "010", "000", {"base": "3B", "caught": True, "delay": False}),
             ("GO", "000", "000", None),
         ]
         for result, before, after, want in steal_cases:

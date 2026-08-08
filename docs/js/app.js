@@ -1949,8 +1949,14 @@
       ? moves.filter(function (x) { return x.to === "OUT"; })[0]
       : moves.filter(function (x) { return x.to !== "OUT" && x.to !== x.from; })[0];
     if (!mv) return null;
-    var base = caught ? (NEXT_BASE[mv.from] || mv.from) : mv.to;
-    return { base: base, caught: caught };
+    // import_BRC.csv's aN column names the base this runner was actually
+    // making for, straight from the data - preferred over guessing "the next
+    // base past where they started" (NEXT_BASE), which has no way to know
+    // about a runner thrown out attempting something other than the single
+    // next bag. Falls back to the old guess only when a row hasn't been
+    // given an explicit assist yet.
+    var base = caught ? (mv.assist || NEXT_BASE[mv.from] || mv.from) : mv.to;
+    return { base: base, caught: caught, delay: !!mv.delay };
   }
 
   // The catcher, unless import_BRC.csv's ExcludedPositions/DefaultPosition
@@ -1977,7 +1983,15 @@
     if (!to) return "";
     var originAnchor = FIELDER_ANCHORS_FT[stealThrowOrigin(m)] || FIELDER_ANCHORS_FT.C;
     var from = ftToSvg(originAnchor.x, originAnchor.y);
-    var arrival = stealRunnerArrivalMs(target.caught, runDelay, outDelay);
+    // Explicit "delay" flag (e.g. KCS - a strikeout that also catches a
+    // runner stealing): the steal doesn't start on the pitch like a normal
+    // attempt, it starts once the K itself resolves (outDelay already is
+    // that moment - there's no ball flight on any steal play to hang a
+    // separate "catch" instant off), plus the same beat any other tag-up
+    // runner already waits after a catch (TAG_UP_MS) - see delayedStartMs's
+    // sibling logic in sceneFieldHtml.
+    var effOutDelay = target.delay ? outDelay + TAG_UP_MS : outDelay;
+    var arrival = stealRunnerArrivalMs(target.caught, runDelay, effOutDelay);
     var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
     var start = Math.max(0, arrive - THROW_DRAW_MS);
     var len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
@@ -2074,14 +2088,23 @@
     var runDelay = flight ? RUNNER_LEAD_MS : 0;
     var outDelay = (flight ? ballTravelMs(flight) : 0) + OUT_BEAT_MS;
     var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+    // Explicit "delay" flag (import_BRC.csv, e.g. KCS): this move doesn't
+    // start until the ball is caught by the fielder - literally
+    // ballTravelMs(flight) for a play with a flight, or outDelay itself for a
+    // no-flight play like a strikeout (the catcher receiving strike three IS
+    // the "catch" there) - then the same beat any other tag-up runner already
+    // waits after a catch (TAG_UP_MS), so it reads as a beat AFTER the play's
+    // own resolution, not simultaneous with it.
+    var delayedStartMs = (flight ? ballTravelMs(flight) : outDelay) + TAG_UP_MS;
     // A caught stealing that ends the half inning strands whoever else was on
     // base at that moment - deriveRunnerMoves' obc-reset artifact turns their
     // move into an uncorroborated "OUT" too (falls back to the plain
     // out-walk below, forcedBase stays null), but they weren't actually
     // caught on this play and must not start for the dugout until the
     // runner who WAS caught is actually tagged, not on the same beat.
+    var stealOutDelay = stealOut && stealOut.delay ? delayedStartMs : outDelay;
     var stealOutResolveMs = stealOut && stealOut.caught
-      ? stealRunnerArrivalMs(true, runDelay, outDelay) + TAG_UP_MS
+      ? stealRunnerArrivalMs(true, runDelay, stealOutDelay) + TAG_UP_MS
       : 0;
     // I7: the slowest arriving safe/scoring runner - the base plates' gold
     // "post-play occupancy" fill is delayed until this moment, so a base
@@ -2116,15 +2139,29 @@
           (stealOut && stealOut.caught && candidate === stealOut.base);
         forcedBase = corroborated ? candidate : null;
       }
+      // Explicit "retreat" flag (import_BRC.csv, e.g. LODP - a runner
+      // doubled off a caught line drive): this runner didn't just vanish
+      // from their base or get forced ahead - they broke for aN (the assist
+      // column, same base-token format as rN), then had to scramble back once
+      // the ball was actually caught. The path shows them getting about
+      // halfway there and returning, instead of the plain forced-advance
+      // shape below. Applied verbatim per the row's own flag only - not
+      // inferred onto any other out, and never onto a safe move (Alex's
+      // call: generalising retreat to a safe "near miss" scramble is a
+      // separate, not-yet-designed animation).
+      var assistBase = mv.assist === "HOME" ? SCENE_BASES.HOME : (mv.assist ? SCENE_BASES[mv.assist] : null);
+      var useRetreat = isOut && mv.retreat && !!assistBase;
       // basepathWaypoints' own ordinal math treats HOME as 0 - "before" every
       // other base - so an out-bound path whose forcedBase is HOME needs the
       // same end=4 wraparound a genuine score gets, or it reads as
       // end(0)<=start and returns no path at all. Passing forcedBase==="HOME"
       // here only feeds that ordinal - mv.scored (used for the CSS "score"
       // flash below) is untouched, since this runner didn't actually score.
-      var path = isOut
-        ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
-        : basepathWaypoints(mv.from, mv.to, mv.scored);
+      var path = useRetreat
+        ? [{ x: (from.x + assistBase.x) / 2, y: (from.y + assistBase.y) / 2 }]
+        : isOut
+          ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
+          : basepathWaypoints(mv.from, mv.to, mv.scored);
       // A safe runner (reached or held their forced base, never put out)
       // whose own half-inning ends on this very play has nobody left on the
       // bases between innings either - after reaching/holding, they walk
@@ -2151,9 +2188,11 @@
       // base (e.g. 2nd to 3rd on a deep flyout with nobody home) - catchMs
       // is already 0/falsy for anything not caught in the air, so this
       // applies to every safe move on those plays, not scoring ones only.
-      var mvDelay = isOut
-        ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
-        : (catchMs ? catchMs + TAG_UP_MS : runDelay);
+      var mvDelay = mv.delay
+        ? delayedStartMs
+        : isOut
+          ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
+          : (catchMs ? catchMs + TAG_UP_MS : runDelay);
       // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
       // matching the out choreography's own run-then-leave timing exactly)
       // - RUN_LEG_MS[legs] here would understate how long the token is
@@ -2172,7 +2211,7 @@
       // 6a/6b, generalised by I8). legsN is a safe-runner-only class - the
       // out choreography's own keyframe owns --p1 instead, so isOut never
       // gets a legsN class alongside it.
-      var outCls = isOut ? (path.length ? " out-to-base" : " out-walk") : "";
+      var outCls = isOut ? (useRetreat ? " out-retreat" : (path.length ? " out-to-base" : " out-walk")) : "";
       var cls = "rn" + (legs && !isOut && !strandedSafe ? " legs" + legs : "") + outCls +
                 (strandedSafe ? " stranded-to-dugout" : "") +
                 (mv.scored ? " score" : "") + (mv.from === "BATTER" ? " batter" : "");
@@ -2237,7 +2276,7 @@
     // story, and it never gets a ball flight to hang a throw off otherwise.
     var stealTarget = stealThrowTarget(m, moves);
     var stealFlashDelay = stealTarget
-      ? stealRunnerArrivalMs(stealTarget.caught, runDelay, outDelay)
+      ? stealRunnerArrivalMs(stealTarget.caught, runDelay, stealTarget.delay ? delayedStartMs : outDelay)
       : 0;
 
     // Base plates show post-play occupancy so the field still reads

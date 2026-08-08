@@ -753,6 +753,23 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   61.76%{transform:translate(var(--p1x),var(--p1y));}
   to{transform:translate(var(--tx),var(--ty));}
 }
+/* Explicit "retreat" flag (import_BRC.csv, e.g. LODP - doubled off a caught
+   line drive): same run-pause-then-leave timing as .out-to-base (identical
+   duration/beats, so it drops into the same choreography), but --p1x/--p1y
+   here is the HALFWAY point toward aN (sceneFieldHtml), not a real base - the
+   runner gets partway there, then the very same keyframe stop doubles as the
+   moment they reverse back to --fx/--fy (their own base) before walking off,
+   instead of continuing on to a new spot. */
+.rn.out-retreat{animation-fill-mode:both;animation-timing-function:linear;animation-name:rnOutRetreat;animation-duration:1700ms;animation-delay:var(--rdelay,0s);}
+@keyframes rnOutRetreat{
+  from{transform:translate(var(--fx),var(--fy));}
+  35.29%{transform:translate(var(--p1x),var(--p1y));}
+  47.06%{transform:translate(var(--fx),var(--fy));}
+  61.76%{transform:translate(var(--fx),var(--fy));}
+  to{transform:translate(var(--tx),var(--ty));}
+}
+.rn.out-retreat circle{animation:rnTurnRed 250ms ease calc(var(--rdelay,0s) + 800ms) forwards;}
+.rn.out-retreat .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
 /* Team colour until the flash, matching every other token - the base fill
    must NOT be red here, or the animation below has nothing to animate from
    (an explicit `to` with no `from` interpolates from whatever the property
@@ -1169,9 +1186,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-progress::after{transition:none;}
   .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
   .rn.batter .rn-inner, .rn.score .rn-inner,
-  .rn.out-walk, .rn.out-to-first, .rn.out-to-base, .rn.stranded-to-dugout,
-  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle,
-  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner,
+  .rn.out-walk, .rn.out-to-first, .rn.out-to-base, .rn.out-retreat, .rn.stranded-to-dugout,
+  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle, .rn.out-retreat circle,
+  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner, .rn.out-retreat .rn-inner,
   .rn.stranded-to-dugout .rn-inner,
   .mt-fill, .scene-meter.hot .mt-fill,
   .rb-new, .rb-marker, .scene-flash,
@@ -1197,9 +1214,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      colour transition (ball-flight-plan.md Stage 6, "Reduced motion" note).
      .rn's base rule already places it at --tx/--ty (the dugout), so only the
      visibility needs to change here. */
-  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner,
+  .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner, .rn.out-retreat .rn-inner,
   .rn.stranded-to-dugout .rn-inner{opacity:0;}
-  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle{fill:var(--red);}
+  .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle, .rn.out-retreat circle{fill:var(--red);}
   .rn.score .rn-inner{opacity:0;}
   .mt-fill{stroke-dashoffset:var(--off);}
   .rb-new{stroke-dasharray:none;}

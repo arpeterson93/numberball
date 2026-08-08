@@ -157,13 +157,19 @@ _THROW_ORDER_POSITION_COLUMNS = {
 
 
 # (result, before_obc, outs) -> [{"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|
-# "2B"|"3B"|"HOME"|"OUT", "scored": bool}, ...] - the exact per-runner outcome
-# for this situation, decoded from B/r1/r2/r3 (Alex's briefing: b1/b2/b3 = ends
-# up there - same number as their own starting base means they held - b4 =
-# scores, 0 = out). Trusted completely when present; None when the situation
-# isn't in the table, or its own numbers don't reconcile (see
-# _build_runner_moves_for_row) - app.js falls back to its diff-based guess
-# either way, same contract as everything else in this file.
+# "2B"|"3B"|"HOME"|"OUT", "scored": bool, "assist": "1B"|"2B"|"3B"|"HOME"|None,
+# "delay": bool, "retreat": bool}, ...] - the exact per-runner outcome for
+# this situation, decoded from import_BRC.csv's B/r1/r2/r3 (Alex's briefing:
+# b1/b2/b3 = ends up there - same number as their own starting base means
+# they held - b4 = scores, 0 = out), a1/a2/a3 (same b1-b4 token format - the
+# base the runner was actually making for, independent of whether rN says
+# they got there, were put out short of it, or turned back), and the
+# row-level delay/retreat flags (apply to every move on that row - a play
+# has one shared timeline, not a per-runner one). Trusted completely when
+# present; None when the situation isn't in the table, or its own numbers
+# don't reconcile (see _build_runner_moves_for_row) - app.js falls back to
+# its diff-based guess either way, same contract as everything else in this
+# file.
 _BRC_RUNNER_MOVES: dict[tuple[str, str, int], list[dict]] = {}
 
 _MOVE_DEST_BASE = {"b1": "1B", "b2": "2B", "b3": "3B"}
@@ -189,9 +195,23 @@ def _decode_move_destination(raw) -> tuple[str, bool] | None:
     return (base, False) if base else None
 
 
-# (obc_before string index, column name, base label) - obc_before is
+def _decode_assist_base(raw) -> str | None:
+    """The base one a1/a2/a3 cell names, in app.js's "1B"/"2B"/"3B"/"HOME"
+    vocabulary - same b1-b4 tokens as B/r1/r2/r3, but there's no "0"/out case
+    here (an assist cell names where the runner was headed, not their fate) -
+    blank/unrecognised is just None, not a decision either way.
+    """
+    s = _clean_csv_cell(raw)
+    if not s:
+        return None
+    if s == "b4":
+        return "HOME"
+    return _MOVE_DEST_BASE.get(s)
+
+
+# (obc_before string index, r-column, a-column, base label) - obc_before is
 # [3B,2B,1B] (index 0/1/2), matching _BRC_TO_OBC's own string convention.
-_RUNNER_SLOT_DEFS = [(2, "r1", "1B"), (1, "r2", "2B"), (0, "r3", "3B")]
+_RUNNER_SLOT_DEFS = [(2, "r1", "a1", "1B"), (1, "r2", "a2", "2B"), (0, "r3", "a3", "3B")]
 
 
 def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[dict] | None:
@@ -213,10 +233,27 @@ def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[
     disagreeing with a column that was never describing that runner at all.
     Runs still has to reconcile regardless - scoring isn't affected by the
     reset convention.
+
+    A blank rN cell on an inning-ending row (eOuts >= 3) is the sheet's own
+    "doesn't matter, the frame resets" shorthand - not missing data. On such
+    a row this decodes to a held-their-base move (from == to, safe, not
+    scored) rather than bailing on the whole row: sceneFieldHtml's own
+    is_half_inning_final/strandedSafe handling already knows to walk a
+    runner like that off to the dugout without crediting them a real advance
+    they may never have completed before the half-inning ended (e.g. the
+    trailing runner on a KCS double-steal attempt whose own out wasn't the
+    one that ended the inning - Alex's briefing). Off an inning-ending row,
+    "blank" and "held" are the same fact; off any other row a blank stays
+    untrustworthy and still bails, same as before.
     """
     moves: list[dict] = []
     runs_from_moves = 0
     occ_after = {"1B": False, "2B": False, "3B": False}
+
+    try:
+        ends_half_inning = (int(float(row["eOuts"])) if "eOuts" in row.index else outs_before) >= 3
+    except (KeyError, ValueError, TypeError):
+        return None
 
     b_dest = _decode_move_destination(row.get("B"))
     if b_dest is not None and b_dest[0] != "OUT":
@@ -225,39 +262,35 @@ def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[
         # already handles that case correctly, and giving it a raw isOut
         # move here would route it through the base-runner force/corroboration
         # path instead, which has no idea what to do with "from": "BATTER".
-        moves.append({"from": "BATTER", "to": b_dest[0], "scored": b_dest[1]})
+        moves.append({"from": "BATTER", "to": b_dest[0], "scored": b_dest[1], "assist": None})
         if b_dest[1]:
             runs_from_moves += 1
         elif b_dest[0] in occ_after:
             occ_after[b_dest[0]] = True
 
-    for obc_idx, col, base in _RUNNER_SLOT_DEFS:
+    for obc_idx, col, acol, base in _RUNNER_SLOT_DEFS:
         if before_obc[obc_idx] != "1":
             continue
         dest = _decode_move_destination(row.get(col))
         if dest is None:
-            # Blank/unrecognised for a runner obc_before says WAS there -
-            # not "assume they're out," just not enough to trust this row at
-            # all. Blank here is usually the "inning ended, doesn't matter"
-            # shortcut (Alex's briefing) - if it were defaulted to OUT
-            # instead of bailing, an inning-ending row with every base
-            # runner blank would predict bases-empty-after and could
-            # coincidentally match a genuinely-reset OBC column, wrongly
-            # validating a fabricated "everyone's out" move list. Bailing
-            # out entirely leaves it to the diff-based heuristic, which
-            # already has its own established stranded/uncorroborated
-            # handling for exactly this ambiguity.
-            return None
+            if ends_half_inning:
+                dest = (base, False)
+            else:
+                # Blank/unrecognised for a runner obc_before says WAS there,
+                # on a play that ISN'T inning-ending - not "assume they're
+                # out," just not enough to trust this row at all. Bailing out
+                # entirely leaves it to the diff-based heuristic, which
+                # already has its own established stranded/uncorroborated
+                # handling for exactly this ambiguity.
+                return None
         to, scored = dest
-        moves.append({"from": base, "to": to, "scored": scored})
+        moves.append({"from": base, "to": to, "scored": scored, "assist": _decode_assist_base(row.get(acol))})
         if scored:
             runs_from_moves += 1
         elif to in occ_after:
             occ_after[to] = True
 
     try:
-        eouts = int(float(row["eOuts"])) if "eOuts" in row.index else outs_before
-        ends_half_inning = eouts >= 3
         if not ends_half_inning:
             predicted_obc_str = (
                 ("1" if occ_after["3B"] else "0") +
@@ -270,6 +303,16 @@ def _build_runner_moves_for_row(row, before_obc: str, outs_before: int) -> list[
             return None
     except (KeyError, ValueError, TypeError):
         return None
+
+    # delay/retreat are single per-row flags, not per-runner columns - a play
+    # has one shared timeline (Alex's briefing: "runners should be delayed"
+    # describes the play, not one specific runner on it), so every move this
+    # row produced carries the same two booleans.
+    delay = _clean_csv_cell(row.get("delay")).upper() == "Y"
+    retreat = _clean_csv_cell(row.get("retreat")).upper() == "Y"
+    for mv in moves:
+        mv["delay"] = delay
+        mv["retreat"] = retreat
 
     return moves
 

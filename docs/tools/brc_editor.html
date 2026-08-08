@@ -52,7 +52,22 @@ h1{font-size:19px; margin:0 0 4px;}
 }
 
 .situation-title{font-size:16px; font-weight:800; margin:0 0 2px;}
-.situation-sub{font-size:12px; color:var(--muted); margin:0 0 10px;}
+.situation-recap{
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:8px 10px; margin:6px 0 10px;
+  padding:8px 10px; background:var(--tint); border:1px solid var(--border); border-radius:8px;
+}
+.recap-item{display:flex; flex-direction:column; gap:2px;}
+.recap-label{font-size:9.5px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted);}
+.recap-value{font-size:13px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums;}
+.recap-arrow{color:var(--muted); font-weight:400; margin:0 1px;}
+/* Stay 3-across on phones (Outs/OBC/Runs are short enough) rather than
+   stacking into three lines - just tighten gap/padding/type at narrow
+   widths so it keeps fitting cleanly. */
+@media (max-width: 360px){
+  .situation-recap{gap:4px 6px; padding:7px 8px;}
+  .recap-label{font-size:8.5px;}
+  .recap-value{font-size:12px;}
+}
 
 svg.diamond{width:100%; height:auto; display:block; overflow:visible; margin-bottom:10px;}
 .dm-grass{fill:var(--tint);}
@@ -61,6 +76,23 @@ svg.diamond{width:100%; height:auto; display:block; overflow:visible; margin-bot
 .dm-base{fill:var(--dot-fill); stroke:var(--dot-stroke); stroke-width:2;}
 .dm-base.occ{fill:var(--dot-fill); stroke:var(--gold); stroke-width:3;}
 .dm-dugout-lbl{font-size:9px; fill:var(--muted); text-anchor:middle;}
+
+.dm-base-label{font-size:8px; font-weight:700; text-anchor:middle; dominant-baseline:middle;}
+/* var(--text), not var(--navy) - same dark-mode contrast fix as
+   .fielder-throw below: navy's dark-mode tint reads too faint against the
+   grass at this size, var(--text) is the guaranteed-contrast pick. */
+.dm-base-label-above{fill:var(--text); font-weight:800;}
+.dm-base-label-below{fill:var(--muted);}
+
+.fielder-dot{fill:var(--card); stroke:var(--dot-stroke); stroke-width:1.5;}
+.fielder-dot.is-default{stroke:var(--gold); stroke-width:2.5;}
+/* var(--text), not var(--navy) - navy's dark-mode tint (#3f6699) is too
+   close to the dot's own dark card fill to read easily at this size;
+   var(--text) is the theme-flipped near-black/near-white everything else
+   in the app already leans on for guaranteed contrast in both modes. */
+.fielder-throw{font-size:8.5px; font-weight:800; fill:var(--text); text-anchor:middle; dominant-baseline:middle;}
+.fielder-pos-label{font-size:6.5px; font-weight:700; fill:var(--muted); text-anchor:middle; letter-spacing:0.3px;}
+.fielder-excluded-x{stroke:var(--red); stroke-width:2; stroke-linecap:round;}
 
 .replay-row{display:flex; gap:8px; align-items:center; margin-bottom:6px;}
 .replay-btn{font:inherit; font-size:12.5px; font-weight:700; background:var(--navy); color:#fff; border:none; border-radius:6px; padding:8px 16px; cursor:pointer;}
@@ -133,18 +165,39 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   <div class="main" id="main" style="display:none">
     <div class="preview-card">
       <p class="situation-title" id="situation-title"></p>
-      <p class="situation-sub" id="situation-sub"></p>
+      <div class="situation-recap" id="situation-recap"></div>
       <svg class="diamond" viewBox="0 0 400 340" id="diamond-svg" aria-hidden="true">
         <rect class="dm-grass" x="0" y="0" width="400" height="340"></rect>
-        <path class="dm-line" d="M 30 60 Q 200 -10 370 60" fill="none"></path>
+        <!-- Foul lines are home (200,300) extended straight through 1B/3B
+             (a true 45deg diagonal, like the prod field's foulLineD/
+             landingPoint) rather than a separately hand-placed endpoint -
+             (10,110)/(390,110) sit exactly on those two rays, far enough
+             out from home that the outfield reads as its own space
+             instead of crowding the infield, but still inside the
+             0-400 x 0-340 viewBox so the wall doesn't get clipped by the
+             card edge. The wall itself is a true circular arc centred on
+             home (radius = distance to those same two corners, 268.7) -
+             same as prod's fencePathD - so it's equidistant from home
+             foul-line to foul-line, not just at the two corners like the
+             old quadratic-bezier approximation was. -->
+        <path class="dm-line" d="M 10 110 A 268.7 268.7 0 0 1 390 110" fill="none"></path>
         <polygon class="dm-dirt" points="200,300 290,210 200,120 110,210"></polygon>
-        <line class="dm-line" x1="200" y1="300" x2="30" y2="60"></line>
-        <line class="dm-line" x1="200" y1="300" x2="370" y2="60"></line>
+        <line class="dm-line" x1="200" y1="300" x2="10" y2="110"></line>
+        <line class="dm-line" x1="200" y1="300" x2="390" y2="110"></line>
         <rect class="dm-base" id="base-1B" x="283" y="203" width="14" height="14" transform="rotate(45 290 210)"></rect>
         <rect class="dm-base" id="base-2B" x="193" y="113" width="14" height="14" transform="rotate(45 200 120)"></rect>
         <rect class="dm-base" id="base-3B" x="103" y="203" width="14" height="14" transform="rotate(45 110 210)"></rect>
-        <rect class="dm-base" id="base-HOME" x="193" y="293" width="14" height="14"></rect>
+        <!-- Home plate: flat top, square shoulders to mid-height, then two
+             angled edges converging to a point at the bottom - same shape
+             prod's platePath draws, not a plain square. -->
+        <path class="dm-base" id="base-HOME" d="M192,290.8 L208,290.8 L208,300 L200,309.2 L192,300 Z"></path>
         <text class="dm-dugout-lbl" x="355" y="325">DUGOUT</text>
+        <!-- Fielder anchors (ThrowOrder_* at each position, DefaultPosition
+             ringed gold, ExcludedPositions X'd red) and base labels (bN
+             above each base, rN/aN below) - both static text overlays
+             redrawn on every field edit, same trigger as playAnimation. -->
+        <g id="fielders-layer"></g>
+        <g id="base-labels-layer"></g>
         <g id="tokens-layer"></g>
       </svg>
       <div class="replay-row">
@@ -157,6 +210,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         <span><i style="background:var(--red)"></i> out</span>
         <span><i style="background:var(--green)"></i> scores</span>
       </div>
+      <p class="hint">Fielder dots: number is that position's own <code>ThrowOrder_*</code>; a gold ring is <code>DefaultPosition</code>, a red X is <code>ExcludedPositions</code>. Text above each base is <code>bN</code>, below is <code>rN</code>/<code>aN</code>.</p>
     </div>
 
     <div class="form-card">
@@ -164,6 +218,8 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         <legend class="fs-legend">Batter &amp; runner destinations</legend>
         <p class="hint">Values: <code>b1</code>/<code>b2</code>/<code>b3</code>/<code>b4</code> (base reached), <code>0</code> (out), or blank (stays put).</p>
         <div class="field-grid" id="fields-destinations"></div>
+        <p class="hint"><code>b1</code>/<code>b2</code>/<code>b3</code> below are the inverse: WHO ends up standing on that base after the play (<code>B</code>, <code>r1</code>, <code>r2</code>, <code>r3</code>, or blank if empty) - a manual cross-check against the columns above. Not currently read by the game engine (only <code>B</code>/<code>r1</code>/<code>r2</code>/<code>r3</code> are).</p>
+        <div class="field-grid" id="fields-occupants"></div>
       </fieldset>
       <fieldset>
         <legend class="fs-legend">Attempted target (proposed a1/a2/a3)</legend>
@@ -215,6 +271,12 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     return rows;
   }
 
+  function escapeHtml(v) {
+    return String(v == null ? "" : v).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
   function csvField(v) {
     v = v == null ? "" : String(v);
     if (/[",\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
@@ -233,9 +295,9 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   var BRC_TO_OBC = { 0: "000", 1: "001", 2: "010", 3: "100", 4: "011", 5: "101", 6: "110", 7: "111" };
   // [3B, 2B, 1B] index order, matching the project's own string convention.
   var SLOTS = [
-    { idx: 0, base: "3B", col: "r3", aCol: "a3" },
-    { idx: 1, base: "2B", col: "r2", aCol: "a2" },
-    { idx: 2, base: "1B", col: "r1", aCol: "a1" },
+    { idx: 0, base: "3B", col: "r3", aCol: "a3", bCol: "b3" },
+    { idx: 1, base: "2B", col: "r2", aCol: "a2", bCol: "b2" },
+    { idx: 2, base: "1B", col: "r1", aCol: "a1", bCol: "b1" },
   ];
 
   // A runner who actually reaches a base obviously attempted that base -
@@ -417,6 +479,8 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   function renderForm(row) {
     $("fields-destinations").innerHTML =
       fieldHtml(row, "B") + fieldHtml(row, "r1") + fieldHtml(row, "r2") + fieldHtml(row, "r3");
+    $("fields-occupants").innerHTML =
+      fieldHtml(row, "b1") + fieldHtml(row, "b2") + fieldHtml(row, "b3");
     $("fields-attempted").innerHTML =
       fieldHtml(row, "a1") + fieldHtml(row, "a2") + fieldHtml(row, "a3");
     $("fields-flags").innerHTML =
@@ -445,6 +509,8 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
           }
         }
         updateSituationSub(row);
+        renderBaseLabels(row);
+        renderFielders(row);
         playAnimation();
         saveSession();
       });
@@ -465,11 +531,40 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     $("situation-select").value = String(idx);
   }
 
-  function updateSituationSub(row) {
+  // Outs/OBC "after" are computed live from the current form's destination/
+  // attempted-target fields (via buildMoves), not read from the row's own
+  // eOuts/OBC columns - those are shown alongside as their own recap items
+  // instead, so a mismatch between "what the fields imply" and "what the
+  // columns say" is visible at a glance rather than silently trusted.
+  function computeAfterState(row) {
     var sit = parseSituation(row.Situation);
-    $("situation-sub").textContent =
-      "outs before: " + sit.outs + "  ·  OBC before: " + sit.obcBefore +
-      " (3B" + sit.obcBefore[0] + " 2B" + sit.obcBefore[1] + " 1B" + sit.obcBefore[2] + ")  ·  result: " + sit.result;
+    var built = buildMoves(row);
+    var outsAfter = sit.outs + built.moves.filter(function (m) { return m.isOut; }).length;
+    var occAfter = { "1B": false, "2B": false, "3B": false };
+    built.moves.forEach(function (m) {
+      if (!m.isOut && !m.scored && occAfter.hasOwnProperty(m.to)) occAfter[m.to] = true;
+    });
+    // A half-inning-ending play resets to empty for the next half-inning
+    // (same convention as utils.py's _build_runner_moves_for_row) rather
+    // than whatever the stranded runners' own "stay put" moves would imply.
+    var obcAfter = outsAfter >= 3
+      ? "000"
+      : (occAfter["3B"] ? "1" : "0") + (occAfter["2B"] ? "1" : "0") + (occAfter["1B"] ? "1" : "0");
+    return { outsBefore: sit.outs, outsAfter: outsAfter, obcBefore: sit.obcBefore, obcAfter: obcAfter };
+  }
+
+  function recapItemHtml(label, value) {
+    return '<div class="recap-item"><span class="recap-label">' + escapeHtml(label) +
+      '</span><span class="recap-value">' + value + "</span></div>";
+  }
+
+  function updateSituationSub(row) {
+    var after = computeAfterState(row);
+    var runsRaw = String(row.Runs == null ? "" : row.Runs).trim();
+    $("situation-recap").innerHTML =
+      recapItemHtml("Outs", after.outsBefore + '<span class="recap-arrow">&rarr;</span>' + after.outsAfter) +
+      recapItemHtml("OBC", after.obcBefore + '<span class="recap-arrow">&rarr;</span>' + after.obcAfter) +
+      recapItemHtml("Runs", escapeHtml(runsRaw || "—"));
   }
 
   function render() {
@@ -477,6 +572,8 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     $("situation-title").textContent = row.Situation;
     updateSituationSub(row);
     renderForm(row);
+    renderBaseLabels(row);
+    renderFielders(row);
     updateProgress();
     playAnimation();
   }
@@ -536,9 +633,122 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   var ORD = { HOME: 0, "1B": 1, "2B": 2, "3B": 3 };
   var PATH = ["HOME", "1B", "2B", "3B"];
 
+  // ---- fielder anchors (same relative arrangement as prod's FIELDER_ANCHORS_FT
+  // in docs/js/app.js, hand-fitted to this editor's own smaller, non-feet-based
+  // diamond - infielders scaled off the same home-to-1B ratio the bases use,
+  // outfielders pulled in to sit inside the (deliberately compact) outfield
+  // wall above rather than at prod's real proportional depth, which would
+  // overshoot this canvas by a wide margin. ----
+  var FIELDER_PT = {
+    P: { x: 200, y: 215 }, C: { x: 200, y: 318 },
+    "1B": { x: 306, y: 180 }, "2B": { x: 257, y: 120 }, SS: { x: 143, y: 120 }, "3B": { x: 94, y: 180 },
+    LF: { x: 95, y: 100 }, CF: { x: 200, y: 55 }, RF: { x: 305, y: 100 },
+  };
+  var FIELDER_ORDER = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"];
+  var OF_POS = { LF: 1, CF: 1, RF: 1 };
+  // ThrowOrder_OF is one shared column for any outfielder (import_BRC.csv
+  // doesn't distinguish which of LF/CF/RF fielded it, matching app.js's own
+  // throwOrderKeyForPosition collapse) - so all three show the same value.
+  var THROW_ORDER_COL_FOR_POS = {
+    P: "ThrowOrder_P", C: "ThrowOrder_C", "1B": "ThrowOrder_1B", "2B": "ThrowOrder_2B",
+    "3B": "ThrowOrder_3B", SS: "ThrowOrder_SS", LF: "ThrowOrder_OF", CF: "ThrowOrder_OF", RF: "ThrowOrder_OF",
+  };
+
+  function parsePositionList(raw) {
+    return String(raw == null ? "" : raw).split(",")
+      .map(function (s) { return s.trim().toUpperCase(); })
+      .filter(Boolean);
+  }
+
+  // DefaultPosition/ExcludedPositions matching rule mirrors app.js's
+  // applyPositionOverride exactly: an outfielder is excluded either by its
+  // own specific code or by the generic "OF" wildcard.
+  function renderFielders(row) {
+    var svgNS = "http://www.w3.org/2000/svg";
+    var layer = $("fielders-layer");
+    layer.innerHTML = "";
+    var defaultPos = String(row.DefaultPosition == null ? "" : row.DefaultPosition).trim().toUpperCase();
+    var excluded = parsePositionList(row.ExcludedPositions);
+    FIELDER_ORDER.forEach(function (pos) {
+      var pt = FIELDER_PT[pos];
+      var throwVal = String(row[THROW_ORDER_COL_FOR_POS[pos]] == null ? "" : row[THROW_ORDER_COL_FOR_POS[pos]]).trim();
+      var isDefault = defaultPos === pos;
+      var isExcluded = excluded.indexOf(pos) !== -1 || (OF_POS[pos] && excluded.indexOf("OF") !== -1);
+
+      var g = document.createElementNS(svgNS, "g");
+      g.setAttribute("class", "fielder-mark");
+      g.setAttribute("transform", "translate(" + pt.x + "," + pt.y + ")");
+
+      var circle = document.createElementNS(svgNS, "circle");
+      circle.setAttribute("r", "9");
+      circle.setAttribute("class", "fielder-dot" + (isDefault ? " is-default" : ""));
+      g.appendChild(circle);
+
+      if (throwVal) {
+        var tv = document.createElementNS(svgNS, "text");
+        tv.setAttribute("class", "fielder-throw");
+        tv.setAttribute("y", "1");
+        tv.textContent = throwVal;
+        g.appendChild(tv);
+      }
+
+      var lbl = document.createElementNS(svgNS, "text");
+      lbl.setAttribute("class", "fielder-pos-label");
+      lbl.setAttribute("y", "19");
+      lbl.textContent = pos;
+      g.appendChild(lbl);
+
+      if (isExcluded) {
+        [["-7", "-7", "7", "7"], ["-7", "7", "7", "-7"]].forEach(function (c) {
+          var line = document.createElementNS(svgNS, "line");
+          line.setAttribute("class", "fielder-excluded-x");
+          line.setAttribute("x1", c[0]); line.setAttribute("y1", c[1]);
+          line.setAttribute("x2", c[2]); line.setAttribute("y2", c[3]);
+          g.appendChild(line);
+        });
+      }
+
+      layer.appendChild(g);
+    });
+  }
+
+  // rN/aN (live, editable, drive the animation) below each base; bN (the
+  // row's own "who ends up here" column) above - a quick textual cross-check
+  // sitting right next to the animated preview instead of only in the form
+  // scrolled below. Blank cells show an em dash so the layout doesn't jump
+  // around as fields are filled in.
+  function baseLabelText(v) {
+    var s = String(v == null ? "" : v).trim();
+    return s || "–";
+  }
+
+  function renderBaseLabels(row) {
+    var svgNS = "http://www.w3.org/2000/svg";
+    var layer = $("base-labels-layer");
+    layer.innerHTML = "";
+    function addText(x, y, text, cls) {
+      var t = document.createElementNS(svgNS, "text");
+      t.setAttribute("x", x); t.setAttribute("y", y);
+      t.setAttribute("class", cls);
+      t.textContent = text;
+      layer.appendChild(t);
+    }
+    SLOTS.forEach(function (slot) {
+      var pt = PT[slot.base];
+      addText(pt.x, pt.y - 14, baseLabelText(row[slot.bCol]), "dm-base-label dm-base-label-above");
+      addText(pt.x, pt.y + 18, "r " + baseLabelText(row[slot.col]), "dm-base-label dm-base-label-below");
+      addText(pt.x, pt.y + 28, "a " + baseLabelText(row[slot.aCol]), "dm-base-label dm-base-label-below");
+    });
+    addText(PT.HOME.x, PT.HOME.y - 12, "B " + baseLabelText(row.B), "dm-base-label dm-base-label-below");
+  }
+
   function waypoints(fromKey, toKey, scored) {
     var start = fromKey === "BATTER" ? 0 : ORD[fromKey];
-    var end = scored ? 4 : ORD[toKey];
+    // ORD.HOME is 0 - correct for a runner STARTING at home (the batter),
+    // but wrong as an END index: home as a destination is always the last
+    // stop on the basepath (index 4, wrapping past 3B), whether the runner
+    // scores or is thrown out attempting it (e.g. aN="b4" with r/bN="0").
+    var end = (scored || toKey === "HOME") ? 4 : ORD[toKey];
     if (start == null || end == null || end <= start) return [];
     var pts = [];
     for (var o = start + 1; o <= end; o++) pts.push(o === 4 ? PT.HOME : PT[PATH[o]]);
