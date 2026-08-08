@@ -11,18 +11,24 @@ SAME distribution as the bounds, so it can never collapse onto la_min/la_max
 the way an externally-sourced physics constant could (see result_diff_bands.csv's
 own comment on this).
 
-One deliberate exception: depth_min/depth_max for grounder/infield_single/
-bunt-family results are NOT computed from Statcast's hit_distance_sc.
-That column measures where a batted ball first touches the ground - for a
-fly ball that's the same as "where it's caught/lands," but for a ground ball
-it's the first-bounce point, not the (much deeper) spot where an infielder
-actually fields it after the ball rolls/bounces further (verified against
-real hit_location: even shortstop-fielded groundouts, fielded 111-147ft out
-per app.js's INFIELDER_DEPTH_FT, showed hit_distance_sc medians under 15ft).
-Those three archetypes keep the hand-tuned GROUND_TOUCHING_DEPTH ranges
-instead, regardless of sample size. la/ev are unaffected - both are measured
-at contact, not distance-dependent, so Statcast's numbers for those are fine
-even for ground balls.
+depth_min/depth_max are AUDIT/REFERENCE ONLY as of the physics-redesign port
+(ball-flight-3d-physics-redesign-plan.md Part 2.4) - nothing at runtime reads
+them anymore. docs/js/trajectory.js's simulateFlight derives landing distance
+from la/ev directly via the drag+lift integrator, for every archetype
+including grounders; the regression tests and the distribution-shift audit
+(2.6) still want these columns as a real-Statcast-percentile reference point.
+
+One wrinkle worth flagging even though it's no longer load-bearing: for
+grounder/infield_single/bunt-family results, hit_distance_sc measures where a
+batted ball first touches the ground, not where an infielder actually fields
+it after the ball rolls/bounces further (verified against real hit_location:
+even shortstop-fielded groundouts, fielded 111-147ft out per app.js's
+INFIELDER_DEPTH_FT, showed hit_distance_sc medians under 15ft). The old
+runtime code used to paper over this with a hand-tuned GROUND_TOUCHING_DEPTH
+range instead of the real percentiles - that override is retired here; these
+rows now carry their own real first-bounce percentiles like everything else,
+labeled in flight_source so nobody mistakes them for a fielding depth. la/ev
+are unaffected - both are measured at contact, not distance-dependent.
 
 Sibling of compute_result_diff_bands.py (same output file, disjoint set of
 columns) - each script preserves the other's columns on write rather than
@@ -38,6 +44,7 @@ overlapping range is fast):
 from __future__ import annotations
 
 import argparse
+import sys
 
 import pandas as pd
 
@@ -45,14 +52,6 @@ from compute_result_diff_bands import ARCHETYPE_OF
 
 OUT_CSV = "result_diff_bands.csv"
 MIN_SAMPLE = 20
-
-# Hand-tuned, real-infield-depth-based ranges (see module docstring) - never
-# derived from hit_distance_sc, no matter how much Statcast data is pulled.
-GROUND_TOUCHING_DEPTH = {
-    "grounder": (60, 150),
-    "infield_single": (45, 90),
-    "bunt": (5, 25),
-}
 
 PCTL_LO, PCTL_MID, PCTL_HI = 0.10, 0.50, 0.90
 
@@ -151,6 +150,24 @@ def main() -> None:
     print(f"{len(bip):,} balls in play")
 
     filters = _build_filters(bip)
+
+    # F6 hardening: an existing CSV row with no filter here would otherwise
+    # NaN-overwrite silently on write (prev["result"].map(new[...]) against a
+    # result key `new` never got) - fail loudly instead so a result added to
+    # ARCHETYPE_OF/the CSV without a matching Statcast filter is caught at
+    # generation time, not discovered later as a silent NaN in meta.json.
+    try:
+        existing_results = set(pd.read_csv(args.out)["result"])
+    except FileNotFoundError:
+        existing_results = set()
+    unmapped_existing = sorted(existing_results - set(filters))
+    if unmapped_existing:
+        sys.exit(
+            f"ERROR: {len(unmapped_existing)} result(s) already in {args.out} have no Statcast "
+            f"filter defined in _build_filters: {unmapped_existing}. Add a filter for each before "
+            f"regenerating - a silent NaN-overwrite is worse than failing here."
+        )
+
     unmapped = sorted(set(ARCHETYPE_OF) - set(filters))
     if unmapped:
         print(f"NOTE: {len(unmapped)} result(s) have an archetype mapping but no Statcast "
@@ -207,23 +224,52 @@ def main() -> None:
 
     new = pd.DataFrame(rows).set_index("result")
 
-    # Ground-touching archetypes never use hit_distance_sc-derived depth,
-    # regardless of sample size - see module docstring.
-    for arche, (lo, hi) in GROUND_TOUCHING_DEPTH.items():
-        mask = new["archetype"] == arche
-        new.loc[mask, "depth_min"] = lo
-        new.loc[mask, "depth_max"] = hi
-        new.loc[mask, "flight_source"] = new.loc[mask, "flight_source"] + "; depth=hand-tuned (hit_distance_sc is first-bounce point for grounders, not fielding depth)"
+    # Audit-only annotation (Part 2.4.2): depth_min/depth_max for these three
+    # archetypes are real Statcast percentiles like everything else now, but
+    # hit_distance_sc measures first ground contact, not fielding depth (see
+    # module docstring) - flag it in flight_source so nobody reading the CSV
+    # mistakes a ~10ft depth_max for "how far this grounder travels."
+    ground_touching_archetypes = {"grounder", "infield_single", "bunt"}
+    ground_touching_mask = new["archetype"].isin(ground_touching_archetypes)
+    new.loc[ground_touching_mask, "flight_source"] = (
+        new.loc[ground_touching_mask, "flight_source"]
+        + "; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+    )
+
+    # F9 hardening: la_min < la_ideal < la_max must hold after rounding for
+    # every row - launchAngleFor (docs/js/app.js) divides by (laIdeal-laMin)/
+    # (laMax-laIdeal) and a collapsed bound (a tie introduced by the 0.1
+    # rounding in _percentiles) would zero one side of that range out
+    # entirely. Nudge the offending bound by 0.1 rather than shipping a
+    # collapsed range, and say so.
+    for result in new.index:
+        lo, mid, hi = new.at[result, "la_min"], new.at[result, "la_ideal"], new.at[result, "la_max"]
+        if lo >= mid:
+            new.at[result, "la_min"] = mid - 0.1
+            print(f"NOTE: {result} la_min tied/crossed la_ideal ({lo} >= {mid}) - nudged la_min to {mid - 0.1}")
+        if hi <= mid:
+            new.at[result, "la_max"] = mid + 0.1
+            print(f"NOTE: {result} la_max tied/crossed la_ideal ({hi} <= {mid}) - nudged la_max to {mid + 0.1}")
+        assert new.at[result, "la_min"] < mid < new.at[result, "la_max"], \
+            f"{result}: la_min < la_ideal < la_max still fails after nudging"
 
     flight_cols = ["la_min", "la_ideal", "la_max", "ev_min", "ev_max", "depth_min", "depth_max", "flight_source"]
 
-    # Preserve band_lo/band_hi/n/source/archetype - compute_result_diff_bands.py's
-    # columns, from MLN's own play history, not Statcast - the mirror image of
-    # that script's own preserve-on-write logic for these flight columns.
+    # F6 hardening: a cold run (no existing CSV) must fail rather than emit a
+    # bands-less file - band_lo/band_hi/n/source/archetype come from MLN's own
+    # play history (compute_result_diff_bands.py), not from this script, so
+    # there is nothing sensible to write on a first-ever run here.
     try:
         prev = pd.read_csv(args.out)
     except FileNotFoundError:
-        prev = pd.DataFrame({"result": new.index})
+        sys.exit(
+            f"ERROR: {args.out} does not exist - run compute_result_diff_bands.py first "
+            f"(it owns band_lo/band_hi/n/source/archetype; this script only fills in the "
+            f"flight columns on top of an existing file)."
+        )
+    # Preserve band_lo/band_hi/n/source/archetype - compute_result_diff_bands.py's
+    # columns, from MLN's own play history, not Statcast - the mirror image of
+    # that script's own preserve-on-write logic for these flight columns.
     for col in flight_cols:
         prev[col] = prev["result"].map(new[col])
     prev = prev.sort_values(["archetype", "result"]) if "archetype" in prev.columns else prev

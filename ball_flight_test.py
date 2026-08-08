@@ -37,9 +37,140 @@ def main() -> None:
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(PAGE_URL)
-        page.wait_for_function("window.KMFlight != null")
+        page.wait_for_function("window.KMFlight != null && window.KMTraj != null")
 
-        print("Boundary assertions:")
+        print("KMTraj physics parity (golden vectors vs the Python reference):")
+        golden_fp = pathlib.Path("tools/golden_vectors.json")
+        golden_vectors = json.loads(golden_fp.read_text(encoding="utf-8")) if golden_fp.exists() else []
+        if not golden_vectors:
+            print("  [skip] tools/golden_vectors.json not found - run `python tools/trajectory_reference.py --emit tools/golden_vectors.json`")
+        for v in golden_vectors:
+            r = page.evaluate(
+                "(v) => KMTraj.simulateFlight(v.ev, v.la, v.phi, v.hand, {z0: v.z0})",
+                v,
+            )
+            label = f"ev={v['ev']} la={v['la']} phi={v['phi']} hand={v['hand']} z0={v['z0']}"
+            check(f"{label} distance", r["distance"], v["dist"], tol=0.01)
+            check(f"{label} hangS", r["hangS"], v["hang_s"], tol=0.001)
+            check(f"{label} landing.x", r["landing"]["x"], v["x"], tol=0.01)
+            check(f"{label} landing.y", r["landing"]["y"], v["y"], tol=0.01)
+            check(f"{label} apexFt", r["apexFt"], v["apex_ft"], tol=0.01)
+            check(f"{label} contactVel.vx", r["contactVel"]["vx"], v["vx"], tol=0.01)
+            check(f"{label} contactVel.vy", r["contactVel"]["vy"], v["vy"], tol=0.01)
+            check(f"{label} contactVel.vz", r["contactVel"]["vz"], v["vz"], tol=0.01)
+            # samples: last sample is the interpolated landing; times strictly
+            # increasing; z never negative.
+            samples = r["samples"]
+            check(f"{label} samples last == landing x", samples[-1]["x"], v["x"], tol=0.01)
+            check(f"{label} samples last == landing y", samples[-1]["y"], v["y"], tol=0.01)
+            check(f"{label} samples last z == 0", samples[-1]["z"], 0, tol=1e-9)
+            check(f"{label} samples count <= 48", len(samples) <= 48, True)
+            strictly_increasing = all(samples[i]["t"] < samples[i + 1]["t"] for i in range(len(samples) - 1))
+            check(f"{label} sample times strictly increasing", strictly_increasing, True)
+            nonneg_z = all(s["z"] >= -1e-9 for s in samples)
+            check(f"{label} sample z always >= 0", nonneg_z, True)
+
+        print("\nKMTraj mirror property (R,+phi) vs (L,-phi):")
+        mirror_result = page.evaluate(
+            """() => {
+                var bad = [];
+                [85, 100, 110].forEach(function (ev) {
+                  [-15, 5, 28].forEach(function (la) {
+                    [0, 15, 30].forEach(function (phi) {
+                      var rR = KMTraj.simulateFlight(ev, la, phi, 'R');
+                      var rL = KMTraj.simulateFlight(ev, la, -phi, 'L');
+                      if (!rR || !rL) { bad.push([ev, la, phi, 'null result']); return; }
+                      var dDist = Math.abs(rR.distance - rL.distance);
+                      var dHang = Math.abs(rR.hangS - rL.hangS);
+                      var dX = Math.abs(rR.landing.x + rL.landing.x);
+                      var dY = Math.abs(rR.landing.y - rL.landing.y);
+                      if (dDist > 1e-6 || dHang > 1e-6 || dX > 1e-6 || dY > 1e-6) {
+                        bad.push([ev, la, phi, dDist, dHang, dX, dY]);
+                      }
+                    });
+                  });
+                });
+                return bad;
+            }"""
+        )
+        check("mirror property holds over the (ev,la,phi) grid", len(mirror_result), 0)
+
+        print("\nKMTraj HZ-angle mapping (phi = HZ - 45, Part 1):")
+        hz_center = page.evaluate("KMTraj.simulateFlight(100, 28, 45 - 45, 'R')")
+        check("HZ=45 (dead center) lands with small |bearing|", abs(hz_center["landing"]["x"]) < 60, True)
+        hz_5 = page.evaluate("KMTraj.simulateFlight(100, 28, 5 - 45, 'R')")
+        check("HZ=5 (3B line) lands with x < 0", hz_5["landing"]["x"] < 0, True)
+        hz_85 = page.evaluate("KMTraj.simulateFlight(100, 28, 85 - 45, 'R')")
+        check("HZ=85 (1B line) lands with x > 0", hz_85["landing"]["x"] > 0, True)
+        # HZ=5 (phi=-40) and HZ=85 (phi=+40) are the mirror pair at the same
+        # hand ('R' here) - opposite phi mirrors exactly (see the mirror
+        # property block above); a same-HZ, opposite-hand pair does NOT
+        # mirror at the KMTraj level, since hand only flips spin sign, not
+        # phi - the HZ->phi mapping is hand-independent by construction
+        # (Part 1: hand mirroring happens in app.js's HZ-angle formula, one
+        # level up from here).
+        hz_85_L = page.evaluate("KMTraj.simulateFlight(100, 28, 85 - 45, 'L')")
+        check("HZ=5,R / HZ=85,L mirror (opposite phi, x)", hz_5["landing"]["x"], -hz_85_L["landing"]["x"], tol=1e-6)
+        check("HZ=5,R / HZ=85,L mirror (opposite phi, distance)", hz_5["distance"], hz_85_L["distance"], tol=1e-6)
+
+        print("\nKMTraj.groundPath (Part 3):")
+        gp_go_contact = page.evaluate("KMTraj.simulateFlight(85, -11, 0, 'R')")
+        gp_go = page.evaluate(
+            "(c) => KMTraj.groundPath(Math.hypot(c.vx, c.vy), c.vz)",
+            gp_go_contact["contactVel"],
+        )
+        along_ss = 147 - gp_go_contact["distance"]
+        t_to_ss = page.evaluate(
+            "(a) => KMTraj.groundPath(Math.hypot(a.c.vx, a.c.vy), a.c.vz).timeAt(a.along)",
+            {"c": gp_go_contact["contactVel"], "along": along_ss},
+        )
+        check("GO-shaped reaches SS depth (147ft) within 1.0-1.9s of ground time",
+              t_to_ss is not None and 1.0 <= t_to_ss <= 1.9, True)
+        check("GO-shaped still moving past SS depth (restFt > alongFt)", gp_go["restFt"] > along_ss, True)
+
+        gp_bunt_contact = page.evaluate("KMTraj.simulateFlight(35, -30, 0, 'R')")
+        gp_bunt = page.evaluate(
+            "(c) => KMTraj.groundPath(Math.hypot(c.vx, c.vy), c.vz)",
+            gp_bunt_contact["contactVel"],
+        )
+        check("bunt-shaped never races out to SS depth (147ft)",
+              gp_bunt_contact["distance"] + gp_bunt["restFt"] < 147, True)
+
+        gp_weak_contact = page.evaluate("KMTraj.simulateFlight(60, 2, 0, 'R')")
+        gp_weak = page.evaluate(
+            "(c) => KMTraj.groundPath(Math.hypot(c.vx, c.vy), c.vz)",
+            gp_weak_contact["contactVel"],
+        )
+        check("weak grounder (SS-assigned) rests well short of 147ft",
+              gp_weak_contact["distance"] + gp_weak["restFt"] < 147, True)
+
+        monotonic_result = page.evaluate(
+            """(a) => {
+                var gp = KMTraj.groundPath(a.sh, a.vz);
+                var bad = 0;
+                var prev = -1;
+                for (var t = 0; t <= gp.totalS + 0.5; t += 0.05) {
+                  var d = gp.distAt(t);
+                  if (d < prev - 1e-9) bad++;
+                  prev = d;
+                }
+                var roundtrip = [];
+                for (var tt = 0.1; tt < gp.totalS; tt += gp.totalS / 10) {
+                  var dist = gp.distAt(tt);
+                  var back = gp.timeAt(dist);
+                  roundtrip.push(Math.abs(back - tt));
+                }
+                return { bad: bad, maxRoundtripErr: Math.max.apply(null, roundtrip) };
+            }""",
+            {
+                "sh": (gp_go_contact["contactVel"]["vx"] ** 2 + gp_go_contact["contactVel"]["vy"] ** 2) ** 0.5,
+                "vz": gp_go_contact["contactVel"]["vz"],
+            },
+        )
+        check("distAt is monotonic non-decreasing", monotonic_result["bad"], 0)
+        check("timeAt(distAt(t)) round-trips within 5ms", monotonic_result["maxRoundtripErr"] < 0.005, True)
+
+        print("\nBoundary assertions:")
         check("signedCirc(0,5,10)", page.evaluate("KMFlight.signedCirc(0,5,10)"), 5)
         check("signedCirc(5,0,10)", page.evaluate("KMFlight.signedCirc(5,0,10)"), -5)
         check("signedCirc(98,2,100)", page.evaluate("KMFlight.signedCirc(98,2,100)"), 4)
@@ -104,6 +235,17 @@ def main() -> None:
         )
         check("null pitch -> null", r, None)
 
+        # la/angle/ev assertions are unchanged - that gating/wheel path never
+        # moved in the physics-redesign port (Part 2.3). distance/x/y/hangMs
+        # used to be hand-computed literals against the OLD depthMin+q*(...)
+        # /vacuum-hangtime formula; that formula is gone (Part 2.3/2.4), so
+        # those fields are checked against a fresh, independent
+        # KMTraj.simulateFlight(ev, la, angle-45, hand) call plus the same
+        # clampToFence step flightParams itself applies - this is the actual
+        # port contract (did flightParams wire EV/LA/angle/hand into KMTraj
+        # correctly and apply clamp/scale right), not a re-test of the
+        # integrator's own correctness (that's the golden-vector parity block
+        # above, checked independently against tools/trajectory_reference.py).
         cases = [
             {
                 # la: q = 1 - clamp((5-2)/(21-2)) = 16/19 = 0.8421 (close to the
@@ -112,12 +254,12 @@ def main() -> None:
                 # not quite laIdeal since this diff isn't AT the band's floor.
                 "label": "HR pulled RHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "R", "diff": 5},
-                "want": {"la": 27.53, "angle": 5.00, "ev": 112.32, "distance": 412.1, "x": -264.9, "y": 315.7, "hangMs": 4728.73},
+                "want": {"la": 27.53, "angle": 5.00, "ev": 112.32},
             },
             {
                 "label": "HR same numbers LHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "L", "diff": 5},
-                "want": {"la": 27.53, "angle": 85.00, "x": 264.9},
+                "want": {"la": 27.53, "angle": 85.00},
             },
             {
                 # la: q clamps to 0 (diff 481 is past the GO band's own hi=470),
@@ -125,49 +267,54 @@ def main() -> None:
                 # direction - the "least ideal" end of the formula's range.
                 "label": "Groundout RHH",
                 "play": {"result": "GO", "pitch": 150, "swing": 631, "batter_hand": "R", "diff": 481},
-                "want": {"la": -15.0, "angle": 53.00, "ev": 70.00, "distance": 60.0, "isGrounder": True, "hangMs": None},
+                "want": {"la": -15.0, "angle": 53.00, "ev": 70.00},
             },
             {
-                # Raw (pre-clamp) distance would be 380.0 ft per the plan's Stage 3a
-                # formula in isolation, but Stage 4d requires clampToFence to run
-                # inside flightParams (non-HR may never clear the fence), and this
-                # FO pulled toward the line at 380ft raw would clear the uniform
-                # 375ft wall. Expected values below are post-clamp:
-                # min(380, 375-12)=363, with x/y recomputed from D=363 at the same
-                # 29 degree angle.
                 # la: diff 48 is below the FO band's own lo=55, so q clamps to 1 -
                 # LA lands exactly on fly_ball's laIdeal (28), independent of
                 # direction (the (1-q) deviation term is zero at q=1).
                 "label": "Flyout RHH",
                 "play": {"result": "FO", "pitch": 220, "swing": 268, "batter_hand": "R", "diff": 48},
-                "want": {"la": 28.0, "angle": 29.00, "ev": 98.00, "distance": 363.0, "x": -100.06, "y": 348.94},
+                "want": {"la": 28.0, "angle": 29.00, "ev": 98.00},
             },
             {
-                # Recomputed for C5's recalibrated single archetype (was
-                # -5,10,...,60,160 - la/distance/isGrounder below reflect the
-                # new 6,20,...,130,230 band; angle/ev are archetype-independent
-                # and unchanged from the original worked example.
                 # la: q = 1 - clamp((87-20)/(150-20)) = 1 - 67/130 = 0.4846; swing
                 # (801) < pitch (888) on the full 1000-wheel -> "below" the pitch
                 # (uppercut) -> LA = 12 + (1-q)*(20-12) = 16.12.
                 "label": "Single LHH",
                 "play": {"result": "1B", "pitch": 888, "swing": 801, "batter_hand": "L", "diff": 87},
-                "want": {"la": 16.12, "angle": 21.00, "ev": 86.15, "distance": 178.46, "isGrounder": False},
+                "want": {"la": 16.12, "angle": 21.00, "ev": 86.15},
             },
         ]
 
         print("\nWorked examples:")
         for c in cases:
             print(f" {c['label']}:")
+            hand = c["play"]["batter_hand"]
             r = page.evaluate("(a) => KMFlight.flightParams(a.play, a.tables)", {"play": c["play"], "tables": tables})
             for key, want in c["want"].items():
-                got = r.get(key.replace("distance", "distance")) if key != "distance" else r["distance"]
-                got = r[key]
-                tol = 0.005 if key in ("la", "angle") else (2.0 if key == "hangMs" else 0.15)
-                if want is None or isinstance(want, bool):
-                    check(f"{c['label']}.{key}", got, want, tol=0)
-                else:
-                    check(f"{c['label']}.{key}", got, want, tol=tol)
+                tol = 0.005 if key in ("la", "angle") else 0.15
+                check(f"{c['label']}.{key}", r[key], want, tol=tol)
+
+            oracle = page.evaluate(
+                """(a) => {
+                    var sim = KMTraj.simulateFlight(a.ev, a.la, a.angle - 45, a.hand);
+                    var isHomeRun = a.result === 'HR';
+                    var D = KMFlight.clampToFence(sim.distance, a.angle, isHomeRun);
+                    var scale = D / sim.distance;
+                    return {
+                        distance: D, x: sim.landing.x * scale, y: sim.landing.y * scale,
+                        hangMs: 1000 * sim.hangS, apexFt: sim.apexFt,
+                    };
+                }""",
+                {"ev": r["ev"], "la": r["la"], "angle": r["angle"], "hand": hand, "result": c["play"]["result"]},
+            )
+            check(f"{c['label']}.distance matches independent KMTraj+clampToFence oracle", r["distance"], oracle["distance"], tol=0.01)
+            check(f"{c['label']}.x matches oracle", r["x"], oracle["x"], tol=0.01)
+            check(f"{c['label']}.y matches oracle", r["y"], oracle["y"], tol=0.01)
+            check(f"{c['label']}.hangMs matches oracle", r["hangMs"], oracle["hangMs"], tol=0.01)
+            check(f"{c['label']}.apexFt matches oracle", r["apexFt"], oracle["apexFt"], tol=0.01)
+            check(f"{c['label']}.hangMs is a real number (F10: no more null-for-grounders)", r["hangMs"] is not None, True)
 
         print("\nq-clamp checks:")
         r_below = page.evaluate(
@@ -292,11 +439,28 @@ def main() -> None:
             check(f"stealThrowTarget({result} {before}->{after})", got, want)
 
         print("\nA4 timing race (every grounder throw must beat the runner to the bag):")
+        print("worst-case flight: a real, physics-derived slow grounder (Part 3.3's GO-shaped")
+        print("contact, near the top of its 1.0-1.9s ground-time acceptance range), not a mock:")
+        worst_case_go = page.evaluate("KMTraj.simulateFlight(85, -11, 0, 'R')")
+        # groundTimeS the resolver would actually hand to fieldedMs: time to
+        # reach the deepest infield depth (SS/2B, 147ft) along the ground -
+        # NOT groundPath's own totalS-to-complete-rest (that's only reached
+        # on a charge-in, which by definition means a SHORT, not slow, ground
+        # time - using totalS here would test a scenario the resolver never
+        # actually produces).
+        worst_case_along = 147 - worst_case_go["distance"]
+        worst_case_ground_time_s = page.evaluate(
+            "(a) => KMTraj.groundPath(Math.hypot(a.c.vx, a.c.vy), a.c.vz).timeAt(a.along)",
+            {"c": worst_case_go["contactVel"], "along": worst_case_along},
+        )
         for result, before, after, runs, outs_before, outs_after, archetype, want in throw_cases:
             if archetype != "grounder" or not want:
                 continue
             m = {"result": result, "outs_before": outs_before, "outs_after": outs_after}
-            flight = {"archetype": archetype, "clearedFence": False, "isGrounder": True, "hangMs": None}
+            flight = {
+                "archetype": archetype, "clearedFence": False,
+                "hangMs": 1000 * worst_case_go["hangS"], "groundTimeS": worst_case_ground_time_s,
+            }
             margin = page.evaluate(
                 """(a) => {
                     var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
@@ -315,7 +479,7 @@ def main() -> None:
             if archetype not in ("fly_ball", "pop_up") or not want:
                 continue
             m = {"result": result, "outs_before": outs_before, "outs_after": outs_after}
-            flight = {"archetype": archetype, "clearedFence": False, "hangMs": None}
+            flight = {"archetype": archetype, "clearedFence": False, "hangMs": 4700}
             margin = page.evaluate(
                 """(a) => {
                     var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
@@ -373,47 +537,144 @@ def main() -> None:
         else:
             print("  [skip] no real feed data / meta.json found on disk")
 
-        print("\nGrounder depth sanity (regression guard): Statcast's hit_distance_sc")
-        print("measures a ground ball's first bounce, not its fielding depth - a naive")
-        print("re-derivation would collapse depthMax back down near that bounce point")
-        print("(observed ~78ft for GO) instead of a realistic infield depth (INFIELDER_")
-        print("DEPTH_FT tops out at 147ft for SS/2B):")
+        print("\nFull-pipeline sweep (Stage C cut-over): every real play run through the")
+        print("exact dispatch playSceneHtml uses (flightParams -> resolver/air-override/")
+        print("resolveHitPickup), asserting no exceptions, no NaN outputs, and the")
+        print("fieldedFt <= alongFt / fieldedDistFt >= distance invariant everywhere:")
+        if meta_fp.exists() and real_plays:
+            pipeline = page.evaluate(
+                """(a) => {
+                    var bad = [];
+                    var counts = { groundOut: 0, airOut: 0, hit: 0, cleared: 0 };
+                    a.plays.forEach(function (m) {
+                        try {
+                            var flight = KMFlight.flightParams(m, a.tables);
+                            if (!flight) return;
+                            var hand = KMFlight.effectiveHand(m.batter_hand);
+                            var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+                            if (KMFlight.GROUND_ARCHETYPES[flight.archetype] && wasOut) {
+                                KMFlight.resolveGrounderInterception(m, flight, hand);
+                                counts.groundOut++;
+                                if (flight.fieldedDistFt < flight.distance - 1e-6) bad.push(m.moment_id + ": fieldedDistFt < distance");
+                            } else if (wasOut && KMFlight.CAUGHT_IN_AIR[flight.archetype]) {
+                                KMFlight.applyAirPositionOverride(m, flight, hand);
+                                counts.airOut++;
+                            } else if (!flight.clearedFence) {
+                                KMFlight.resolveHitPickup(flight);
+                                counts.hit++;
+                                if (flight.fieldedDistFt < flight.distance - 1e-6) bad.push(m.moment_id + ": fieldedDistFt < distance (hit)");
+                            } else {
+                                counts.cleared++;
+                            }
+                            ["la", "ev", "distance", "angle", "x", "y", "hangMs", "apexFt"].forEach(function (k) {
+                                if (typeof flight[k] !== "number" || isNaN(flight[k])) bad.push(m.moment_id + ": NaN/non-number " + k);
+                            });
+                            var travelMs = KMFlight.ballTravelMs(flight);
+                            var fielded = KMFlight.fieldedMs(flight);
+                            if (isNaN(travelMs) || isNaN(fielded)) bad.push(m.moment_id + ": NaN timing");
+                            if (fielded < travelMs - 1e-6) bad.push(m.moment_id + ": fieldedMs < ballTravelMs");
+                        } catch (e) {
+                            bad.push(m.moment_id + ": EXCEPTION " + e.message);
+                        }
+                    });
+                    return { bad: bad, counts: counts };
+                }""",
+                {"plays": real_plays, "tables": real_tables},
+            )
+            c = pipeline["counts"]
+            print(f"  {c['groundOut']} ground outs, {c['airOut']} air outs, {c['hit']} hits, {c['cleared']} cleared-fence HRs")
+            check("full pipeline: no exceptions, no NaN, fieldedDistFt/timing invariants hold", len(pipeline["bad"]), 0)
+            for bad in pipeline["bad"][:10]:
+                print(f"    - {bad}")
+        else:
+            print("  [skip] no real feed data / meta.json found on disk")
+
+        print("\nCSV validity (F6/F9 - ball-flight-3d-physics-redesign-plan.md Part 2.4/11):")
+        print("depth_min/depth_max are audit-only now (nothing at runtime reads them - a")
+        print("grounder's landing distance comes from KMTraj.simulateFlight's LA/EV")
+        print("integration, same as every other archetype), so a low depthMax on a")
+        print("grounder-family result (its real hit_distance_sc first-bounce percentile,")
+        print("not a fielding depth) is expected and correct, not a regression:")
         if meta_fp.exists():
             bands = json.loads(meta_fp.read_text(encoding="utf-8"))["flight"]["bands"]
-            GROUND_TOUCHING_MIN_DEPTH_MAX = {
-                "GO": 100, "GORA": 100, "FC": 100, "FC3rd": 100, "FCH": 100,
-                "DP": 100, "DP21": 100, "DP31": 100, "DPH1": 100, "DPRun": 100, "TP": 100,
-                "IF1B": 60,
-            }
-            for result, floor in GROUND_TOUCHING_MIN_DEPTH_MAX.items():
-                band = bands.get(result)
-                if not band:
-                    continue
-                check(f"{result} depthMax >= {floor}ft (real infield depth, not bounce point)",
-                      band["depthMax"] >= floor, True)
+            for result, band in bands.items():
+                for col in ("laMin", "laIdeal", "laMax", "evMin", "evMax", "depthMin", "depthMax"):
+                    check(f"{result}.{col} is non-null", band.get(col) is not None, True)
+                check(f"{result} laMin < laIdeal < laMax", band["laMin"] < band["laIdeal"] < band["laMax"], True)
+                check(f"{result} band_lo != band_hi", band["lo"] != band["hi"], True)
         else:
             print("  [skip] no meta.json found on disk")
 
-        print("\nGrounder rollout sanity (regression guard): a flat ROLLOUT_FT max can't")
-        print("bridge the gap between a modest landing point and a real infield depth -")
-        print("a moderate-contact GO assigned to shortstop (147ft, the deepest infield")
-        print("position) must roll out to noticeably more than half that depth, not just")
-        print("its own short landing point plus a small constant:")
-        moderate_go_flight = page.evaluate(
-            """() => {
-                var flight = {ev: 74.8, la: -15, distance: 87, angle: 29, archetype: 'grounder'};
-                var m = {outs_before: 0, outs_after: 1};
-                var roll = KMFlight.groundBallRolloutFt(m, flight);
-                return {roll: roll, total: flight.distance + roll};
-            }"""
+        print("\nResolver grid sweep (physics-redesign plan Part 4/11): one function")
+        print("replaces five disagreeing mechanisms - assert its invariants hold over")
+        print("every HZ angle x contact-quality combination, not just one point:")
+        resolver_sweep = page.evaluate(
+            """(t) => {
+                var bad = [];
+                var band = t.bands.GO;
+                var angles = [5, 13, 21, 29, 37, 45, 53, 61, 69, 77, 85];
+                ["R", "L"].forEach(function (hand) {
+                  angles.forEach(function (angle) {
+                    for (var q = 0; q <= 1; q += 0.25) {
+                      var la = band.laIdeal + (1 - q) * (band.laMax - band.laIdeal);
+                      var ev = band.evMin + q * (band.evMax - band.evMin);
+                      var sim = KMTraj.simulateFlight(ev, la, angle - 45, hand);
+                      var flight = {
+                        la: la, ev: ev, distance: sim.distance, angle: angle,
+                        x: sim.landing.x, y: sim.landing.y, contactVel: sim.contactVel,
+                        archetype: "grounder",
+                      };
+                      var m = {outs_before: 0, outs_after: 1};
+                      KMFlight.resolveGrounderInterception(m, flight, hand);
+                      var hzPos = KMFlight.HZ_FIELDER_BY_ANGLE[Math.round(angle)];
+                      if (flight.fielder !== hzPos) bad.push("angle=" + angle + " hand=" + hand + ": fielder " + flight.fielder + " != HZ answer " + hzPos);
+                      var alongFt = flight.fieldedDistFt - flight.distance;
+                      if (alongFt < -1e-6) bad.push("angle=" + angle + " hand=" + hand + ": fieldedDistFt before landing point");
+                      var depth = KMFlight.INFIELDER_DEPTH_FT[flight.fielder];
+                      if (flight.fieldedDistFt > depth + 1e-6 && flight.fieldedDistFt < flight.distance + 1e6) {
+                        // fielded past the assigned depth is only OK if the ball landed past it already
+                        if (sim.distance <= depth) bad.push("angle=" + angle + " hand=" + hand + ": fielded past assigned depth " + depth);
+                      }
+                    }
+                  });
+                });
+                return bad;
+            }""",
+            tables,
         )
-        # Old flat-ROLLOUT_FT formula gave this exact contact quality only
-        # 0.463*34 =~ 15.7ft of roll (total ~102.8ft) - well short of a real
-        # shortstop's 147ft. The gap-scaled fix should meaningfully beat that.
-        check("moderate-contact GO (SS-assigned) rolls out further than the old flat-max formula would",
-              moderate_go_flight["roll"] > 20, True)
-        check("moderate-contact GO (SS-assigned) total distance closes meaningfully more of the gap to SS's real 147ft depth",
-              moderate_go_flight["total"] > 110, True)
+        check("resolver: fielder always matches the HZ answer, fielded point never beyond assigned depth", len(resolver_sweep), 0)
+
+        print("\nResolver BRC override (F1/F3): a DP31-shaped synthetic config (excludes")
+        print("SS/2B/1B/P, default 3B) on a shallow-landing grounder still triggers,")
+        print("re-simulates at a lattice angle, and leaves LA/EV untouched:")
+        override_result = page.evaluate(
+            """(t) => {
+                var band = t.bands.GO;
+                var hand = "R";
+                var angle = 45;  // HZ answer would be P
+                var la = band.laIdeal, ev = band.evMin;
+                var sim = KMTraj.simulateFlight(ev, la, angle - 45, hand);
+                var flight = {
+                    la: la, ev: ev, distance: sim.distance, angle: angle,
+                    x: sim.landing.x, y: sim.landing.y, contactVel: sim.contactVel,
+                    archetype: "grounder",
+                };
+                var m = {
+                    outs_before: 0, outs_after: 1,
+                    excluded_positions: ["SS", "2B", "1B", "P"], default_position: "3B",
+                };
+                KMFlight.resolveGrounderInterception(m, flight, hand);
+                return {
+                    fielder: flight.fielder, angle: flight.angle, la: flight.la, ev: flight.ev,
+                    onLattice: KMFlight.MIN_ANGLE_FOR_POS["3B"] === flight.angle,
+                };
+            }""",
+            tables,
+        )
+        check("BRC override fires and assigns the default position", override_result["fielder"], "3B")
+        check("BRC override lands on the default position's lattice angle", override_result["onLattice"], True)
+        check("BRC override leaves LA untouched", override_result["la"], tables["bands"]["GO"]["laIdeal"], tol=1e-6)
+        check("BRC override leaves EV untouched", override_result["ev"], tables["bands"]["GO"]["evMin"], tol=1e-6)
 
         print("\nC5 infield-dirt regression: no real 1B/1BWH/1BWH2 may land on the dirt")
         real_singles = []
@@ -425,24 +686,40 @@ def main() -> None:
                 if p.get("result") in ("1B", "1BWH", "1BWH2") and p.get("pitch") is not None and p.get("swing") is not None:
                     real_singles.append(p)
         print(f"  {len(real_singles)} real singles found across plays_01/02/03.json")
-        if real_singles:
+        print("Physics-redesign note: the raw LANDING point (flightParams' x/y) is no")
+        print("longer what this checks - a low-LA single can legitimately bounce short,")
+        print("on the dirt, and then skid/roll well past it before anyone picks it up")
+        print("(Part 2.5/4.6 - the old hand-tuned depth formula never modeled that skid at")
+        print("all, so it had to keep every single's LANDING point off the dirt instead).")
+        print("What must still never happen is the ball being PICKED UP on the dirt -")
+        print("checked against resolveHitPickup's fielded point, same as playSceneHtml")
+        print("computes for every real hit that stays in the park:")
+        # Real bands (result_diff_bands.csv via meta.json), not the small
+        # illustrative mock table above - the mock's 1B row is only
+        # internally consistent enough to validate flightParams' formula
+        # mechanics, not calibrated for a physically-real dirt check against
+        # real play data.
+        dirt_tables = real_tables if "real_tables" in dir() else tables
+        if real_singles and "real_tables" in dir():
             dirt_count = page.evaluate(
                 """(a) => {
                     var n = 0;
                     a.plays.forEach(function (p) {
                         var fp = KMFlight.flightParams(p, a.tables);
                         if (!fp) return;
+                        KMFlight.resolveHitPickup(fp);
+                        var picked = KMFlight.fieldedPoint(fp);
                         // Infield dirt polygon: the home/1B/2B/3B diamond, in
                         // field-plane feet (ball-flight-refinements-plan.md F15).
-                        if (Math.abs(fp.x) + Math.abs(fp.y - 63.64) <= 63.64) n++;
+                        if (Math.abs(picked.x) + Math.abs(picked.y - 63.64) <= 63.64) n++;
                     });
                     return n;
                 }""",
-                {"plays": real_singles, "tables": tables},
+                {"plays": real_singles, "tables": dirt_tables},
             )
-            check("real singles landing on the infield dirt", dirt_count, 0)
+            check("real singles picked up on the infield dirt", dirt_count, 0)
         else:
-            print("  [skip] no real single data found on disk")
+            print("  [skip] no real single data / real tables found on disk")
 
         browser.close()
 

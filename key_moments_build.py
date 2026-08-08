@@ -752,13 +752,15 @@ def _flight_meta() -> dict:
     rather than a second hardcoded copy of FLIGHT_EXCLUDED.
 
     Each band now carries its own laMin/laIdeal/laMax/evMin/evMax/depthMin/
-    depthMax directly (real, per-MLN-result Statcast-derived numbers, with
-    one exception - see result_diff_bands.csv's own comment on depthMin/
-    depthMax for grounder/infield_single/bunt-family results, which keep a
-    hand-tuned real-infield-depth range instead of Statcast's hit_distance_sc,
-    since that column measures first ground contact, not fielding depth)
-    instead of a level of indirection through a separate archetype-keyed
-    table - the old ball_flight_archetypes.csv is retired. `archetype` stays
+    depthMax directly (real, per-MLN-result Statcast-derived numbers) instead
+    of a level of indirection through a separate archetype-keyed table - the
+    old ball_flight_archetypes.csv is retired. depthMin/depthMax are
+    audit-only as of the physics-redesign port
+    (ball-flight-3d-physics-redesign-plan.md Part 2.4) - app.js's
+    KMTraj.simulateFlight derives landing distance from laIdeal/EV via the
+    drag+lift integrator for every archetype, grounders included; these two
+    columns are shipped for the test suite/audit tooling only, nothing at
+    runtime reads them. `archetype` stays
     on the band as a plain category label: app.js's CAUGHT_IN_AIR/
     GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES still branch on it, just no longer
     use it to look up numbers.

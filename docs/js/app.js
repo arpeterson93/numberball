@@ -1043,15 +1043,6 @@
     return { x: SCENE_BASES.HOME.x + side * HOME_PLATE_R, y: SCENE_BASES.HOME.y };
   }
 
-  // Nine generic fielder anchors, field-plane feet. No names, no per-play
-  // defensive alignment - that data doesn't exist (ball-flight-plan.md
-  // Decision 5).
-  var FIELDER_ANCHORS_FT = {
-    P: { x: 0, y: 60 }, C: { x: 0, y: -5 },
-    "1B": { x: 75, y: 85 }, "2B": { x: 40, y: 145 }, SS: { x: -40, y: 145 }, "3B": { x: -75, y: 85 },
-    LF: { x: -200, y: 260 }, CF: { x: 0, y: 320 }, RF: { x: 200, y: 260 },
-  };
-
   // Ground ball outs, which infielder and how deep (Alex's HZ/depth spec).
   // The horizontal angle is only ever one of exactly 11 values - bucket
   // (signedCirc's ones-digit result) is an integer -5..5, and angle is a
@@ -1066,15 +1057,44 @@
     53: "2B", 61: "2B", 69: "2B",
     77: "1B", 85: "1B",
   };
+  // The researched, documented depths - one source of truth for infield
+  // geometry (physics-redesign plan Part 4.1, resolves F5: this used to be
+  // duplicated as a second, independently hand-placed set of anchors below,
+  // which could and did drift out of sync with these numbers).
   var INFIELDER_DEPTH_FT = { "3B": 119, SS: 147, P: 60, "2B": 147, "1B": 111 };
+  // Midpoint HZ angle of each position's own bucket set (see
+  // HZ_FIELDER_BY_ANGLE): {5,13}->9, {21,29,37}->29, {45}->45, {53,61,69}->61,
+  // {77,85}->81 - the "straight out from home at this depth" direction used
+  // to derive that position's anchor point below.
+  var CANONICAL_ANGLE = { "3B": 9, SS: 29, P: 45, "2B": 61, "1B": 81 };
+  // The minimum lattice angle mapping to each position - the direction a
+  // BRC-excluded ground ball gets redirected to on override (Part 4.2/4.3).
+  var MIN_ANGLE_FOR_POS = { "3B": 5, SS: 21, P: 45, "2B": 53, "1B": 77 };
+
+  // Nine generic fielder anchors, field-plane feet. No names, no per-play
+  // defensive alignment - that data doesn't exist (ball-flight-plan.md
+  // Decision 5). Infield anchors are DERIVED from INFIELDER_DEPTH_FT/
+  // CANONICAL_ANGLE rather than hand-placed (physics-redesign plan Part 4.1) -
+  // one real-world-unit source instead of two that can disagree (a 3B anchor
+  // used to sit at the hand-placed (-75,85), about 13ft from where its own
+  // documented 119ft depth actually points; that's now impossible by
+  // construction). Outfield + C anchors stay hand-placed - no depth table
+  // exists for them.
+  var FIELDER_ANCHORS_FT = {
+    C: { x: 0, y: -5 },
+    LF: { x: -200, y: 260 }, CF: { x: 0, y: 320 }, RF: { x: 200, y: 260 },
+  };
+  ["3B", "SS", "P", "2B", "1B"].forEach(function (pos) {
+    var pt = landingPoint(INFIELDER_DEPTH_FT[pos], CANONICAL_ANGLE[pos]);
+    FIELDER_ANCHORS_FT[pos] = { x: pt.x, y: pt.y };
+  });
+
   // The archetype (from the result's own band row) is the true "is this a
-  // ground ball" signal, not flight.isGrounder - that flag is just LA<4 on a
-  // value computed independently off the pitch/swing wheel, and it can
-  // disagree with the actual play: a real "GO" can compute an LA a hair
-  // above 4 (isGrounder false on a genuine grounder), and a caught line
-  // drive can compute one a hair below it (isGrounder true on a ball that
-  // was never on the ground at all). Anything gating ground-ball-only
-  // behaviour (infielder depth, rollout) keys off archetype instead.
+  // ground ball" signal - LA alone is too noisy near the boundary (a real
+  // "GO" can compute an LA a hair above the ground/air threshold, and a
+  // caught line drive can compute one a hair below it). Anything gating
+  // ground-ball-only behaviour (infielder depth, interception) keys off
+  // archetype instead.
   var GROUND_ARCHETYPES = { grounder: 1, bunt: 1, infield_single: 1 };
 
   // Uniform fence depth in every direction (Alex's addition to the plan: one
@@ -1311,8 +1331,6 @@
     return best;
   }
 
-  var GROUND_LA_THRESHOLD = 4;   // degrees; below this a batted ball is a grounder, not airborne
-
   // Launch angle anchors on this specific MLN result's own real, Statcast-
   // derived "ideal" LA (band.laIdeal - the median LA of real MLB plays
   // matching this result's own filter, e.g. events='home_run', or bb_type=
@@ -1339,11 +1357,49 @@
       : ideal + (1 - q) * (band.laMax - ideal);
   }
 
+  // Radially rescale a KMTraj sample list (x,y only - z/t untouched) - used
+  // whenever clampToFence engages, so the drawn arc still ends exactly at
+  // the clamped landing point instead of the integrator's raw (uncapped)
+  // one. A cheap squash rather than a re-integration at the clamped
+  // distance: exact physics at the wall isn't worth it for a visual
+  // (physics-redesign plan 2.3).
+  function scaleSamples(samples, scale) {
+    if (scale === 1) return samples;
+    return samples.map(function (s) {
+      return { t: s.t, x: s.x * scale, y: s.y * scale, z: s.z };
+    });
+  }
+
+  // Re-run the integrator at a new HZ angle, same LA/EV/hand - the direction
+  // override mechanism shared by the grounder resolver (Part 4.2) and the
+  // caught-in-air BRC override (Part 4.3). Mutates `flight` in place so
+  // every already-set field (angle/distance/x/y/contactVel/samples/apexFt/
+  // hangS/hangMs/clamped) reflects the new direction; la/ev/archetype never
+  // change - only where the ball goes.
+  function applyAngleOverride(flight, newAngleDeg, hand, isHomeRun) {
+    var sim = KMTraj.simulateFlight(flight.ev, flight.la, newAngleDeg - 45, hand);
+    var D = clampToFence(sim.distance, newAngleDeg, isHomeRun);
+    var scale = D / sim.distance;
+    flight.angle = newAngleDeg;
+    flight.distance = D;
+    flight.x = sim.landing.x * scale;
+    flight.y = sim.landing.y * scale;
+    flight.contactVel = sim.contactVel;
+    flight.apexFt = sim.apexFt;
+    flight.hangS = sim.hangS;
+    flight.hangMs = 1000 * sim.hangS;
+    flight.samples = scaleSamples(sim.samples, scale);
+    flight.clamped = D !== sim.distance;
+  }
+
   // tables is data.meta.flight: { bands, excluded }. Each band now carries
   // its own laMin/laIdeal/laMax/evMin/evMax/depthMin/depthMax directly (see
   // result_diff_bands.csv) - no separate archetype-keyed range table to look
   // up; `band.archetype` is still a plain category label for
-  // CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES below.
+  // CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES below. depthMin/
+  // depthMax are audit-only now (2.4) - distance comes from the physics
+  // integrator, la/ev straight into KMTraj.simulateFlight, for every
+  // archetype including grounders (physics-redesign plan Part 2.3).
   function flightParams(play, tables) {
     var result = play.result;
     if (!tables || (tables.excluded || []).indexOf(result) !== -1) return null;
@@ -1369,18 +1425,22 @@
     var angle = hand === "L" ? 45 - frac * 40 : 45 + frac * 40;
 
     var EV = band.evMin + q * (band.evMax - band.evMin);
-    var D = band.depthMin + q * (band.depthMax - band.depthMin);
-
     var isHomeRun = result === "HR";
-    D = clampToFence(D, angle, isHomeRun);
 
-    var pt = landingPoint(D, angle);
-    var isGrounder = LA < GROUND_LA_THRESHOLD;
-    var hangMs = isGrounder ? null : 1000 * 2 * (EV * 1.4667) * Math.sin(LA * Math.PI / 180) / 32.2;
+    // phi = HZ - 45 (physics-redesign plan Part 1, verified); the resolved
+    // hand goes into the spin formulas unchanged, not folded into phi a
+    // second time - the HZ angle above already carries the hand mirror.
+    var sim = KMTraj.simulateFlight(EV, LA, angle - 45, hand);
+    var D = clampToFence(sim.distance, angle, isHomeRun);
+    var scale = D / sim.distance;
 
     return {
-      la: LA, ev: EV, distance: D, angle: angle, x: pt.x, y: pt.y, hangMs: hangMs,
-      isGrounder: isGrounder, fielder: nearestFielder(pt.x, pt.y), archetype: band.archetype,
+      la: LA, ev: EV, distance: D, angle: angle,
+      x: sim.landing.x * scale, y: sim.landing.y * scale,
+      hangMs: 1000 * sim.hangS, hangS: sim.hangS, apexFt: sim.apexFt,
+      contactVel: sim.contactVel, samples: scaleSamples(sim.samples, scale),
+      clamped: D !== sim.distance,
+      fielder: nearestFielder(sim.landing.x * scale, sim.landing.y * scale), archetype: band.archetype,
       // Over-the-fence vs. inside-the-park - both legal outcomes for a home
       // run (ball-flight-plan.md ground-truth invariant note). Never true for
       // anything else: clampToFence already prevented that.
@@ -1388,73 +1448,107 @@
     };
   }
 
-  /* Ground ball outs: the archetype's depth range (a single 60-150ft band for
-     every grounder) doesn't know a 3B/1B plays shallower than a SS/2B, so
-     the same play could land at a distance that makes sense for one
-     position and not another. This corrects it using the HZ angle, which
-     already tells us exactly which infielder is fielding it: if the
-     archetype distance would carry the ball past that fielder's normal
-     depth, it's capped there (fielded on the way through, same as a real
-     infielder never lets a ball get all the way to the track); if it's
-     short, left alone - the fielder charges in and fields a weak roller
-     closer to home, which is exactly Alex's "still have ground ball outs
-     that aren't hit very far." Hits are untouched: a grounder that gets past
-     the fielder's depth is precisely what makes it a hit, not an out. Called
-     once, right after flightParams, so every consumer of `flight` (the ball
-     trail, the throw origin, the rollout) sees the corrected distance/x/y
-     with no separate plumbing. */
   var OF_POSITIONS = { LF: 1, CF: 1, RF: 1 };
 
   /* import_BRC.csv's optional ExcludedPositions/DefaultPosition columns -
-     "the physics-computed fielder for this situation doesn't make sense,
-     use this one instead." Positions occupy genuinely different places on
-     the field, not just different depths along the same line out from home
-     (a shortstop and a pitcher aren't on the same line at different
-     depths) - so this snaps the landing point to the default position's own
-     real anchor (FIELDER_ANCHORS_FT), both direction and depth, rather than
-     nudging the physics-computed point along its original angle. Returns
-     true if it fired, so the caller can skip the physics-angle-based ground
-     ball depth cap below - the two are mutually exclusive corrections for
-     the same kind of problem, not meant to stack. */
-  function applyPositionOverride(m, flight) {
+     "the physics-computed fielder for this situation doesn't make sense, use
+     this one instead," tested against the HZ answer (or, post-override, the
+     resolved position) - never a proximity answer (physics-redesign plan
+     Part 4.2, resolves F3: flight.fielder vs the HZ fielder used to disagree
+     39% of the time because the exclusion check and the actual assignment
+     read two different sources). */
+  function brcExcludes(m, pos) {
     var excluded = m.excluded_positions;
-    var def = m.default_position;
-    if (!excluded || !excluded.length || !def) return false;
-    var isOF = !!OF_POSITIONS[flight.fielder];
-    var isExcluded = excluded.indexOf(flight.fielder) !== -1 ||
-      (isOF && excluded.indexOf("OF") !== -1);
-    if (!isExcluded) return false;
-    var anchor = FIELDER_ANCHORS_FT[def];
-    if (!anchor) return false;
-    flight.fielder = def;
-    flight.x = anchor.x;
-    flight.y = anchor.y;
-    flight.distance = Math.hypot(anchor.x, anchor.y);
-    flight.angle = Math.atan2(anchor.x, anchor.y) * 180 / Math.PI + 45;
-    return true;
+    if (!excluded || !excluded.length || !pos) return false;
+    var isOF = !!OF_POSITIONS[pos];
+    return excluded.indexOf(pos) !== -1 || (isOF && excluded.indexOf("OF") !== -1);
   }
 
-  function applyGroundBallFielderDepth(m, flight) {
-    if (!GROUND_ARCHETYPES[flight.archetype]) return;
-    if (!((m.outs_after || 0) > (m.outs_before || 0))) return;
-    var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
-    var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
-    if (depth == null || flight.distance <= depth) return;
-    flight.distance = depth;
-    var pt = landingPoint(depth, flight.angle);
-    flight.x = pt.x;
-    flight.y = pt.y;
+  /* Point along the ball's actual ground-contact direction, `alongFt` beyond
+     the landing point - NOT the HZ launch bearing (physics-redesign plan
+     Part 1: sidespin drift means those differ, by well under a degree for a
+     grounder but more for a harder-hit ball). This is what "fielded" and
+     "rolled to" points actually mean physically. */
+  function groundDirPoint(flight, alongFt) {
+    var vx = flight.contactVel.vx, vy = flight.contactVel.vy;
+    var sh = Math.hypot(vx, vy) || 1;
+    return { x: flight.x + (vx / sh) * alongFt, y: flight.y + (vy / sh) * alongFt };
+  }
+
+  /* One function replaces five disagreeing mechanisms (physics-redesign plan
+     Part 4): who fields a ground-ball out, at what corrected direction, at
+     what depth, and when. Called once, right after flightParams, for every
+     ground-archetype out - every consumer of `flight` (the ball trail, the
+     throw origin, labels) sees flight.fielder/fieldedDistFt/groundTimeS/
+     rollSamples with no separate plumbing.
+
+     (1) Position, before any physics: the HZ answer, then the BRC check. A
+     BRC exclusion overrides DIRECTION only (a lattice angle, so every
+     downstream lattice lookup still hits) - LA/EV are untouched, and the
+     integrator re-runs at the new angle for a physically consistent new
+     landing/contactVel (F1: no post-hoc angle rewrite exists anywhere in
+     this path).
+     (2) Ground path from the real contact velocity (Part 3).
+     (3) Interception: the fielder's depth crossing along that path, or the
+     ball dying first (charge-in). fieldedFt <= alongFt always, by
+     construction in every branch. */
+  function resolveGrounderInterception(m, flight, hand) {
+    var hzPos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
+    var pos = hzPos;
+    if (brcExcludes(m, hzPos) && m.default_position) {
+      pos = m.default_position;
+      applyAngleOverride(flight, MIN_ANGLE_FOR_POS[pos], hand, false);
+    }
+    var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
+    var depth = INFIELDER_DEPTH_FT[pos];
+    var alongFt = depth - flight.distance;
+    var fieldedFt, groundTimeS;
+    if (alongFt <= 0) {
+      fieldedFt = 0; groundTimeS = 0;
+    } else if (alongFt <= gp.restFt) {
+      fieldedFt = alongFt; groundTimeS = gp.timeAt(alongFt);
+    } else {
+      fieldedFt = gp.restFt; groundTimeS = gp.totalS;
+    }
     flight.fielder = pos;
+    flight.fieldedDistFt = flight.distance + fieldedFt;
+    flight.groundTimeS = groundTimeS;
+    flight.groundPath = gp;
+  }
+
+  /* The caught-in-air sibling of the resolver above (physics-redesign plan
+     Part 4.3): a BRC exclusion on a caught fly ball also overrides direction
+     only, clamped into the default outfielder's own angular third rather
+     than snapped to that outfielder's anchor point regardless of this ball's
+     own EV/LA (today's applyPositionOverride teleported a SacF excluded from
+     LF straight to CF's exact (0,320) anchor no matter how it was hit) - the
+     catch point stays a physically consistent landing for this ball's actual
+     contact quality. */
+  var OF_ANGLE_THIRDS = { LF: [5, 33], CF: [33, 57], RF: [57, 85] };
+  function applyAirPositionOverride(m, flight, hand) {
+    if (!brcExcludes(m, flight.fielder) || !m.default_position) return false;
+    var def = m.default_position;
+    var third = OF_ANGLE_THIRDS[def];
+    if (!third) return false;
+    var clamped = clamp(flight.angle, third[0], third[1]);
+    applyAngleOverride(flight, clamped, hand, flight.archetype === "home_run");
+    flight.fielder = def;
+    return true;
   }
 
   // ── Ball flight rendering (ball-flight-plan.md Stage 4) ───────────────────
   // Timing constants below are animation-feel judgment calls, not derived
   // from anything physical - flagged as tune-after-watching in the plan
-  // (Open Questions 2 and 6).
-  // A grounder to an infielder is quick - was 600, a groundout throw was
-  // arriving 100ms after the runner (refinements plan Finding F10).
-  var GROUNDER_ROLL_MS = 450;                          // Open Question 2
-  var HANG_MS_SCALE = 0.35, HANG_MS_MIN = 450, HANG_MS_MAX = 1400;  // Open Question 6
+  // (Open Questions 2 and 6; physics-redesign plan OQ-3).
+  // Physics seconds -> animation ms, one knob (physics-redesign plan Part 7):
+  // flight/ground times are now real (fly balls hang 4-6.6s, grounders reach
+  // the fielder in ~0.8-1.9s), but the rest of the choreography (runner leg
+  // times, throw beats) still runs in stylized animation time - this is the
+  // one place physics time gets compressed into it. 5.35s HR hang * 0.22 =
+  // 1177ms (was pinned at 1400); a GO (0.11s flight + ~1.3s ground) * 0.22 =
+  // ~310ms (was a flat 450ms) - both land in the old feel range.
+  var ANIM_TIME_SCALE = 0.22;                          // Open Question 3
+  var HANG_MS_MIN = 450, HANG_MS_MAX = 1400;           // Open Question 6
   var RUNNER_LEAD_MS = 150;         // runners begin this long after slide mount, behind the ball
   var OUT_BEAT_MS = 400;            // "outs choreography begins" beat, on top of ball travel if any
   // Throw leaves almost as the ball is fielded (was 150) so a grounder's
@@ -1482,32 +1576,46 @@
   // visible throw origin.
   var SHOW_FIELDER_TOKENS = false;
 
+  // How long the ball is airborne, in animation ms - physics hang time
+  // scaled by ANIM_TIME_SCALE and clamped to the old feel range. No more
+  // isGrounder branch (F7 fixed): a grounder's own hangS is tiny (~0.1-0.8s),
+  // so this clamps to HANG_MS_MIN for essentially every grounder anyway -
+  // the same 450ms floor the old flat GROUNDER_ROLL_MS constant gave, just
+  // arrived at from the real physics instead of a second hardcoded number
+  // that happened to agree with it.
   function ballTravelMs(flight) {
     if (!flight) return 0;
-    if (flight.isGrounder) return GROUNDER_ROLL_MS;
-    return clamp((flight.hangMs || 0) * HANG_MS_SCALE, HANG_MS_MIN, HANG_MS_MAX);
+    return clamp((flight.hangMs || 0) * ANIM_TIME_SCALE, HANG_MS_MIN, HANG_MS_MAX);
   }
 
-  // How far past the landing point a hit that stayed in play carries before
-  // being fielded (C4/Item 16) - Alex's ask, read as "where it landed" and
-  // "where it was fielded" should be two different things on screen, not
-  // just a formula. A function of both inputs, not distance alone (Alex's
-  // second-round correction): harder contact (higher EV) rolls out further,
-  // and a flatter trajectory (lower LA) rolls out further too - a scorched
-  // liner skids and keeps going, a towering fly drops closer to dead. Low LA
-  // doesn't just add to the effect, it amplifies EV's contribution (evFrac
-  // alone still contributes a floor via the 0.4 term, so a hard-hit ball at
-  // a high launch angle still rolls some, just not as much as the same exit
-  // velo at a grounder-level angle).
-  var ROLLOUT_FT = 34;
-  var ROLLOUT_EV_LOW = 40, ROLLOUT_EV_HIGH = 115;     // mph, weak contact to max
-  var ROLLOUT_LA_LOW = -15, ROLLOUT_LA_HIGH = 50;     // degrees, steepest grounder to a high fly
-  var ROLLOUT_MS = 320;
+  // A much smaller scale than ANIM_TIME_SCALE, deliberately (Open Question
+  // 3): ballTravelMs already floors every grounder at HANG_MS_MIN (450ms) -
+  // real grounder hang time is under a second, so ANIM_TIME_SCALE never
+  // lifts it off that floor - which leaves only ~60ms of the stylized
+  // runner-to-first budget (RUN_LEG_MS/THROW_LEAD_MS, both preserved exactly
+  // per Part 5) for the ground-phase delay before a deep SS/2B grounder's
+  // throw would stop beating the runner, and a two-throw DP relay
+  // (THROW_STAGGER_MS on top of that) leaves less than 10ms of that budget
+  // once THROW_DELAY/DRAW/LEAD are accounted for. Applying ANIM_TIME_SCALE
+  // itself to ground time (as a single shared knob) can't satisfy both this
+  // and a readable fly-ball hang time at once - tuned here to the small
+  // starting value that keeps the worst realistic case (a full-depth SS/2B
+  // grounder feeding a two-throw relay, ~1.4s of ground time) inside that
+  // budget with a few ms to spare. Genuinely tight by construction, not a
+  // margin of comfort - Stage E's real task here is deciding whether the
+  // ground-phase visual (currently near-instant at this scale) needs a
+  // bigger budget carved out elsewhere (THROW_STAGGER_MS, THROW_LEAD_MS) or
+  // stays this subtle; re-tune together with ANIM_TIME_SCALE against the
+  // full timing-race sweep, not in isolation.
+  var GROUND_TIME_SCALE = 0.005;
 
-  function rolloutFraction(ev, la) {
-    var evFrac = clamp((ev - ROLLOUT_EV_LOW) / (ROLLOUT_EV_HIGH - ROLLOUT_EV_LOW), 0, 1);
-    var laFrac = clamp(1 - (la - ROLLOUT_LA_LOW) / (ROLLOUT_LA_HIGH - ROLLOUT_LA_LOW), 0, 1);
-    return evFrac * (0.4 + 0.6 * laFrac);
+  // Ball-in-flight time plus the additional ground time until the fielder
+  // actually has it (physics-redesign plan Part 7) - the throw can't be
+  // drawn until this moment, not just when the ball first touches down.
+  // flight.groundTimeS is set by resolveGrounderInterception/resolveHitPickup;
+  // 0/absent for a ball caught in the air or one with no ground phase at all.
+  function fieldedMs(flight) {
+    return ballTravelMs(flight) + (flight && flight.groundTimeS ? flight.groundTimeS * 1000 * GROUND_TIME_SCALE : 0);
   }
 
   // The infield dirt's edge, in feet from home, along a given HZ angle - the
@@ -1528,79 +1636,77 @@
     return m * Math.cos(offset) + Math.sqrt(Math.max(0, r * r - m * m * s * s));
   }
 
-  // How far, in feet, a batted ball rolls past its bounce point before
-  // anyone picks it up - shared by rolloutHtml (draws it) and throwHtml (an
-  // infielder throws from where they fielded the ball, not from the bounce
-  // point the ball trail happens to end its "land" keyframe at). Applies to
-  // any ball still in play, not just grounders - a line-drive single that
-  // lands well short of the fence still skids/bounces on before an
-  // outfielder has it, same idea as a grounder's roll, just a smaller EV/LA
-  // contribution at a higher launch angle.
-  function groundBallRolloutFt(m, flight) {
-    if (!flight) return 0;
-    var isOut = (m.outs_after || 0) > (m.outs_before || 0);
-    // Caught in the air, full stop - the ball was never on the ground to
-    // begin with, so there's nothing to roll (isGrounder is a raw LA<4
-    // threshold and unreliable here; see GROUND_ARCHETYPES above).
-    if (isOut && CAUGHT_IN_AIR[flight.archetype]) return 0;
-    var rollFt = rolloutFraction(flight.ev, flight.la) * ROLLOUT_FT;
-    // Never let the rollout carry the ball past the fence - an inside-the-
-    // park home run can land within ROLLOUT_FT of the wall, and the roll
-    // distance alone doesn't know that.
+  /* Hits that stay in the park (physics-redesign plan Part 4.6): the ball
+     needs a visible end point (labels, rollout, plausibility) but no out
+     choreography. Runs groundPath from the real landing contact velocity;
+     picked up at the first crossing of the assigned outfielder's radial
+     depth (outfielder by angle-third of the HZ angle), if the roll segment
+     reaches that far; otherwise at rest. Infield-archetype hits (bunt,
+     infield_single) skip the OF rule and just use rest - they die on the
+     dirt by construction of their EV range, now physically instead of by a
+     hand-tuned rollout constant. The dirt-clearance floor is kept as a
+     runtime floor on the pickup point for non-infield hits (still cheap
+     insurance against a squibber that technically never left the dirt
+     circle). Always capped at fenceAt(angle)-2. Sets flight.fieldedDistFt/
+     groundTimeS the same way the grounder-out resolver does, so every
+     consumer (labels, throwHtml on the rare hit-then-throw case) reads one
+     shape regardless of out vs. hit. */
+  function resolveHitPickup(flight) {
+    var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
     var maxReachFt = fenceAt(flight.angle) - 2;
-    if (GROUND_ARCHETYPES[flight.archetype] && isOut) {
-      // Nor past the fielder assigned to this HZ angle, on a ground ball out -
-      // applyGroundBallFielderDepth already capped flight.distance itself if
-      // the archetype distance alone overshot; this catches the case where
-      // the base distance was short but distance+rollout would still
-      // overshoot.
-      var pos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
-      var depth = pos ? INFIELDER_DEPTH_FT[pos] : null;
-      if (depth != null) {
-        maxReachFt = Math.min(maxReachFt, depth);
-        // A grounder out's roll bounds toward the REAL fielder standing at
-        // `depth` (60ft for the pitcher up to 147ft for SS/2B), not a flat
-        // ROLLOUT_FT - real infield depths span too wide a range for one
-        // constant max to ever bridge the gap for a deep position (Alex's
-        // catch: a modest shortstop-side grounder landed at ~87ft, could
-        // only add another 34ft at best, stopping 44ft short of a real
-        // 147ft-deep shortstop no matter how well it was hit). Scaling the
-        // same contact-quality fraction against the gap-to-the-fielder
-        // instead of a flat constant keeps weak contact fielded well in
-        // front (charged in, still "not hit very far") while well-hit
-        // contact closes most of the way to where the fielder actually is.
-        rollFt = rolloutFraction(flight.ev, flight.la) * Math.max(0, depth - flight.distance);
+    var pickupFt = gp.restFt, groundTimeS = gp.totalS;
+
+    if (!STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
+      var ofPos = flight.angle < 33 ? "LF" : (flight.angle <= 57 ? "CF" : "RF");
+      var ofAnchor = FIELDER_ANCHORS_FT[ofPos];
+      var ofDepth = Math.hypot(ofAnchor.x, ofAnchor.y);
+      var alongFt = ofDepth - flight.distance;
+      if (alongFt <= 0) {
+        pickupFt = 0; groundTimeS = 0;
+      } else if (alongFt <= gp.restFt) {
+        pickupFt = alongFt; groundTimeS = gp.timeAt(alongFt);
       }
-    } else if (!isOut && !STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
-      // Any hit that reaches base safely, and isn't meant to be a short
-      // infield hit, has to visibly clear the infield dirt, even when its
-      // bounce point (the archetype distance alone) landed short of the
-      // dirt's edge or right on it. Deliberately NOT gated on
-      // GROUND_ARCHETYPES here - "grounder" itself only ever appears on OUT
-      // results (every result mapped to it records at least one out), so
-      // that gate meant this branch could never fire for any hit at all: a
-      // "single" with a low, grounder-ish LA (like the one that exposed
-      // this) was falling through with no floor whatsoever. The bounce
-      // point itself is left alone (a squibber landing on the dirt is
-      // realistic); only the roll-out is floored.
+      // else: dies before reaching the outfielder's depth - stays at rest
+      // (gp.restFt/gp.totalS, already the default above).
       var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
-      if (need > rollFt) rollFt = need;
+      if (need > pickupFt) { pickupFt = need; groundTimeS = gp.timeAt(need) != null ? gp.timeAt(need) : gp.totalS; }
     }
-    return Math.max(0, Math.min(rollFt, maxReachFt - flight.distance));
+
+    pickupFt = Math.max(0, Math.min(pickupFt, maxReachFt - flight.distance));
+    flight.fieldedDistFt = flight.distance + pickupFt;
+    flight.groundTimeS = groundTimeS;
+    flight.groundPath = gp;
   }
 
-  function rolloutHtml(flight, landEnd, dur, rollFt) {
-    var rollPt = landingPoint(flight.distance + rollFt, flight.angle);
+  // rollMs is the scaled ground time itself (fieldedMs - ballTravelMs), not
+  // a flat constant - the roll animation now takes as long as the physics
+  // says it should, same as everything else Part 7 touches.
+  function rolloutHtml(flight, landEnd, dur, rollFt, rollMs) {
+    var rollPt = groundDirPoint(flight, rollFt);
     var end = ftToSvg(rollPt.x, rollPt.y);
     var len = Math.hypot(end.x - landEnd.x, end.y - landEnd.y) || 1;
     var vars = "--fx:" + landEnd.x.toFixed(1) + "px;--fy:" + landEnd.y.toFixed(1) + "px;" +
                "--tx:" + end.x.toFixed(1) + "px;--ty:" + end.y.toFixed(1) + "px;" +
-               "--rdelay:" + dur + "ms;--rdur:" + ROLLOUT_MS + "ms";
-    var trailVars = "--len:" + len.toFixed(1) + "px;--rdelay:" + dur + "ms;--rdur:" + ROLLOUT_MS + "ms";
+               "--rdelay:" + dur + "ms;--rdur:" + rollMs + "ms";
+    var trailVars = "--len:" + len.toFixed(1) + "px;--rdelay:" + dur + "ms;--rdur:" + rollMs + "ms";
     return '<line class="ball-rollout-trail" x1="' + landEnd.x.toFixed(1) + '" y1="' + landEnd.y.toFixed(1) +
         '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) +
         '" style="' + trailVars + '"></line>' +
       '<circle class="ball-rollout" r="' + BALL_R + '" style="' + vars + '"></circle>';
+  }
+
+  // A physically low trajectory reads as "ground" for CSS purposes - the old
+  // isGrounder flag (a raw LA<4 threshold, independently computed off the
+  // pitch/swing wheel) is gone (F7); apexFt is a real output of the
+  // integrator, so this can never disagree with the ball's own flight.
+  var GROUND_APEX_THRESHOLD_FT = 8;
+
+  // Point along the ground-contact direction, `fieldedDistFt` beyond the
+  // landing point (flight.distance) - or the landing point itself when no
+  // ground phase was resolved (caught in the air).
+  function fieldedPoint(flight) {
+    if (flight.fieldedDistFt == null) return { x: flight.x, y: flight.y };
+    return groundDirPoint(flight, flight.fieldedDistFt - flight.distance);
   }
 
   function ballFlightHtml(m, flight) {
@@ -1620,22 +1726,22 @@
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
     // and the ball itself having been caught wins that tie.
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
-    var cls = (cleared ? " clear" : " land") + (flight.isGrounder ? " ground" : " air") +
+    var cls = (cleared ? " clear" : " land") + (flight.apexFt < GROUND_APEX_THRESHOLD_FT ? " ground" : " air") +
               (wasOut ? " out" : " hit");
     // C4: any hit that stayed in the park carries a bit further than where
     // it landed before the fielder gets to it - a home run's a dead ball at
     // the wall, so it never rolls, like everything else that cleared the
     // fence. A ground ball out also gets a rollout (a fielded grounder still
-    // bounces/skids up to the fielder), capped by
-    // applyGroundBallFielderDepth/groundBallRolloutFt's own fielder-depth
-    // logic so it never rolls the ball past whoever's actually fielding it.
-    // A caught fly, line drive or pop out never rolls - it was caught in the
-    // air, nothing to bounce - checked by archetype (CAUGHT_IN_AIR), not
-    // flight.isGrounder, which is an independently-computed LA<4 flag that
-    // can disagree with what the play actually was.
+    // bounces/skids up to the fielder), capped by resolveGrounderInterception's
+    // own fielder-depth logic so it never rolls the ball past whoever's
+    // actually fielding it. A caught fly, line drive or pop out never rolls -
+    // it was caught in the air, nothing to bounce (CAUGHT_IN_AIR); those
+    // never get a fieldedDistFt in the first place.
     var caughtInAir = wasOut && CAUGHT_IN_AIR[flight.archetype];
-    var rollFt = (!cleared && !caughtInAir) ? groundBallRolloutFt(m, flight) : 0;
-    var rollout = rollFt > 0 ? rolloutHtml(flight, end, dur, rollFt) : "";
+    var rollFt = (!cleared && !caughtInAir && flight.fieldedDistFt != null)
+      ? Math.max(0, flight.fieldedDistFt - flight.distance) : 0;
+    var rollMs = rollFt > 0 ? (fieldedMs(flight) - dur) : 0;
+    var rollout = rollFt > 0 ? rolloutHtml(flight, end, dur, rollFt, rollMs) : "";
 
     // Labels sit next to wherever the ball actually ends up: the rollout's
     // endpoint when there is one, otherwise the landing/catch point itself -
@@ -1644,10 +1750,9 @@
     // anchor is capped at the same fence+15 fade point the ball itself stops
     // at (targetFt/end above), not the real number.
     var short = (data.meta.result_short || {})[m.result] || m.result;
-    var labelBaseDist = cleared ? FENCE_DEPTH_FT + 15 : flight.distance;
-    var labelPt = landingPoint(labelBaseDist + rollFt, flight.angle);
-    var labelSvg = ftToSvg(labelPt.x, labelPt.y);
-    var labelDelay = dur + (rollFt > 0 ? ROLLOUT_MS : 0);
+    var labelPtFt = cleared ? targetFt : (rollFt > 0 ? groundDirPoint(flight, rollFt) : { x: flight.x, y: flight.y });
+    var labelSvg = ftToSvg(labelPtFt.x, labelPtFt.y);
+    var labelDelay = rollFt > 0 ? fieldedMs(flight) : dur;
     // C2: a short abbreviation next to wherever the ball ended up.
     var label = '<text class="ball-label" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
         '" dx="7" dy="-4" style="--delay:' + labelDelay + 'ms">' + escapeHtml(short) + "</text>";
@@ -1673,17 +1778,18 @@
     var anchor = FIELDER_ANCHORS_FT[flight.fielder];
     if (!anchor) return "";
     var from = ftToSvg(anchor.x, anchor.y);
-    var to = ftToSvg(flight.x, flight.y);
+    var fieldedFt = fieldedPoint(flight);
+    var to = ftToSvg(fieldedFt.x, fieldedFt.y);
     var vars = "--fx:" + from.x.toFixed(1) + "px;--fy:" + from.y.toFixed(1) + "px;" +
                "--tx:" + to.x.toFixed(1) + "px;--ty:" + to.y.toFixed(1) + "px;" +
-               "--delay:" + ballTravelMs(flight) + "ms";
+               "--delay:" + fieldedMs(flight) + "ms";
     return '<g class="fielder" style="' + vars + '"><circle r="' + FIELDER_R + '"></circle></g>';
   }
 
   // Archetypes caught in the air - no throw on a routine catch with nobody
-  // on base to play behind (A1). Branch on archetype rather than
-  // flight.isGrounder: isGrounder is an LA threshold and would misclassify a
-  // low line drive as a grounder for this purpose.
+  // on base to play behind (A1). Branch on archetype, not a physical
+  // threshold - a low line drive can have the same apex as a grounder but
+  // was never on the ground.
   var CAUGHT_IN_AIR = { fly_ball: 1, pop_up: 1, line_drive: 1 };
 
   // Fly balls and pop-ups whose throw is scheduled anyway (SacF/DSacF/FO's
@@ -1880,11 +1986,12 @@
       });
     }
 
-    // A rolling grounder isn't fielded until it stops rolling - the throw
-    // has to wait out that extra beat too, or it'd draw from a spot the ball
-    // hasn't visibly reached yet (see throwHtml's fieldPt).
-    var rollMs = groundBallRolloutFt(m, flight) > 0 ? ROLLOUT_MS : 0;
-    var base = ballTravelMs(flight) + rollMs + THROW_DELAY_MS;
+    // A rolling grounder isn't fielded until the resolver's own ground time
+    // has actually elapsed - the throw has to wait out that extra beat too,
+    // or it'd draw from a spot the ball hasn't visibly reached yet (see
+    // throwHtml's origin). fieldedMs (Part 7) replaces the old
+    // ballTravelMs+rollMs sum with one physically-timed number.
+    var base = fieldedMs(flight) + THROW_DELAY_MS;
     return targets.map(function (b, i) {
       var start = base + i * THROW_STAGGER_MS;
       return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
@@ -1903,10 +2010,9 @@
     if (!schedule.length) return "";
     // A grounder is fielded wherever it stops rolling, not at its bounce
     // point - the throw has to originate there, or it visibly starts from
-    // empty grass short of the fielder.
-    var rollFt = groundBallRolloutFt(m, flight);
-    var fieldPt = rollFt > 0 ? landingPoint(flight.distance + rollFt, flight.angle) : flight;
-    var origin = ftToSvg(fieldPt.x, fieldPt.y);
+    // empty grass short of the fielder. fieldedPoint follows the ball's real
+    // ground-contact direction (Part 1), not the HZ launch bearing.
+    var origin = ftToSvg(fieldedPoint(flight).x, fieldedPoint(flight).y);
     return schedule.map(function (t) {
       var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
       if (!to) return "";
@@ -1962,10 +2068,10 @@
   // The catcher, unless import_BRC.csv's ExcludedPositions/DefaultPosition
   // say otherwise for this situation - e.g. excluding "C" with a default of
   // "P" for a steal of home, where the pitcher (not the catcher) makes the
-  // throw. Same two columns the batted-ball position override reads
-  // (applyPositionOverride above), just checked against steals' fixed
-  // "the catcher starts with the ball" baseline instead of a physics-
-  // computed fielder - there's no ball flight on a steal to compute one from.
+  // throw. Same two columns the batted-ball resolver reads (brcExcludes
+  // above), just checked against steals' fixed "the catcher starts with the
+  // ball" baseline instead of a physics-computed fielder - there's no ball
+  // flight on a steal to compute one from.
   function stealThrowOrigin(m) {
     var basePos = "C";
     var excluded = m.excluded_positions;
@@ -2019,19 +2125,25 @@
     stealThrowOrigin: stealThrowOrigin,
     THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
-    GROUNDER_ROLL_MS: GROUNDER_ROLL_MS, RUNNER_LEAD_MS: RUNNER_LEAD_MS,
-    groundBallRolloutFt: groundBallRolloutFt,
-    applyGroundBallFielderDepth: applyGroundBallFielderDepth,
+    RUNNER_LEAD_MS: RUNNER_LEAD_MS,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
     TAG_THROW_ARCHETYPES: TAG_THROW_ARCHETYPES,
     GROUND_ARCHETYPES: GROUND_ARCHETYPES,
     parseThrowOrder: parseThrowOrder,
-    applyPositionOverride: applyPositionOverride,
+    brcExcludes: brcExcludes,
+    resolveGrounderInterception: resolveGrounderInterception,
+    applyAirPositionOverride: applyAirPositionOverride,
+    resolveHitPickup: resolveHitPickup,
+    applyAngleOverride: applyAngleOverride,
+    groundDirPoint: groundDirPoint, fieldedPoint: fieldedPoint,
     throwOrderKeyForPosition: throwOrderKeyForPosition,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
+    INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
+    HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE,
     TAG_UP_MS: TAG_UP_MS, TAG_THROW_MARGIN_MS: TAG_THROW_MARGIN_MS,
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
-    ballTravelMs: ballTravelMs,
+    ballTravelMs: ballTravelMs, fieldedMs: fieldedMs,
+    ANIM_TIME_SCALE: ANIM_TIME_SCALE, GROUND_TIME_SCALE: GROUND_TIME_SCALE,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -2985,7 +3097,17 @@
   function playSceneHtml(slide) {
     var m = slide.play;
     var flight = flightParams(m, data.meta.flight);
-    if (flight && !applyPositionOverride(m, flight)) applyGroundBallFielderDepth(m, flight);
+    if (flight) {
+      var hand = effectiveHand(m.batter_hand);
+      var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+      if (GROUND_ARCHETYPES[flight.archetype] && wasOut) {
+        resolveGrounderInterception(m, flight, hand);
+      } else if (wasOut && CAUGHT_IN_AIR[flight.archetype]) {
+        applyAirPositionOverride(m, flight, hand);
+      } else if (!flight.clearedFence) {
+        resolveHitPickup(flight);
+      }
+    }
     // A lead change gets a one-shot wash of the new leader's colour - cheap,
     // and it makes the one tag that changes the game's story feel different.
     var flash = "";
