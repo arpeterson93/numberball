@@ -1187,11 +1187,11 @@
   var FENCE_DEPTH_FT = 375;
   function fenceAt(angleDeg) { return FENCE_DEPTH_FT; }
 
-  // Real-park constants for the infield dirt circle: 60.5ft from home to the
-  // pitcher's plate, and (per usual groundskeeping practice) a 95ft radius
-  // for the dirt circle centred on the plate.
+  // 60.5ft from home to the pitcher's plate - the dirt circle itself is
+  // INFIELD_SKIN_DIRT_R_FT, defined with infieldSkinHtml below (also this
+  // circle's own centre); dirtEdgeFt reads that one directly rather than
+  // keeping a second radius here in sync with it by hand.
   var PITCHER_MOUND_FT = 60.5;
-  var INFIELD_DIRT_RADIUS_FT = 95;
 
   // Batting team's dugout, field-plane feet - just foul of each line, behind
   // the bases. Home team uses the 1B-side dugout, away team 3B-side. A
@@ -1637,11 +1637,13 @@
   // basepath-only strips the first pass drew. One <path> with two subpaths
   // (the outer cutout, then the inner grass diamond) and fill-rule=evenodd
   // (CSS) does the hole - simpler and more robust than boolean path ops.
-  // INFIELD_SKIN_DIRT_R_FT is purely decorative, deliberately separate from
-  // INFIELD_DIRT_RADIUS_FT/PITCHER_MOUND_FT's own 95ft dirt-edge circle
-  // (dirtEdgeFt, Part 4.6's rollout floor) - that one is a gameplay constant
-  // a real infielder's dirt-clearing rollout is measured against, this one
-  // never touches physics.
+  // INFIELD_SKIN_DIRT_R_FT also doubles as the physics dirt-clearance
+  // radius (dirtEdgeFt, Part 4.6's rollout floor) - it used to be purely
+  // decorative, deliberately kept apart from a separate "real-park" 95ft
+  // gameplay radius, but that let a hit rest visually on the drawn dirt
+  // (which had grown to 115ft) while the physics floor still only demanded
+  // 95+3ft of clearance - a "Single" resting right at the dirt's edge
+  // instead of past it (Alex's report). One radius now, read by both.
   //
   // 115 reaches beyond the new BOUNDARY_TABLE's foul territory at most
   // angles (e.g. ~125ft reach at the 66-degree mark vs an 80ft boundary
@@ -1760,13 +1762,15 @@
 
     // Constant-thickness dirt band along each true basepath (home-1B,
     // 1B-2B, 2B-3B, 3B-home), independently adjustable near home vs near
-    // 2nd, with a circular dirt wedge cut around 1B/3B (centred exactly on
-    // the true base, radius WEDGE_R_FT, facing the mound) instead of a
-    // sharp corner - home and 2B stay plain vertices. The home/2B points
-    // are where the two adjacent offset lines meet on the centreline (a
-    // clean closed form here since every basepath meets the centreline at
-    // 45 degrees: offset by thickness T perpendicular puts that
-    // intersection T*sqrt(2) along the centreline).
+    // 2nd, with a circular dirt wedge cut around each base (centred exactly
+    // on the true base) instead of a sharp corner - home stays a plain
+    // vertex. The home point is where the two home-adjacent offset lines
+    // meet on the centreline (a clean closed form here since every basepath
+    // meets the centreline at 45 degrees: offset by thickness T
+    // perpendicular puts that intersection T*sqrt(2) along the centreline);
+    // b2 is that same construction for 2nd, used only to aim the 1B/3B-side
+    // rays at the correct offset line (2nd's own corner is now a wedge too,
+    // below - see arr2/dep2).
     var b2True = { x: 0, y: BASE_DIAG_FT };
     var homeIn = { x: 0, y: HOME_THICKNESS_FT * Math.SQRT2 };
     var b2 = { x: 0, y: BASE_DIAG_FT - SECOND_THICKNESS_FT * Math.SQRT2 };
@@ -1784,12 +1788,31 @@
     var exit3 = lineCircleNear(homeIn, dH3, b3, R);
     var wedge3 = wedgeArcFt(b3, R, phiOnCircle(app3, b3), phiOnCircle(exit3, b3), 10);
 
-    var homeInPx = ftToSvg(homeIn.x, homeIn.y), b2Px = ftToSvg(b2.x, b2.y);
+    // 2nd base gets the same circular wedge treatment 1B/3B already have
+    // (Alex's ask), just built off the 1B/3B-side offset lines instead of
+    // home's: exit1 and app3 are already exact points on the 1B-2B and
+    // 2B-3B interior edges (where those edges cross the OTHER base's own
+    // wedge circle), so a ray from each, aimed back along its own edge
+    // (i.e. the reverse of d12/d23) toward 2nd, lands exactly on that same
+    // edge where it meets 2nd's wedge circle - no new line construction
+    // needed. Sweeping the short way between those two points bulges the
+    // arc toward home (the same "faces the interior neighbour" pattern
+    // 1B/3B's wedges already have, just pointed at home instead of the
+    // mound - verified by construction, not hand-picked: the short arc
+    // between a 1B-side point and a 3B-side point on 2nd's own circle can
+    // only pass through 2nd's home-facing side).
+    var arr2 = lineCircleNear(exit1, { x: -d12.x, y: -d12.y }, b2True, R);
+    var dep2 = lineCircleNear(app3, { x: -d23.x, y: -d23.y }, b2True, R);
+    var wedge2 = wedgeArcFt(b2True, R, phiOnCircle(arr2, b2True), phiOnCircle(dep2, b2True), 10);
+
+    var homeInPx = ftToSvg(homeIn.x, homeIn.y);
     var app1Px = ftToSvg(app1.x, app1.y), app3Px = ftToSvg(app3.x, app3.y);
+    var arr2Px = ftToSvg(arr2.x, arr2.y);
     var hole = "M" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) +
       " L" + app1Px.x.toFixed(1) + "," + app1Px.y.toFixed(1) +
       " " + wedge1.map(function (p) { return "L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ") +
-      " L" + b2Px.x.toFixed(1) + "," + b2Px.y.toFixed(1) +
+      " L" + arr2Px.x.toFixed(1) + "," + arr2Px.y.toFixed(1) +
+      " " + wedge2.map(function (p) { return "L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ") +
       " L" + app3Px.x.toFixed(1) + "," + app3Px.y.toFixed(1) +
       " " + wedge3.map(function (p) { return "L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ") +
       " L" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) + " Z";
@@ -2150,18 +2173,30 @@
 
   // The infield dirt's edge, in feet from home, along a given HZ angle - the
   // far intersection of the ray from home with the dirt circle (centred
-  // PITCHER_MOUND_FT out, radius INFIELD_DIRT_RADIUS_FT). Same law-of-cosines
-  // form infieldDirtHtml uses for the foul-line intersections, generalised to
-  // an arbitrary angle instead of just the two 45 degrees-off-center foul lines.
+  // PITCHER_MOUND_FT out, radius INFIELD_SKIN_DIRT_R_FT - the same circle
+  // infieldSkinHtml actually draws). Same law-of-cosines form infieldSkinHtml
+  // uses for the foul-line intersections, generalised to an arbitrary angle
+  // instead of just the two 45 degrees-off-center foul lines.
+  //
+  // Used to read INFIELD_DIRT_RADIUS_FT, a separate "real-park" 95ft
+  // constant kept deliberately apart from the drawn dirt's own (hand-tuned,
+  // eventually 115ft) radius - Alex's report: a "Single" (not an infield
+  // single) resting right at the visible edge of the dirt patch instead of
+  // clearly past it. The two radii had drifted apart - this floor was still
+  // only guaranteeing 95+3ft of clearance while the actual drawn patch had
+  // grown to 115ft, so anything landing in that 95-115ft gap read as still
+  // sitting on the dirt. Reading the same radius the dirt is drawn with
+  // closes that gap; there's no longer a second "real" radius to keep in
+  // sync with it by hand.
   var DIRT_CLEAR_MARGIN_FT = 3;   // a safe grounder rolls at least this far past the dirt's edge
   // These two archetypes are deliberately short (every bunt/infield_single
   // result's own depthMin/depthMax in result_diff_bands.csv stays well under
-  // INFIELD_DIRT_RADIUS_FT) - a legged-out infield hit that stays on the
+  // INFIELD_SKIN_DIRT_R_FT) - a legged-out infield hit that stays on the
   // dirt is the realistic outcome there, not a bug to floor away.
   var STAYS_IN_INFIELD_ARCHETYPES = { bunt: 1, infield_single: 1 };
   function dirtEdgeFt(angleDeg) {
     var offset = (angleDeg - 45) * Math.PI / 180;
-    var m = PITCHER_MOUND_FT, r = INFIELD_DIRT_RADIUS_FT;
+    var m = PITCHER_MOUND_FT, r = INFIELD_SKIN_DIRT_R_FT;
     var s = Math.sin(offset);
     return m * Math.cos(offset) + Math.sqrt(Math.max(0, r * r - m * m * s * s));
   }
