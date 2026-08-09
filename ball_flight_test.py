@@ -241,7 +241,7 @@ def main() -> None:
         # /vacuum-hangtime formula; that formula is gone (Part 2.3/2.4), so
         # those fields are checked against a fresh, independent
         # KMTraj.simulateFlight(ev, la, angle-45, hand) call plus the same
-        # clampToFence step flightParams itself applies - this is the actual
+        # distanceCap step flightParams itself applies - this is the actual
         # port contract (did flightParams wire EV/LA/angle/hand into KMTraj
         # correctly and apply clamp/scale right), not a re-test of the
         # integrator's own correctness (that's the golden-vector parity block
@@ -301,7 +301,7 @@ def main() -> None:
                     var raw = KMTraj.simulateFlight(a.ev, a.la, a.angle - 45, a.hand);
                     var sim = KMFlight.clampFairTerritory(raw, a.archetype);
                     var isHomeRun = a.result === 'HR';
-                    var D = KMFlight.clampToFence(sim.distance, a.angle, isHomeRun);
+                    var D = KMFlight.distanceCap(sim, a.angle, isHomeRun);
                     var scale = D / sim.distance;
                     return {
                         distance: D, x: sim.landing.x * scale, y: sim.landing.y * scale,
@@ -358,6 +358,42 @@ def main() -> None:
         print(f"  HR sweep: {sweep_result['hrOver']} over the fence, {sweep_result['hrInside']} inside the park")
         check("HR over-the-fence reachable", sweep_result["hrOver"] > 0, True)
         check("HR inside-the-park reachable", sweep_result["hrInside"] > 0, True)
+
+        print("\nField-geometry refinement: every flightParams landing stays inside")
+        print("the drawn field boundary (distanceCap/boundaryRFt) - a caught foul")
+        print("fly/pop is exempt from clampFairTerritory (real sidespin drift, a")
+        print("deliberate artifact) and can land well past the foul line, but it")
+        print("must never plot into the void beyond the grass/warning-track shape:")
+        boundary_result = page.evaluate(
+            """(t) => {
+                var worst = -1, worstInfo = null, checked = 0;
+                // HR is deliberately exempt (distanceCap/clampToFence both skip
+                // it - a home run is supposed to clear the drawn fence/boundary,
+                // that's the entire point of the result).
+                var codes = Object.keys(t.bands).filter(function (r) { return r !== 'HR'; });
+                for (var p = 1; p <= 1000; p += 7) {
+                  for (var s = 1; s <= 1000; s += 11) {
+                    var diff = Math.min(Math.abs(p - s), 1000 - Math.abs(p - s));
+                    codes.forEach(function (code) {
+                      var fp = KMFlight.flightParams({result: code, pitch: p, swing: s, batter_hand: 'R', diff: diff}, t);
+                      if (!fp) return;
+                      checked++;
+                      var offset = Math.atan2(fp.x, fp.y) * 180 / Math.PI;
+                      var maxR = KMFlight.boundaryRFt(offset);
+                      var d = Math.hypot(fp.x, fp.y);
+                      var over = d - maxR;
+                      if (over > worst) { worst = over; worstInfo = {code: code, p: p, s: s, d: d, maxR: maxR, offset: offset}; }
+                    });
+                  }
+                }
+                return {worst: worst, worstInfo: worstInfo, checked: checked};
+            }""",
+            tables,
+        )
+        print(f"  checked {boundary_result['checked']} (pitch,swing,result) combos, worst overshoot {boundary_result['worst']:.3f}ft")
+        if boundary_result["worst"] > 0.05:
+            print(f"  worst case: {boundary_result['worstInfo']}")
+        check("no flightParams landing falls outside the field boundary", boundary_result["worst"] <= 0.05, True)
 
         # ── Refinements round (ball-flight-refinements-plan.md) ─────────────
 
@@ -590,6 +626,42 @@ def main() -> None:
             check("full pipeline: no exceptions, no NaN, fieldedDistFt/timing invariants hold", len(pipeline["bad"]), 0)
             for bad in pipeline["bad"][:10]:
                 print(f"    - {bad}")
+        else:
+            print("  [skip] no real feed data / meta.json found on disk")
+
+        print("\nField-geometry refinement, real bands (Alex's field-geometry refinement")
+        print("request + the foul-catch-containment follow-up): dense pitch/swing sweep")
+        print("against the REAL result_diff_bands.csv-derived bands (meta.json), whose")
+        print("PO/FO/DFO/SacF/DSacF ranges are the ones that actually stress sidespin")
+        print("drift - the mock `tables` sweep above uses a smaller illustrative band")
+        print("set, this is the real-data version of the same check:")
+        if meta_fp.exists() and real_plays:
+            real_boundary = page.evaluate(
+                """(t) => {
+                    var worst = -1, worstInfo = null, checked = 0;
+                    var codes = Object.keys(t.bands).filter(function (r) { return r !== 'HR'; });
+                    for (var p = 1; p <= 1000; p += 5) {
+                      for (var s = 1; s <= 1000; s += 9) {
+                        var diff = Math.min(Math.abs(p - s), 1000 - Math.abs(p - s));
+                        codes.forEach(function (code) {
+                          var fp = KMFlight.flightParams({result: code, pitch: p, swing: s, batter_hand: 'R', diff: diff}, t);
+                          if (!fp) return;
+                          checked++;
+                          var offset = Math.atan2(fp.x, fp.y) * 180 / Math.PI;
+                          var maxR = KMFlight.boundaryRFt(offset);
+                          var over = Math.hypot(fp.x, fp.y) - maxR;
+                          if (over > worst) { worst = over; worstInfo = {code: code, p: p, s: s, offset: offset, maxR: maxR}; }
+                        });
+                      }
+                    }
+                    return { worst: worst, worstInfo: worstInfo, checked: checked };
+                }""",
+                real_tables,
+            )
+            print(f"  checked {real_boundary['checked']} combos against real bands, worst overshoot {real_boundary['worst']:.3f}ft")
+            if real_boundary["worst"] > 0.05:
+                print(f"  worst case: {real_boundary['worstInfo']}")
+            check("no real-band flightParams landing falls outside the field boundary", real_boundary["worst"] <= 0.05, True)
         else:
             print("  [skip] no real feed data / meta.json found on disk")
 

@@ -980,8 +980,21 @@
   // style.css) that can switch all of them off at once.
 
   // Field canvas, widened toward the reference image's ~460x300 aspect
-  // (physics-redesign plan Part 6.1/OQ-4).
-  var FIELD_W = 460, FIELD_H = 300;
+  // (physics-redesign plan Part 6.1/OQ-4). Height grown from the original
+  // 300 to 335 (Alex's report): .scene-diamond renders with
+  // overflow:visible, and the warning track/grass now wrap all the way
+  // behind home (BEHIND_HOME_R_FT, field-geometry refinement round) - at
+  // HOME_SCREEN_Y=282 the deepest behind-home point already projects to
+  // y~=326, past the old 300 viewBox, so the diamond's own bottom edge was
+  // bleeding into the play-result/launch-angle/exit-velo text below it in
+  // the slideshow instead of being visibly contained. 335 keeps a ~9px
+  // margin past that deepest point - was 350 (~24px margin) until a second
+  // report that the taller canvas pushed the whole slide into needing a
+  // vertical scroll on short viewports, chopping the scorebug off the top
+  // on widescreen; trimmed back toward the minimum that still clears the
+  // overlap. FIELD_W/HOME_SCREEN_Y untouched - this only adds clear canvas
+  // below home, it doesn't move or rescale anything already drawn.
+  var FIELD_W = 460, FIELD_H = 335;
 
   // ── Perspective projection (physics-redesign plan Part 6.1) ───────────────
   // A single analytic pinhole projection, JS-side, replacing the old flat
@@ -1072,11 +1085,25 @@
   // Home plate's own two outer corners - where the foul lines actually start
   // (Alex's correction), not the plate's centre. side: +1 = the 1B-side
   // corner, -1 = the 3B-side corner. HOME_PLATE_R matches platePath's own
-  // plateR (sceneFieldHtml) - kept here too since foulLineD/infieldDirtHtml
-  // need it and live outside that function.
+  // plateR (sceneFieldHtml) - kept here too since platePath needs it and
+  // lives outside that function.
   var HOME_PLATE_R = BASE_R * 0.9;
+  // A true world point on the foul-line bearing itself (landingPoint, not a
+  // flat screen-pixel offset off SCENE_BASES.HOME) - foulLineD and
+  // infieldSkinHtml's outer dirt edge both start here and both aim at other
+  // true-bearing points further out (the fence, the dirt skin's own edge),
+  // so sharing one true-bearing start point makes those two strokes
+  // perfectly collinear in projection instead of visibly forking apart
+  // near home (was a flat pixel offset - two straight segments from an
+  // off-bearing point to two different on-bearing far points don't project
+  // to the same line, which read as a grass strip wedged between the
+  // infield dirt's edge and the foul line - point 7 of Alex's field-
+  // geometry refinement request). Magnitude is cosmetic (roughly a real
+  // plate's half-width); only being exactly on the bearing matters.
+  var HOME_PLATE_CORNER_FT = 1.5;
   function homePlateCorner(side) {
-    return { x: SCENE_BASES.HOME.x + side * HOME_PLATE_R, y: SCENE_BASES.HOME.y };
+    var pt = landingPoint(HOME_PLATE_CORNER_FT, side >= 0 ? 90 : 0);
+    return ftToSvg(pt.x, pt.y);
   }
 
   // Ground ball outs, which infielder and how deep (Alex's HZ/depth spec).
@@ -1327,8 +1354,10 @@
   // purely cosmetic, the same uniform-radius circle just sampled a few
   // degrees further each way. Never touches gameplay: fenceAt/clampToFence
   // are only ever called with real HZ angles in [5,85], well inside this
-  // padded range.
-  var FENCE_VISUAL_PAD_DEG = 5;
+  // padded range. 0 (Alex's field-geometry editor export): the fence/wall
+  // stops exactly at the foul line, no rounded cap; the much wider
+  // foul-ground sweep beyond it is boundaryRFt's job, not this pad's.
+  var FENCE_VISUAL_PAD_DEG = 0;
   // Every angle the fence/wall/warning-track arcs sample, shared so all
   // three stay corner-for-corner consistent with each other.
   function fenceSampleAngles() {
@@ -1349,18 +1378,165 @@
   }
   function fencePathD() { return polylineD(fenceArcPoints()); }
 
-  // Grass as a polygon ringing the projected field (fence arc + foul
-  // territory), not a flat rect over the whole canvas (Part 6.2) - the area
-  // above the horizon is left as page background, matching the reference
-  // image. A flat back edge behind home stands in for the backstop/dugout
-  // line; real dimensions there don't matter, just enough width/depth to
-  // cover foul territory in view.
-  var GRASS_BACK_MARGIN_FT = 25, GRASS_HALF_WIDTH_FT = 100;
+  // Grass/foul-ground outer boundary, radius from home as a function of
+  // bearing offset (landingPoint's own convention: offset 0 = dead centre,
+  // +-45 = the foul lines) - purely a visual shape. Hand-tuned in the Field
+  // Geometry Editor artifact (drag-to-match against a reference photo) and
+  // exported as this control-point table rather than a formula: linear
+  // interpolation between points, held at FENCE_DEPTH_FT from 0-45 (fair
+  // territory, matching the fence exactly) and at the last point's radius
+  // beyond 180. offsetDeg 45 (the foul line itself) is the implicit first
+  // boundary condition, not listed - every table starts its own taper from
+  // there.
+  //
+  // A real, uncapped sidespin drift can still carry a caught fly/pop foul
+  // (CAUGHT_IN_AIR archetypes are exempt from clampFairTerritory, by design
+  // - "a neat artifact") out past this narrower shape before landing -
+  // swept every FO/DFO/SacF/DSacF/PO band's extreme EV/LA/phi/hand
+  // combinations and confirmed results can stay near full fence depth out
+  // to ~62-64 degrees of offset (a deep fly ball that hooks foul late is
+  // still a deep fly ball) before collapsing under 40ft beyond ~70 degrees.
+  // Rather than flaring this whole boundary out to match that rare extreme
+  // (which read as a wide, unnatural "wing" past each foul pole), the ball
+  // itself is radially capped to this same boundary at render time -
+  // distanceCap, below, alongside clampToFence - so the diagram stays the
+  // narrow shape Alex wants while every caught ball still lands on it.
+  var BOUNDARY_SAMPLE_STEP_DEG = 3;
+  function boundarySampleOffsets() {
+    var offsets = [];
+    for (var o = -180; o <= 180; o += BOUNDARY_SAMPLE_STEP_DEG) offsets.push(o);
+    return offsets;
+  }
+
+  var BOUNDARY_TABLE = [
+    { angle: 50, r: 270 }, { angle: 58, r: 130 }, { angle: 66, r: 80 },
+    { angle: 74, r: 60 }, { angle: 80, r: 50 }, { angle: 95, r: 40 },
+    { angle: 115, r: 37 }, { angle: 140, r: 35 }, { angle: 165, r: 35 },
+    { angle: 180, r: 35 },
+  ];
+  // BOUNDARY_TABLE entries carry their value as .r, TRACK_WIDTH_TABLE's as
+  // .w (matching the Field Geometry Editor's own export field names) - read
+  // whichever is present rather than hardcoding one, so this one lookup
+  // serves both tables. (Previously hardcoded .r for both, which left
+  // every track-width lookup reading undefined -> NaN warning-track
+  // coordinates - the field rendered as one solid dirt-coloured blob with
+  // no visible ring, since a "NaN" point breaks a closed SVG subpath.)
+  function tableVal(entry) { return entry.r !== undefined ? entry.r : entry.w; }
+  function tableLookup(table, offsetDegAbs, fenceFloorDeg) {
+    if (fenceFloorDeg != null && offsetDegAbs <= fenceFloorDeg) return FENCE_DEPTH_FT;
+    if (offsetDegAbs <= table[0].angle) {
+      if (fenceFloorDeg == null) return tableVal(table[0]);
+      var t0 = (offsetDegAbs - fenceFloorDeg) / (table[0].angle - fenceFloorDeg);
+      return FENCE_DEPTH_FT + (tableVal(table[0]) - FENCE_DEPTH_FT) * t0;
+    }
+    for (var i = 0; i < table.length - 1; i++) {
+      if (offsetDegAbs >= table[i].angle && offsetDegAbs <= table[i + 1].angle) {
+        var t = (offsetDegAbs - table[i].angle) / (table[i + 1].angle - table[i].angle);
+        return tableVal(table[i]) + (tableVal(table[i + 1]) - tableVal(table[i])) * t;
+      }
+    }
+    return tableVal(table[table.length - 1]);
+  }
+
+  /* Smoothing layer, sitting above the raw control-point tables rather than
+     touching them (Alex's ask: the Field Geometry Editor's exported JSON is
+     the authored input, left exact - this only shapes what gets read out of
+     it). tableLookup is piecewise-LINEAR between control points, so wherever
+     two adjacent points swing sharply - the 270->130->80->60->50ft run from
+     angle 50 to 80, i.e. home plate down each foul line, is by far the
+     steepest in the table - the boundary reads as a faceted polygon instead
+     of a curve. Fix: sample the raw lookup, run a binomial (approximately
+     Gaussian) moving-average across it, and have boundaryRFt/trackWidthFt
+     read from the smoothed samples instead of the raw table directly.
+
+     Exactly one sample is deliberately EXCLUDED from that average: the pin
+     point (see buildSmoothedSamples) - fenceFloorDeg (45) for BOUNDARY_TABLE,
+     where the curve has to mesh with the fence exactly, or the table's own
+     first control point for TRACK_WIDTH_TABLE. A first version protected
+     the whole flat-at-FENCE_DEPTH_FT plateau below the pin AND left the
+     45-50 ramp down to the table's first real point unsmoothed too - the
+     ramp's straight edge butted up against the smoothed curve past 50 in
+     its own visible kink, right where the warning track meets the wall
+     (Alex's report, after an earlier version smoothed across the fence
+     transition itself and dipped inside the fence at the pole - also
+     Alex's report). edgeSmooth's protectBelowIndex now pins only the ONE
+     sample AT the fence/pole itself; every sample past it, ramp included,
+     smooths with a window clamped so it can reach back to that pin but
+     never past it - the corner stays flush with the fence and the curve
+     leading away from it is continuous, no separate unsmoothed ramp
+     segment.
+
+     boundaryRFt/trackWidthFt are the ONE place both physics (distanceCap,
+     capRollToBoundary, resolveGrounderInterception's depth checks) and
+     rendering (grassPathD, warningTrackPathD) read the boundary from -
+     smoothing lives here, at the source, so a caught/rolled ball is always
+     capped against the exact same curve that gets drawn, never a jagged
+     physics boundary under a smooth visual one (or vice versa). */
+  var BOUNDARY_SMOOTH_KERNEL = [1, 6, 15, 20, 15, 6, 1];  // binomial, ~9deg half-width at the 3deg sample step
+  function edgeSmooth(values, weights, protectBelowIndex) {
+    // values is a plain 0..180deg sweep (offsetDegAbs), not a closed ring -
+    // no wraparound, since BOUNDARY_TABLE is itself only ever read via
+    // Math.abs(offsetDeg). Indices below protectBelowIndex are copied
+    // through untouched; the window for indices at/above it clamps at that
+    // same edge instead of reaching below it.
+    var half = (weights.length - 1) / 2;
+    var wsum = 0;
+    for (var w = 0; w < weights.length; w++) wsum += weights[w];
+    var n = values.length;
+    var out = values.slice();
+    for (var i = protectBelowIndex; i < n; i++) {
+      var acc = 0;
+      for (var k = -half; k <= half; k++) {
+        var idx = i + k;
+        if (idx < protectBelowIndex) idx = protectBelowIndex;
+        if (idx > n - 1) idx = n - 1;
+        acc += values[idx] * weights[k + half];
+      }
+      out[i] = acc / wsum;
+    }
+    return out;
+  }
+  function buildSmoothedSamples(table, fenceFloorDeg) {
+    var steps = Math.round(180 / BOUNDARY_SAMPLE_STEP_DEG);
+    var raw = [];
+    for (var i = 0; i <= steps; i++) raw.push(tableLookup(table, i * BOUNDARY_SAMPLE_STEP_DEG, fenceFloorDeg));
+    // The pin point is exactly where this curve has to mesh with something
+    // outside the table - the fence itself, for BOUNDARY_TABLE, at
+    // fenceFloorDeg (45); just the table's own first control point for
+    // TRACK_WIDTH_TABLE (no fence to match, fenceFloorDeg is null). Only
+    // the ONE sample AT that point is left untouched; everything past it -
+    // including the 45-50 ramp down to the table's first real point, which
+    // read as its own unsmoothed straight-line kink butted up against the
+    // smoothed curve beyond 50 (Alex's report: the warning track's last
+    // segment into the wall corner didn't match the rest) - now smooths
+    // too, clamped so its window never reaches back past the pin and
+    // never pulls the corner itself off the fence.
+    var pinDeg = fenceFloorDeg != null ? fenceFloorDeg : table[0].angle;
+    var protectBelowIndex = Math.floor(pinDeg / BOUNDARY_SAMPLE_STEP_DEG) + 1;
+    return edgeSmooth(raw, BOUNDARY_SMOOTH_KERNEL, protectBelowIndex);
+  }
+  // offsetDeg -> linear interpolation between the two nearest smoothed
+  // samples (3deg apart, over offsetDegAbs 0..180) - a continuous curve for
+  // any angle, not just the sampled grid, built once at load and shared by
+  // every caller below.
+  function smoothedLookup(samples, offsetDeg) {
+    var abs = Math.min(180, Math.abs(offsetDeg));
+    var pos = abs / BOUNDARY_SAMPLE_STEP_DEG;
+    var i0 = Math.floor(pos);
+    var i1 = Math.min(i0 + 1, samples.length - 1);
+    var t = pos - i0;
+    return samples[i0] + (samples[i1] - samples[i0]) * t;
+  }
+
+  var SMOOTHED_BOUNDARY_R = buildSmoothedSamples(BOUNDARY_TABLE, 45);
+  function boundaryRFt(offsetDeg) {
+    return smoothedLookup(SMOOTHED_BOUNDARY_R, offsetDeg);
+  }
+  function boundaryFt() {
+    return boundarySampleOffsets().map(function (o) { return landingPoint(boundaryRFt(o), o + 45); });
+  }
   function grassPathD() {
-    var pts = [ftToSvg(-GRASS_HALF_WIDTH_FT, -GRASS_BACK_MARGIN_FT)]
-      .concat(fenceArcPoints())
-      .concat([ftToSvg(GRASS_HALF_WIDTH_FT, -GRASS_BACK_MARGIN_FT)]);
-    return polylineD(pts) + " Z";
+    return polylineD(boundaryFt().map(function (p) { return ftToSvg(p.x, p.y); })) + " Z";
   }
 
   // The fence drawn as a short wall rather than a flat line (Part 6.1/OQ-8) -
@@ -1381,16 +1557,19 @@
     return d + " Z";
   }
 
-  // A point pulled toward home by insetFt along its own bearing from home -
-  // a radial (not perpendicular) inset, but for a roughly fan-shaped field
-  // boundary radiating from home that's a close enough approximation for a
-  // clean, stylized warning track (Alex's reference photo), not worth a
-  // true polygon-offset algorithm for.
-  function radialInsetFt(pt, insetFt) {
-    var d = Math.hypot(pt.x, pt.y);
-    if (d <= insetFt) return { x: 0, y: 0 };
-    var f = (d - insetFt) / d;
-    return { x: pt.x * f, y: pt.y * f };
+  // Warning-track width (ft) by bearing, same control-point/interpolation
+  // scheme and same editor export as BOUNDARY_TABLE above - editable
+  // independently per angle rather than one flat width, so e.g. the
+  // corners can read wider than the deep alleys.
+  var TRACK_WIDTH_TABLE = [
+    { angle: 50, w: 25 }, { angle: 58, w: 40 }, { angle: 66, w: 15 },
+    { angle: 74, w: 14 }, { angle: 80, w: 8 }, { angle: 95, w: 8 },
+    { angle: 115, w: 8 }, { angle: 140, w: 8 }, { angle: 165, w: 8 },
+    { angle: 180, w: 8 },
+  ];
+  var SMOOTHED_TRACK_W = buildSmoothedSamples(TRACK_WIDTH_TABLE, null);
+  function trackWidthFt(offsetDeg) {
+    return smoothedLookup(SMOOTHED_TRACK_W, offsetDeg);
   }
 
   // The warning track as ONE continuous band around the WHOLE field
@@ -1398,22 +1577,33 @@
   // territories, around the outfield curve, and back - not just the curved
   // fence arc. Outer edge is exactly grassPathD's own boundary (so the
   // track never floats free of the grass edge); inner edge is the same
-  // boundary radially inset toward home.
-  var WARNING_TRACK_WIDTH_FT = 15;
+  // bearing at boundaryRFt(angle) - trackWidthFt(angle), i.e. each sampled
+  // point pulled straight in along its own ray by that angle's own width,
+  // not a uniform inset.
+  //
+  // Two SEPARATE closed subpaths (M..Z M..Z), rendered evenodd - NOT one
+  // path that walks the outer loop then jumps to the inner loop and walks
+  // it in reverse before a single closing Z. That single-path "seam"
+  // construction looks like a textbook annulus and normally works, but
+  // with a boundary/width table producing a highly non-circular, sharply
+  // varying radius, the seam segment (outer's last sample back to inner's
+  // last sample, both essentially the same bearing) turned out to fill the
+  // ENTIRE outer region solid under both nonzero and evenodd - rendered it
+  // in total isolation (bare SVG, no app CSS) to confirm it wasn't a
+  // layering/CSS issue, then confirmed the two-independent-loops version
+  // renders a correct ring in the same isolated test before porting the
+  // fix back here.
   function warningTrackPathD() {
-    var boundaryFt = [{ x: -GRASS_HALF_WIDTH_FT, y: -GRASS_BACK_MARGIN_FT }]
-      .concat(fenceSampleAngles().map(function (a) { return landingPoint(FENCE_DEPTH_FT, a); }))
-      .concat([{ x: GRASS_HALF_WIDTH_FT, y: -GRASS_BACK_MARGIN_FT }]);
-    var outer = boundaryFt.map(function (p) { return ftToSvg(p.x, p.y); });
-    var inner = boundaryFt.map(function (p) {
-      var q = radialInsetFt(p, WARNING_TRACK_WIDTH_FT);
-      return ftToSvg(q.x, q.y);
-    });
-    var d = polylineD(outer);
-    for (var i = inner.length - 1; i >= 0; i--) {
-      d += " L" + inner[i].x.toFixed(1) + "," + inner[i].y.toFixed(1);
+    var offsets = boundarySampleOffsets();
+    var outer = [], inner = [];
+    for (var i = 0; i < offsets.length; i++) {
+      var o = offsets[i];
+      var R = boundaryRFt(o), w = trackWidthFt(o);
+      var op = landingPoint(R, o + 45), ip = landingPoint(Math.max(0, R - w), o + 45);
+      outer.push(ftToSvg(op.x, op.y));
+      inner.push(ftToSvg(ip.x, ip.y));
     }
-    return d + " Z";
+    return polylineD(outer) + " Z " + polylineD(inner) + " Z";
   }
 
   // Foul lines: home plate's own outer corner (Alex's correction - not the
@@ -1452,6 +1642,14 @@
   // (dirtEdgeFt, Part 4.6's rollout floor) - that one is a gameplay constant
   // a real infielder's dirt-clearing rollout is measured against, this one
   // never touches physics.
+  //
+  // 115 reaches beyond the new BOUNDARY_TABLE's foul territory at most
+  // angles (e.g. ~125ft reach at the 66-degree mark vs an 80ft boundary
+  // there) - tried shrinking this to 70 to fit inside it everywhere, but
+  // Alex asked for 115 back regardless, so the dirt patch legitimately
+  // does extend past the grass/warning-track edge in foul ground now; the
+  // patch itself doesn't get clipped to the boundary shape, it's drawn as
+  // its own circle on top.
   var INFIELD_SKIN_DIRT_R_FT = 115;
   var HOME_DIRT_R_FT = 16;
   // The mound reads as its own small dirt patch surrounded by grass (Alex's
@@ -1459,58 +1657,141 @@
   // INFIELD_SKIN_DIRT_R_FT, since the mound point always sits well inside
   // the grass-diamond hole below.
   var MOUND_DIRT_R_FT = 11;
-  // How far the grass-diamond hole pulls back from home plate along the
-  // centerline, so a dirt apron survives around the plate itself instead of
-  // grass cutting all the way up to it.
-  var SKIN_HOLE_HOME_INSET_FT = 24;
-  // How far past 1B/3B the grass bulges outward into the dirt (a rounded,
-  // organic cutout instead of the diamond's plain sharp corner there) -
-  // home and 2B stay plain corners, matching the reference photo.
-  var GRASS_CUTOUT_BULGE_FT = 16;
+  // Interior dirt geometry, hand-tuned in the Field Geometry Editor artifact
+  // and exported as this constant set. Perpendicular dirt-band thickness
+  // (ft) off the true home-1B/home-3B baselines and 1B-2B/2B-3B baselines
+  // respectively - NOT a point on the centerline. An earlier version used a
+  // single point per corner, which tapered the band like a triangle instead
+  // of keeping it parallel to the line (Alex's correction) - see
+  // basepathOffset/infieldSkinHtml below for the fix.
+  var HOME_THICKNESS_FT = 5;
+  var SECOND_THICKNESS_FT = 5;
+  // Circular dirt wedge radius at 1B/3B, centred exactly on the true base
+  // and facing the mound, replacing a rounded bezier bulge at the diamond's
+  // corner there (home/2B stay plain vertices).
+  var WEDGE_R_FT = 20;
+  // How far past each foul line (perpendicular) the infield dirt patch
+  // extends into foul ground - the patch is otherwise a circle centred on
+  // the fair-territory mound, so without this grass would touch the line
+  // immediately in foul ground (Alex's report). The far end hands off to an
+  // EXACT point on the patch's own INFIELD_SKIN_DIRT_R_FT circle (via
+  // lineCircleNear), not a straight cutoff, so the foul-side edge reads as
+  // a continuation of that same arc.
+  var FOUL_MARGIN_FT = 3;
 
-  // A quadratic-bezier bulge at `corner` (feet), pulled outward along its
-  // own bearing from home, blended in from `approachFrom` and back out
-  // toward `exitTo` (also feet) - returns projected {a, ctrl, e} ready to
-  // drop into an SVG "L a  Q ctrl e" sequence.
-  function grassBulge(corner, approachFrom, exitTo) {
-    var len = Math.hypot(corner.x, corner.y) || 1;
-    var ctrl = {
-      x: corner.x + corner.x / len * GRASS_CUTOUT_BULGE_FT,
-      y: corner.y + corner.y / len * GRASS_CUTOUT_BULGE_FT,
-    };
-    var a = { x: corner.x + 0.65 * (approachFrom.x - corner.x), y: corner.y + 0.65 * (approachFrom.y - corner.y) };
-    var e = { x: corner.x + 0.65 * (exitTo.x - corner.x), y: corner.y + 0.65 * (exitTo.y - corner.y) };
-    return { a: ftToSvg(a.x, a.y), ctrl: ftToSvg(ctrl.x, ctrl.y), e: ftToSvg(e.x, e.y) };
+  // Where a ray (from P, unit direction d) FIRST crosses a circle (centre
+  // C, radius R) going forward - the smallest non-negative t, not just the
+  // smaller of the two roots. Those are the same thing when P starts
+  // outside the circle (e.g. the 1B/3B wedges: the home/2B band points are
+  // far outside their own ~20ft wedge circle), but NOT when P starts inside
+  // a much bigger circle (e.g. the foul-side dirt band: a point a few feet
+  // from home sits deep inside the 115ft mound circle) - there the smaller
+  // root is negative (behind P, not a real forward crossing) and taking it
+  // anyway collapses the polygon.
+  function lineCircleNear(P, d, C, R) {
+    var fx = P.x - C.x, fy = P.y - C.y;
+    var b = 2 * (fx * d.x + fy * d.y);
+    var c = fx * fx + fy * fy - R * R;
+    var disc = Math.max(0, b * b - 4 * c);
+    var sq = Math.sqrt(disc);
+    var t1 = (-b - sq) / 2, t2 = (-b + sq) / 2; // t1 <= t2 always
+    return { x: P.x + d.x * (t1 >= 0 ? t1 : t2), y: P.y + d.y * (t1 >= 0 ? t1 : t2) };
+  }
+  // The true baseline A->B's own direction (unit vector) - used to aim the
+  // constant-thickness band edges and wedge-facing rays at the correct true
+  // bearing (the "toward `interior`" perpendicular half of this used to
+  // also return an offset point, but every caller here only ever wants the
+  // direction).
+  function basepathOffset(A, B) {
+    var dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1;
+    return { dir: { x: dx / len, y: dy / len } };
+  }
+  // The angle (in this function's own arc convention: x=r*sin(phi),
+  // y=cy-r*cos(phi), i.e. phi=atan2(x-cx,cy-y)) of a point on a circle
+  // centred at c.
+  function phiOnCircle(pt, c) { return Math.atan2(pt.x - c.x, c.y - pt.y); }
+  // A circular arc's points (world ft) sweeping the short way from angle a0
+  // to a1, centred at `base` radius R - used for the 1B/3B wedge cutouts.
+  function wedgeArcFt(base, R, a0, a1, steps) {
+    var d = a1 - a0;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    var pts = [];
+    for (var i = 0; i <= steps; i++) {
+      var a = a0 + d * i / steps;
+      pts.push(ftToSvg(base.x + R * Math.sin(a), base.y - R * Math.cos(a)));
+    }
+    return pts;
   }
 
   function infieldSkinHtml() {
     var m = PITCHER_MOUND_FT, r = INFIELD_SKIN_DIRT_R_FT;
-    var edge = (m + Math.sqrt(2 * r * r - m * m)) / 2;
-    var phiEdge = Math.atan2(edge, m - edge);
-    var steps = 16;
-    var arcPts = [];
-    for (var i = 0; i <= steps; i++) {
-      var phi = phiEdge + (2 * Math.PI - 2 * phiEdge) * i / steps;
-      arcPts.push(ftToSvg(r * Math.sin(phi), m - r * Math.cos(phi)));
-    }
-    var homeL = homePlateCorner(-1), homeR = homePlateCorner(1);
-    var outer = polylineD([homeL].concat(arcPts).concat([homeR])) + " Z";
-
-    // Rounded grass-diamond hole: sharp at home/2B, a smooth outward bulge
-    // at 1B/3B instead of a plain vertex (Part 2 of Alex's reference photo).
-    var homeIn = { x: 0, y: SKIN_HOLE_HOME_INSET_FT };
+    var mound = { x: 0, y: m };
+    var homeTrue = { x: 0, y: 0 };
     var b1 = { x: BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 };
-    var b2 = { x: 0, y: BASE_DIAG_FT };
     var b3 = { x: -BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 };
-    var bulge1 = grassBulge(b1, homeIn, b2);
-    var bulge3 = grassBulge(b3, b2, homeIn);
+
+    // Foul-side dirt: a true constant-width band off the real baseline
+    // (like the home/2B interior bands below), handed off to an exact
+    // point on the patch's own r-radius circle rather than a straight cut.
+    var M = FOUL_MARGIN_FT;
+    var foulNormal1 = { x: Math.SQRT1_2, y: -Math.SQRT1_2 }, dir1 = { x: Math.SQRT1_2, y: Math.SQRT1_2 };
+    var foulNormal3 = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 }, dir3 = { x: -Math.SQRT1_2, y: Math.SQRT1_2 };
+    var homeFoulOut1 = { x: homeTrue.x + foulNormal1.x * M, y: homeTrue.y + foulNormal1.y * M };
+    var homeFoulOut3 = { x: homeTrue.x + foulNormal3.x * M, y: homeTrue.y + foulNormal3.y * M };
+    var foulArcStart1 = lineCircleNear(homeFoulOut1, dir1, mound, r);
+    var foulArcStart3 = lineCircleNear(homeFoulOut3, dir3, mound, r);
+    var phi1 = phiOnCircle(foulArcStart1, mound);
+    var phi3 = phiOnCircle(foulArcStart3, mound);
+    while (phi3 < phi1) phi3 += 2 * Math.PI; // long way round (through CF), same convention infieldSkinHtml always used
+
+    var steps = 18, arcPts = [];
+    for (var i = 0; i <= steps; i++) {
+      var phi = phi1 + (phi3 - phi1) * i / steps;
+      arcPts.push(ftToSvg(mound.x + r * Math.sin(phi), mound.y - r * Math.cos(phi)));
+    }
+    arcPts.reverse(); // sweep computed 1B->3B; the path below runs home-out-3 -> arc -> home-out-1, so flip to 3B->1B
+    var homeL = homePlateCorner(-1), homeR = homePlateCorner(1);
+    var outer = polylineD(
+      [ftToSvg(homeFoulOut3.x, homeFoulOut3.y)].concat(arcPts).concat([
+        ftToSvg(homeFoulOut1.x, homeFoulOut1.y), homeR, homeL,
+      ])
+    ) + " Z";
+
+    // Constant-thickness dirt band along each true basepath (home-1B,
+    // 1B-2B, 2B-3B, 3B-home), independently adjustable near home vs near
+    // 2nd, with a circular dirt wedge cut around 1B/3B (centred exactly on
+    // the true base, radius WEDGE_R_FT, facing the mound) instead of a
+    // sharp corner - home and 2B stay plain vertices. The home/2B points
+    // are where the two adjacent offset lines meet on the centreline (a
+    // clean closed form here since every basepath meets the centreline at
+    // 45 degrees: offset by thickness T perpendicular puts that
+    // intersection T*sqrt(2) along the centreline).
+    var b2True = { x: 0, y: BASE_DIAG_FT };
+    var homeIn = { x: 0, y: HOME_THICKNESS_FT * Math.SQRT2 };
+    var b2 = { x: 0, y: BASE_DIAG_FT - SECOND_THICKNESS_FT * Math.SQRT2 };
+
+    var R = WEDGE_R_FT;
+    var dH1 = basepathOffset(homeTrue, b1).dir;
+    var d12 = basepathOffset(b2True, b1).dir;
+    var app1 = lineCircleNear(homeIn, dH1, b1, R);
+    var exit1 = lineCircleNear(b2, d12, b1, R);
+    var wedge1 = wedgeArcFt(b1, R, phiOnCircle(app1, b1), phiOnCircle(exit1, b1), 10);
+
+    var d23 = basepathOffset(b2True, b3).dir;
+    var dH3 = basepathOffset(homeTrue, b3).dir;
+    var app3 = lineCircleNear(b2, d23, b3, R);
+    var exit3 = lineCircleNear(homeIn, dH3, b3, R);
+    var wedge3 = wedgeArcFt(b3, R, phiOnCircle(app3, b3), phiOnCircle(exit3, b3), 10);
+
     var homeInPx = ftToSvg(homeIn.x, homeIn.y), b2Px = ftToSvg(b2.x, b2.y);
+    var app1Px = ftToSvg(app1.x, app1.y), app3Px = ftToSvg(app3.x, app3.y);
     var hole = "M" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) +
-      " L" + bulge1.a.x.toFixed(1) + "," + bulge1.a.y.toFixed(1) +
-      " Q" + bulge1.ctrl.x.toFixed(1) + "," + bulge1.ctrl.y.toFixed(1) + " " + bulge1.e.x.toFixed(1) + "," + bulge1.e.y.toFixed(1) +
+      " L" + app1Px.x.toFixed(1) + "," + app1Px.y.toFixed(1) +
+      " " + wedge1.map(function (p) { return "L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ") +
       " L" + b2Px.x.toFixed(1) + "," + b2Px.y.toFixed(1) +
-      " L" + bulge3.a.x.toFixed(1) + "," + bulge3.a.y.toFixed(1) +
-      " Q" + bulge3.ctrl.x.toFixed(1) + "," + bulge3.ctrl.y.toFixed(1) + " " + bulge3.e.x.toFixed(1) + "," + bulge3.e.y.toFixed(1) +
+      " L" + app3Px.x.toFixed(1) + "," + app3Px.y.toFixed(1) +
+      " " + wedge3.map(function (p) { return "L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ") +
       " L" + homeInPx.x.toFixed(1) + "," + homeInPx.y.toFixed(1) + " Z";
 
     return '<path class="dm-infield-dirt" fill-rule="evenodd" d="' + outer + " " + hole + '"></path>' +
@@ -1602,6 +1883,23 @@
     };
   }
 
+  // The field-boundary counterpart to clampToFence (Part 4d): a home run is
+  // still never capped (it's meant to clear/reach beyond the drawn fence),
+  // but everything else - including a CAUGHT_IN_AIR foul exempted from
+  // clampFairTerritory - gets radially capped to boundaryRFt's own shape at
+  // its landing bearing, so the visual field never has to flare out to
+  // match a rare extreme (see boundaryRFt above). FIELD_BOUNDARY_MARGIN_FT
+  // keeps the point visibly inside the grass/track, not painted on its
+  // outer edge.
+  var FIELD_BOUNDARY_MARGIN_FT = 8;
+  function distanceCap(sim, angleDeg, isHomeRun) {
+    var D = clampToFence(sim.distance, angleDeg, isHomeRun);
+    if (isHomeRun) return D;
+    var offsetDeg = Math.atan2(sim.landing.x, sim.landing.y) * 180 / Math.PI;
+    var maxR = boundaryRFt(offsetDeg) - FIELD_BOUNDARY_MARGIN_FT;
+    return Math.min(D, maxR);
+  }
+
   // Re-run the integrator at a new HZ angle, same LA/EV/hand - the direction
   // override mechanism shared by the grounder resolver (Part 4.2) and the
   // caught-in-air BRC override (Part 4.3). Mutates `flight` in place so
@@ -1610,7 +1908,7 @@
   // change - only where the ball goes.
   function applyAngleOverride(flight, newAngleDeg, hand, isHomeRun) {
     var sim = clampFairTerritory(KMTraj.simulateFlight(flight.ev, flight.la, newAngleDeg - 45, hand), flight.archetype);
-    var D = clampToFence(sim.distance, newAngleDeg, isHomeRun);
+    var D = distanceCap(sim, newAngleDeg, isHomeRun);
     var scale = D / sim.distance;
     flight.angle = newAngleDeg;
     flight.distance = D;
@@ -1663,7 +1961,7 @@
     // hand goes into the spin formulas unchanged, not folded into phi a
     // second time - the HZ angle above already carries the hand mirror.
     var sim = clampFairTerritory(KMTraj.simulateFlight(EV, LA, angle - 45, hand), band.archetype);
-    var D = clampToFence(sim.distance, angle, isHomeRun);
+    var D = distanceCap(sim, angle, isHomeRun);
     var scale = D / sim.distance;
 
     return {
@@ -1883,6 +2181,36 @@
      groundTimeS the same way the grounder-out resolver does, so every
      consumer (labels, throwHtml on the rare hit-then-throw case) reads one
      shape regardless of out vs. hit. */
+  // How far along the ball's real ground-contact direction (not necessarily
+  // the nominal HZ angle - sidespin drift can point it elsewhere) a point
+  // stays within boundaryRFt's own shape, home-centred - the roll-phase
+  // counterpart to distanceCap's landing-point clamp. maxReachFt below is a
+  // flat fenceAt(angle)-2 ceiling, fine while the field was a uniform
+  // 375ft circle, but the boundary now tapers down to 35-80ft in foul
+  // ground, and the ROLL direction can carry a ball fielded near the line
+  // (or one that drifted foul before a caught-in-air exemption stopped
+  // applying) out past that tighter edge with room to spare under the old
+  // flat cap - Alex's report: a single's rollout crossing the warning
+  // track into what should be out-of-bounds. Binary search rather than a
+  // closed form since boundaryRFt is a general piecewise table, and the
+  // roll direction generally isn't radial from home so the bearing at the
+  // capped point isn't known in advance.
+  function capRollToBoundary(flight, pickupFt) {
+    function withinBounds(t) {
+      var p = groundDirPoint(flight, t);
+      var offsetDeg = Math.atan2(p.x, p.y) * 180 / Math.PI;
+      var maxR = boundaryRFt(offsetDeg) - FIELD_BOUNDARY_MARGIN_FT;
+      return Math.hypot(p.x, p.y) <= maxR;
+    }
+    if (pickupFt <= 0 || withinBounds(pickupFt)) return pickupFt;
+    var lo = 0, hi = pickupFt; // lo=0 (the landing point itself) is always in bounds - distanceCap already saw to that
+    for (var i = 0; i < 30; i++) {
+      var mid = (lo + hi) / 2;
+      if (withinBounds(mid)) lo = mid; else hi = mid;
+    }
+    return lo;
+  }
+
   function resolveHitPickup(flight) {
     var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
     var maxReachFt = fenceAt(flight.angle) - 2;
@@ -1905,6 +2233,8 @@
     }
 
     pickupFt = Math.max(0, Math.min(pickupFt, maxReachFt - flight.distance));
+    pickupFt = capRollToBoundary(flight, pickupFt);
+    if (gp.timeAt(pickupFt) != null) groundTimeS = gp.timeAt(pickupFt);
     flight.fieldedDistFt = flight.distance + pickupFt;
     flight.groundTimeS = groundTimeS;
     flight.groundPath = gp;
@@ -1947,11 +2277,26 @@
     var vx = flight.contactVel.vx, vy = flight.contactVel.vy;
     var sh = Math.hypot(vx, vy) || 1;
     var ux = vx / sh, uy = vy / sh;
+    // The last sample is the ball's rendered rest point, and throwHtml's
+    // throw origin is fieldedPoint(flight) projected through ftToSvg, which
+    // always assumes z=0 - a thrown ball is picked up off the ground, not
+    // mid-bounce. Routing this last sample through gp.distAt(gp.timeAt(
+    // fieldedFt))/gp.heightAt(t) instead of using fieldedFt and z=0 directly
+    // let the two drift apart (both in ground position AND in the z that
+    // projectFt folds into screen x/y) whenever that time/distance round
+    // trip didn't land back exactly on its own input, or landed a hair into
+    // a residual bounce (Alex's report: the throw visibly starting short of/
+    // beyond where the ball actually stopped). Snapping this one sample to
+    // the same fieldedFt + z=0 fieldedPoint/ftToSvg use keeps them pinned
+    // together exactly.
+    var fieldedFt = flight.fieldedDistFt != null ? flight.fieldedDistFt - flight.distance : null;
     var pts = [];
     for (var i = 1; i <= GROUND_SAMPLE_STEPS; i++) {
+      var isLast = i === GROUND_SAMPLE_STEPS && fieldedFt != null;
       var t = flight.groundTimeS * i / GROUND_SAMPLE_STEPS;
-      var d = gp.distAt(t);
-      pts.push({ t: t, x: flight.x + ux * d, y: flight.y + uy * d, z: gp.heightAt(t) });
+      var d = isLast ? fieldedFt : gp.distAt(t);
+      var z = isLast ? 0 : gp.heightAt(t);
+      pts.push({ t: t, x: flight.x + ux * d, y: flight.y + uy * d, z: z });
     }
     return pts;
   }
@@ -2004,21 +2349,37 @@
     }
     var len = cumLen[cumLen.length - 1] || 1;
     var stops = "", trailStops = "";
+    var lastOff = 0;
     series.samples.forEach(function (s, i) {
-      var off = clamp(s.t / totalS, 0, 1) * 100;
-      stops += off.toFixed(3) + "% { transform: translate(" + projected[i].x.toFixed(1) + "px," + projected[i].y.toFixed(1) + "px); } ";
-      trailStops += off.toFixed(3) + "% { stroke-dashoffset: " + (len - cumLen[i]).toFixed(1) + "px; } ";
+      lastOff = clamp(s.t / totalS, 0, 1) * 100;
+      stops += lastOff.toFixed(3) + "% { transform: translate(" + projected[i].x.toFixed(1) + "px," + projected[i].y.toFixed(1) + "px); } ";
+      trailStops += lastOff.toFixed(3) + "% { stroke-dashoffset: " + (len - cumLen[i]).toFixed(1) + "px; } ";
     });
+    // A cleared-fence HR's samples are cut short at the wall (fenceTruncated
+    // Samples), well before totalS (still the real, un-truncated hang time) -
+    // so the last real stop lands under 100%, leaving the 100% keyframe to
+    // an implicit hold of that last value. Chromium was observed dropping
+    // that implicit hold partway through (both this trail and the ball's own
+    // position animation snapping back to their 0% start and sticking there)
+    // - an explicit 100% stop matching the last real value sidesteps whatever
+    // that implicit-extension edge case is, rather than relying on it.
+    if (lastOff < 100 && projected.length) {
+      var lastP = projected[projected.length - 1];
+      stops += "100.000% { transform: translate(" + lastP.x.toFixed(1) + "px," + lastP.y.toFixed(1) + "px); } ";
+      trailStops += "100.000% { stroke-dashoffset: 0px; } ";
+    }
     var name = kmArcId(m);
-    // Mirrors style.css's own .ball.air/.ball.clear composite rules exactly
-    // (ballSettle/ballClearFade untouched there), just swapping the primary
-    // movement animation for this play's own generated keyframes - equal
+    // Mirrors style.css's own .ball.air/.ball.clear composite rule exactly
+    // (ballSettle untouched there), just swapping the primary movement
+    // animation for this play's own generated keyframes - equal
     // specificity, later in the cascade (this <style> block is appended
     // fresh into the DOM after style.css loads), so it wins outright. The
     // reduced-motion block adds `animation:none!important` to outrank this.
-    var settleRule = flight.clearedFence
-      ? "animation: " + name + " var(--dur) linear forwards, ballClearFade 300ms ease forwards; animation-delay: 0s, calc(var(--dur) - 300ms);"
-      : "animation: " + name + " var(--dur) linear forwards, ballSettle 350ms ease var(--dur) forwards;";
+    // A cleared-fence HR used to fade the ball to fully invisible here
+    // (ballClearFade) instead of settling like every other result - Alex's
+    // report: the arc should stay on screen after the play resolves same
+    // as any other result, not vanish just because it left the park.
+    var settleRule = "animation: " + name + " var(--dur) linear forwards, ballSettle 350ms ease var(--dur) forwards;";
     var style = "<style>" +
       "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
       "@keyframes " + name + "-trail { " + trailStops + "} " +
@@ -2413,6 +2774,7 @@
   window.KMFlight = {
     signedCirc: signedCirc, firstTwo: firstTwo, onesDigit: onesDigit, lastDigit: lastDigit,
     effectiveHand: effectiveHand, landingPoint: landingPoint, clampToFence: clampToFence,
+    distanceCap: distanceCap, boundaryRFt: boundaryRFt,
     nearestFielder: nearestFielder, flightParams: flightParams, fenceAt: fenceAt,
     launchAngleFor: launchAngleFor,
     FENCE_DEPTH_FT: FENCE_DEPTH_FT,
@@ -2761,7 +3123,7 @@
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
         (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
         '<path class="dm-grass" d="' + grassPathD() + '"></path>' +
-        '<path class="dm-warning-track" d="' + warningTrackPathD() + '"></path>' +
+        '<path class="dm-warning-track" fill-rule="evenodd" d="' + warningTrackPathD() + '"></path>' +
         '<path class="dm-fence-wall" d="' + fenceWallPathD() + '"></path>' +
         '<path class="dm-fence" d="' + fencePathD() + '"></path>' +
         watermark +
@@ -2777,6 +3139,8 @@
         stealThrowHtml(m, moves, runDelay, outDelay) +
         tokens +
       "</svg>" +
+      sceneWheelDiffHtml(m, flight) +
+      sceneWheelHzHtml(m, flight) +
     "</div>";
   }
 
@@ -3100,8 +3464,8 @@
   // overlay) - a firstTwo-only wheel would just be a second, disconnected
   // number with no bearing on the actual result (see launchAngleFor).
   // HZ disappears on anything without a real flight (a walk, strikeout, a
-  // steal attempt) - DIFF alone then centres itself (scene-wheels is already
-  // a centered flex row; one child centers for free).
+  // steal attempt) - DIFF still sits in its usual bottom-left corner of the
+  // diamond wrap when that happens (see .scene-diamond-wrap .wheel).
   var WHEEL_CX = 75, WHEEL_CY = 75, WHEEL_VB = 150;
   var WHEEL_RING_R = 30, WHEEL_BAND_R = 23;
   var WHEEL_DOT_R = 4;
@@ -3231,9 +3595,13 @@
     var label2Pt = wheelPt(label2R, label2Deg);
     var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod) : "";
     return '<div class="wheel">' +
-      '<div class="wheel-label">' + escapeHtml(label) + "</div>" +
       '<svg class="wheel-svg" viewBox="0 0 ' + WHEEL_VB + " " + WHEEL_VB + '" aria-hidden="true">' +
         '<circle class="wheel-ring" cx="' + WHEEL_CX + '" cy="' + WHEEL_CY + '" r="' + WHEEL_RING_R + '"></circle>' +
+        // Was an external label above the SVG - moved inside the ring
+        // (Alex's call, to save space once the wheels sit in foul
+        // territory on the diamond itself rather than their own row).
+        '<text class="wheel-title" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - WHEEL_RING_R + 11) +
+          '">' + escapeHtml(label) + "</text>" +
         bandHtml +
         '<path class="wheel-arc wheel-arc-' + arcCls + '" d="' + wheelArcD(WHEEL_RING_R, deg1, deltaDeg) +
           '" style="--alen:' + arcLen.toFixed(2) + 'px"></path>' +
@@ -3253,40 +3621,42 @@
     "</div>";
   }
 
-  function sceneWheelsHtml(m, flight) {
-    var wheels = "";
-
-    // DIFF: every play with a real pitch/swing or steal_num/throw_num pair -
-    // a walk or strikeout still had a real pitch/swing duel, and a steal
-    // attempt has its own equivalent pair, even with no batted-ball flight.
+  // DIFF/HZ sit beside the diamond in .scene-top (Alex's call: "contained
+  // in the rectangle around the field SVG", above the play-result pill,
+  // not their own row underneath it). Split into two so playSceneHtml can
+  // place DIFF on the left (3B side) and HZ on the right (1B side) of the
+  // diamond; each still renders itself only when it has something real to
+  // show (a walk/strikeout still has a real DIFF pair, but no HZ - no
+  // batted ball to swing at).
+  function sceneWheelDiffHtml(m, flight) {
     var isSteal = m.pitch == null && m.steal_num != null && m.throw_num != null;
-    if (m.pitch != null && m.swing != null || isSteal) {
-      var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
-      if (isSteal) {
-        // Runner (offense, bat marker) breaks first; catcher (defense,
-        // baseball marker) throws second - per Alex's spec, "runner # then
-        // progress to catcher #". No archetype band - steals don't have one.
-        wheels += wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
-          String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
-          wasOut ? "out" : "hit");
-      } else {
-        var bandRow = (data.meta.flight && data.meta.flight.bands || {})[m.result];
-        wheels += wheelHtml("DIFF", m.pitch, m.swing, 1000, "def", "off", String(m.diff),
-          flight ? Math.round(flight.ev) + " mph" : null,
-          bandRow ? { lo: bandRow.lo, hi: bandRow.hi } : null,
-          wasOut ? "out" : "hit");
-      }
+    if (!(m.pitch != null && m.swing != null || isSteal)) return "";
+    var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+    if (isSteal) {
+      // Runner (offense, bat marker) breaks first; catcher (defense,
+      // baseball marker) throws second - per Alex's spec, "runner # then
+      // progress to catcher #". No archetype band - steals don't have one.
+      return wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
+        String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
+        wasOut ? "out" : "hit");
     }
-
-    // HZ: batted balls only (Alex's call) - `flight` truthy is exactly that
-    // gate (flightParams returns null for everything else, the same set
-    // sceneFlightReadoutHtml below already checks against).
-    if (flight) {
-      var d1p = lastDigit(m.pitch), d1s = lastDigit(m.swing);
-      wheels += wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral");
-    }
-
-    return wheels ? '<div class="scene-wheels">' + wheels + "</div>" : "";
+    var bandRow = (data.meta.flight && data.meta.flight.bands || {})[m.result];
+    // Exit velo used to also show here (centerSmall) - dropped (Alex's
+    // call): it's already on screen via sceneFlightReadoutHtml, and the
+    // wheel is small enough now (foul-territory overlay) that the room
+    // is better spent on the interior DIFF title.
+    return wheelHtml("DIFF", m.pitch, m.swing, 1000, "def", "off", String(m.diff),
+      null,
+      bandRow ? { lo: bandRow.lo, hi: bandRow.hi } : null,
+      wasOut ? "out" : "hit");
+  }
+  // HZ: batted balls only (Alex's call) - `flight` truthy is exactly that
+  // gate (flightParams returns null for everything else, the same set
+  // sceneFlightReadoutHtml below already checks against).
+  function sceneWheelHzHtml(m, flight) {
+    if (!flight) return "";
+    var d1p = lastDigit(m.pitch), d1s = lastDigit(m.swing);
+    return wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral");
   }
 
   /* Compact "telemetry" readout beside the result pill (ball-flight-plan.md
@@ -3322,6 +3692,7 @@
         diffPill(m) +
         sceneFlightReadoutHtml(flight) +
       "</div>" +
+      scoringLine(m) +
       // Pitcher first, batter second - the order holds at every width, so when
       // the row wraps on a phone the pitcher stacks on top rather than the
       // pairing reversing between breakpoints.
@@ -3330,7 +3701,6 @@
         '<span class="mu-vs">vs</span>' +
         sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
       "</div>" +
-      scoringLine(m) +
     "</div>";
   }
 
@@ -3488,7 +3858,6 @@
         sceneFieldHtml(m, flight) +
       "</div>" +
       sceneDetailHtml(m, flight) +
-      sceneWheelsHtml(m, flight) +
       sceneRibbonHtml(slide) +
     "</div>";
   }

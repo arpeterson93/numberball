@@ -507,7 +507,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    back-navigation gesture instead of stepping a play. */
 .catchup-slide{
   touch-action:pan-y;
-  flex:1 1 auto;overflow-y:auto;padding:10px 46px 14px;
+  flex:1 1 auto;overflow-y:auto;padding:6px 46px 8px;
   display:flex;flex-direction:column;justify-content:center;
   opacity:0;transform:translateY(6px);cursor:pointer;
 }
@@ -529,9 +529,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* ---- Play Scene (slideshow play slide) ---- */
 /* The scene fills the slide rather than sitting as a small block centred in
    it - the card is a stage, and on phone it is the whole viewport. */
-.play-scene{position:relative;display:flex;flex-direction:column;gap:10px;width:100%;}
+.play-scene{position:relative;display:flex;flex-direction:column;gap:6px;width:100%;}
 .catchup-slide > .play-scene{flex:1 1 auto;justify-content:space-evenly;}
-.scene-top{display:flex;align-items:center;justify-content:center;gap:22px;}
+/* Pulled in tighter than the general 8px gap above and below the diamond
+   specifically (Alex's report: on a short viewport the slide had to
+   scroll to show everything, chopping the scorebug off the top on
+   widescreen) - the diamond is the one element big enough that shaving a
+   few px off its own clearance is barely noticeable, unlike doing the
+   same to the wheels/ribbon spacing. */
+.scene-scorebug{margin-bottom:-4px;}
+.scene-top{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:-4px;}
 
 /* position:relative is load-bearing: the watermark below is absolutely
    positioned and would otherwise resolve against the whole modal card and
@@ -614,11 +621,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .ball.air, .ball.ground, .ball.land, .ball.clear{
   animation:ballFly var(--dur) ease-out forwards, ballSettle 350ms ease var(--dur) forwards;
 }
-.ball.clear{animation:ballFly var(--dur) ease-out forwards, ballClearFade 300ms ease forwards;
-  animation-delay:0s, calc(var(--dur) - 300ms);}
 @keyframes ballFly{from{transform:translate(var(--fx),var(--fy));}to{transform:translate(var(--tx),var(--ty));}}
 @keyframes ballSettle{to{opacity:0.85;}}
-@keyframes ballClearFade{to{opacity:0;}}
 .ball-trail.air, .ball-trail.ground, .ball-trail.land, .ball-trail.clear{
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
   animation:trailDraw var(--dur) ease-out forwards;
@@ -924,6 +928,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    stranded a wide empty margin on the right of an otherwise centred scene. */
 .scene-detail{
   display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;text-align:center;
+  margin-bottom:-3px;
 }
 
 /* Fixed batter-vs-pitcher pairing. Both sides keep their slot for the whole
@@ -961,15 +966,27 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
   color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);
 }
-/* Pitch/swing wheel (refinements round F1) - a debugging readout, deliberately
-   placed outside the field SVG entirely per Alex's call, as its own row below
-   the result/matchup detail. DIFF, LA, HZ, left to right (roughly order of
-   importance) - DIFF shows on every play with a pitch/swing or steal
-   roll, LA/HZ only on a real batted ball; when LA/HZ are absent, DIFF alone
-   still centres itself since scene-wheels is already a centered flex row. */
-.scene-wheels{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:2px;}
-.wheel{display:flex;flex-direction:column;align-items:center;gap:2px;width:125px;}
-.wheel-label{font-size:10px;font-weight:800;letter-spacing:1px;color:var(--muted);}
+/* Pitch/swing wheel (refinements round F1) - a debugging readout. DIFF shows
+   on every play with a pitch/swing or steal roll, HZ only on a real batted
+   ball.
+   DIFF/HZ sit inside .scene-diamond-wrap itself now (Alex's reference
+   screenshot: two circles in the empty foul-territory corners of the field
+   graphic's own rectangle, above the play-result pill) - absolutely
+   positioned against the wrap's bottom-left/bottom-right, not a row
+   underneath the diamond. See sceneFieldHtml. */
+.scene-diamond-wrap .wheel{
+  position:absolute;bottom:-2%;width:33%;display:flex;flex-direction:column;
+  align-items:center;gap:1px;
+}
+.scene-diamond-wrap .wheel:first-of-type{left:6%;}
+.scene-diamond-wrap .wheel:last-of-type{right:6%;}
+/* DIFF/HZ, drawn inside the ring itself now rather than an external label
+   above it (Alex's call - the ring has the room once exit velo (was the
+   center-small text) moved to sceneFlightReadoutHtml only). */
+.wheel-title{
+  font-size:9px;font-weight:800;letter-spacing:0.6px;fill:var(--muted);text-anchor:middle;
+  paint-order:stroke;stroke:var(--card);stroke-width:2px;stroke-linejoin:round;
+}
 .wheel-svg{width:100%;height:auto;overflow:visible;}
 .wheel-ring{fill:none;stroke:var(--border);stroke-width:1.5;}
 /* Reference arc for the result's own diff band (DIFF wheel only) - anchored
@@ -1140,15 +1157,20 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .scene-top, .scene-detail{display:contents;}
   .play-scene{align-items:center;}
   .scene-diamond-wrap{order:1;width:min(90vw,340px);}
+  /* min(90vw,340px) is measured against the full viewport, not the space
+     .catchup-slide's own 37px nav gutters leave clear - smaller/narrower on
+     this axis so the wheels (pinned to the wrap's own edges) can't reach
+     into that gutter and collide with the prev/next arrows. */
+  .scene-diamond-wrap .wheel{width:23%;}
+  .scene-diamond-wrap .wheel:first-of-type{left:9%;}
+  .scene-diamond-wrap .wheel:last-of-type{right:9%;}
   .scene-play-line{order:3;font-size:14.5px;}
-  .scene-matchup{order:4;}
-  .scene-detail .scoring-line{order:5;}
-  /* .scene-wheels is a direct .play-scene child already (never inside the
-     display:contents pair above), but with no explicit order it defaults to
-     0 - tying it with .scene-recap and, on document-order tiebreak, jumping
-     it in front of the diamond. Ordered here like every other piece of this
-     reflow. */
-  .scene-wheels{order:6;}
+  /* Beneath the result pill, above the pitching/at-bat matchup - same order
+     as every other width (Alex's spec). This mobile reflow predates that
+     reorder and had never been updated to match, leaving "Player scores"
+     stranded after the matchup here specifically. */
+  .scene-detail .scoring-line{order:4;}
+  .scene-matchup{order:5;}
   .scene-recap{order:0;}
   .scene-scorebug{order:0;}
   .scene-ribbon{order:8;width:100%;}
@@ -1239,7 +1261,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .ball-trail{stroke-dashoffset:0;}
   .throw-line{stroke-dashoffset:0;}
   .fielder{opacity:1;}
-  .ball.clear{opacity:0;}
 }
 
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600;z-index:30;}
@@ -1355,11 +1376,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    this is only the outer caps plus a few font sizes that were fixed in px. */
 @media (min-width: 900px){
   .catchup-card{max-width:min(92vw,1080px);height:min(90vh,820px);}
+  /* Was capped down to 350 for a stretch (a short/wide window could make
+     the whole slide taller than the card, forcing a vertical scroll that
+     chopped the scorebug off the top) - back to its full native size
+     (460 = FIELD_W) now that the layout fits without that squeeze. */
   .scene-diamond-wrap{width:min(50%,460px);}
   .scene-play-line{font-size:18px;}
   .mu-name{font-size:17px;}
-  .scene-wheels{gap:22px;}
-  .wheel{width:145px;}
+  /* Alex's spec: treat the row as thirds - leverage meter as the middle
+     third, each team's logo/abbr/score centered in its own outer third -
+     rather than the base flex row's space-between, which pins each team to
+     the card's outer edge regardless of how wide the card gets. Grid instead
+     of flex here since space-between has no way to center within a share of
+     the extra space, only push to the ends of it. */
+  .scene-scorebug{display:grid;grid-template-columns:1fr 1fr 1fr;}
+  .scene-scorebug-team{justify-self:center;}
+  .scene-scorebug-mid{justify-self:center;}
 }
 
 /* Real browser fullscreen (the expand button in the card's corner) - more
