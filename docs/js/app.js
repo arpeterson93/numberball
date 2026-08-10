@@ -1133,6 +1133,10 @@
   // The minimum lattice angle mapping to each position - the direction a
   // BRC-excluded ground ball gets redirected to on override (Part 4.2/4.3).
   var MIN_ANGLE_FOR_POS = { "3B": 5, SS: 21, P: 45, "2B": 53, "1B": 77 };
+  // Traditional scorecard numbering (fieldingNotation, below outThrowTargets) -
+  // the app's own position strings already match the real 9 defensive spots
+  // 1-for-1, they've just never had scorecard numbers attached before.
+  var POSITION_NUMBER = { P: 1, C: 2, "1B": 3, "2B": 4, "3B": 5, SS: 6, LF: 7, CF: 8, RF: 9 };
 
   // Nine generic fielder anchors, field-plane feet. No names, no per-play
   // defensive alignment - that data doesn't exist (ball-flight-plan.md
@@ -1409,10 +1413,11 @@
   }
 
   var BOUNDARY_TABLE = [
-    { angle: 50, r: 270 }, { angle: 58, r: 130 }, { angle: 66, r: 80 },
-    { angle: 74, r: 60 }, { angle: 80, r: 50 }, { angle: 95, r: 40 },
-    { angle: 115, r: 37 }, { angle: 140, r: 35 }, { angle: 165, r: 35 },
-    { angle: 180, r: 35 },
+    { angle: 46, r: 355 }, { angle: 48, r: 315 }, { angle: 50, r: 270 },
+    { angle: 52, r: 235 }, { angle: 55, r: 180 }, { angle: 58, r: 130 },
+    { angle: 66, r: 80 }, { angle: 74, r: 60 }, { angle: 80, r: 50 },
+    { angle: 95, r: 40 }, { angle: 115, r: 37 }, { angle: 140, r: 35 },
+    { angle: 165, r: 35 }, { angle: 180, r: 35 },
   ];
   // BOUNDARY_TABLE entries carry their value as .r, TRACK_WIDTH_TABLE's as
   // .w (matching the Field Geometry Editor's own export field names) - read
@@ -1562,10 +1567,11 @@
   // independently per angle rather than one flat width, so e.g. the
   // corners can read wider than the deep alleys.
   var TRACK_WIDTH_TABLE = [
-    { angle: 50, w: 25 }, { angle: 58, w: 40 }, { angle: 66, w: 15 },
-    { angle: 74, w: 14 }, { angle: 80, w: 8 }, { angle: 95, w: 8 },
-    { angle: 115, w: 8 }, { angle: 140, w: 8 }, { angle: 165, w: 8 },
-    { angle: 180, w: 8 },
+    { angle: 46, w: 25 }, { angle: 48, w: 40 }, { angle: 50, w: 40 },
+    { angle: 52, w: 40 }, { angle: 55, w: 40 }, { angle: 58, w: 40 },
+    { angle: 66, w: 15 }, { angle: 74, w: 14 }, { angle: 80, w: 8 },
+    { angle: 95, w: 8 }, { angle: 115, w: 8 }, { angle: 140, w: 8 },
+    { angle: 165, w: 8 }, { angle: 180, w: 8 },
   ];
   var SMOOTHED_TRACK_W = buildSmoothedSamples(TRACK_WIDTH_TABLE, null);
   function trackWidthFt(offsetDeg) {
@@ -2116,6 +2122,9 @@
   // margin without also tightening this pushed the relay's second throw
   // past the runner outright. This restores the same ~10ms slack.
   var THROW_STAGGER_MS = 50;
+  // One id per rendered throw line's reveal clip-path (throwLineHtml) - just
+  // needs to be unique within the DOM at any moment, not stable/meaningful.
+  var THROW_CLIP_SEQ = 0;
   var THROW_LEAD_MS = 200;          // required margin: every throw must land at least this early
   var TAG_UP_MS = 80;               // a tagging runner leaves this long after the catch (B5)
   // A caught-ball throw that isn't chasing a real out (SacF/DSacF/FO's "the
@@ -2191,8 +2200,9 @@
   var DIRT_CLEAR_MARGIN_FT = 3;   // a safe grounder rolls at least this far past the dirt's edge
   // These two archetypes are deliberately short (every bunt/infield_single
   // result's own depthMin/depthMax in result_diff_bands.csv stays well under
-  // INFIELD_SKIN_DIRT_R_FT) - a legged-out infield hit that stays on the
-  // dirt is the realistic outcome there, not a bug to floor away.
+  // INFIELD_SKIN_DIRT_R_FT) at LANDING - but nothing capped their post-
+  // bounce ROLL the same way, so a harder-EV roll could still carry one out
+  // past the dirt (see resolveHitPickup's else branch below).
   var STAYS_IN_INFIELD_ARCHETYPES = { bunt: 1, infield_single: 1 };
   function dirtEdgeFt(angleDeg) {
     var offset = (angleDeg - 45) * Math.PI / 180;
@@ -2265,6 +2275,26 @@
       // (gp.restFt/gp.totalS, already the default above).
       var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
       if (need > pickupFt) { pickupFt = need; groundTimeS = gp.timeAt(need) != null ? gp.timeAt(need) : gp.totalS; }
+    } else {
+      // The opposite floor: a bunt/infield_single is supposed to die ON the
+      // dirt, but nothing was actually stopping its natural friction-based
+      // roll (gp.restFt) from carrying it well past the dirt's edge if the
+      // contact velocity happened to be on the harder end of that
+      // archetype's real EV range - Alex's report: an "Infield Single"
+      // rolling out into the grass. Ceiling, not floor: the ONLY constraint
+      // is that it doesn't roll past dirtEdgeFt - the same mound-centred
+      // circle the floor case above clears, just enforced the other
+      // direction, and with no added margin/buffer past that one rule
+      // (Alex's correction, twice over: neither the grass notch cut around
+      // each base for the wedge rendering, nor an arbitrary "stop a bit
+      // early" cushion, are part of what "stays in the infield" means. A
+      // roll that falls short of the edge on its own - a soft one-hopper -
+      // is left exactly where its own physics put it).
+      var ceiling = dirtEdgeFt(flight.angle) - flight.distance;
+      if (ceiling < pickupFt) {
+        pickupFt = Math.max(0, ceiling);
+        groundTimeS = gp.timeAt(pickupFt) != null ? gp.timeAt(pickupFt) : groundTimeS;
+      }
     }
 
     pickupFt = Math.max(0, Math.min(pickupFt, maxReachFt - flight.distance));
@@ -2432,10 +2462,18 @@
     var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms";
     var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms";
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
-    // and the ball itself having been caught wins that tie.
+    // and the ball itself having been caught wins that tie. Except a ground
+    // ball out specifically (Alex's call): that verdict now belongs to the
+    // throw itself (throw-out/throw-safe, throwHtml), which carries the
+    // real "who's out" answer per leg - the grounder's own trail just goes
+    // neutral grey so it doesn't pre-empt or clash with that. Keyed off the
+    // real archetype (GROUND_ARCHETYPES), not the apex-based " ground"/" air"
+    // class below (a purely visual low-arc-vs-high-arc split that a low
+    // line drive can also land in).
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+    var groundedOut = wasOut && !!GROUND_ARCHETYPES[flight.archetype];
     var cls = (cleared ? " clear" : " land") + (flight.apexFt < GROUND_APEX_THRESHOLD_FT ? " ground" : " air") +
-              (wasOut ? " out" : " hit");
+              (wasOut ? " out" : " hit") + (groundedOut ? " grounded-out" : "");
 
     // Labels sit next to wherever the ball actually ends up - the fielded/
     // rest point when there is a ground phase, otherwise the landing/catch
@@ -2647,6 +2685,111 @@
     return sorted;
   }
 
+  /* Traditional scorecard notation (fieldingNotation, below) needs to know
+     which position covers a given base for a relay throw - not modeled
+     anywhere else in the app, since throwHtml only ever needs a BASE to draw
+     a line to, never who's standing there. This is a best-effort standard-
+     alignment convention (real coverage depends on the actual defensive
+     alignment that day, which this data model doesn't record), worked out
+     with Alex directly:
+       - HOME is always the catcher.
+       - 3B is the third baseman, UNLESS he's the one who fielded a BUNT
+         (charging in pulls him off the bag) - then SS covers.
+       - 1B is the first baseman, UNLESS he's the one who fielded a BUNT (2B
+         covers instead), or he fielded a grounder at the 77deg lattice angle
+         specifically (the PFP play - hit deep enough into the 1B/2B hole
+         that he can't get back to the bag himself, so the pitcher breaks
+         over to cover it; the other 1B angle, 85deg, sits close enough to
+         the bag/line that he beats the runner back there himself).
+       - 2B is decided by which side of the infield the ball was hit to, NOT
+         by who actually fielded it (so a slow roller fielded by the pitcher
+         or a charging outfielder still gets a sensible coverer): angle<45
+         (the 3B/SS side) -> 2B covers; angle>=45 (dead centre through the
+         1B side) -> SS covers. The >=45 half deliberately folds in the
+         45deg comebacker-to-the-pitcher tie case, not just the literal
+         right side, per Alex's call.
+     fieldingNotation collapses a fielder covering their own next base right
+     back down to a single (unassisted) touch - see there for why that's the
+     general unassisted rule rather than a separate angle check. */
+  function coveringPosition(base, archetype, angle, fielderPos) {
+    if (base === "HOME") return "C";
+    if (base === "3B") return (archetype === "bunt" && fielderPos === "3B") ? "SS" : "3B";
+    if (base === "1B") {
+      if (archetype === "bunt" && fielderPos === "1B") return "2B";
+      if (fielderPos === "1B" && angle === 77) return "P";
+      return "1B";
+    }
+    if (base === "2B") return angle < 45 ? "2B" : "SS";
+    return fielderPos;
+  }
+
+  // Standard scorecard shorthand for a batted-ball out - "6-4-3", "F8",
+  // "3U" - built entirely from data the app already resolves per play
+  // (flight.fielder, outThrowTargets' relay bases) plus the coverage
+  // convention above. Scoped to batted-ball outs only (Alex's own framing:
+  // "based on which defensive players touch the ball") - a strikeout has no
+  // batted ball, a walk/steal/pickoff has no fielder touching a batted ball,
+  // and this data model has no error/E-code concept to draw an "E6" from.
+  // How many of outThrowTargets' bases represent a REAL out, vs a decorative,
+  // non-competitive tag-up throw on a routine sac fly where the runner
+  // scores safely (both outThrowTargets' own heuristic, and real
+  // import_BRC.csv ThrowOrder data, carry that one for the animation - see
+  // outThrowTargets' own comment on it). The catch itself already accounts
+  // for one out on any caught-in-air play; everything else outThrowTargets
+  // returns is a genuine extra out (a real assist chain, or LODP/LOTP's
+  // double-off). Shared by fieldingNotation (so a plain sac fly reads "F9",
+  // not "F9-2" - a putout at home that never happened) and throwHtml/
+  // stealThrowHtml (so that same decorative throw draws safe/green instead
+  // of out/red) - both need the identical answer to the same question:
+  // which of these throws actually put someone out.
+  function realOutThrowCount(m, flight) {
+    var recorded = Math.max(0, (m.outs_after || 0) - (m.outs_before || 0));
+    var battersOwnOut = CAUGHT_IN_AIR[flight.archetype] ? 1 : 0;
+    return Math.max(0, recorded - battersOwnOut);
+  }
+
+  function fieldingNotation(m, flight) {
+    if (!flight || !flight.fielder || flight.clearedFence) return null;
+    var archetype = flight.archetype;
+    var isAir = !!CAUGHT_IN_AIR[archetype];
+    if (!GROUND_ARCHETYPES[archetype] && !isAir) return null;
+    if ((m.outs_after || 0) <= (m.outs_before || 0)) return null;
+
+    var moves = resolveRunnerMoves(m);
+    var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
+
+    var chain = [flight.fielder];
+    relayBases.forEach(function (base) {
+      chain.push(coveringPosition(base, archetype, flight.angle, flight.fielder));
+    });
+
+    // Collapse adjacent duplicates: the same fielder touching the ball and
+    // then covering the very next base themselves is one unassisted touch,
+    // not a throw to himself. This is also where an unassisted play falls
+    // out on its own - a routine 1B/3B putout, or an unassisted lineout
+    // double play - purely from the coverage rules above, with no separate
+    // "is this unassisted" check needed.
+    var collapsed = [chain[0]];
+    for (var i = 1; i < chain.length; i++) {
+      if (chain[i] !== collapsed[collapsed.length - 1]) collapsed.push(chain[i]);
+    }
+
+    var nums = collapsed.map(function (p) { return POSITION_NUMBER[p]; });
+    if (nums.length === 1) {
+      // A caught ball's own letter already says how the (one) out was made -
+      // "L6" for an unassisted lineout double play reads the same as a
+      // routine lineout catch, real scorecards have the same ambiguity here,
+      // the "U" suffix is a ground-ball-only convention (nobody writes F8U).
+      if (isAir) {
+        var prefix = archetype === "fly_ball" ? "F" : archetype === "line_drive" ? "L" : "P";
+        if (m.result === "SacF" || m.result === "DSacF") prefix = "S" + prefix;
+        return prefix + nums[0];
+      }
+      return nums[0] + "U";
+    }
+    return nums.join("-");
+  }
+
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
      throw i+1 relays from throw i's target base. Kept separate from the
      rendering so the timing race against the runner can be asserted rather
@@ -2654,6 +2797,11 @@
   function throwSchedule(m, moves, flight) {
     var targets = outThrowTargets(m, moves, flight);
     if (!targets.length) return [];
+    // Which legs are a real out vs a decorative tag-up throw nobody's out on
+    // (realOutThrowCount) - drives throwHtml's out/safe (red/green) colour,
+    // same "which of these throws actually put someone out" question
+    // fieldingNotation asks of the identical target list.
+    var realCount = realOutThrowCount(m, flight);
 
     // A fly ball/pop-up's throw (SacF/DSacF/FO's decorative "throw home
     // anyway" - outThrowTargets appends it, or an explicit ThrowOrder
@@ -2676,7 +2824,7 @@
       var tagStart = Math.max(0, runnerArrival + TAG_THROW_MARGIN_MS - THROW_DRAW_MS);
       return targets.map(function (b, i) {
         var start = tagStart + i * THROW_STAGGER_MS;
-        return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
+        return { base: b, startMs: start, endMs: start + THROW_DRAW_MS, out: i < realCount };
       });
     }
 
@@ -2688,7 +2836,7 @@
     var base = fieldedMs(flight) + THROW_DELAY_MS;
     return targets.map(function (b, i) {
       var start = base + i * THROW_STAGGER_MS;
-      return { base: b, startMs: start, endMs: start + THROW_DRAW_MS };
+      return { base: b, startMs: start, endMs: start + THROW_DRAW_MS, out: i < realCount };
     });
   }
 
@@ -2697,6 +2845,32 @@
   // assertion has a single source of truth to check against.
   function batterFirstArrivalMs() {
     return RUNNER_LEAD_MS + 0.4706 * 1700;
+  }
+
+  // A dashed <line>'s own geometry attributes (x1/y1/x2/y2) aren't CSS-
+  // animatable - unlike <rect>'s x/y/width/height, they never made it into
+  // the CSS Masking/Geometry properties that got promoted off SVG's
+  // presentation-attribute-only list. So a real "grows from the thrower to
+  // the target" reveal (Alex's ask, replacing the old dashoffset shimmer -
+  // see throwDraw in style.css) needs a second element to animate: a <rect>,
+  // full stroke-covering height but zero width, sitting in its own
+  // <clipPath> and rotated (a static, non-animated SVG `transform` -
+  // computed once here, not fought over with CSS) to lie along the line's
+  // own bearing. Animating just its width via CSS is what actually grows
+  // the visible portion of the (separately, statically dashed) line
+  // underneath.
+  function throwLineHtml(x1, y1, x2, y2, cls, startMs) {
+    var len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    var angleDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+    var id = "throwClip" + (THROW_CLIP_SEQ++);
+    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + THROW_DRAW_MS + "ms";
+    var clip = '<clipPath id="' + id + '" clipPathUnits="userSpaceOnUse">' +
+      '<rect class="throw-clip-rect" x="' + x1.toFixed(1) + '" y="' + (y1 - 4).toFixed(1) +
+      '" width="0" height="8" transform="rotate(' + angleDeg.toFixed(2) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
+      ')" style="' + clipVars + '"></rect></clipPath>';
+    var line = '<line class="' + cls + '" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) +
+      '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" clip-path="url(#' + id + ')"></line>';
+    return clip + line;
   }
 
   function throwHtml(m, flight, moves) {
@@ -2710,12 +2884,13 @@
     return schedule.map(function (t) {
       var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
       if (!to) return "";
-      var len = Math.hypot(to.x - origin.x, to.y - origin.y) || 1;
-      var vars = "--len:" + len.toFixed(1) + "px;--delay:" + t.startMs + "ms;--draw:" + THROW_DRAW_MS + "ms";
-      var line = '<line class="throw-line" x1="' + origin.x.toFixed(1) + '" y1="' + origin.y.toFixed(1) +
-        '" x2="' + to.x + '" y2="' + to.y + '" style="' + vars + '"></line>';
+      // Red for a throw that puts someone out, green for the rare safe/
+      // decorative one (a tag-up run that scores anyway) - Alex's call, same
+      // verdict-colour convention the ball itself and a steal attempt use.
+      var cls = "throw-line " + (t.out ? "throw-out" : "throw-safe");
+      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs);
       origin = to;   // next throw relays from here (A5)
-      return line;
+      return html;
     }).join("");
   }
 
@@ -2794,10 +2969,8 @@
     var arrival = stealRunnerArrivalMs(target.caught, runDelay, effOutDelay);
     var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
     var start = Math.max(0, arrive - THROW_DRAW_MS);
-    var len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
-    var vars = "--len:" + len.toFixed(1) + "px;--delay:" + start + "ms;--draw:" + THROW_DRAW_MS + "ms";
-    return '<line class="throw-line steal-throw" x1="' + from.x.toFixed(1) + '" y1="' + from.y.toFixed(1) +
-      '" x2="' + to.x.toFixed(1) + '" y2="' + to.y.toFixed(1) + '" style="' + vars + '"></line>';
+    var cls = "throw-line steal-throw " + (target.caught ? "throw-out" : "throw-safe");
+    return throwLineHtml(from.x, from.y, to.x, to.y, cls, start);
   }
 
   // Exposed for the Playwright pure-function test harness only
@@ -2815,6 +2988,7 @@
     FENCE_DEPTH_FT: FENCE_DEPTH_FT,
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
+    throwLineHtml: throwLineHtml,
     batterFirstArrivalMs: batterFirstArrivalMs,
     stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
     stealThrowOrigin: stealThrowOrigin,
@@ -2842,6 +3016,9 @@
     projectFt: projectFt, ftToSvg: ftToSvg, FIELD_W: FIELD_W, FIELD_H: FIELD_H,
     fencePathD: fencePathD, fenceWallPathD: fenceWallPathD, grassPathD: grassPathD,
     HOME_SVG: HOME_SVG,
+    POSITION_NUMBER: POSITION_NUMBER, coveringPosition: coveringPosition,
+    fieldingNotation: fieldingNotation, resolveRunnerMoves: resolveRunnerMoves,
+    realOutThrowCount: realOutThrowCount,
   };
 
   /* Replaces the old tightly-cropped infield-only diamond. Same runner-token
@@ -2850,32 +3027,44 @@
      fielder and an out-choreography walk to the dugout layered underneath
      the runners (ball-flight-plan.md Stage 4/6). `flight` is
      flightParams(m, data.meta.flight) or null for an out-of-scope result. */
-  function sceneFieldHtml(m, flight) {
+  // import_BRC.csv's B/r1/r2/r3 columns, decoded server-side into the exact
+  // per-runner outcome for this situation (key_moments_build.py's
+  // runner_moves) - trusted completely over the diff-based guess below
+  // whenever it's present. deriveRunnerMoves only runs at all for situations
+  // that haven't been given explicit data yet.
+  //
+  // Fallback for the one still-common gap: DPH1 always starts from bases
+  // loaded and always removes the MOST advanced runner (3B, out at home),
+  // not the least advanced one - the opposite of deriveRunnerMoves' most-
+  // advanced-pairs-with-most-advanced assumption, which instead pairs
+  // 3B->3B and 2B->2B as if neither runner moved and blames the 1B runner
+  // for an out that never involved them ("DPH1's heuristic mismatch", see
+  // outThrowTargets' forcedBase handling). Only applies when m.runner_moves
+  // is missing (the inning-ending DPH1 variant's r1/r2/r3 aren't filled in
+  // yet) - once that row is completed too, this becomes dead code on its
+  // own, no flag to flip.
+  //
+  // Shared by every consumer that needs the real per-runner outcome
+  // (sceneFieldHtml's tokens/throws, fieldingNotation's putout chain) so the
+  // DPH1 special case can't drift out of sync between them.
+  function resolveRunnerMoves(m) {
     var before = String(m.obc_before || "000");
     var after = String(m.obc_after || "000");
-    // import_BRC.csv's B/r1/r2/r3 columns, decoded server-side into the
-    // exact per-runner outcome for this situation (key_moments_build.py's
-    // runner_moves) - trusted completely over the diff-based guess below
-    // whenever it's present. deriveRunnerMoves only runs at all for
-    // situations that haven't been given explicit data yet.
-    var moves = m.runner_moves || deriveRunnerMoves(before, after, m.runs || 0);
-    // Fallback for the one still-common gap: DPH1 always starts from bases
-    // loaded and always removes the MOST advanced runner (3B, out at home),
-    // not the least advanced one - the opposite of deriveRunnerMoves' most-
-    // advanced-pairs-with-most-advanced assumption, which instead pairs
-    // 3B->3B and 2B->2B as if neither runner moved and blames the 1B runner
-    // for an out that never involved them ("DPH1's heuristic mismatch",
-    // already flagged where forcedBase is computed below). Only applies
-    // when m.runner_moves is missing (the inning-ending DPH1 variant's
-    // r1/r2/r3 aren't filled in yet) - once that row is completed too, this
-    // becomes dead code on its own, no flag to flip.
-    if (!m.runner_moves && m.result === "DPH1" && before === "111") {
-      moves = [
+    if (m.runner_moves) return m.runner_moves;
+    if (m.result === "DPH1" && before === "111") {
+      return [
         { from: "3B", to: "OUT", scored: false },
         { from: "2B", to: "3B", scored: false },
         { from: "1B", to: "2B", scored: false },
       ];
     }
+    return deriveRunnerMoves(before, after, m.runs || 0);
+  }
+
+  function sceneFieldHtml(m, flight) {
+    var before = String(m.obc_before || "000");
+    var after = String(m.obc_after || "000");
+    var moves = resolveRunnerMoves(m);
     var dugoutFt = dugoutFor(m);
     var dugoutSvg = ftToSvg(dugoutFt.x, dugoutFt.y);
 
@@ -3122,12 +3311,25 @@
     var markUrl = teamLogoUrl(batAbbr);
     var centroid = ftToSvg(0, CF_MARK_DEPTH_FT);
     var markSize = Math.hypot(SCENE_BASES["1B"].x - SCENE_BASES.HOME.x, SCENE_BASES["1B"].y - SCENE_BASES.HOME.y) * 0.68;
+    // The last out of a half-inning: rather than cutting straight from this
+    // team's CF mark to the next team's on the following slide, the mark
+    // itself fades to a "Mid Nth"/"End Nth" pill in place, on THIS slide -
+    // everything else about the play (result, matchup, wheels) stays exactly
+    // as it already renders (Alex's call - a separate, stripped-down slide
+    // here lost all of that). The next slide's own mark then appears exactly
+    // as it already did before this existed. Skipped on the game's actual
+    // last play - that one's already carrying the FINAL recap banner, and
+    // there's no next half to bridge to.
+    var isHalfEnd = !!m.is_half_inning_final && !m.is_game_final;
     var watermark = markUrl
-      ? '<image class="dm-mark" href="' + escapeHtml(markUrl) +
+      ? '<image class="dm-mark' + (isHalfEnd ? " dm-mark-fading" : "") + '" href="' + escapeHtml(markUrl) +
         '" x="' + (centroid.x - markSize / 2).toFixed(1) + '" y="' + (centroid.y - markSize / 2).toFixed(1) +
         '" width="' + markSize.toFixed(1) + '" height="' + markSize.toFixed(1) +
         '" preserveAspectRatio="xMidYMid meet"></image>'
       : "";
+    if (isHalfEnd) {
+      watermark += cfBreakPillHtml((m.half === "top" ? "Mid " : "End ") + ordinal(m.inning));
+    }
     // Runners wear the batting team's colour - they are that team's runners.
     // Scoring and out tokens override it, since those states matter more than
     // whose they are.
@@ -3154,9 +3356,11 @@
     // basepath/mound/home dirt skin, foul lines, base plates, plate marker,
     // fielder, ball trail + ball, throw, runner tokens. Runner tokens stay
     // on top - they're what the viewer follows.
+    var svgVars = (runHex ? "--rn-fill:" + escapeHtml(runHex) + ";" : "") +
+      (isHalfEnd ? "--break-delay:" + CF_BREAK_CROSSFADE_MS + "ms;" : "");
     return '<div class="scene-diamond-wrap">' +
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
-        (runHex ? ' style="--rn-fill:' + escapeHtml(runHex) + '"' : "") + ">" +
+        (svgVars ? ' style="' + svgVars + '"' : "") + ">" +
         '<path class="dm-grass" d="' + grassPathD() + '"></path>' +
         '<path class="dm-warning-track" fill-rule="evenodd" d="' + warningTrackPathD() + '"></path>' +
         '<path class="dm-fence-wall" d="' + fenceWallPathD() + '"></path>' +
@@ -3177,6 +3381,22 @@
       sceneWheelDiffHtml(m, flight) +
       sceneWheelHzHtml(m, flight) +
     "</div>";
+  }
+
+  // "Mid Nth"/"End Nth" pill markup, sized off its own label length (no real
+  // text-measurement pass - just enough padding either side that even the
+  // longest realistic label, "End 12th" on a rare deep-extras game, still
+  // clears the text with room to spare). Positioned at the same CF centroid
+  // sceneFieldHtml's own watermark uses - see dm-mark-fading there.
+  function cfBreakPillHtml(label) {
+    var centroid = ftToSvg(0, CF_MARK_DEPTH_FT);
+    var pillW = Math.max(74, label.length * 9 + 26), pillH = 27;
+    return '<g class="dm-break-pill">' +
+      '<rect x="' + (centroid.x - pillW / 2).toFixed(1) + '" y="' + (centroid.y - pillH / 2).toFixed(1) +
+        '" width="' + pillW.toFixed(1) + '" height="' + pillH + '" rx="' + (pillH / 2) + '"></rect>' +
+      '<text x="' + centroid.x.toFixed(1) + '" y="' + (centroid.y + 1).toFixed(1) + '">' +
+        escapeHtml(label) + "</text>" +
+    "</g>";
   }
 
   /* LI 1.0 sits at the apex of the gauge. That is average leverage by
@@ -3504,6 +3724,15 @@
   var WHEEL_CX = 75, WHEEL_CY = 75, WHEEL_VB = 150;
   var WHEEL_RING_R = 30, WHEEL_BAND_R = 23;
   var WHEEL_DOT_R = 4;
+  // How far above centre the title ("DIFF"/"HZ") sits - pulled in from the
+  // ring's own inner edge (Alex's report: a marker landing near 12 o'clock,
+  // its bat/ball icon and (for the offense role) the handle poking inward
+  // past the ring, could crowd right up against the title text sitting just
+  // inside the ring there). A marker's own centre never gets closer than
+  // WHEEL_RING_R-WHEEL_DOT_R to the wheel's centre; this keeps the title's
+  // own glyphs comfortably inside that, never fighting a marker for the
+  // same few pixels regardless of which angle it lands at.
+  var WHEEL_TITLE_OFFSET_Y = 9;
   // The two value labels collide when their dots land angularly close
   // together (a small DIFF, i.e. good contact - exactly the common,
   // interesting case) even at different radii. Below this separation, push
@@ -3519,9 +3748,9 @@
   // to the ring); horizontalFactor scales in the extra padding a label
   // actually needs as it approaches the 3/9 o'clock positions, where the
   // danger is greatest.
-  var WHEEL_LABEL_GAP = 6;
-  var WHEEL_LABEL_CHAR_W = 3.4;   // rough half-glyph-width at this font size, viewBox units
-  var WHEEL_LABEL_STAGGER = 13;   // label2 always sits at least this far past label1's own safe radius
+  var WHEEL_LABEL_GAP = 3;
+  var WHEEL_LABEL_CHAR_W = 2.4;   // rough half-glyph-width at this font size, viewBox units
+  var WHEEL_LABEL_STAGGER = 9;   // label2 always sits at least this far past label1's own safe radius
   function wheelLabelRadius(angleDeg, text) {
     var horizontalFactor = Math.abs(Math.sin(angleDeg * Math.PI / 180));
     var halfWidth = String(text).length * WHEEL_LABEL_CHAR_W;
@@ -3607,11 +3836,20 @@
      steal (catcher), so shape has to travel with the role, not the slot.
      arcCls picks the arc's colour: "neutral" (LA/HZ - theme-flipped
      black/white) or "hit"/"out" (DIFF - green/red, matching the ball
-     marker's own C1 convention). */
-  function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls) {
-    var deg1 = wheelAngleOf(v1, mod);
+     marker's own C1 convention). pinTop/mirrored are HZ-only (Alex's ask):
+     pinTop forces v1 (pitch) to sit at 12 o'clock instead of its own raw
+     modular position, so every play reads from the same fixed reference
+     point instead of the whole dial rotating play to play; mirrored flips
+     the sweep direction (v2 placed the opposite way round) for a
+     left-handed hitter, matching flightParams' own hand mirror on the
+     HZ->spray-angle mapping (see angle = hand==="L" ? 45-frac*40 :
+     45+frac*40) so the wheel's left/right reads the same way the resulting
+     spray direction does, for either hand. */
+  function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls, pinTop, mirrored) {
+    var deg1 = pinTop ? 0 : wheelAngleOf(v1, mod);
     var delta = signedCirc(v1, v2, mod);
     var deltaDeg = delta / mod * 360;
+    if (mirrored) deltaDeg = -deltaDeg;
     var arcLen = WHEEL_RING_R * Math.abs(deltaDeg) * Math.PI / 180;
     var dot1Pt = wheelPt(WHEEL_RING_R, deg1);
     var dot2Pt = wheelPt(WHEEL_RING_R, deg1 + deltaDeg);
@@ -3635,7 +3873,7 @@
         // Was an external label above the SVG - moved inside the ring
         // (Alex's call, to save space once the wheels sit in foul
         // territory on the diamond itself rather than their own row).
-        '<text class="wheel-title" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - WHEEL_RING_R + 11) +
+        '<text class="wheel-title" x="' + WHEEL_CX + '" y="' + (WHEEL_CY - WHEEL_TITLE_OFFSET_Y) +
           '">' + escapeHtml(label) + "</text>" +
         bandHtml +
         '<path class="wheel-arc wheel-arc-' + arcCls + '" d="' + wheelArcD(WHEEL_RING_R, deg1, deltaDeg) +
@@ -3691,7 +3929,9 @@
   function sceneWheelHzHtml(m, flight) {
     if (!flight) return "";
     var d1p = lastDigit(m.pitch), d1s = lastDigit(m.swing);
-    return wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral");
+    var mirrored = effectiveHand(m.batter_hand) === "L";
+    return wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral",
+      true, mirrored);
   }
 
   /* Compact "telemetry" readout beside the result pill (ball-flight-plan.md
@@ -3720,6 +3960,14 @@
       '<div class="scene-play-line">' +
         '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
           escapeHtml(resultLabel) + "</span>" +
+        // Scorecard shorthand ("6-4-3", "F8", "3U") for the fielders behind
+        // the result pill's plain English - right after it, before the
+        // technical DIFF/flight chips, since it's still describing the
+        // result itself rather than the underlying roll.
+        (function () {
+          var notation = fieldingNotation(m, flight);
+          return notation ? '<span class="fielding-notation">' + escapeHtml(notation) + "</span>" : "";
+        })() +
         // Cheap and worth doing (Stage 4d): a home run that stayed inside the
         // park is rare enough that without a callout it reads as a glitch.
         (flight && m.result === "HR" && !flight.clearedFence
@@ -3972,12 +4220,23 @@
   // Extra beat on the play that opens a half-inning, so the break between
   // halves registers instead of the reel running straight through it.
   var HALF_INNING_BONUS_MS = 800;
+  // The last play of a half-inning: how long its own CF mark shows before
+  // fading to the "Mid Nth"/"End Nth" pill (sceneFieldHtml's isHalfEnd,
+  // --break-delay), and how much extra dwell that slide gets on top of its
+  // normal reading time so the pill isn't just barely on screen before
+  // auto-advance cuts it off - same reasoning as HALF_INNING_BONUS_MS's own
+  // beat, just sized like a title slide's dwell (TITLE_DWELL_MS) since the
+  // pill is effectively a title card appearing in place.
+  var CF_BREAK_CROSSFADE_MS = 2400;
+  var CF_BREAK_BONUS_MS = 1800;
 
   function slideDwell(slide) {
     var speed = getPlaybackSpeed();
     if (slide.kind !== "play") return TITLE_DWELL_MS / speed;
     var base = slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
-    return (base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0)) / speed;
+    var isHalfEnd = !!slide.play.is_half_inning_final && !slide.play.is_game_final;
+    return (base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0) +
+      (isHalfEnd ? CF_BREAK_BONUS_MS : 0)) / speed;
   }
 
   /* Whole-card fades are for structural changes only - title to play, one game

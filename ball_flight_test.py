@@ -863,6 +863,75 @@ def main() -> None:
         print(f"  fence bbox: {fence_bbox}")
         check("fence arc stays within the viewBox width (with margin)", 0 <= fence_bbox["minX"] and fence_bbox["maxX"] <= 460, True)
 
+        print("\nScorecard fielding notation (KMFlight.fieldingNotation) - representative")
+        print("shapes worked out with Alex directly, plus the sac-fly decorative-throw")
+        print("exclusion regression (a routine SacF must read F9, never F9-2):")
+        # (m, flight) pairs are the minimal fields fieldingNotation/outThrowTargets/
+        # resolveRunnerMoves actually read - throw_order is supplied explicitly on
+        # most cases so each one tests coveringPosition's rules directly rather than
+        # also depending on deriveRunnerMoves' own heuristics.
+        notation_cases = [
+            ("plain GO, SS fields, throws to 1B", "6-3",
+             {"result": "GO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "SS", "archetype": "grounder", "angle": 29, "clearedFence": False}),
+            ("unassisted 1B (fields and steps on the bag himself, 85deg)", "3U",
+             {"result": "GO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "1B", "archetype": "grounder", "angle": 85, "clearedFence": False}),
+            ("PFP: 1B fields at 77deg, pitcher covers first", "3-1",
+             {"result": "GO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "1B", "archetype": "grounder", "angle": 77, "clearedFence": False}),
+            ("bunt fielded by 1B, 2B covers first", "3-4",
+             {"result": "BGO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "1B", "archetype": "bunt", "angle": 81, "clearedFence": False}),
+            ("bunt fielded by 3B, force at third, SS covers", "5-6",
+             {"result": "BFC", "outs_before": 0, "outs_after": 1, "obc_before": "110", "obc_after": "011", "runs": 0, "throw_order": "3"},
+             {"fielder": "3B", "archetype": "bunt", "angle": 9, "clearedFence": False}),
+            ("double play, SS fields (6-4-3)", "6-4-3",
+             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "2,1"},
+             {"fielder": "SS", "archetype": "grounder", "angle": 29, "clearedFence": False}),
+            ("double play, 2B fields (4-6-3)", "4-6-3",
+             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "2,1"},
+             {"fielder": "2B", "archetype": "grounder", "angle": 61, "clearedFence": False}),
+            ("comebacker to the pitcher at 45deg, SS covers second (tie-break)", "1-6",
+             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "2"},
+             {"fielder": "P", "archetype": "grounder", "angle": 45, "clearedFence": False}),
+            ("fielder's choice, SS forces the lead runner at 2nd", "6-4",
+             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "2"},
+             {"fielder": "SS", "archetype": "grounder", "angle": 29, "clearedFence": False}),
+            ("LODP, SS lines out and doubles off 1B - real 2-chain", "6-3",
+             {"result": "LODP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0,
+              "runner_moves": [{"from": "1B", "to": "OUT", "scored": False}]},
+             {"fielder": "SS", "archetype": "line_drive", "angle": 29, "clearedFence": False}),
+            ("LODP, 1B lines out and doubles off 1B himself - unassisted", "L3",
+             {"result": "LODP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0,
+              "runner_moves": [{"from": "1B", "to": "OUT", "scored": False}]},
+             {"fielder": "1B", "archetype": "line_drive", "angle": 81, "clearedFence": False}),
+            ("double play at home, 3B fields, force at home then relay to 1st", "5-2-3",
+             {"result": "DPH1", "outs_before": 1, "outs_after": 3, "obc_before": "111", "obc_after": "000", "runs": 0, "throw_order": "4,1"},
+             {"fielder": "3B", "archetype": "grounder", "angle": 9, "clearedFence": False}),
+            ("routine flyout, no throw", "F8",
+             {"result": "FO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "CF", "archetype": "fly_ball", "angle": 45, "clearedFence": False}),
+            ("routine popout, no throw", "P4",
+             {"result": "PO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "2B", "archetype": "pop_up", "angle": 61, "clearedFence": False}),
+            ("sac fly: decorative tag-up throw must NOT read as a putout at home, and gets the S prefix", "SF9",
+             {"result": "SacF", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "000", "runs": 1, "throw_order": "4"},
+             {"fielder": "RF", "archetype": "fly_ball", "angle": 69, "clearedFence": False}),
+            ("double sac fly (DSacF) also gets the S prefix", "SF7",
+             {"result": "DSacF", "outs_before": 0, "outs_after": 1, "obc_before": "001", "obc_after": "000", "runs": 1, "throw_order": "4"},
+             {"fielder": "LF", "archetype": "fly_ball", "angle": 29, "clearedFence": False}),
+            ("strikeout has no batted ball - no notation", None,
+             {"result": "K", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
+             None),
+            ("clean single - no putout, no notation", None,
+             {"result": "1B", "outs_before": 0, "outs_after": 0, "obc_before": "000", "obc_after": "000", "runs": 0},
+             {"fielder": "CF", "archetype": "single", "angle": 45, "clearedFence": False}),
+        ]
+        for label, want, m, flight in notation_cases:
+            got = page.evaluate("(a) => KMFlight.fieldingNotation(a.m, a.flight)", {"m": m, "flight": flight})
+            check(label, got, want)
+
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(
             """(a) => {

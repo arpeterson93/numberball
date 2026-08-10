@@ -585,7 +585,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    gold fill lands after the tokens do. */
 .dm-base.on{animation:baseLight 200ms ease var(--blight,0s) both;}
 @keyframes baseLight{
-  from{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  /* Matches .dm-base's own fixed (non-theme-adaptive) colors, not
+     --dot-off-fill/--dot-off-stroke (those are for the wheel/outs dots,
+     and go near-black in dark mode) - animation-fill-mode:both means this
+     "from" state is what actually paints during the --blight delay, so the
+     wrong pair here read as the base already being dark/occupied before any
+     runner had visibly reached it, in dark mode specifically (Alex's
+     report). */
+  from{fill:#f2f0e6;stroke:#9aa1ab;}
   to{fill:var(--gold);stroke:var(--gold);}
 }
 /* B3-a: tag at the bag - a caught-stealing/stolen-base attempt flashes the
@@ -599,15 +606,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    replace rather than compose with it. */
 .dm-base.steal-safe{animation:baseStealSafe 260ms ease var(--sflash,0s) both;}
 @keyframes baseStealSafe{
-  0%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  0%{fill:#f2f0e6;stroke:#9aa1ab;}
   40%{fill:var(--green);stroke:var(--green);}
   100%{fill:var(--gold);stroke:var(--gold);}
 }
 .dm-base.steal-out{animation:baseStealOut 260ms ease var(--sflash,0s) both;}
 @keyframes baseStealOut{
-  0%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  0%{fill:#f2f0e6;stroke:#9aa1ab;}
   40%{fill:var(--red);stroke:var(--red);}
-  100%{fill:var(--dot-off-fill);stroke:var(--dot-off-stroke);}
+  100%{fill:#f2f0e6;stroke:#9aa1ab;}
 }
 .dm-plate{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:2;}
 
@@ -634,6 +641,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    the ball itself was caught. */
 .ball.hit, .ball-trail.hit{stroke:var(--green);}
 .ball.out, .ball-trail.out{stroke:var(--red);}
+/* A ground ball out specifically goes neutral grey instead - the throw
+   itself (throw-out, below) now carries the red "who's out" verdict, so the
+   grounder's own trail doesn't also claim it. Two classes beats one, so this
+   wins the cascade over the plain .out rule above without needing !important. */
+.ball.out.grounded-out, .ball-trail.out.grounded-out{stroke:var(--muted);}
 
 /* C2/C3: small landing-point labels - a terse result abbreviation on every
    batted ball, plus feet on home runs only. Both land after the ball does,
@@ -681,12 +693,34 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    renders one .throw-line per out, each relaying from the previous throw's
    target base, staggered by --delay. Duration is per-line (--draw) rather
    than hardcoded, so THROW_DRAW_MS stays the single source of truth. */
+/* Dashed now, and coloured by verdict rather than a flat gold (Alex's call):
+   red for a throw that puts someone out, green for the rare safe one (a
+   tag-up run that scores anyway, or a successful steal) - see throwHtml/
+   stealThrowHtml for which is which. A fixed dash pattern (6 5) can't be
+   "drawn in" via stroke-dashoffset the way the ball-trail's solid line is -
+   dashoffset on a repeating pattern only slides which segments are on/off,
+   it can never grow the visible length, so the line used to just shimmer in
+   place instead of extending from the thrower to the base (Alex's report).
+   <line>'s own x1/y1/x2/y2 aren't CSS-animatable either (they never got
+   promoted off SVG's presentation-attribute-only list the way <rect>'s
+   x/y/width/height did), so the real reveal happens on a second element -
+   see throwLineHtml in app.js: a <rect> in its own <clipPath>, statically
+   (not CSS-)rotated to the line's own bearing, whose WIDTH is what actually
+   animates 0 -> --len. The dash pattern itself stays put on the <line>
+   underneath; the growing clip is what reveals it outward from the thrower.
+   The clip's own base rule has width:0 with no fallback, so reduced motion
+   (which drops the animation entirely - see below) needs its own explicit
+   full-width override, unlike a plain animation:none skip elsewhere. */
 .throw-line{
-  fill:none;stroke:var(--gold);stroke-width:2;stroke-linecap:round;
-  stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:throwDraw var(--draw,180ms) ease var(--delay) forwards;
+  fill:none;stroke-width:2;stroke-linecap:round;
+  stroke-dasharray:6 5;
 }
-@keyframes throwDraw{to{stroke-dashoffset:0;}}
+.throw-line.throw-out{stroke:var(--red);}
+.throw-line.throw-safe{stroke:var(--green);}
+.throw-clip-rect{
+  animation:throwClipGrow var(--draw,180ms) ease var(--delay) both;
+}
+@keyframes throwClipGrow{from{width:0;}to{width:var(--len);}}
 
 /* Position lives on .rn, opacity/scale on .rn-inner - one element cannot run
    two competing transform animations, and a scoring runner needs both a path
@@ -962,6 +996,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   display:inline-flex;gap:7px;font-family:ui-monospace,"SF Mono",Consolas,monospace;
   font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
 }
+/* Scorecard fielding notation ("6-4-3", "F8", "3U") - same muted/monospace
+   telemetry treatment as the flight readout above, not offense/defense
+   tinted like the result pill: it's a description of the play, not a
+   verdict. */
+.fielding-notation{
+  font-family:ui-monospace,"SF Mono",Consolas,monospace;
+  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
+}
 .itp-pill{
   font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
   color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);
@@ -973,13 +1015,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    screenshot: two circles in the empty foul-territory corners of the field
    graphic's own rectangle, above the play-result pill) - absolutely
    positioned against the wrap's bottom-left/bottom-right, not a row
-   underneath the diamond. See sceneFieldHtml. */
+   underneath the diamond. See sceneFieldHtml.
+   Pushed further out/down and shrunk from an earlier 33%/bottom:-2%/6%
+   (Alex's report: at some pitch/swing digit pairs the value label swings
+   round to the side of the ring facing the diamond and lands on the drawn
+   grass/dirt, worst right at the ~90 degree/3-o'clock label angle where
+   text runs furthest outward - see wheelLabelRadius in app.js, also
+   tightened). No amount of shrinking the label's own reach alone clears
+   that worst case without the ring's home-plate side sitting closer to the
+   corner than this to begin with - verified against real pitch/swing pairs
+   landing at every angle, not just the common ones. */
 .scene-diamond-wrap .wheel{
-  position:absolute;bottom:-2%;width:33%;display:flex;flex-direction:column;
+  position:absolute;bottom:-16%;width:24%;display:flex;flex-direction:column;
   align-items:center;gap:1px;
 }
-.scene-diamond-wrap .wheel:first-of-type{left:6%;}
-.scene-diamond-wrap .wheel:last-of-type{right:6%;}
+.scene-diamond-wrap .wheel:first-of-type{left:-4%;}
+.scene-diamond-wrap .wheel:last-of-type{right:-4%;}
 /* DIFF/HZ, drawn inside the ring itself now rather than an external label
    above it (Alex's call - the ring has the room once exit velo (was the
    center-small text) moved to sceneFlightReadoutHtml only). */
@@ -1060,6 +1111,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    sits on is a fixed real-field green, not a theme-adaptive tint, so
    there's no light/dark contrast difference left to compensate for. */
 .dm-mark{opacity:0.75;}
+/* Half-inning break (Alex's ask): the last out's own CF mark fades in place
+   to a "Mid Nth"/"End Nth" pill rather than the reel cutting straight to the
+   next team's mark on the following slide - see sceneFieldHtml's isHalfEnd.
+   CF_BREAK_CROSSFADE_MS (app.js) times this against the same slide's own
+   dwell, extended by CF_BREAK_BONUS_MS so the pill gets real reading time
+   before auto-advance. Fixed/non-theme-adaptive same as every other on-field
+   mark - the grass under it never changes with theme, so neither does this. */
+.dm-mark-fading{animation:cfMarkFadeOut 450ms ease var(--break-delay,0s) both;}
+@keyframes cfMarkFadeOut{from{opacity:0.75;}to{opacity:0;}}
+.dm-break-pill{opacity:0;animation:cfBreakPillIn 450ms ease var(--break-delay,0s) both;}
+@keyframes cfBreakPillIn{from{opacity:0;}to{opacity:1;}}
+.dm-break-pill rect{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:1.5;}
+.dm-break-pill text{
+  font-size:13px;font-weight:800;fill:#1a2029;text-anchor:middle;
+  dominant-baseline:middle;letter-spacing:0.3px;
+}
 .scene-detail .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;}
 
 .scene-ribbon{padding:10px 0 6px;}
@@ -1224,10 +1291,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-scorebug-state.new-half, .play-scene .result-pill,
   .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
-  .fielder, .throw-line,
+  .fielder, .throw-line, .throw-clip-rect,
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
-  .wheel-center-big, .wheel-center-small{animation:none;}
+  .wheel-center-big, .wheel-center-small,
+  .dm-mark-fading, .dm-break-pill{animation:none;}
   /* !important (physics-redesign plan Part 6.3 item 3): each play generates
      its own .ball.kmArc-<id> rule with the same 2-class specificity as
      .ball.clear here, inserted later in document order (a fresh <style>
@@ -1237,6 +1305,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
   .dm-base.on{fill:var(--gold);stroke:var(--gold);}
+  /* The half-inning break pill: end state is the pill fully in, the mark
+     fully faded - same "skip straight to the settled outcome" rule as
+     everything else here. */
+  .dm-mark-fading{opacity:0;}
+  .dm-break-pill{opacity:1;}
   .ball-label, .ball-dist{opacity:1;}
   .ball-rollout{opacity:0.6;}
   .ball-rollout-trail{stroke-dashoffset:0;}
@@ -1259,7 +1332,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   /* Ball at its landing point, fielder there, throw line drawn - never
      hidden, never frozen mid-flight (ball-flight-plan.md Stage 7b). */
   .ball-trail{stroke-dashoffset:0;}
-  .throw-line{stroke-dashoffset:0;}
+  .throw-clip-rect{width:var(--len);}
   .fielder{opacity:1;}
 }
 
