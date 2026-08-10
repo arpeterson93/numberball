@@ -276,7 +276,12 @@
     } else if (filters.result && m.result_category !== filters.result) {
       return false;
     }
-    if (filters.resultCode && m.result !== filters.resultCode) return false;
+    // Exact match against either the raw result code (GO, DP21, ...) or the
+    // play's own computed scorecard notation (4-6-3, F8, ...) - a fielding
+    // sequence isn't a fixed enum the way result codes are (see
+    // playFieldingNotation), so this can't be a lookup, only a per-play check.
+    if (filters.resultCode && m.result !== filters.resultCode &&
+      playFieldingNotation(m) !== filters.resultCode) return false;
     if (filters.outs !== null && (m.outs_before || 0) !== filters.outs) return false;
     if (filters.obc && String(m.obc_before || "000") !== filters.obc) return false;
     if (filters.league) {
@@ -2481,7 +2486,12 @@
     // there, not mid-flight. A cleared HR's true distance is often well
     // off-canvas, so its anchor is capped at the same fence+15 fade point
     // the ball itself stops at, not the real number.
-    var short = (data.meta.result_short || {})[m.result] || m.result;
+    // The scorecard fielding sequence (4-6-3, F8, 3U, ...) when there is
+    // one - a specific description of how THIS out was made, not just the
+    // general "Groundout"/"Double Play" category the result pill already
+    // says - falling back to the plain short code for anything fieldingNotation
+    // doesn't cover (clean hits, K/BB, an error-free non-putout play).
+    var short = fieldingNotation(m, flight) || (data.meta.result_short || {})[m.result] || m.result;
     var hasGroundPhase = !cleared && flight.fieldedDistFt != null && flight.fieldedDistFt > flight.distance;
     var labelPtFt = cleared ? landingPoint(FENCE_DEPTH_FT + 15, flight.angle)
       : (hasGroundPhase ? fieldedPoint(flight) : { x: flight.x, y: flight.y });
@@ -2788,6 +2798,35 @@
       return nums[0] + "U";
     }
     return nums.join("-");
+  }
+
+  // fieldingNotation needs a resolved flight (fielder assigned, the same
+  // GROUND_ARCHETYPES/CAUGHT_IN_AIR resolver dispatch playSceneHtml runs
+  // before ever calling it) - but the Result search box (matches()/
+  // renderResultCodeSuggest) needs an answer for every play in the current
+  // pool, not just whichever one is on screen. Duplicates playSceneHtml's
+  // small dispatch block rather than threading a "give me the resolved
+  // flight" call through it, and memoises on the play object itself (data.
+  // moments/playsBySession rows are stable, reused across renders) so
+  // typing in the search box only pays this once per play ever touched, not
+  // once per keystroke.
+  function playFieldingNotation(m) {
+    if (Object.prototype.hasOwnProperty.call(m, "_fieldingNotation")) return m._fieldingNotation;
+    var flight = flightParams(m, data.meta.flight);
+    if (flight) {
+      var hand = effectiveHand(m.batter_hand);
+      var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
+      if (GROUND_ARCHETYPES[flight.archetype] && wasOut) {
+        resolveGrounderInterception(m, flight, hand);
+      } else if (wasOut && CAUGHT_IN_AIR[flight.archetype]) {
+        applyAirPositionOverride(m, flight, hand);
+      } else if (!flight.clearedFence) {
+        resolveHitPickup(flight);
+      }
+    }
+    var notation = fieldingNotation(m, flight);
+    m._fieldingNotation = notation;
+    return notation;
   }
 
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
@@ -3960,14 +3999,6 @@
       '<div class="scene-play-line">' +
         '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
           escapeHtml(resultLabel) + "</span>" +
-        // Scorecard shorthand ("6-4-3", "F8", "3U") for the fielders behind
-        // the result pill's plain English - right after it, before the
-        // technical DIFF/flight chips, since it's still describing the
-        // result itself rather than the underlying roll.
-        (function () {
-          var notation = fieldingNotation(m, flight);
-          return notation ? '<span class="fielding-notation">' + escapeHtml(notation) + "</span>" : "";
-        })() +
         // Cheap and worth doing (Stage 4d): a home run that stayed inside the
         // park is rare enough that without a callout it reads as a glitch.
         (flight && m.result === "HR" && !flight.clearedFence
@@ -4892,7 +4923,13 @@
   // Every distinct raw result code (not the collapsed "Hitting"/"Pitching"
   // category, and not result_short's grouping - e.g. 1B/1BWH/1BWH2 are three
   // separate options here) - result_labels' own keys are already the
-  // complete set the build ships, so no separate list to keep in sync.
+  // complete set the build ships, so no separate list to keep in sync. Also
+  // offers scorecard fielding notations (4-6-3, F8, ...) matching the typed
+  // text - unlike result codes these aren't a fixed enum, so they're pulled
+  // live from whichever plays are in the current pool (playFieldingNotation
+  // memoises per play, so this stays cheap after the first pass touches a
+  // given play). Raw-code matches fill first, notation matches top up
+  // whatever's left of the limit.
   function renderResultCodeSuggest(query) {
     var box = $("result-code-suggest");
     var needle = query.trim().toLowerCase();
@@ -4902,19 +4939,36 @@
       return;
     }
     var labels = data.meta.result_labels || {};
-    var matches = Object.keys(labels).filter(function (code) {
+    var codeMatches = Object.keys(labels).filter(function (code) {
       return code.toLowerCase().indexOf(needle) !== -1 ||
         (labels[code] || "").toLowerCase().indexOf(needle) !== -1;
     }).sort().slice(0, RESULT_CODE_SUGGEST_LIMIT);
+
+    var notationMatches = [];
+    if (codeMatches.length < RESULT_CODE_SUGGEST_LIMIT) {
+      var seen = {};
+      pool().forEach(function (m) {
+        var fn = playFieldingNotation(m);
+        if (!fn || seen[fn] || labels[fn]) return;
+        seen[fn] = true;
+        if (fn.toLowerCase().indexOf(needle) !== -1) notationMatches.push(fn);
+      });
+      notationMatches.sort();
+    }
+    var matches = codeMatches.map(function (code) {
+      return { code: code, label: labels[code] || "" };
+    }).concat(notationMatches.slice(0, RESULT_CODE_SUGGEST_LIMIT - codeMatches.length).map(function (fn) {
+      return { code: fn, label: "Fielding sequence" };
+    }));
     if (!matches.length) {
       box.innerHTML = '<div class="player-suggest-empty">No results match.</div>';
       box.hidden = false;
       return;
     }
-    box.innerHTML = matches.map(function (code) {
-      return '<div class="player-suggest-row" data-result-code="' + escapeHtml(code) + '">' +
-        "<strong>" + escapeHtml(code) + "</strong>" +
-        '<span class="team">' + escapeHtml(labels[code] || "") + "</span></div>";
+    box.innerHTML = matches.map(function (row) {
+      return '<div class="player-suggest-row" data-result-code="' + escapeHtml(row.code) + '">' +
+        "<strong>" + escapeHtml(row.code) + "</strong>" +
+        '<span class="team">' + escapeHtml(row.label) + "</span></div>";
     }).join("");
     box.hidden = false;
   }

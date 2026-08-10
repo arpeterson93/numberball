@@ -996,14 +996,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   display:inline-flex;gap:7px;font-family:ui-monospace,"SF Mono",Consolas,monospace;
   font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
 }
-/* Scorecard fielding notation ("6-4-3", "F8", "3U") - same muted/monospace
-   telemetry treatment as the flight readout above, not offense/defense
-   tinted like the result pill: it's a description of the play, not a
-   verdict. */
-.fielding-notation{
-  font-family:ui-monospace,"SF Mono",Consolas,monospace;
-  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
-}
 .itp-pill{
   font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
   color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);

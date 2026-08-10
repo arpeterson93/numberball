@@ -98,7 +98,18 @@ def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
         "1BWH2": (bip["events"] == "single") & bip["hit_location"].isin([7, 8, 9]) & (bip["launch_speed_angle"] == 5),
         "1BWH": (bip["events"] == "single") & bip["hit_location"].isin([7, 8, 9]) & (bip["launch_speed_angle"] == 6),
 
-        "2B": (bip["events"] == "double") & bip["launch_speed_angle"].isin([1, 2, 3, 4]),
+        # 2B is every real double, contact quality unfiltered (Alex's call -
+        # unlike 1B/1BWH2/1BWH's three-way split above, doubles only split
+        # two ways: 2BWH is deliberately the narrow, well-hit-only carve-out,
+        # and 2B is meant to be the general case, not "every double that
+        # ISN'T well-hit." Restricting it to launch_speed_angle 1-4 pulled
+        # its own la_ideal down to a weak-contact-only 13deg (vs. 20deg for
+        # 2BWH) - since MLN's own play history calls 2B roughly 8x as often
+        # as 2BWH, nearly every double an Alex sees was drawn from that
+        # skewed, weak/flare-only sample. Pooling in every contact quality
+        # (including the 5/6 solid-contact/barrel ones 2BWH already covers)
+        # makes 2B's distribution the real, representative one instead.
+        "2B": (bip["events"] == "double"),
         "2BWH": (bip["events"] == "double") & bip["launch_speed_angle"].isin([5, 6]),
 
         "3B": (bip["events"] == "triple"),
