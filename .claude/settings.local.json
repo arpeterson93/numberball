@@ -35,7 +35,8 @@
       "Bash(rm -f \".~lock.import_BRC.csv#\")",
       "Bash(git pull *)",
       "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" \"C:\\\\Users\\\\Alex\\\\.claude\\\\jobs\\\\4731015e\\\\tmp\\\\compute_ranges.py\")",
-      "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" ball_flight_test.py)"
+      "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" ball_flight_test.py)",
+      "WebFetch(domain:www.mlb.com)"
     ]
   }
 }

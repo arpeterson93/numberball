@@ -287,12 +287,17 @@ def load_reference(sheet_id: str) -> dict:
     by_team_id = {t["team_id"]: t for t in teams if t.get("team_id")}
     by_abbrev = {t["abbrev"]: t for t in teams if t.get("abbrev")}
     by_player_id = {p["player_id"]: p for p in players if p.get("player_id")}
+    # Reverse of player_id_to_name (pages/1_Games.py's _sync_plays) - the
+    # league enforces no duplicate names across different player_ids, so a
+    # plain dict lookup is safe (no fuzzy matching / collision handling).
+    name_to_id = {p["name"]: p["player_id"] for p in players if p.get("name") and p.get("player_id")}
     return {
         "teams": teams,
         "players": players,
         "team_by_id": by_team_id,
         "team_by_abbrev": by_abbrev,
         "player_by_id": by_player_id,
+        "name_to_id": name_to_id,
     }
 
 
@@ -326,6 +331,64 @@ def _player_view(ref: dict, player_id: int | None) -> dict:
     }
 
 
+def _defense_entry(ref: dict, player_id: int | None, fallback_name: str | None = None) -> list[str] | None:
+    """[full_name, last_name] for one resolved defensive position, or None
+    when there's nothing to show. Both names come from _player_view (never
+    split client-side - see build_moment's defense docstring) except when a
+    Lineups-tab name has no matching player_id (traded/released player off
+    the current roster tab) - there, fall back to the raw sheet name for
+    both slots rather than dropping the label entirely.
+    """
+    if player_id:
+        v = _player_view(ref, player_id)
+        return [v["name"], v["last_name"]]
+    if fallback_name:
+        return [fallback_name, fallback_name]
+    return None
+
+
+def _defense_alignment_for_play(ref: dict, play: dict, half: str, is_final: bool,
+                                 home_timeline: dict | None, away_timeline: dict | None,
+                                 game_lineup_rows: list[dict]) -> dict[str, list[str]]:
+    """One play's full defense dict - P/C straight from the play row (finding
+    7: both are filled on every play row, authoritatively, and Path B could
+    never see P anyway - pitchers don't bat in this DH league), the other 7
+    positions from whichever path this game uses. Always resolves the full
+    7-position map, never narrowed to just the positions this specific play's
+    fieldingNotation chain needs - which positions a slide needs is a
+    client-side (app.js) decision made at render time from the physics, not
+    something this build-time step can predict.
+    """
+    defense: dict[str, list[str]] = {}
+    p_entry = _defense_entry(ref, play.get("pitcher_id"))
+    if p_entry:
+        defense["P"] = p_entry
+    c_entry = _defense_entry(ref, play.get("catcher_id"))
+    if c_entry:
+        defense["C"] = c_entry
+
+    _, seq = utils.split_play_num(play["play_num"])
+    defending_is_home = (half == "top")
+
+    if is_final:
+        timeline = home_timeline if defending_is_home else away_timeline
+        ids = utils.timeline_alignment_at(timeline or {}, seq, positions=utils.ALIGNMENT_POSITIONS)
+        for pos, pid in ids.items():
+            entry = _defense_entry(ref, pid)
+            if entry:
+                defense[pos] = entry
+    else:
+        def_key = play.get("home") if defending_is_home else play.get("away")
+        team_abbrev = _team_view(ref, def_key)["abbrev"]
+        alignment = utils.lineup_alignment_at(game_lineup_rows, team_abbrev, seq, ref["name_to_id"])
+        for pos, v in alignment.items():
+            entry = _defense_entry(ref, v["player_id"], fallback_name=v["name"])
+            if entry:
+                defense[pos] = entry
+
+    return defense
+
+
 # ── per-game replay ───────────────────────────────────────────────────────────
 
 def _runs_on_play(play: dict, nxt: dict | None, game: dict | None) -> int:
@@ -350,14 +413,11 @@ def _runs_on_play(play: dict, nxt: dict | None, game: dict | None) -> int:
 
 
 def _game_is_final(game: dict | None) -> bool:
-    """Has this game actually finished?
-
-    The Games tab's end_time and last_play both track live and keep updating
-    while a game is in progress, so neither can stand in for completion -
-    win_team is the field that only appears once the game is over.
+    """Has this game actually finished? Delegates to utils.game_is_final -
+    the repo's one definition (KEY_MOMENTS.md), so there's exactly one place
+    this logic lives.
     """
-    return bool(game and game.get("win_team") and game.get("away_score") is not None
-                and game.get("home_score") is not None)
+    return utils.game_is_final(game)
 
 
 def _is_final_play(play: dict, game: dict | None, is_last_in_data: bool) -> bool:
@@ -533,7 +593,8 @@ def _featured(ref: dict, state: dict, off: dict, deff: dict) -> dict:
             "counterpart": counterpart}
 
 
-def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> dict:
+def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
+                  defense: dict[str, list[str]] | None = None) -> dict:
     play = state["play"]
     result = play.get("result") or ""
     game_code = play["game_code"]
@@ -656,6 +717,17 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str]) -> 
         "tags": tags,
         "is_half_inning_final": state["outs_after"] == 3,
         "is_game_final": state["game_ended"],
+
+        # Who's playing each defensive position, as {"SS": [full, last], ...} -
+        # in-progress games from a live Lineups-tab read (as of this build),
+        # completed games reconstructed from plays.pos (fielding-position-
+        # implementation-plan.md). Field labels want last names; the single-
+        # fielder text-line template wants the full name - both come from
+        # _player_view, never split client-side. Omitted entirely (not an
+        # empty dict) when nothing resolved, so the client's existing
+        # missing-data handling (generic anchor + position code, no line)
+        # needs no special casing.
+        **({"defense": defense} if defense else {}),
     }
 
 
@@ -683,14 +755,49 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         p["diff"] = utils.circular_diff(pitch, swing) if pitch is not None and swing is not None else None
         by_game.setdefault(p["game_code"], []).append(p)
 
+    # Lineups is only ever needed for in-progress games (Decision 1: never
+    # rely on it for completed games) - fetched at most once per build run,
+    # lazily, the first time a non-final game is actually encountered below.
+    lineups_by_game: dict[str, list[dict]] | None = None
+
     # Every play is scored and tagged; is_key_moment records which ones qualify.
     # The walk has to happen anyway to get WPA, so keeping the non-qualifying
     # rows costs nothing and is what the favorites view browses.
     rows: list[dict] = []
     for game_code in sorted(by_game):
         game = game_by_code.get(game_code)
-        for state in replay_game(by_game[game_code], game):
-            rows.append(build_moment(ref, state, game, moment_tags(state)))
+        game_plays = by_game[game_code]
+        is_final = utils.game_is_final(game)
+
+        # Path B: reconstruct once per team per game (not once per play - a
+        # fresh reconstruction per play would be quadratic in play count).
+        # Each team's own batting rows are a simple half filter, per Decision 3.
+        home_timeline = away_timeline = None
+        game_lineup_rows: list[dict] = []
+        if is_final:
+            home_timeline = utils.reconstruct_defense_timeline([
+                (utils.split_play_num(p["play_num"])[1], p.get("batter_id"), p.get("pos"),
+                 p.get("play_type"), p.get("result"))
+                for p in game_plays if p.get("half") == "bottom"
+            ])
+            away_timeline = utils.reconstruct_defense_timeline([
+                (utils.split_play_num(p["play_num"])[1], p.get("batter_id"), p.get("pos"),
+                 p.get("play_type"), p.get("result"))
+                for p in game_plays if p.get("half") == "top"
+            ])
+        else:
+            if lineups_by_game is None:
+                lineups_by_game = {}
+                for row in utils.read_lineups_from_sheet(sheet_id):
+                    lineups_by_game.setdefault(row["game_id_short"], []).append(row)
+            game_lineup_rows = lineups_by_game.get((game or {}).get("game_id_short"), [])
+
+        for state in replay_game(game_plays, game):
+            play = state["play"]
+            defense = _defense_alignment_for_play(
+                ref, play, state["half"], is_final, home_timeline, away_timeline, game_lineup_rows,
+            )
+            rows.append(build_moment(ref, state, game, moment_tags(state), defense))
 
     rows.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
 

@@ -537,7 +537,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    widescreen) - the diamond is the one element big enough that shaving a
    few px off its own clearance is barely noticeable, unlike doing the
    same to the wheels/ribbon spacing. */
-.scene-scorebug{margin-bottom:-4px;}
+.scene-scorebug{margin-bottom:-1px;}
+/* The result pill, seated right under the leverage meter and above the
+   defense text line (Alex's spec) - everything else that used to share its
+   row (diff pill, LA/EV readout) stayed behind in .scene-play-line, below
+   the field. Same centered-flex layout as that row for a consistent look. */
+.scene-result-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;}
+/* The defense text line (Decision 7) - one short muted line between the
+   scorebug and the field, sized like .scene-recap-top's secondary text. A
+   fixed min-height keeps the container's own presence from shifting the
+   layout between plays that have a line and plays that don't (Decision 4's
+   graceful-empty case) - it's still an empty box, just never a jump. */
+.scene-defense{
+  min-height:13px;text-align:center;font-size:10.5px;font-weight:600;
+  color:var(--muted);
+}
 .scene-top{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:-4px;}
 
 /* position:relative is load-bearing: the watermark below is absolutely
@@ -657,6 +671,23 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 .ball-dist{font-size:8.5px;font-weight:700;fill:var(--muted);}
 @keyframes labelIn{to{opacity:1;}}
+
+/* Fielder name labels (Decisions 5-6) - same halo/pop-in treatment AND same
+   size as .ball-label (Alex's call - these used to run a shade smaller, but
+   the fielder order/name and the on-field hit-result text should read as
+   one consistent label system, not two different sizes). */
+.fielder-name{
+  font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;
+  stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
+  text-anchor:middle;
+  opacity:0;animation:labelIn 260ms ease var(--delay) both;
+}
+/* The original fielder's stacked label (result above name, both inside the
+   same <text> as tspans - inherits fielder-name's fill/stroke/halo/pop-in).
+   Same size as the name line below it (Alex's call - a smaller result line
+   read as an afterthought next to the name), just a touch lighter in weight/
+   opacity to keep the name as the visual anchor of the two. */
+.fielder-result{font-weight:600;opacity:0.85;}
 
 /* C4: a hit that stayed in the park carries a bit further before the fielder
    gets to it - a second, dimmer trail past the landing point, so "where it
@@ -978,7 +1009,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .mu-name > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mu-vs{font-size:11px;font-weight:700;color:var(--muted);align-self:flex-end;padding-bottom:3px;}
 
-.scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;}
+/* min-height reserves the LA/EV readout's own rendered height (measured:
+   14px) even when there's nothing to show here - a walk/strikeout/steal has
+   no flight (sceneFlightReadoutHtml returns "") and usually no diff pill
+   either, and without this the row collapses to 0 and every other element
+   below it hops up a notch on exactly those plays. */
+.scene-play-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:7px;font-size:15px;min-height:14px;}
 .scene-play-line .player-name{font-weight:800;}
 /* The result is the headline of the slide - it lands with a bounce rather than
    just appearing. Scoped to the scene so the main feed's pills stay static. */
@@ -1018,7 +1054,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    corner than this to begin with - verified against real pitch/swing pairs
    landing at every angle, not just the common ones. */
 .scene-diamond-wrap .wheel{
-  position:absolute;bottom:-16%;width:24%;display:flex;flex-direction:column;
+  position:absolute;bottom:-16%;width:40%;display:flex;flex-direction:column;
   align-items:center;gap:1px;
 }
 .scene-diamond-wrap .wheel:first-of-type{left:-4%;}
@@ -1119,7 +1155,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:13px;font-weight:800;fill:#1a2029;text-anchor:middle;
   dominant-baseline:middle;letter-spacing:0.3px;
 }
-.scene-detail .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;}
+/* Now a direct .play-scene child, between the defense line and the field
+   (Alex's call - moved out of .scene-detail, which used to sit below the
+   field) - matched by ancestor rather than direct-child so it still works
+   the same both nested (desktop) and flattened via display:contents
+   (mobile, see the max-width:600px block below). .scene-detail used to hand
+   this centering down via its own align-items:center/text-align:center -
+   .play-scene doesn't (it's a plain flex column, full-width children), so
+   this now centers itself explicitly, same as .scene-defense right above it
+   does for its own row. */
+.play-scene .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;text-align:center;}
 
 .scene-ribbon{padding:10px 0 6px;}
 /* Exactly the plot box, and the only positioning context the marker sees. */
@@ -1220,15 +1265,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      .catchup-slide's own 37px nav gutters leave clear - smaller/narrower on
      this axis so the wheels (pinned to the wrap's own edges) can't reach
      into that gutter and collide with the prev/next arrows. */
-  .scene-diamond-wrap .wheel{width:23%;}
-  .scene-diamond-wrap .wheel:first-of-type{left:9%;}
-  .scene-diamond-wrap .wheel:last-of-type{right:9%;}
+  .scene-diamond-wrap .wheel{width:42%;}
+  .scene-diamond-wrap .wheel:first-of-type{left:-5%;}
+  .scene-diamond-wrap .wheel:last-of-type{right:-5%;}
   .scene-play-line{order:3;font-size:14.5px;}
-  /* Beneath the result pill, above the pitching/at-bat matchup - same order
-     as every other width (Alex's spec). This mobile reflow predates that
-     reorder and had never been updated to match, leaving "Player scores"
-     stranded after the matchup here specifically. */
-  .scene-detail .scoring-line{order:4;}
+  /* scoring-line no longer needs an order override here - it now lives
+     outside .scene-top/.scene-detail entirely (a direct .play-scene child,
+     between the defense line and the diamond), so it keeps the default
+     order:0 every other pre-field row already uses and never gets pulled
+     into this reflow in the first place. */
   .scene-matchup{order:5;}
   .scene-recap{order:0;}
   .scene-scorebug{order:0;}
@@ -1283,7 +1328,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-scorebug-state.new-half, .play-scene .result-pill,
   .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
-  .fielder, .throw-line, .throw-clip-rect,
+  .fielder, .fielder-name, .throw-line, .throw-clip-rect,
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small,
@@ -1302,7 +1347,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      everything else here. */
   .dm-mark-fading{opacity:0;}
   .dm-break-pill{opacity:1;}
-  .ball-label, .ball-dist{opacity:1;}
+  .ball-label, .ball-dist, .fielder-name{opacity:1;}
   .ball-rollout{opacity:0.6;}
   .ball-rollout-trail{stroke-dashoffset:0;}
   .wheel-arc{stroke-dashoffset:0;}

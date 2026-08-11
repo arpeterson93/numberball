@@ -2308,6 +2308,17 @@
     flight.fieldedDistFt = flight.distance + pickupFt;
     flight.groundTimeS = groundTimeS;
     flight.groundPath = gp;
+    // Alex's report: whoever's credited with fielding a HIT should be
+    // whoever's actually closest to where the ball comes to REST after its
+    // rollout, not the flightParams-time guess off the raw landing point
+    // (before any roll ever happened) - the two can name a completely
+    // different fielder once a roll carries the ball well past its landing
+    // spot (a single that lands in front of an OF but rolls into the
+    // corner, say). Every consumer of flight.fielder for a non-out ball
+    // (involvedPositions/"Fielded by", fielderTokensHtml's convergence
+    // point) reads this same corrected value.
+    var restPt = groundDirPoint(flight, pickupFt);
+    flight.fielder = nearestFielder(restPt.x, restPt.y);
   }
 
   // A physically low trajectory reads as "ground" for CSS purposes - the old
@@ -2459,6 +2470,32 @@
     return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1] };
   }
 
+  // True when fielderNameLabelsHtml (below) will stack the same short/
+  // notation text over the original fielder's name - i.e. a name actually
+  // resolved for them (m.defense). ballResultLabelHtml's own landing-point
+  // label checks this so the identical string doesn't render twice on screen
+  // (once at the ball's own landing/fielded point, once stacked over the
+  // name) - when it's true, the fielder label already carries that text and
+  // this one is redundant. False whenever the fielder label can't show a
+  // name (Decision 4's partial-data case), so the notation isn't lost
+  // entirely. Only ever true on an out now (Alex's call, above) -
+  // fieldingChainDetail is null on every hit, so a hit's own result label
+  // always renders instead of getting suppressed here.
+  function fielderLabelHasResult(m, flight) {
+    if (!flight || flight.clearedFence || !flight.fielder) return false;
+    var detail = fieldingChainDetail(m, flight);
+    if (!detail) return false;
+    return !!(m.defense && m.defense[detail[0].pos]);
+  }
+
+  // Same anchor-offset bump as the fielder-name labels above (Alex's
+  // report: these were landing right on the throw/fielding convergence
+  // point too) - a bit smaller since this one only ever stacks up to two
+  // short lines, not a name plus a result.
+  var BALL_LABEL_DX = 9;
+  var BALL_LABEL_DY = -11;
+  var BALL_DIST_DY = 17;
+
   function ballFlightHtml(m, flight) {
     if (!flight) return "";
     var cleared = flight.clearedFence;
@@ -2479,7 +2516,20 @@
     var groundedOut = wasOut && !!GROUND_ARCHETYPES[flight.archetype];
     var cls = (cleared ? " clear" : " land") + (flight.apexFt < GROUND_APEX_THRESHOLD_FT ? " ground" : " air") +
               (wasOut ? " out" : " hit") + (groundedOut ? " grounded-out" : "");
+    return arc.style +
+      '<path class="ball-trail' + cls + " " + arc.name + '" d="' + arc.pathD + '" style="' + trailVars + '"></path>' +
+      '<circle class="ball' + cls + " " + arc.name + '" r="' + BALL_R + '" style="' + moveVars + '"></circle>';
+  }
 
+  // Split out of ballFlightHtml (Alex's report) so the render order in
+  // sceneFieldHtml can layer this - and fielderNameLabelsHtml - ON TOP of
+  // the throw lines instead of underneath them; both label sets converge
+  // on the same points the throw lines draw to/from, so drawn first they
+  // used to sit under the throw's dashed stroke.
+  function ballResultLabelHtml(m, flight) {
+    if (!flight) return "";
+    var cleared = flight.clearedFence;
+    var dur = ballTravelMs(flight);
     // Labels sit next to wherever the ball actually ends up - the fielded/
     // rest point when there is a ground phase, otherwise the landing/catch
     // point itself - and only pop in once the ball has actually arrived
@@ -2493,24 +2543,51 @@
     // doesn't cover (clean hits, K/BB, an error-free non-putout play).
     var short = fieldingNotation(m, flight) || (data.meta.result_short || {})[m.result] || m.result;
     var hasGroundPhase = !cleared && flight.fieldedDistFt != null && flight.fieldedDistFt > flight.distance;
-    var labelPtFt = cleared ? landingPoint(FENCE_DEPTH_FT + 15, flight.angle)
-      : (hasGroundPhase ? fieldedPoint(flight) : { x: flight.x, y: flight.y });
-    var labelSvg = ftToSvg(labelPtFt.x, labelPtFt.y);
+    // A cleared HR's label used to anchor at landingPoint(FENCE_DEPTH_FT+15,
+    // flight.angle) - a geometrically "clean" point at exactly 390ft along
+    // the play's nominal HZ angle - but that's not actually where the ball
+    // stops on screen (Alex's report). Two things pull them apart: (1) the
+    // ball's own trail is cut by fenceTruncatedSamples at the first REAL
+    // sample crossing 390ft, which can land noticeably past 390 depending on
+    // sample spacing, and off the nominal-angle bearing entirely once
+    // sidespin drift (clampFairTerritory) has bent the true flight path
+    // away from it; (2) that trimmed sample is still airborne (nonzero z) at
+    // fence depth, and ftToSvg flattens z=0, while the ball marker itself
+    // projects through the real height (ballArcHtml's projectFt) - so even
+    // an identical (x,y) would land in a different screen spot. Reusing the
+    // exact same fenceTruncatedSamples(...) endpoint, projected the same way
+    // (projectFt with its real z), pins the label to wherever the ball
+    // marker itself actually stops - not a separate idealized guess. The
+    // distance label below inherits this same anchor, so fixing this one
+    // point fixes both.
+    var labelSvg;
+    if (cleared) {
+      var truncated = fenceTruncatedSamples(flight.samples);
+      var endSample = truncated[truncated.length - 1];
+      labelSvg = projectFt(endSample.x, endSample.y, endSample.z);
+    } else {
+      var labelPtFt = hasGroundPhase ? fieldedPoint(flight) : { x: flight.x, y: flight.y };
+      labelSvg = ftToSvg(labelPtFt.x, labelPtFt.y);
+    }
     var labelDelay = hasGroundPhase ? fieldedMs(flight) : dur;
-    // C2: a short abbreviation next to wherever the ball ended up.
-    var label = '<text class="ball-label" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
-        '" dx="7" dy="-4" style="--delay:' + labelDelay + 'ms">' + escapeHtml(short) + "</text>";
+    // C2: a short abbreviation next to wherever the ball ended up - skipped
+    // when the fielder-name label is about to show this exact same text
+    // stacked over the fielder's own name (fielderLabelHasResult) - one
+    // label, not two saying the same thing. On a HIT this is always the
+    // rollout rest point (fieldedPoint, via resolveHitPickup) - never a
+    // fielder's own fixed anchor - since fielderNameLabelsHtml no longer
+    // labels hits at all (Alex's call, above).
+    var label = fielderLabelHasResult(m, flight) ? "" :
+      '<text class="ball-label" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
+        '" dx="' + BALL_LABEL_DX + '" dy="' + BALL_LABEL_DY + '" style="--delay:' + labelDelay + 'ms">' + escapeHtml(short) + "</text>";
     // C3: distance next to every home run's landing point, cleared-the-fence
     // ones included (the true number, even though the marker itself stops
     // at the wall for those) - stacked below the result label at the same
     // anchor, not on top of it.
     var distLabel = m.result === "HR" ?
       '<text class="ball-dist" x="' + labelSvg.x.toFixed(1) + '" y="' + labelSvg.y.toFixed(1) +
-        '" dx="7" dy="11" style="--delay:' + labelDelay + 'ms">' + Math.round(flight.distance) + " ft</text>" : "";
-    return arc.style +
-      '<path class="ball-trail' + cls + " " + arc.name + '" d="' + arc.pathD + '" style="' + trailVars + '"></path>' +
-      '<circle class="ball' + cls + " " + arc.name + '" r="' + BALL_R + '" style="' + moveVars + '"></circle>' +
-      label + distLabel;
+        '" dx="' + BALL_LABEL_DX + '" dy="' + BALL_DIST_DY + '" style="--delay:' + labelDelay + 'ms">' + Math.round(flight.distance) + " ft</text>" : "";
+    return label + distLabel;
   }
 
   function fielderTokensHtml(flight) {
@@ -2526,6 +2603,146 @@
                "--tx:" + to.x.toFixed(1) + "px;--ty:" + to.y.toFixed(1) + "px;" +
                "--delay:" + fieldedMs(flight) + "ms";
     return '<g class="fielder" style="' + vars + '"><circle r="' + FIELDER_R + '"></circle></g>';
+  }
+
+  // Field name labels (Decisions 5-6): only the fielder(s) involved in THIS
+  // play get a name label - not all 9 FIELDER_ANCHORS_FT positions every
+  // slide, which would risk real overlap among the close infield anchors.
+  // Pop in on the same timing as the ball label.
+  //
+  // Outs only (Alex's call): a name label anchored at a fielder's fixed
+  // depth spot reads fine for an out (there's really only one meaningful
+  // point - where they made the play), but a HIT already gets its own
+  // result label planted at the true rollout rest point (ballResultLabelHtml)
+  // - a second, fielder-anchored label for the same ball just duplicates
+  // that near a fixed anchor that has nothing to do with where the ball
+  // actually ended up, which is what produced results like "3B" floating on
+  // the warning track for a ball that really rolled out to left-center.
+  // fieldingChainDetail itself is already out-only (returns null whenever
+  // outs_after<=outs_before), so gating on `detail` alone is sufficient.
+  //
+  // Two label shapes for that out case, by role (Alex's refinement on
+  // Decision 5):
+  //   - The ORIGINAL fielder (the one who actually touched the ball where
+  //     they were standing - fieldingChainDetail's base===null entry) labels
+  //     stacked two lines: the fielding result on top, their name below -
+  //     the same short/notation text the ball's own landing-point label
+  //     already shows, so a name near the fielded point (very common on a
+  //     routine grounder or comebacker) reads as one unit instead of two
+  //     overlapping labels. Anchor point depends on how they got the out:
+  //     a caught fly/pop/line drive labels at the actual catch point (where
+  //     the ball really was, same point ballFlightHtml's own label uses for
+  //     an air catch) - a ground ball out still labels at the fielder's own
+  //     fixed depth anchor, since "where it was fielded" is much less
+  //     precise for a rolling grounder.
+  //   - A RECEIVING fielder (every later chain entry - someone taking a
+  //     relay throw) labels at the BASE they're covering, not their nominal
+  //     fielding position - a 2B fielder taking a throw at the bag is
+  //     standing on second, not out at their normal depth.
+  var MIN_LABEL_GAP_PX = 34;  // tune-by-eye, Stage 5d
+  // How far labels get pushed off their anchor point (Alex's report: names
+  // and result labels were landing right on top of the throw lines that
+  // converge on the very same fielding/base/receiving point) - bumped up
+  // from the original flat -6px single-line offset; the stacked two-line
+  // label's own first tspan gets a bigger nudge since the name tspan below
+  // it sits even further from the anchor.
+  var LABEL_ANCHOR_OFFSET_PX = 14;
+  var LABEL_ANCHOR_OFFSET_STACKED_PX = 19;
+
+  function fielderNameLabelsHtml(m, flight) {
+    var defense = m.defense || {};
+    var detail = fieldingChainDetail(m, flight);
+    var entries;
+    if (detail) {
+      // A chain can revisit a position non-adjacently (3-6-3) - one label
+      // per person, keeping their FIRST touch (their real role: original
+      // fielder beats a later return throw to the same guy).
+      var seen = {};
+      entries = [];
+      detail.forEach(function (e) {
+        if (seen[e.pos]) return;
+        seen[e.pos] = 1;
+        entries.push(e);
+      });
+    } else {
+      entries = [];  // over-the-fence HR; K/BB/steals and everything else with no flight
+    }
+    if (!entries.length) return "";
+
+    var hasGroundPhase = !!flight && !flight.clearedFence &&
+      flight.fieldedDistFt != null && flight.fieldedDistFt > flight.distance;
+    var delay = hasGroundPhase ? fieldedMs(flight) : ballTravelMs(flight);
+    // Same short/notation text ballFlightHtml's own landing-point label
+    // computes - deliberately identical value, not just similar wording.
+    var resultShort = fieldingNotation(m, flight) || (data.meta.result_short || {})[m.result] || m.result;
+    // A caught fly/pop/line out was resolved by a real chain (detail !=
+    // null) - only there does flight.archetype describe a completed out,
+    // never the non-out single-fielder fallback below.
+    var isCaughtOut = !!(detail && CAUGHT_IN_AIR[flight.archetype]);
+
+    var labels = [];
+    entries.forEach(function (e) {
+      var nameEntry = defense[e.pos];
+      // Partial live-game data (Decision 4) - nothing renders for this
+      // position, same as today's generic-anchor-only behaviour.
+      if (!nameEntry) return;
+      var pt;
+      if (e.base === null) {
+        if (isCaughtOut) {
+          pt = ftToSvg(flight.x, flight.y);
+        } else {
+          var anchor = FIELDER_ANCHORS_FT[e.pos];
+          if (!anchor) return;
+          pt = ftToSvg(anchor.x, anchor.y);
+        }
+        labels.push({ x: pt.x, y: pt.y, lines: [resultShort, nameEntry[1]] });
+      } else {
+        pt = e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base];
+        if (!pt) return;
+        labels.push({ x: pt.x, y: pt.y, lines: [nameEntry[1]] });
+      }
+    });
+    if (!labels.length) return "";
+
+    // Proximity offset (Decision 6): a simple pairwise sweep, not a general
+    // layout solver - the chain caps this at 1-3 labels, usually 1-2.
+    // Distance is checked against each sweep's current (possibly
+    // already-nudged) positions, but the push direction always comes from
+    // the pair's ORIGINAL anchors so it can't flip mid-sweep if two labels
+    // have already crossed.
+    var origins = labels.map(function (l) { return { x: l.x, y: l.y }; });
+    for (var sweep = 0; sweep < 2; sweep++) {
+      for (var i = 0; i < labels.length; i++) {
+        for (var j = i + 1; j < labels.length; j++) {
+          var a = labels[i], b = labels[j];
+          var dx = b.x - a.x, dy = b.y - a.y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d > 0 && d < MIN_LABEL_GAP_PX) {
+            var oa = origins[i], ob = origins[j];
+            var odx = ob.x - oa.x, ody = ob.y - oa.y;
+            var od = Math.sqrt(odx * odx + ody * ody) || 1;
+            var ux = odx / od, uy = ody / od;
+            var push = (MIN_LABEL_GAP_PX - d) / 2;
+            a.x -= ux * push; a.y -= uy * push;
+            b.x += ux * push; b.y += uy * push;
+          }
+        }
+      }
+    }
+
+    return labels.map(function (l) {
+      var x = l.x.toFixed(1), y = l.y.toFixed(1);
+      if (l.lines.length === 1) {
+        return '<text class="fielder-name" x="' + x + '" y="' + y +
+          '" dy="-' + LABEL_ANCHOR_OFFSET_PX + '" style="--delay:' + delay + 'ms">' + escapeHtml(l.lines[0]) + "</text>";
+      }
+      // Stacked via explicit tspans - SVG <text> has no native multi-line
+      // wrap. The result line is the lighter/smaller of the two (.fielder-result).
+      return '<text class="fielder-name" x="' + x + '" y="' + y + '" style="--delay:' + delay + 'ms">' +
+        '<tspan class="fielder-result" x="' + x + '" dy="-' + LABEL_ANCHOR_OFFSET_STACKED_PX + '">' + escapeHtml(l.lines[0]) + '</tspan>' +
+        '<tspan x="' + x + '" dy="10">' + escapeHtml(l.lines[1]) + '</tspan>' +
+      "</text>";
+    }).join("");
   }
 
   // Archetypes caught in the air - no throw on a routine catch with nobody
@@ -2595,6 +2812,16 @@
   // KCS is a strikeout that also caught a runner stealing on the same pitch -
   // the batter half of that combo gets the same "K" treatment as a plain K.
   var STRIKEOUT_RESULTS = { K: 1, AutoK: 1, KCS: 1 };
+  // Same idea as STRIKEOUT_RESULTS' "K" (no ball flight to hang a label off,
+  // so it labels the batter directly) - a walk still moves the batter to
+  // first, but the "BB"/"IBB" itself happened at the plate, so the label
+  // anchors there rather than following the batter down the basepath.
+  var WALK_RESULTS = { BB: 1, IBB: 1 };
+  // A balk has no batter involvement at all (it's in data.meta.flight.no_pa -
+  // see the batterReached block below) - only the pitcher and baserunners.
+  // Its "Balk" label anchors at the mound instead of home plate or a batter
+  // token, since that's the one fixed point every balk is actually about.
+  var BALK_RESULTS = { Balk: 1 };
 
   // import_BRC.csv's optional ThrowOrder column (e.g. "1,2,3,4" or bare
   // "1234") - a base-by-base fielding sequence for one (result, obc_before,
@@ -2758,7 +2985,18 @@
     return Math.max(0, recorded - battersOwnOut);
   }
 
-  function fieldingNotation(m, flight) {
+  // The ordered, adjacent-duplicate-collapsed chain of { pos, base } touches
+  // on this ball, or null when there's nothing to describe - no flight, no
+  // assigned fielder, a cleared fence, an archetype that isn't
+  // ground-or-air, or no new out on the play. `base` is null on the first
+  // entry (the fielder who actually touched the ball where they were
+  // standing - no throw involved) and the base string ("1B"/"2B"/"3B"/
+  // "HOME") every later entry is COVERING to receive a relay throw - the
+  // field-label placement (fielderNameLabelsHtml) needs that distinction to
+  // anchor a receiving fielder at the bag rather than their nominal fielding
+  // spot. fieldingChain (below) strips this down to bare position strings
+  // for fieldingNotation/involvedPositions, which don't care.
+  function fieldingChainDetail(m, flight) {
     if (!flight || !flight.fielder || flight.clearedFence) return null;
     var archetype = flight.archetype;
     var isAir = !!CAUGHT_IN_AIR[archetype];
@@ -2768,9 +3006,9 @@
     var moves = resolveRunnerMoves(m);
     var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
 
-    var chain = [flight.fielder];
+    var chain = [{ pos: flight.fielder, base: null }];
     relayBases.forEach(function (base) {
-      chain.push(coveringPosition(base, archetype, flight.angle, flight.fielder));
+      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder), base: base });
     });
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
@@ -2781,8 +3019,24 @@
     // "is this unassisted" check needed.
     var collapsed = [chain[0]];
     for (var i = 1; i < chain.length; i++) {
-      if (chain[i] !== collapsed[collapsed.length - 1]) collapsed.push(chain[i]);
+      if (chain[i].pos !== collapsed[collapsed.length - 1].pos) collapsed.push(chain[i]);
     }
+    return collapsed;
+  }
+
+  // Plain position-string view of fieldingChainDetail (e.g. ["SS","2B","1B"]
+  // for a 6-4-3) - what fieldingNotation/involvedPositions actually need,
+  // neither of which cares which base a relay entry covers.
+  function fieldingChain(m, flight) {
+    var detail = fieldingChainDetail(m, flight);
+    return detail && detail.map(function (e) { return e.pos; });
+  }
+
+  function fieldingNotation(m, flight) {
+    var collapsed = fieldingChain(m, flight);
+    if (!collapsed) return null;
+    var archetype = flight.archetype;
+    var isAir = !!CAUGHT_IN_AIR[archetype];
 
     var nums = collapsed.map(function (p) { return POSITION_NUMBER[p]; });
     if (nums.length === 1) {
@@ -2798,6 +3052,29 @@
       return nums[0] + "U";
     }
     return nums.join("-");
+  }
+
+  // The one shared "who touched this ball" answer - Decisions 5 and 7 (field
+  // name labels and the defense text line) both consume this so they always
+  // agree with each other and with the fielder token's own convergence point.
+  function involvedPositions(m, flight) {
+    var chain = fieldingChain(m, flight);
+    if (chain) {
+      // A chain can revisit a position non-adjacently (3-6-3) - one label
+      // per position, not one per touch.
+      var seen = {};
+      var unique = [];
+      chain.forEach(function (p) {
+        if (!seen[p]) { seen[p] = 1; unique.push(p); }
+      });
+      return unique;
+    }
+    // A ball in play that isn't an out (or any other single-fielder touch
+    // fieldingChain doesn't cover) still has one assigned fielder - the same
+    // one fielderTokensHtml's own token converges on, so the label and the
+    // animation never disagree.
+    if (flight && !flight.clearedFence && flight.fielder) return [flight.fielder];
+    return [];  // over-the-fence HR; K/BB/steals and everything else with no flight
   }
 
   // fieldingNotation needs a resolved flight (fielder assigned, the same
@@ -3045,6 +3322,11 @@
     applyAngleOverride: applyAngleOverride, clampFairTerritory: clampFairTerritory,
     groundDirPoint: groundDirPoint, fieldedPoint: fieldedPoint,
     throwOrderKeyForPosition: throwOrderKeyForPosition,
+    fieldingChain: fieldingChain, fieldingChainDetail: fieldingChainDetail, involvedPositions: involvedPositions,
+    fielderLabelHasResult: fielderLabelHasResult, ballFlightHtml: ballFlightHtml,
+    ballResultLabelHtml: ballResultLabelHtml,
+    fielderNameLabelsHtml: fielderNameLabelsHtml, fieldingNotation: fieldingNotation,
+    sceneDefenseLineHtml: sceneDefenseLineHtml, playSceneHtml: playSceneHtml,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
     INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
     HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE,
@@ -3233,11 +3515,31 @@
       // base (e.g. 2nd to 3rd on a deep flyout with nobody home) - catchMs
       // is already 0/falsy for anything not caught in the air, so this
       // applies to every safe move on those plays, not scoring ones only.
+      // Except a strandedSafe move: import_BRC.csv's aN fallback on an
+      // inning-ending row (utils._build_runner_moves_for_row) is explicitly
+      // non-credited - "the final base doesn't matter, the frame resets" -
+      // so when that row's own delay flag is false, there's no real tag-up
+      // being described here, just a decorative advance shown for
+      // continuity. That one starts on contact like any other safe runner,
+      // not after the catch.
+      //
+      // A caught-stealing row (CS family, KCS included) is its own third
+      // case: there's no ball flight at all here (runDelay would be 0, "the
+      // instant the slide mounts"), but every runner on base still reacts to
+      // the SAME throw down at the SAME moment - the runner who's thrown out
+      // and any other runner just advancing/faux-advancing belong on one
+      // shared beat, not one starting before the play has even happened and
+      // the other waiting for it. stealOutDelay is exactly what the caught
+      // runner's own token uses below (forcedBase's outDelay, or
+      // delayedStartMs when the row's delay flag is true - already shared
+      // via mv.delay, since delay/retreat are per-row, not per-runner) -
+      // reusing it here is what actually keeps them in sync, not just close.
       var mvDelay = mv.delay
         ? delayedStartMs
         : isOut
           ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
-          : (catchMs ? catchMs + TAG_UP_MS : runDelay);
+          : ((catchMs && !strandedSafe) ? catchMs + TAG_UP_MS
+              : ((stealOut && stealOut.caught) ? stealOutDelay : runDelay));
       // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
       // matching the out choreography's own run-then-leave timing exactly)
       // - RUN_LEG_MS[legs] here would understate how long the token is
@@ -3313,6 +3615,30 @@
             '" dx="10" dy="-6" style="--delay:' + outDelay + 'ms">' + escapeHtml(kShort) + "</text>";
         }
       }
+    }
+
+    // BB/IBB (Alex's ask, same treatment as STRIKEOUT_RESULTS' "K" above):
+    // the batter DOES reach first here, so this sits outside the
+    // !batterReached block above - the label just anchors at home plate
+    // (where the walk was actually drawn) rather than following the batter
+    // token down the basepath. Same beat the batter token itself leaves on
+    // (runDelay - 0 for any no-flight play, walks included).
+    if (WALK_RESULTS[m.result]) {
+      var bbHome = SCENE_BASES.HOME;
+      var bbShort = (data.meta.result_short || {})[m.result] || m.result;
+      tokens += '<text class="ball-label" x="' + bbHome.x + '" y="' + bbHome.y +
+        '" dx="10" dy="-6" style="--delay:' + runDelay + 'ms">' + escapeHtml(bbShort) + "</text>";
+    }
+
+    // Balk (Alex's ask): no batter token at all here (Balk is in
+    // data.meta.flight.no_pa, so the block above never runs) - labels the
+    // mound instead, the one fixed point every balk is actually about. Same
+    // beat every runner on base starts advancing (runDelay - 0, no flight).
+    if (BALK_RESULTS[m.result]) {
+      var bkMound = ftToSvg(0, PITCHER_MOUND_FT);
+      var bkShort = (data.meta.result_short || {})[m.result] || m.result;
+      tokens += '<text class="ball-label" x="' + bkMound.x + '" y="' + bkMound.y +
+        '" dx="10" dy="-6" style="--delay:' + runDelay + 'ms">' + escapeHtml(bkShort) + "</text>";
     }
 
     // B3: a caught-stealing or stolen-base attempt gets a catcher throw and a
@@ -3393,8 +3719,13 @@
       '" height="' + rubberH.toFixed(1) + '" rx="0.8"></rect>';
     // Layering bottom to top, per Stage 4c: grass, fence, CF watermark,
     // basepath/mound/home dirt skin, foul lines, base plates, plate marker,
-    // fielder, ball trail + ball, throw, runner tokens. Runner tokens stay
-    // on top - they're what the viewer follows.
+    // fielder, ball trail + ball, throw, fielder/result labels, runner
+    // tokens. Labels moved above the throw lines (Alex's report: a
+    // fielding/receiving label sitting UNDER a dashed throw line right at
+    // the point the throw converges on) - drawn last of the non-runner
+    // layers so they're always legible over any line passing through their
+    // anchor point. Runner tokens still stay on top of everything - they're
+    // what the viewer follows.
     var svgVars = (runHex ? "--rn-fill:" + escapeHtml(runHex) + ";" : "") +
       (isHalfEnd ? "--break-delay:" + CF_BREAK_CROSSFADE_MS + "ms;" : "");
     return '<div class="scene-diamond-wrap">' +
@@ -3415,6 +3746,8 @@
         ballFlightHtml(m, flight) +
         throwHtml(m, flight, moves) +
         stealThrowHtml(m, moves, runDelay, outDelay) +
+        fielderNameLabelsHtml(m, flight) +
+        ballResultLabelHtml(m, flight) +
         tokens +
       "</svg>" +
       sceneWheelDiffHtml(m, flight) +
@@ -3787,7 +4120,7 @@
   // to the ring); horizontalFactor scales in the extra padding a label
   // actually needs as it approaches the 3/9 o'clock positions, where the
   // danger is greatest.
-  var WHEEL_LABEL_GAP = 3;
+  var WHEEL_LABEL_GAP = 5;
   var WHEEL_LABEL_CHAR_W = 2.4;   // rough half-glyph-width at this font size, viewBox units
   var WHEEL_LABEL_STAGGER = 9;   // label2 always sits at least this far past label1's own safe radius
   function wheelLabelRadius(angleDeg, text) {
@@ -3990,23 +4323,36 @@
      device for the main feed rather than something to read mid-slideshow, and
      the win probability is already on the ribbon's marker, attached to the
      point it belongs to. */
-  function sceneDetailHtml(m, flight) {
+  /* The result pill (+ its Inside-the-Park callout, which annotates that
+     same result) - pulled out of sceneDetailHtml so playSceneHtml can seat
+     it right under the leverage meter, above the defense text line, while
+     everything else that used to share its row (diff pill, launch angle/
+     exit velo) stays below the field with the rest of sceneDetailHtml
+     (Alex's spec). */
+  function sceneResultPillHtml(m, flight) {
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
-    /* Result first, then who did it - the same order at every width, so the
-       eye lands in the same place whether the scene is stacked on a phone or
-       split into two columns on a wide screen. */
+    return '<div class="scene-result-line">' +
+      '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
+        escapeHtml(resultLabel) + "</span>" +
+      // Cheap and worth doing (Stage 4d): a home run that stayed inside the
+      // park is rare enough that without a callout it reads as a glitch.
+      (flight && m.result === "HR" && !flight.clearedFence
+        ? '<span class="itp-pill">Inside the Park</span>' : "") +
+    "</div>";
+  }
+
+  function sceneDetailHtml(m, flight) {
+    /* Diff pill and the launch angle/exit velo readout stay beneath the
+       field (Alex's spec) - the result pill itself now renders separately,
+       above the field, via sceneResultPillHtml. "Player scores" moved out of
+       here too (Alex's call) - it now renders between the defense line and
+       the field itself, in playSceneHtml, so the top-down read is result
+       pill -> defense-line description -> who scored -> the field. */
     return '<div class="scene-detail">' +
       '<div class="scene-play-line">' +
-        '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
-          escapeHtml(resultLabel) + "</span>" +
-        // Cheap and worth doing (Stage 4d): a home run that stayed inside the
-        // park is rare enough that without a callout it reads as a glitch.
-        (flight && m.result === "HR" && !flight.clearedFence
-          ? '<span class="itp-pill">Inside the Park</span>' : "") +
         diffPill(m) +
         sceneFlightReadoutHtml(flight) +
       "</div>" +
-      scoringLine(m) +
       // Pitcher first, batter second - the order holds at every width, so when
       // the row wraps on a phone the pitcher stacks on top rather than the
       // pairing reversing between breakpoints.
@@ -4116,6 +4462,54 @@
     "</div>";
   }
 
+  /* Text line above the field, below the leverage meter (Decision 7) -
+     shares fieldingChain/involvedPositions/m.defense exactly with the field
+     name labels (Decision 5), so the two always agree about which fielder(s)
+     this play is about. Always renders the container, even empty, so the
+     slide layout doesn't jump between plays that do and don't have a line.
+     Wording settled against real MLB.com play-by-play (Alex's review of
+     scraped examples from 10 real games, covering every result code except
+     Balk, which never came up in that sample) - MLB's own fielding clause is
+     "{position spelled out} {name} to {position spelled out} {name}...", but
+     Alex's call was to keep the existing scorecard-notation prefix and use
+     the position ABBREVIATION (2B/SS/CF/...) ahead of each name instead of
+     the full word - denser, and this app's audience already reads scorecard
+     digits. Batted-ball-type wording for hits ("on a line drive to...") was
+     considered and explicitly dropped - our archetype tag for a hit is just
+     its own result family (e.g. "double"), not a real ground_ball/line_drive/
+     fly_ball classification, so that word would have to be guessed from
+     launch angle rather than read off real data. */
+  function sceneDefenseLineHtml(m, flight) {
+    var defense = m.defense || {};
+    var chain = fieldingChain(m, flight);
+    var text = "";
+    if (chain) {
+      // A chain position with no resolved name renders its bare position
+      // code alone, no name to pair it with (e.g. "6-4-3: SS Uraz to 2B to
+      // 1B Sexton") - but if NOTHING in the chain resolved, the line would
+      // just repeat the position numbers the result pill's own notation
+      // already shows, so it's suppressed entirely rather than rendered as
+      // pure noise.
+      var anyResolved = chain.some(function (pos) { return !!defense[pos]; });
+      if (anyResolved) {
+        var parts = chain.map(function (pos) {
+          var entry = defense[pos];
+          return entry ? (pos + " " + entry[1]) : pos;
+        });
+        text = fieldingNotation(m, flight) + ": " + parts.join(" to ");
+      }
+    } else {
+      var involved = involvedPositions(m, flight);
+      var entry = involved.length === 1 ? defense[involved[0]] : null;
+      if (entry) {
+        text = "Fielded by " + involved[0] + " " + entry[1];
+      }
+    }
+    // Walk, strikeout, homer, unresolved: nothing to add beyond what the
+    // scorebug already shows - the container stays, just empty.
+    return '<div class="scene-defense">' + (text ? escapeHtml(text) : "") + "</div>";
+  }
+
   /* Carries what the removed replay-done card used to say, pinned to the play
      the replay now rests on. */
   function sceneRecapHtml(r) {
@@ -4168,6 +4562,9 @@
       '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
       sceneRecapHtml(slide.recap) +
       sceneScorebugHtml(m, flight, newHalf) +
+      sceneResultPillHtml(m, flight) +
+      sceneDefenseLineHtml(m, flight) +
+      scoringLine(m) +
       '<div class="scene-top">' +
         sceneFieldHtml(m, flight) +
       "</div>" +

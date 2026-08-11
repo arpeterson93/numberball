@@ -1,0 +1,14 @@
+{
+  "game_code": "130121",
+  "exported_at": "2026-08-11T13:54:42.461Z",
+  "annotations": {
+    "130121006": {
+      "verdict": "flag",
+      "note": "In this case, we had the odd PH before getting through the entire lineup to know who is at every position. And Anna De Neko never had a future at bat so we never learned her direct position. Though we do know that Doctor Congo eventually bats in the same order spot as Anna De Neko and the position for his at bat is 3B. So from this, we should deduce that Anna De Neko was playing 3B up until this at bat -- that's the best assumption we can make. Essentially working backward from information we received later in the ballgame, and then applying to earlier plays."
+    },
+    "130121015": {
+      "verdict": "flag",
+      "note": "I think it should still be Anna De Neko at 3B here, up until we see Doctor Congo in her place in the batting order with the 3B position value."
+    }
+  }
+}

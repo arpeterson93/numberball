@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import sys
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -8435,6 +8436,346 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
             "obc":        obc,
         })
     return plays
+
+
+# ------------------------------------------------------------------ defensive alignment (fielding-position feature)
+#
+# Resolves which player occupies each defensive position at a given play, via
+# two paths chosen per game (fielding-position-implementation-plan.md):
+#   Path A (in-progress games) - live read of the "Lineups" tab.
+#   Path B (completed games) - reconstruction from plays.pos (never Lineups,
+#     even if the game is still technically present in that tab).
+# No persistence and no network I/O outside read_lineups_from_sheet - every
+# resolver here takes data as plain arguments so it stays unit testable.
+
+# The 7 positions this feature resolves. P and C are excluded - both are
+# already explicit per play (plays.pitcher_id / plays.catcher_id), so neither
+# path needs to (or should) resolve them; DH is tracked internally by Path B
+# for substitution bookkeeping but is never a real fielding position.
+ALIGNMENT_POSITIONS = ("1B", "2B", "3B", "SS", "LF", "CF", "RF")
+
+
+def read_lineups_from_sheet(sheet_id: str, tab: str = "Lineups") -> list[dict]:
+    """Read the 'Lineups' tab of a public Google Sheet and return a list of
+    per-slot assignment rows.
+
+    The gviz CSV export for this tab is far messier than the logical column
+    table: there's a duplicate unsuffixed column group (Play, Team, Pos,
+    Order) that's an input-side artifact only filled on starting-lineup rows
+    (ignored - always read the '.1'-suffixed columns, which is why presence
+    of 'Team.1' must win over the bare 'Team' when both exist), a 'Game#'
+    column that is NOT the 6-digit game code (ignore, join on GameID only),
+    and unrelated side tables (roster listings, a "Current Lineups" pivot)
+    bleeding into the CSV to the right of 'active'. So columns are selected
+    by name, never positionally, and 'active' itself is unused (per design:
+    not needed to resolve "who's playing X as of play N").
+    """
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
+    )
+    df = pd.read_csv(url, dtype=str)
+    df.columns = [c.strip() for c in df.columns]
+
+    def _col(suffixed: str, bare: str) -> str:
+        return suffixed if suffixed in df.columns else bare
+
+    team_col = _col("Team.1", "Team")
+    pos_col = _col("Pos.1", "Pos")
+    order_col = _col("Order.1", "Order")
+    play_col = _col("Play.1", "Play")
+
+    rows = []
+    for _, row in df.iterrows():
+        game_id_short = _str(row.get("GameID"))
+        player_name = _str(row.get("Player"))
+        pos = _str(row.get(pos_col))
+        seq = _safe_int(row.get(play_col))
+        row_num = _safe_int(row.get("Row"))
+        if not game_id_short or not player_name or not pos or seq is None:
+            continue
+        rows.append({
+            "game_id_short": game_id_short,
+            "row": row_num,
+            "team": _str(row.get(team_col)),
+            "pos": pos,
+            "player_name": player_name,
+            "order_slot": _safe_int(row.get(order_col)),
+            "seq": seq,
+        })
+    rows.sort(key=lambda r: (r["game_id_short"], r["row"] if r["row"] is not None else -1))
+    return rows
+
+
+def game_is_final(game: dict | None) -> bool:
+    """Has this game actually finished? The repo's one definition (see
+    KEY_MOMENTS.md): win_team is set and both scores are set. end_time and
+    last_play both keep updating while a game is still in progress, so
+    neither can stand in for completion.
+    """
+    return bool(game and game.get("win_team") and game.get("away_score") is not None
+                and game.get("home_score") is not None)
+
+
+def split_play_num(play_num) -> tuple[int, int]:
+    """130317034 -> (130317, 34). Pins the '{game_code}{seq:03d}' contract."""
+    n = int(play_num)
+    return n // 1000, n % 1000
+
+
+def make_play_num(game_code, seq) -> int:
+    """('130317', 34) -> 130317034."""
+    return int(game_code) * 1000 + int(seq)
+
+
+def lineup_alignment_at(lineup_rows: list[dict], team: str, seq: int,
+                         name_to_id: dict[str, int]) -> dict[str, dict]:
+    """Path A (in-progress games): who's playing each position as of play
+    `seq`, per the live Lineups tab. `lineup_rows` is one game's rows
+    (from read_lineups_from_sheet, already filtered to one game_id_short).
+
+    For each batting-order slot, the current occupant is whoever holds that
+    slot most recently (highest Row) as of `seq` - and that row's own `pos`
+    is their current position, which may differ from the slot's original
+    position if they've since shifted without a substitution. Pitchers
+    aren't in the batting order (Order.1 blank) and are ignored here - P
+    comes from the play row itself, same as C never being resolved by this
+    path.
+    """
+    latest_by_slot: dict[int, dict] = {}
+    for r in lineup_rows:
+        if r.get("team") != team or r.get("pos") == "P" or r.get("order_slot") is None:
+            continue
+        if r.get("seq") is None or r["seq"] > seq:
+            continue
+        slot = r["order_slot"]
+        cur = latest_by_slot.get(slot)
+        if cur is None or (r.get("row") or -1) > (cur.get("row") or -1):
+            latest_by_slot[slot] = r
+
+    # Pivot slot -> pos into pos -> occupant. A collision (two slots landing
+    # on the same pos) is a data-quality problem worth surfacing, not a
+    # crash - keep the most recently instructed occupant (higher Row).
+    by_pos: dict[str, dict] = {}
+    for slot, r in latest_by_slot.items():
+        pos = r.get("pos")
+        if not pos or pos not in ALIGNMENT_POSITIONS:
+            continue
+        cur = by_pos.get(pos)
+        if cur is not None:
+            if (r.get("row") or -1) <= (cur.get("row") or -1):
+                continue
+            print(f"WARNING: lineup collision - {team} {pos} at seq {seq} has both "
+                  f"slot {cur.get('order_slot')} (row {cur.get('row')}) and "
+                  f"slot {slot} (row {r.get('row')}); keeping the latter", file=sys.stderr)
+        by_pos[pos] = r
+
+    result: dict[str, dict] = {}
+    for pos, r in by_pos.items():
+        name = r["player_name"]
+        player_id = name_to_id.get(name)
+        if player_id is None:
+            print(f"WARNING: lineup name {name!r} ({team} {pos}) has no matching "
+                  f"player_id - traded/released player off the current roster tab?",
+                  file=sys.stderr)
+        result[pos] = {"player_id": player_id, "name": name}
+    return result
+
+
+# Row types that occupy their own Play row without representing a new turn
+# through the batting order - a steal attempt and a balk both share their
+# batter and slot with the at-bat they interrupt, they just don't end it.
+# Empirically confirmed against the live sheet (defense_alignment_test.py):
+# excluding both is what makes the mod-9 rotation below land cleanly - one
+# balk row slipping through (it isn't tagged play_type='Steal', only
+# result='Balk') was enough to shift an entire team's computed slots by one
+# for the rest of that game. If a future row type turns up with the same
+# shape (same batter/slot, doesn't end the PA), it belongs in this check too.
+def _is_genuine_turn(play_type, result) -> bool:
+    if str(play_type or "").lower() == "steal":
+        return False
+    if result == "Balk":
+        return False
+    return True
+
+
+def reconstruct_defense_timeline(
+    team_plays: list[tuple[int, int, str, str, str]],
+) -> dict[str, list[tuple[int, int]]]:
+    """Path B (completed games): reconstruct one team's defensive alignment
+    over the course of a game from their own plate appearances alone -
+    `plays.pos` is the batter's own roster position as of that PA, not "who
+    fielded this ball", so batting observations are the only signal
+    available (Decision 1: never rely on Lineups for completed games, even
+    if it's technically still present in the sheet).
+
+    `team_plays`: this team's own plate-appearance rows for one game, each a
+    `(seq, batter_id, pos, play_type, result)` tuple - order doesn't matter,
+    this sorts by seq itself.
+
+    Batting-order slot is recovered rather than read (the sheet never
+    records one): this league runs a strict, uninterrupted 9-slot DH
+    rotation with no skips, so a team's Nth genuine turn at the plate (0
+    -indexed, PH included - it still consumes a turn) belongs to slot N % 9.
+    Validated against every team-half in the live sheet (all internally
+    consistent - no player's own at-bats ever computed into two different
+    slots) once steals/balks are excluded via `_is_genuine_turn`.
+
+    Within a slot, a run of consecutive turns by the same batter_id is one
+    occupancy. A PH turn carries no position by itself - but once a LATER
+    occupant of the SAME slot reveals a real position (directly, from their
+    own at-bat), that position is known to belong to the slot itself, and
+    applies backward to every occupant since the slot's last resolved
+    position - even one who only ever pinch-hit and never batted again
+    (confirmed against real data: a pinch-hitter who's the slot's very
+    first-ever occupant, with the next occupant only revealed at their own
+    real position much later, is correctly shown at that position for her
+    whole tenure, backfilled all the way to the start of the game - she's
+    the first name evidence for that slot exists for at all).
+
+    Returns `{pos: [(seq, player_id), ...]}`, sorted by seq - "occupied by
+    this player from this seq onward." A position with no evidence at all,
+    forward or backward, has no key - genuinely unresolved, not an assumed
+    starter.
+    """
+    rows = sorted(
+        (r for r in team_plays if _is_genuine_turn(r[3], r[4])),
+        key=lambda r: r[0],
+    )
+    slots: dict[int, list[tuple[int, int, str, str, str]]] = {i: [] for i in range(9)}
+    for i, row in enumerate(rows):
+        slots[i % 9].append(row)
+
+    timeline: dict[str, list[tuple[int, int]]] = {}
+
+    for slot_rows in slots.values():
+        if not slot_rows:
+            continue
+        # One entry per occupancy: a new entry starts whenever the batter_id
+        # changes (a real substitution, directly observed - no guessing) or
+        # the SAME batter shows a different real position later in their own
+        # tenure (an in-game move, no personnel change). `pos` stays None
+        # until either this occupant's own at-bat reveals one, or the
+        # backward-fill pass below inherits one from whoever comes next.
+        entries: list[dict] = []
+        current_occupant = None
+        is_first_occupancy = True
+
+        for seq, batter_id, pos, _play_type, _result in slot_rows:
+            is_real = bool(pos) and pos != "PH"
+            if batter_id != current_occupant:
+                entry_seq = 1 if is_first_occupancy else seq
+                entries.append({"occupant": batter_id, "pos": pos if is_real else None, "entry_seq": entry_seq})
+                current_occupant = batter_id
+                is_first_occupancy = False
+            else:
+                last = entries[-1]
+                if is_real and last["pos"] != pos:
+                    if last["pos"] is None:
+                        last["pos"] = pos  # this occupant's first revealed position
+                    else:
+                        entries.append({"occupant": batter_id, "pos": pos, "entry_seq": seq})
+                # else: reconfirming (or still PH) - nothing to record.
+
+        # Backward-fill: an entry with no position of its own inherits the
+        # nearest LATER entry's position (any occupant, same slot) - keeping
+        # its own occupant and entry_seq. Walking backward means each fill
+        # can itself feed the one before it, so a chain of several
+        # unresolved occupants in a row all cascade to the same eventual
+        # answer in one pass.
+        for i in range(len(entries) - 1, -1, -1):
+            if entries[i]["pos"] is None:
+                for j in range(i + 1, len(entries)):
+                    if entries[j]["pos"] is not None:
+                        entries[i]["pos"] = entries[j]["pos"]
+                        break
+
+        for e in entries:
+            if e["pos"] and e["pos"] != "DH":
+                timeline.setdefault(e["pos"], []).append((e["entry_seq"], e["occupant"]))
+
+    for entries in timeline.values():
+        entries.sort()
+    return timeline
+
+
+def timeline_alignment_at(timelines: dict[str, list[tuple[int, int]]], seq: int,
+                           positions=None) -> dict[str, int]:
+    """Query a Path B timeline (or timelines) for the occupant of each
+    position as of `seq` - the last entry with entry_seq <= seq. No entry
+    covering seq means no key in the result (genuinely unresolved, not an
+    assumed starter).
+    """
+    result: dict[str, int] = {}
+    keys = positions if positions is not None else timelines.keys()
+    for pos in keys:
+        occupant = None
+        for entry_seq, player_id in timelines.get(pos, ()):
+            if entry_seq <= seq:
+                occupant = player_id
+            else:
+                break
+        if occupant is not None:
+            result[pos] = occupant
+    return result
+
+
+def get_defensive_alignment(game: dict | None, play_num: int, positions=None, *,
+                             plays: list[dict] | None = None,
+                             lineups: list[dict] | None = None,
+                             name_to_id: dict[str, int] | None = None,
+                             id_to_name: dict[int, str] | None = None) -> dict[str, dict]:
+    """Who's playing each defensive position at `play_num`, dispatching on
+    game_is_final. Thin dispatcher - everything is injected, no fetching
+    happens in here (the caller controls fetch frequency; see Decision 2's
+    "cache briefly" for the live path).
+
+    Defending team is derived from the target play's own half ('top' -> home
+    defends, 'bottom' -> away defends) rather than from Team IDs on the play
+    rows, since `game`'s home_team/away_team are already the abbreviations
+    both paths need (Lineups' Team.1, and the simple half-filter Path B uses
+    to isolate a team's own batting rows).
+
+    `positions` narrows the output in both branches; defaults to the full
+    7-position ALIGNMENT_POSITIONS set (the build-time caller always wants
+    all 7 - see key_moments_build.py - this parameter exists for spot-check
+    tooling and future callers that only need one or two).
+    """
+    target = None
+    for p in (plays or ()):
+        if p.get("play_num") == play_num:
+            target = p
+            break
+    if target is None:
+        return {}
+
+    game_code = target.get("game_code")
+    defending_is_home = (target.get("half") or "top") == "top"
+    _, seq = split_play_num(play_num)
+    wanted = set(positions) if positions is not None else set(ALIGNMENT_POSITIONS)
+
+    if game_is_final(game):
+        team_batting_half = "bottom" if defending_is_home else "top"
+        team_plays = [
+            (split_play_num(p["play_num"])[1], p.get("batter_id"), p.get("pos"),
+             p.get("play_type"), p.get("result"))
+            for p in (plays or ())
+            if p.get("game_code") == game_code and p.get("half") == team_batting_half
+        ]
+        timelines = reconstruct_defense_timeline(team_plays)
+        ids = timeline_alignment_at(timelines, seq, positions=sorted(wanted))
+        id_to_name = id_to_name or {}
+        return {
+            pos: {"player_id": pid, "name": id_to_name.get(pid) or f"Player {pid}"}
+            for pos, pid in ids.items()
+        }
+
+    team = (game.get("home_team") if defending_is_home else game.get("away_team")) if game else None
+    game_id_short = game.get("game_id_short") if game else None
+    rows = [r for r in (lineups or ()) if r.get("game_id_short") == game_id_short]
+    alignment = lineup_alignment_at(rows, team, seq, name_to_id or {})
+    return {pos: v for pos, v in alignment.items() if pos in wanted}
 
 
 def result_bar(result_counts: dict[str, int], title: str = "Results") -> go.Figure:
