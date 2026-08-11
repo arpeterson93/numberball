@@ -49,6 +49,19 @@ OUT_DIR = os.path.join("docs", "data")
 LEVERAGE_THRESHOLD = 1.5
 WPA_THRESHOLD = 0.12   # 12 percentage points of win probability
 
+# Leverage of a game's very first plate appearance - inning 1, top, 0 outs,
+# bases empty, tied - used by _scoreboard for a scheduled game that hasn't
+# had a play recorded yet. Every not-started game shares this exact same
+# state, so it's one constant computed here at import time (utils.
+# compute_leverage_re24/remaining_half_innings are pure lookups over the
+# bundled RE24 CSV, no sheet I/O) rather than re-derived per game per build.
+# Depends only on MLN_INNINGS and result_ranges_re24.csv - update this if
+# either ever changes, same as any other derived constant here.
+LEVERAGE_AT_GAME_START = round(
+    utils.compute_leverage_re24(utils.remaining_half_innings(1, "top", MLN_INNINGS), 0, "000", 0) or 0,
+    2,
+)
+
 # ── result taxonomy ───────────────────────────────────────────────────────────
 
 HIT_CODES = {
@@ -1022,11 +1035,15 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]
         })
 
     # Scheduled games in this session with no play recorded yet - the
-    # Games-tab matchup itself, at its plain not-started state. Same
-    # leverage=0 tail treatment as a finished game (see docstring): there's
-    # no "how tense is this right now" for a game that hasn't thrown a pitch
-    # either, so it sinks to the same back-of-the-slate spot rather than
-    # sorting ahead of games actually in progress.
+    # Games-tab matchup itself, at its plain not-started state. Leverage
+    # here is NOT forced to 0 the way a finished game's is (Alex's catch):
+    # a finished game genuinely has no "how tense is this right now" left to
+    # show, but a game that simply hasn't thrown its first pitch yet does -
+    # the leverage of the very first plate appearance is fully determined by
+    # the state every game starts from (top 1st, no outs, bases empty,
+    # tied), so it's real, computable info, not a placeholder zero.
+    # LEVERAGE_AT_GAME_START (module-level) is that same number, computed
+    # once at import time rather than per game per build.
     for g in games:
         if g.get("session_number") != session:
             continue
@@ -1045,7 +1062,7 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]
             "obc_after": "000",
             "is_half_inning_final": False,
             "is_game_final": False,
-            "leverage": 0,
+            "leverage": LEVERAGE_AT_GAME_START,
             "away_win_prob": None,
             "home_win_prob": None,
         })
