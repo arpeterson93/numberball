@@ -912,9 +912,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    progress bar - away team left, home team right (mirrored via row-reverse,
    not a second markup order, so DOM/reading order stays logo-abbr-score for
    both sides). Replaces the old vertical away/home stack that lived in a
-   side column next to the diamond. */
-.scene-scorebug{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
-.scene-scorebug-team{display:flex;align-items:center;gap:7px;font-size:19px;font-weight:800;min-width:0;color:var(--muted);}
+   side column next to the diamond.
+   Grid thirds, not flex space-between (Alex's report): space-between sizes
+   each team's box to its own content, so a wider abbreviation (BBEG, 4
+   letters) claims more of the row than a narrower one (SMD, 3) and pushes
+   the middle leverage meter off true centre toward the narrower side - this
+   used to only be fixed at the >=900px widescreen breakpoint, leaving the
+   primary (mobile/narrow) layout with the original off-centre bug. Equal
+   thirds here now, unconditionally - the leverage meter sits in the true
+   middle third and each team gets the same share regardless of name length. */
+.scene-scorebug{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:10px;width:100%;}
+.scene-scorebug-team{display:flex;align-items:center;justify-self:center;gap:7px;font-size:19px;font-weight:800;min-width:0;color:var(--muted);}
 .scene-scorebug-team.home{flex-direction:row-reverse;}
 .scene-scorebug-team.batting{color:var(--text);}
 .scene-scorebug-logo{width:28px;height:28px;object-fit:contain;flex-shrink:0;}
@@ -944,7 +952,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 /* Middle column: inning + outs on top, leverage meter underneath - no OBC
    mini-diamond, the animated diamond right below already shows runners. */
-.scene-scorebug-mid{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto;}
+.scene-scorebug-mid{display:flex;flex-direction:column;align-items:center;justify-self:center;gap:2px;flex:0 0 auto;}
 .scene-scorebug-state{display:flex;align-items:center;gap:8px;}
 /* The beat that marks a new half-inning starting. */
 .scene-scorebug-state.new-half{animation:newHalf 900ms ease both;}
@@ -1260,6 +1268,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 @media (max-width:600px){
   .scene-top, .scene-detail{display:contents;}
   .play-scene{align-items:center;}
+  /* Alex's report: result pill / defense-line description / "Player scores"
+     read as too spread out here specifically - each is its own short text
+     row, so .play-scene's shared 6px gap (fine for the bigger blocks around
+     the diamond) shows up three times in a row with nothing bulky between
+     them to justify it. Cinches just this trio closer without touching the
+     gap everywhere else (diamond, matchup, ribbon). */
+  .scene-defense{margin-top:-3px;}
+  .play-scene .scoring-line{margin-top:-3px;}
   .scene-diamond-wrap{order:1;width:min(90vw,340px);}
   /* min(90vw,340px) is measured against the full viewport, not the space
      .catchup-slide's own 37px nav gutters leave clear - smaller/narrower on
@@ -1493,15 +1509,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .scene-diamond-wrap{width:min(50%,460px);}
   .scene-play-line{font-size:18px;}
   .mu-name{font-size:17px;}
-  /* Alex's spec: treat the row as thirds - leverage meter as the middle
-     third, each team's logo/abbr/score centered in its own outer third -
-     rather than the base flex row's space-between, which pins each team to
-     the card's outer edge regardless of how wide the card gets. Grid instead
-     of flex here since space-between has no way to center within a share of
-     the extra space, only push to the ends of it. */
-  .scene-scorebug{display:grid;grid-template-columns:1fr 1fr 1fr;}
-  .scene-scorebug-team{justify-self:center;}
-  .scene-scorebug-mid{justify-self:center;}
+  /* The equal-thirds scorebug grid (Alex's spec) is now the unconditional
+     base rule above, not a widescreen-only override - nothing left to add
+     here. */
 }
 
 /* Real browser fullscreen (the expand button in the card's corner) - more

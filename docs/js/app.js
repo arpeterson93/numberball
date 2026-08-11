@@ -2115,6 +2115,28 @@
   var HANG_MS_MIN = 450, HANG_MS_MAX = 1400;           // Open Question 6
   var RUNNER_LEAD_MS = 150;         // runners begin this long after slide mount, behind the ball
   var OUT_BEAT_MS = 400;            // "outs choreography begins" beat, on top of ball travel if any
+  // Alex's ask: the DIFF/HZ wheels should finish their own animation before
+  // the field's own choreography (ball flight, throws, runner tokens) even
+  // starts moving - the two used to run in parallel, competing for
+  // attention on the very first beat of the slide. Matches the wheels'
+  // OWN worst-case timeline exactly (style.css: .wheel-dot-2/.wheel-val-2
+  // fire at a 650ms delay, wheelDotIn runs another 160ms - 650+160=810;
+  // both wheels share this timeline, so one number covers whichever/both
+  // are showing). Applied uniformly to every play (not just ones with a
+  // wheel) - a play that has no wheel at all (Balk is the one real case)
+  // still gets the same short beat before its field starts, which is far
+  // simpler and more predictable than threading a per-play "was there
+  // actually a wheel to wait for" flag through every render call below,
+  // and reads as a deliberate pause either way. Applied at the exact point
+  // each animation's OWN delay is finally written into a --delay/--rdelay/
+  // --fdelay/--blight/--sflash CSS value - never baked into the shared
+  // runDelay/outDelay/catchMs/etc. locals those writes are computed from,
+  // so every existing race (throw-vs-runner, catch-vs-tag-up, ...) keeps
+  // exactly the same relative margin it already had; this only pushes the
+  // whole picture later, uniformly. slideDwell adds this same amount back
+  // to its own budget below, so auto-advance still leaves the same real
+  // reading time on top it always has.
+  var FIELD_SEQUENCE_DELAY_MS = 810;
   // Throw leaves almost as the ball is fielded (was 150) so a grounder's
   // throw beats the runner to the bag (refinements plan A4/F10).
   var THROW_DELAY_MS = 60;          // throw draws in this long after the ball is fielded
@@ -2460,11 +2482,26 @@
     // (ballClearFade) instead of settling like every other result - Alex's
     // report: the arc should stay on screen after the play resolves same
     // as any other result, not vanish just because it left the park.
-    var settleRule = "animation: " + name + " var(--dur) linear forwards, ballSettle 350ms ease var(--dur) forwards;";
+    // var(--fdelay,0s) (FIELD_SEQUENCE_DELAY_MS, ballFlightHtml) holds the
+    // ball's own movement/trail off until the DIFF/HZ wheels have had their
+    // turn - ballSettle's own delay shifts by the same amount via calc() so
+    // it still lands exactly when the (now-later) main animation ends.
+    // `both`, not `forwards`, on the movement animation itself (Alex's
+    // report): with only `forwards`, the animation has no effect at all
+    // during its own --fdelay - so for that whole window the element fell
+    // back to plain .ball's own base rule, `transform:translate(var(--tx),
+    // var(--ty))`, which is the ball's FINAL landing spot (moveVars sets
+    // --tx/--ty to arc.endPt) - the marker sat at where the ball ends up
+    // before the play had even started. `both` makes the animation's own
+    // first keyframe (0% - the real contact point) apply during the delay
+    // instead, same fix already in place for .fielder/.rn/.dm-base.on
+    // elsewhere in this file.
+    var settleRule = "animation: " + name + " var(--dur) linear var(--fdelay,0s) both, " +
+      "ballSettle 350ms ease calc(var(--fdelay,0s) + var(--dur)) forwards;";
     var style = "<style>" +
       "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
       "@keyframes " + name + "-trail { " + trailStops + "} " +
-      ".ball-trail." + name + " { animation: " + name + "-trail var(--dur) linear forwards; }" +
+      ".ball-trail." + name + " { animation: " + name + "-trail var(--dur) linear var(--fdelay,0s) forwards; }" +
       "</style>";
     var pathD = projected.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
     return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1] };
@@ -2496,13 +2533,14 @@
   var BALL_LABEL_DY = -11;
   var BALL_DIST_DY = 17;
 
-  function ballFlightHtml(m, flight) {
+  function ballFlightHtml(m, flight, seqDelay) {
     if (!flight) return "";
     var cleared = flight.clearedFence;
     var dur = ballTravelMs(flight);
     var arc = ballArcHtml(m, flight);
-    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms";
-    var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms";
+    var fdelay = seqDelay || 0;
+    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
+    var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
     // and the ball itself having been caught wins that tie. Except a ground
     // ball out specifically (Alex's call): that verdict now belongs to the
@@ -2526,7 +2564,7 @@
   // the throw lines instead of underneath them; both label sets converge
   // on the same points the throw lines draw to/from, so drawn first they
   // used to sit under the throw's dashed stroke.
-  function ballResultLabelHtml(m, flight) {
+  function ballResultLabelHtml(m, flight, seqDelay) {
     if (!flight) return "";
     var cleared = flight.clearedFence;
     var dur = ballTravelMs(flight);
@@ -2569,7 +2607,7 @@
       var labelPtFt = hasGroundPhase ? fieldedPoint(flight) : { x: flight.x, y: flight.y };
       labelSvg = ftToSvg(labelPtFt.x, labelPtFt.y);
     }
-    var labelDelay = hasGroundPhase ? fieldedMs(flight) : dur;
+    var labelDelay = (hasGroundPhase ? fieldedMs(flight) : dur) + (seqDelay || 0);
     // C2: a short abbreviation next to wherever the ball ended up - skipped
     // when the fielder-name label is about to show this exact same text
     // stacked over the fielder's own name (fielderLabelHasResult) - one
@@ -2590,7 +2628,7 @@
     return label + distLabel;
   }
 
-  function fielderTokensHtml(flight) {
+  function fielderTokensHtml(flight, seqDelay) {
     // No fielder converge on a ball that left the park - that's the visible
     // difference between an over-the-fence and an inside-the-park home run.
     if (!flight || flight.clearedFence) return "";
@@ -2601,7 +2639,7 @@
     var to = ftToSvg(fieldedFt.x, fieldedFt.y);
     var vars = "--fx:" + from.x.toFixed(1) + "px;--fy:" + from.y.toFixed(1) + "px;" +
                "--tx:" + to.x.toFixed(1) + "px;--ty:" + to.y.toFixed(1) + "px;" +
-               "--delay:" + fieldedMs(flight) + "ms";
+               "--delay:" + (fieldedMs(flight) + (seqDelay || 0)) + "ms";
     return '<g class="fielder" style="' + vars + '"><circle r="' + FIELDER_R + '"></circle></g>';
   }
 
@@ -2649,7 +2687,7 @@
   var LABEL_ANCHOR_OFFSET_PX = 14;
   var LABEL_ANCHOR_OFFSET_STACKED_PX = 19;
 
-  function fielderNameLabelsHtml(m, flight) {
+  function fielderNameLabelsHtml(m, flight, seqDelay) {
     var defense = m.defense || {};
     var detail = fieldingChainDetail(m, flight);
     var entries;
@@ -2671,7 +2709,7 @@
 
     var hasGroundPhase = !!flight && !flight.clearedFence &&
       flight.fieldedDistFt != null && flight.fieldedDistFt > flight.distance;
-    var delay = hasGroundPhase ? fieldedMs(flight) : ballTravelMs(flight);
+    var delay = (hasGroundPhase ? fieldedMs(flight) : ballTravelMs(flight)) + (seqDelay || 0);
     // Same short/notation text ballFlightHtml's own landing-point label
     // computes - deliberately identical value, not just similar wording.
     var resultShort = fieldingNotation(m, flight) || (data.meta.result_short || {})[m.result] || m.result;
@@ -3189,7 +3227,7 @@
     return clip + line;
   }
 
-  function throwHtml(m, flight, moves) {
+  function throwHtml(m, flight, moves, seqDelay) {
     var schedule = throwSchedule(m, moves, flight);
     if (!schedule.length) return "";
     // A grounder is fielded wherever it stops rolling, not at its bounce
@@ -3197,6 +3235,7 @@
     // empty grass short of the fielder. fieldedPoint follows the ball's real
     // ground-contact direction (Part 1), not the HZ launch bearing.
     var origin = ftToSvg(fieldedPoint(flight).x, fieldedPoint(flight).y);
+    var delay = seqDelay || 0;
     return schedule.map(function (t) {
       var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
       if (!to) return "";
@@ -3204,7 +3243,10 @@
       // decorative one (a tag-up run that scores anyway) - Alex's call, same
       // verdict-colour convention the ball itself and a steal attempt use.
       var cls = "throw-line " + (t.out ? "throw-out" : "throw-safe");
-      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs);
+      // seqDelay added only here, at the final write - throwSchedule itself
+      // (shared with ball_flight_test.py's timing-race assertions) stays a
+      // pure, offset-free function of the play/flight alone.
+      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay);
       origin = to;   // next throw relays from here (A5)
       return html;
     }).join("");
@@ -3267,7 +3309,7 @@
     return basePos;
   }
 
-  function stealThrowHtml(m, moves, runDelay, outDelay) {
+  function stealThrowHtml(m, moves, runDelay, outDelay, seqDelay) {
     var target = stealThrowTarget(m, moves);
     if (!target) return "";
     var to = target.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[target.base];
@@ -3286,7 +3328,7 @@
     var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
     var start = Math.max(0, arrive - THROW_DRAW_MS);
     var cls = "throw-line steal-throw " + (target.caught ? "throw-out" : "throw-safe");
-    return throwLineHtml(from.x, from.y, to.x, to.y, cls, start);
+    return throwLineHtml(from.x, from.y, to.x, to.y, cls, start + (seqDelay || 0));
   }
 
   // Exposed for the Playwright pure-function test harness only
@@ -3430,6 +3472,15 @@
     // "post-play occupancy" fill is delayed until this moment, so a base
     // does not light up before any runner has actually reached it.
     var maxArrival = 0;
+    // Alex's ask: hold the whole field sequence (ball, runners, throws,
+    // labels) until the DIFF/HZ wheels finish their own animation first.
+    // Added only where a delay finally gets written into a --delay/
+    // --rdelay/--blight/--sflash value below - runDelay/outDelay/catchMs/
+    // delayedStartMs/stealOutDelay/mvDelay etc. all stay in their original,
+    // un-offset units throughout, so every race between them (throw vs.
+    // runner, catch vs. tag-up, ...) keeps exactly the same margin it
+    // already had; this just pushes the whole picture later, uniformly.
+    var seqDelay = FIELD_SEQUENCE_DELAY_MS;
 
     /* Two nested groups per token, deliberately: the outer one owns position
        (the multi-leg basepath run) and the inner one owns opacity and scale
@@ -3548,7 +3599,7 @@
       if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (strandedSafe ? 1700 : (RUN_LEG_MS[legs] || 0)));
       var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
                  "--tx:" + end.x + "px;--ty:" + end.y + "px;" +
-                 "--rdelay:" + mvDelay + "ms;";
+                 "--rdelay:" + (mvDelay + seqDelay) + "ms;";
       path.forEach(function (p, i) {
         vars += "--p" + (i + 1) + "x:" + p.x + "px;--p" + (i + 1) + "y:" + p.y + "px;";
       });
@@ -3586,7 +3637,7 @@
         var fcVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
                      "--tx:" + fc1.x + "px;--ty:" + fc1.y + "px;" +
                      "--p1x:" + fc1.x + "px;--p1y:" + fc1.y + "px;" +
-                     "--rdelay:" + runDelay + "ms;--dur:" + RUN_LEG_MS[1] + "ms";
+                     "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + RUN_LEG_MS[1] + "ms";
         tokens += '<g class="rn legs1 batter" style="' + fcVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
         maxArrival = Math.max(maxArrival, runDelay + RUN_LEG_MS[1]);
@@ -3598,7 +3649,7 @@
         var voVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
                      "--p1x:" + p1.x + "px;--p1y:" + p1.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
-                     "--rdelay:" + runDelay + "ms";
+                     "--rdelay:" + (runDelay + seqDelay) + "ms";
         tokens += '<g class="rn out-to-first batter" style="' + voVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
       } else {
@@ -3606,13 +3657,13 @@
         // the dugout, no trip to first.
         var owVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
-                     "--rdelay:" + outDelay + "ms";
+                     "--rdelay:" + (outDelay + seqDelay) + "ms";
         tokens += '<g class="rn out-walk batter" style="' + owVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
         if (STRIKEOUT_RESULTS[m.result]) {
           var kShort = (data.meta.result_short || {})[m.result] || m.result;
           tokens += '<text class="ball-label" x="' + h.x + '" y="' + h.y +
-            '" dx="10" dy="-6" style="--delay:' + outDelay + 'ms">' + escapeHtml(kShort) + "</text>";
+            '" dx="10" dy="-6" style="--delay:' + (outDelay + seqDelay) + 'ms">' + escapeHtml(kShort) + "</text>";
         }
       }
     }
@@ -3622,23 +3673,24 @@
     // !batterReached block above - the label just anchors at home plate
     // (where the walk was actually drawn) rather than following the batter
     // token down the basepath. Same beat the batter token itself leaves on
-    // (runDelay - 0 for any no-flight play, walks included).
+    // (runDelay - 0 for any no-flight play, walks included, before seqDelay).
     if (WALK_RESULTS[m.result]) {
       var bbHome = SCENE_BASES.HOME;
       var bbShort = (data.meta.result_short || {})[m.result] || m.result;
       tokens += '<text class="ball-label" x="' + bbHome.x + '" y="' + bbHome.y +
-        '" dx="10" dy="-6" style="--delay:' + runDelay + 'ms">' + escapeHtml(bbShort) + "</text>";
+        '" dx="10" dy="-6" style="--delay:' + (runDelay + seqDelay) + 'ms">' + escapeHtml(bbShort) + "</text>";
     }
 
     // Balk (Alex's ask): no batter token at all here (Balk is in
     // data.meta.flight.no_pa, so the block above never runs) - labels the
     // mound instead, the one fixed point every balk is actually about. Same
-    // beat every runner on base starts advancing (runDelay - 0, no flight).
+    // beat every runner on base starts advancing (runDelay - 0, no flight,
+    // before seqDelay).
     if (BALK_RESULTS[m.result]) {
       var bkMound = ftToSvg(0, PITCHER_MOUND_FT);
       var bkShort = (data.meta.result_short || {})[m.result] || m.result;
       tokens += '<text class="ball-label" x="' + bkMound.x + '" y="' + bkMound.y +
-        '" dx="10" dy="-6" style="--delay:' + runDelay + 'ms">' + escapeHtml(bkShort) + "</text>";
+        '" dx="10" dy="-6" style="--delay:' + (runDelay + seqDelay) + 'ms">' + escapeHtml(bkShort) + "</text>";
     }
 
     // B3: a caught-stealing or stolen-base attempt gets a catcher throw and a
@@ -3660,7 +3712,7 @@
       var flashCls = stealTarget && stealTarget.base === b
         ? (stealTarget.caught ? " steal-out" : " steal-safe") : "";
       return '<rect class="dm-base' + (occupied ? " on" : "") + flashCls +
-        '" style="--blight:' + maxArrival + 'ms;--sflash:' + stealFlashDelay + 'ms' +
+        '" style="--blight:' + (maxArrival + seqDelay) + 'ms;--sflash:' + (stealFlashDelay + seqDelay) + 'ms' +
         '" x="-' + BASE_R + '" y="-' + BASE_R + '" width="' + (BASE_R * 2) + '" height="' + (BASE_R * 2) +
         '" rx="1.5" transform="translate(' +
         p.x.toFixed(1) + "," + p.y.toFixed(1) + ') rotate(45)"></rect>';
@@ -3742,12 +3794,12 @@
         '<path class="dm-foul-line" d="' + foulLineD(90) + '"></path>' +
         plates +
         '<path class="dm-plate" d="' + platePath + '"></path>' +
-        (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight) : "") +
-        ballFlightHtml(m, flight) +
-        throwHtml(m, flight, moves) +
-        stealThrowHtml(m, moves, runDelay, outDelay) +
-        fielderNameLabelsHtml(m, flight) +
-        ballResultLabelHtml(m, flight) +
+        (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight, seqDelay) : "") +
+        ballFlightHtml(m, flight, seqDelay) +
+        throwHtml(m, flight, moves, seqDelay) +
+        stealThrowHtml(m, moves, runDelay, outDelay, seqDelay) +
+        fielderNameLabelsHtml(m, flight, seqDelay) +
+        ballResultLabelHtml(m, flight, seqDelay) +
         tokens +
       "</svg>" +
       sceneWheelDiffHtml(m, flight) +
@@ -4642,7 +4694,15 @@
      Flag for Alex, not to silently resolve: the Catch Me Up backlog scenario
      already ran ~39 minutes for 656 plays at 2800/5200. At 3600/6000 that
      grows to roughly 48-50 minutes - a real, sharper tradeoff worth surfacing
-     rather than burying in a constant change. */
+     rather than burying in a constant change.
+
+     Flag for Alex #2: FIELD_SEQUENCE_DELAY_MS (810ms, wheels-then-field
+     sequencing) is added back in below so the same real reading-time budget
+     survives now that the field's own animation starts 810ms later than it
+     used to - every slide's total on-screen time grows by that same 810ms.
+     For 656 plays that's another ~9 minutes on top of the 48-50 above -
+     same kind of runtime tradeoff, surfaced the same way rather than folded
+     silently into the base constants. */
   var PLAY_DWELL_MS_ROUTINE = 3600;
   var PLAY_DWELL_MS_KEY = 6000;
   // Extra beat on the play that opens a half-inning, so the break between
@@ -4663,7 +4723,7 @@
     if (slide.kind !== "play") return TITLE_DWELL_MS / speed;
     var base = slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
     var isHalfEnd = !!slide.play.is_half_inning_final && !slide.play.is_game_final;
-    return (base + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0) +
+    return (base + FIELD_SEQUENCE_DELAY_MS + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0) +
       (isHalfEnd ? CF_BREAK_BONUS_MS : 0)) / speed;
   }
 
