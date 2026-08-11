@@ -815,8 +815,22 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         key=lambda p: p["name"].lower(),
     )
 
+    # Session picker stays play-gated (Alex's call) - a session with zero
+    # plays anywhere yet shouldn't be selectable at all. sessions is exactly
+    # what it always was, rows-derived only.
     sessions = sorted({m["session_number"] for m in rows if m["session_number"]}, reverse=True)
-    teams_seen = sorted({a for m in rows for a in (m["off_team_abbr"], m["def_team_abbr"]) if a})
+    sessions_set = set(sessions)
+    # But WITHIN a session that does have plays, every game already on the
+    # MLN Games tab schedule for it should show on the scoreboard - not just
+    # the ones that happen to have a play recorded yet (Alex's report: at
+    # the start of a session, only whichever games went first were showing
+    # up). Scoped to sessions_set so a team/game whose only session is one
+    # with zero plays anywhere doesn't leak into meta.teams either.
+    teams_seen = sorted(
+        {a for m in rows for a in (m["off_team_abbr"], m["def_team_abbr"]) if a} |
+        {g["away_team"] for g in games if g.get("away_team") and g.get("session_number") in sessions_set} |
+        {g["home_team"] for g in games if g.get("home_team") and g.get("session_number") in sessions_set}
+    )
     meta = {
         "built_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "sheet_id": sheet_id,
@@ -847,7 +861,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         # (JSON object keys are always strings) - the page shows whichever
         # one matches its session selector and hides the section entirely
         # for "Full season".
-        "games": {str(s): _scoreboard(rows, s) for s in sessions},
+        "games": {str(s): _scoreboard(rows, games, s) for s in sessions},
     }
     return rows, roster, meta
 
@@ -917,10 +931,17 @@ def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, 
     return False
 
 
-def _scoreboard(rows: list[dict], session: int) -> list[dict]:
+def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]:
     """One tile per game in the given session, from each game's latest play -
     the replay already carries current score/inning/outs/bases, so "live"
     state falls out of the existing per-play computation for free.
+
+    `games` (the full MLN Games-tab schedule, already fetched once in
+    build()) fills in a tile for every game in this session that hasn't
+    recorded a single play yet - the scheduled matchup at its 0-0/not-yet-
+    started state, rather than the game silently missing from the slate
+    until its own first play shows up. Alex's report: at the start of a
+    session, only whichever games happened to go first were showing up.
 
     Leverage is the exception: it is NOT carried over from the latest play's
     own `leverage` field, because that value is the leverage of the plate
@@ -944,7 +965,7 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
         if cur is None or m["play_num"] > cur["play_num"]:
             latest[m["game_code"]] = m
 
-    games = []
+    tiles = []
     for m in latest.values():
         wp_after = m["win_prob_after"]  # batting team's perspective
         if wp_after is None:
@@ -983,7 +1004,7 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
         leverage_now = (0 if is_final else
                        (utils.compute_leverage_re24(remaining_now, outs_after, obc_after, lead_now) or 0))
 
-        games.append({
+        tiles.append({
             "game_code": m["game_code"],
             "away_team_abbr": m["away_team_abbr"],
             "home_team_abbr": m["home_team_abbr"],
@@ -999,8 +1020,38 @@ def _scoreboard(rows: list[dict], session: int) -> list[dict]:
             "away_win_prob": None if away_wp is None else round(away_wp, 4),
             "home_win_prob": None if home_wp is None else round(home_wp, 4),
         })
-    games.sort(key=lambda g: g["leverage"], reverse=True)
-    return games
+
+    # Scheduled games in this session with no play recorded yet - the
+    # Games-tab matchup itself, at its plain not-started state. Same
+    # leverage=0 tail treatment as a finished game (see docstring): there's
+    # no "how tense is this right now" for a game that hasn't thrown a pitch
+    # either, so it sinks to the same back-of-the-slate spot rather than
+    # sorting ahead of games actually in progress.
+    for g in games:
+        if g.get("session_number") != session:
+            continue
+        code = g.get("game_code")
+        if not code or code in latest:
+            continue
+        tiles.append({
+            "game_code": code,
+            "away_team_abbr": g.get("away_team") or "",
+            "home_team_abbr": g.get("home_team") or "",
+            "away_score": 0,
+            "home_score": 0,
+            "inning": 1,
+            "half": "top",
+            "outs_after": 0,
+            "obc_after": "000",
+            "is_half_inning_final": False,
+            "is_game_final": False,
+            "leverage": 0,
+            "away_win_prob": None,
+            "home_win_prob": None,
+        })
+
+    tiles.sort(key=lambda g: g["leverage"], reverse=True)
+    return tiles
 
 
 def _write(path: str, payload) -> None:
