@@ -339,6 +339,74 @@
     return hex;
   }
 
+  // A team's secondary color (key_moments_build.py's SECONDARY_HEX, a hand-
+  // maintained constant - not on the Teams sheet) - "" when that team has
+  // none on file. Same shape as teamColor so gameTeamColors below can treat
+  // the two symmetrically.
+  function teamSecondaryColor(abbr) {
+    var hex = ((data.meta.teams || {})[abbr] || {}).secondary_hex || "";
+    if (hex && hex.charAt(0) !== "#") hex = "#" + hex;
+    return hex;
+  }
+
+  function hexToRgb(hex) {
+    var h = (hex || "").replace("#", "");
+    if (h.length === 3) h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2);
+    if (h.length !== 6) return null;
+    var n = parseInt(h, 16);
+    if (isNaN(n)) return null;
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  /* "redmean" - a cheap, widely-used perceptually-weighted RGB distance (eyes
+     are far more sensitive to green than to red/blue, so naive Euclidean
+     distance under- and over-states clashes depending on which channel two
+     colors differ in) - plenty for "are these two team colors too close to
+     tell apart at a glance", without a full sRGB->LAB conversion. Range is
+     0 (identical) to ~765 (black vs white); real team-color pairs live well
+     inside that. Missing/invalid hex reads as maximally different (Infinity)
+     rather than blocking a fallback tier over a data gap. */
+  function colorDistance(hexA, hexB) {
+    var a = hexToRgb(hexA), b = hexToRgb(hexB);
+    if (!a || !b) return Infinity;
+    var rmean = (a.r + b.r) / 2;
+    var dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
+    return Math.sqrt((2 + rmean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rmean) / 256) * db * db);
+  }
+
+  // Below this redmean distance, two team colors read as too similar side by
+  // side (Alex's ask) - a starting guess, worth re-tuning once real
+  // secondary hexes are in and a few actual clashing matchups can be
+  // eyeballed against it.
+  var TEAM_COLOR_MIN_DISTANCE = 100;
+
+  /* Home/away color pair for a single game, substituting toward each team's
+     secondary color when their primaries clash (Alex's ask) - checked in a
+     fixed fallback order: 1) primary/primary, 2) home primary + away
+     secondary, 3) home secondary + away primary, 4) both secondary -
+     stopping at the first tier that clears TEAM_COLOR_MIN_DISTANCE, or
+     falling through to tier 4 regardless if none do (nothing further left to
+     try). A team with no secondary_hex on file just keeps its primary
+     through every tier - teamSecondaryColor(...) || primary makes that slot
+     a no-op fallback instead of clearing to nothing. */
+  function gameTeamColors(homeAbbr, awayAbbr) {
+    var homePrimary = teamColor(homeAbbr), awayPrimary = teamColor(awayAbbr);
+    var homeSecondary = teamSecondaryColor(homeAbbr) || homePrimary;
+    var awaySecondary = teamSecondaryColor(awayAbbr) || awayPrimary;
+    var tiers = [
+      { home: homePrimary, away: awayPrimary },
+      { home: homePrimary, away: awaySecondary },
+      { home: homeSecondary, away: awayPrimary },
+      { home: homeSecondary, away: awaySecondary },
+    ];
+    for (var i = 0; i < tiers.length - 1; i++) {
+      if (tiers[i].home && tiers[i].away && colorDistance(tiers[i].home, tiers[i].away) >= TEAM_COLOR_MIN_DISTANCE) {
+        return tiers[i];
+      }
+    }
+    return tiers[tiers.length - 1];
+  }
+
   function teamLogoUrl(abbr) {
     return ((data.meta.teams || {})[abbr] || {}).logo_url || "";
   }
@@ -512,8 +580,9 @@
     var awayBatting = g.half === "top";
     var awayPct = g.away_win_prob != null ? Math.round(g.away_win_prob * 100) : 50;
     var homePct = 100 - awayPct;
-    var awayHex = teamColor(g.away_team_abbr) || "#9aa4b2";
-    var homeHex = teamColor(g.home_team_abbr) || "#c7ccd3";
+    var gameColors = gameTeamColors(g.home_team_abbr, g.away_team_abbr);
+    var awayHex = gameColors.away || "#9aa4b2";
+    var homeHex = gameColors.home || "#c7ccd3";
     var levBadge = g.is_game_final ? "" :
       '<span class="sb-lev' + leverageClass(g.leverage) + '">LI ' + g.leverage.toFixed(1) + "</span>";
     var replayBtn = '<button type="button" class="tile-replay-btn" data-replay="' +
@@ -3369,6 +3438,10 @@
     ballResultLabelHtml: ballResultLabelHtml,
     fielderNameLabelsHtml: fielderNameLabelsHtml, fieldingNotation: fieldingNotation,
     sceneDefenseLineHtml: sceneDefenseLineHtml, playSceneHtml: playSceneHtml,
+    scoreboardCard: scoreboardCard,
+    teamColor: teamColor, teamSecondaryColor: teamSecondaryColor,
+    colorDistance: colorDistance, gameTeamColors: gameTeamColors,
+    TEAM_COLOR_MIN_DISTANCE: TEAM_COLOR_MIN_DISTANCE,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
     INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
     HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE,
@@ -3916,7 +3989,15 @@
   function sceneRibbonHtml(slide) {
     var plays = slide.gamePlays || [];
     var upto = slide.gameIdx;
-    if (plays.length < 2 || upto == null || upto < 0) return "";
+    // Alex's report: the ribbon was missing entirely on a game's first play.
+    // This used to require >=2 plays before rendering anything at all - but
+    // everything below it already handles a single point correctly (the
+    // segment-building loop at `for (var q = 1; q < pts.length; q++)` just
+    // never runs when pts.length is 1, leaving fills/strokes empty and the
+    // frame/marker rendering alone, exactly per the "no segments yet" comment
+    // further down) - only the guard itself was stricter than the code it
+    // was guarding actually needed.
+    if (!plays.length || upto == null || upto < 0) return "";
 
     /* The x axis is a half-inning timeline, not a play index, and it always
        runs the full length of regulation. A live game in the 2nd therefore
@@ -3967,8 +4048,9 @@
        as the colour changing mid-segment rather than a whole segment being
        coloured for whichever end happens to win a vote. */
     var midY = RIBBON_PAD + 0.5 * (RIBBON_H - RIBBON_PAD * 2);
-    var homeHex = teamColor(slide.homeAbbr) || "#4a6fa5";
-    var awayHex = teamColor(slide.awayAbbr) || "#9aa4b2";
+    var ribbonColors = gameTeamColors(slide.homeAbbr, slide.awayAbbr);
+    var homeHex = ribbonColors.home || "#4a6fa5";
+    var awayHex = ribbonColors.away || "#9aa4b2";
     var subs = [];
     for (var q = 1; q < pts.length; q++) {
       var pa = pts[q - 1], pb = pts[q];
@@ -4056,8 +4138,11 @@
       // to the other side once the point is far enough right.
       var markLeft = Math.max(1.7, Math.min(98.3, xPct));
       // The ring around the badge is the colour of the team inside it, so the
-      // marker reads as belonging to them rather than to the chart.
-      var gainHex = teamColor(gainAbbr) || lastHex;
+      // marker reads as belonging to them rather than to the chart - the
+      // SAME (possibly-substituted) colour the line/fill above just used for
+      // this team, not a fresh independent teamColor() lookup, so the badge
+      // can never name a different shade than the curve it's labeling.
+      var gainHex = (homeGained ? homeHex : awayHex) || lastHex;
       var gainUrl = teamLogoUrl(gainAbbr);
       var badge = gainUrl
         ? '<img class="rb-marker-logo" src="' + escapeHtml(gainUrl) + '" alt="" loading="lazy" ' +

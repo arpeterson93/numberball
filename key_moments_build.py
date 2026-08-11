@@ -39,6 +39,32 @@ MLN_INNINGS = utils.LEAGUE_INNINGS.get("MLN", 6)
 
 OUT_DIR = os.path.join("docs", "data")
 
+# A team's secondary color, for when its primary reads as too close to an
+# opponent's primary in the same game (docs/js/app.js's gameTeamColors) - not
+# a column on the Teams sheet, so it lives here as a hand-maintained constant
+# instead. Keyed by the same team abbreviation primary_hex/logo_url already
+# use. A team missing from this dict simply has no secondary to fall back to
+# (gameTeamColors treats that slot as staying on primary through every tier).
+# Alex's reference list, one per current team.
+SECONDARY_HEX: dict[str, str] = {
+    "ACP": "febc11",
+    "MIA": "fb5a98",
+    "ASS": "280730",
+    "GHG": "34350f",
+    "HMH": "d20522",
+    "CAR": "43b399",
+    "BBEG": "36549c",
+    "RLY": "dce14f",
+    "KC": "4788ff",
+    "SMD": "f08223",
+    "SUN": "ac8f35",
+    "HFX": "1c4c9a",
+    "POR": "085d05",
+    "REK": "cd8d01",
+    "GRZ": "525252",
+    "RC": "8eff1c",
+}
+
 # Inclusion thresholds - tuned against real per-session volume, see the
 # "threshold" summary printed at the end of a build.
 # 1.5 matches SCOREBOARD_HOT_LEVERAGE in docs/js/app.js, so "high leverage"
@@ -861,6 +887,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
                 "name": ref["team_by_abbrev"].get(abbr, {}).get("full_team") or abbr,
                 "sub_league": ref["team_by_abbrev"].get(abbr, {}).get("sub_league") or "",
                 "primary_hex": ref["team_by_abbrev"].get(abbr, {}).get("primary_hex") or "",
+                "secondary_hex": SECONDARY_HEX.get(abbr, ""),
                 "logo_url": ref["team_by_abbrev"].get(abbr, {}).get("logo_url") or "",
             }
             for abbr in teams_seen
