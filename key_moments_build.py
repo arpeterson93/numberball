@@ -770,6 +770,114 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
     }
 
 
+def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
+                         last_moment: dict, game_lineup_rows: list[dict]) -> dict | None:
+    """Synthesizes an on-deck placeholder moment for an in-progress game's
+    live edge - who's due up next, per the live Lineups tab (Alex's ask,
+    ideas-and-opinions conversation). Not a real play: no result, no pitch/
+    swing, no ball flight. `is_on_deck` is the flag docs/js/app.js's
+    stateStack/sceneResultPillHtml/card() checks to swap in a "Now Batting"
+    pill and hide result-dependent detail, while the rest of the normal play
+    scene/card renders exactly as it would for a real play, since every
+    other field here is null-safe throughout that pipeline. is_key_moment is
+    always False (Alex's call: this is a regular play, not a curated
+    moment) - it still reaches the card feed via plays_NN.json/"every play"
+    mode, just never key_moments.json's curated one. Copies
+    last_moment (the last REAL moment already built for this game) for
+    every field that's just persisted state (score, team names/colors,
+    game_code, ...) and overrides only what actually changes for "the
+    next, not-yet-happened plate appearance."
+
+    Returns None - never a guess - whenever next_batter_info itself can't
+    resolve a name (the Lineups tab hasn't caught up to a very recent
+    substitution, or this team's lineup rows aren't on the sheet at all
+    yet) rather than showing a stale or wrong name.
+    """
+    half_ended = last_state["outs_after"] == 3
+    inning = last_state["inning"] + 1 if (half_ended and last_state["half"] == "bottom") else last_state["inning"]
+    half = ("top" if last_state["half"] == "bottom" else "bottom") if half_ended else last_state["half"]
+    outs = 0 if half_ended else last_state["outs_after"]
+    obc = "000" if half_ended else last_state["obc_after"]
+    batting_is_home = (half == "bottom")
+
+    play = last_state["play"]
+    off = _team_view(ref, play.get("home") if batting_is_home else play.get("away"))
+    deff = _team_view(ref, play.get("away") if batting_is_home else play.get("home"))
+
+    # This team's own most recent real at-bat, anywhere earlier in the game
+    # (not just this half-inning - the leadoff batter of a brand-new half
+    # needs their own last at-bat from whichever earlier inning they hit
+    # in), ordered by play_num like replay_game itself sorts on.
+    team_half = "bottom" if batting_is_home else "top"
+    team_plays = sorted((p for p in game_plays if p.get("half") == team_half), key=lambda p: p["play_num"])
+    last_batter_id = team_plays[-1].get("batter_id") if team_plays else None
+
+    next_up = utils.next_batter_info(game_lineup_rows, off["abbrev"], last_batter_id, ref["name_to_id"])
+    if next_up is None:
+        return None
+
+    # The defensive team's most recent pitching appearance: every row in
+    # team_plays above (the offense team's own past at-bats) was pitched by
+    # the defense - that's what "defense" means for that half - so its
+    # pitcher_id is exactly the defense team's current pitcher. Empty only at
+    # a game's very first half-inning turnover, when the team now on defense
+    # has never pitched yet in this data (no lineup/starting-pitcher source
+    # plumbed in here to guess from) - None rather than last_moment's
+    # pitcher_id, which would belong to the team now AT BAT, not pitching.
+    cur_pitcher_id = team_plays[-1].get("pitcher_id") if team_plays else None
+    pitcher_view = _player_view(ref, cur_pitcher_id)
+
+    # Situational leverage of the at-bat that's about to happen, computed
+    # fresh off the current score/outs/OBC (last_moment's own leverage
+    # describes a different, already-resolved situation) - same formula
+    # replay_game uses for every real play, just fed this moment's state
+    # instead of a play row's.
+    lead_now = (last_moment["home_score"] - last_moment["away_score"]) if batting_is_home \
+        else (last_moment["away_score"] - last_moment["home_score"])
+    remaining_now = utils.remaining_half_innings(inning, half, MLN_INNINGS)
+    leverage_now = utils.compute_leverage_re24(remaining_now, outs, obc, lead_now)
+
+    # Carry the game's current win probability forward (re-expressed for
+    # whichever team is now batting) so the ribbon's marker still has a
+    # "current odds" readout to show even though nothing has happened yet on
+    # this plate appearance - win_prob_before/wpa stay None (there is no
+    # "before" for a play that hasn't happened), which is also what makes
+    # the ribbon marker's own gain/WPA label go quiet on its own.
+    last_wp_after = last_moment.get("win_prob_after")
+    last_batting_is_home = last_moment.get("batting_is_home")
+    home_wp = None
+    if last_wp_after is not None and last_batting_is_home is not None:
+        home_wp = last_wp_after if last_batting_is_home else 1 - last_wp_after
+    next_wp_after = None if home_wp is None else (home_wp if batting_is_home else 1 - home_wp)
+
+    m = dict(last_moment)
+    m.update({
+        "moment_id": str(last_moment["play_num"]) + "-next",
+        "play_num": last_moment["play_num"] + 1,
+        "inning": inning, "half": half,
+        "outs_before": outs, "outs_after": outs,
+        "obc_before": obc, "obc_after": obc,
+        "result": None, "result_category": None, "diff": None, "pitch": None, "swing": None,
+        "throw_num": None, "steal_num": None, "throw_order": None,
+        "excluded_positions": None, "default_position": None, "throw_order_by_position": None,
+        "runner_moves": None, "runs": 0, "scoring_names": [],
+        "batter_name": next_up["name"], "batter_id": next_up["player_id"], "batter_hand": None,
+        "pitcher_name": pitcher_view["name"], "pitcher_id": pitcher_view["id"],
+        "featured_name": next_up["name"], "featured_id": next_up["player_id"],
+        "featured_side": "batting", "featured_team_abbr": off["abbrev"],
+        "featured_wp_after": None, "featured_wpa": None,
+        "counterpart_name": pitcher_view["name"] or None, "counterpart_id": pitcher_view["id"],
+        "off_team_abbr": off["abbrev"], "def_team_abbr": deff["abbrev"],
+        "batting_is_home": batting_is_home,
+        "win_prob_before": None, "win_prob_after": next_wp_after, "wpa": None,
+        "leverage": None if leverage_now is None else round(leverage_now, 2),
+        "rookie": False, "is_key_moment": False, "tags": [],
+        "is_half_inning_final": False, "is_game_final": False,
+        "is_on_deck": True, "on_deck_order_slot": next_up["order_slot"],
+    })
+    return m
+
+
 # ── build ─────────────────────────────────────────────────────────────────────
 
 def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
@@ -831,12 +939,24 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
                     lineups_by_game.setdefault(row["game_id_short"], []).append(row)
             game_lineup_rows = lineups_by_game.get((game or {}).get("game_id_short"), [])
 
+        last_state = None
         for state in replay_game(game_plays, game):
+            last_state = state
             play = state["play"]
             defense = _defense_alignment_for_play(
                 ref, play, state["half"], is_final, home_timeline, away_timeline, game_lineup_rows,
             )
             rows.append(build_moment(ref, state, game, moment_tags(state), defense))
+
+        # On-deck placeholder for an in-progress game's live edge (Alex's
+        # ask, ideas-and-opinions conversation) - never for a completed game
+        # (Path B's reconstructed timeline has no concept of "what happens
+        # after the last real play" - there isn't one) or one whose last
+        # real play already ended it.
+        if not is_final and last_state is not None and not last_state["game_ended"] and rows:
+            next_moment = _next_batter_moment(ref, game_plays, last_state, rows[-1], game_lineup_rows)
+            if next_moment:
+                rows.append(next_moment)
 
     rows.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
 
@@ -892,8 +1012,12 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
             }
             for abbr in teams_seen
         },
-        "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows})},
-        "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted({m["result"] for m in rows})},
+        # result is None on an on-deck placeholder moment (_next_batter_moment
+        # - there's no result yet, it hasn't happened) - excluded here, not
+        # just sorted around, since neither lookup needs (or could sensibly
+        # have) an entry for "no result at all".
+        "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows if m["result"] is not None})},
+        "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted({m["result"] for m in rows if m["result"] is not None})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
         "flight": _flight_meta(),
@@ -929,13 +1053,34 @@ def _flight_meta() -> dict:
     no_pa is the subset of FLIGHT_EXCLUDED where the batter never had a plate
     appearance at all (a steal, a caught stealing, a balk) - app.js uses it to
     suppress the batter token fallback entirely on those plays, rather than
-    walking a batter who did nothing to the dugout."""
+    walking a batter who did nothing to the dugout.
+
+    `stations` (from utils._FLIGHT_STATIONS/flight_stations.csv) is the
+    joint EV/LA/distance selection table (ideas-and-opinions conversation):
+    laMin/laIdeal/laMax/evMin/evMax above are reference/audit only (kept for
+    the old worked-example tests and human eyeballing) - app.js's
+    stationsLookup reads `stations` instead, picking a real play's own
+    paired (LA, EV, distance) at this q rather than two independent marginal
+    ranges (or, for one design iteration in between, an EV solved backward
+    through our own physics, or a distance shared across two different real
+    plays). distTopped/distUppercut are each that same real play's own
+    hit_distance_sc - what the runtime radially rescales the rendered flight
+    to. Compact keys since this repeats ~100x per result: q, laTopped,
+    evTopped, distTopped, laUppercut, evUppercut, distUppercut."""
     bands = {
         result: {
             "archetype": row["archetype"], "lo": row["band_lo"], "hi": row["band_hi"],
             "laMin": row["la_min"], "laIdeal": row["la_ideal"], "laMax": row["la_max"],
             "evMin": row["ev_min"], "evMax": row["ev_max"],
             "depthMin": row["depth_min"], "depthMax": row["depth_max"],
+            "stations": [
+                {
+                    "q": st["q"],
+                    "laTopped": st["la_topped"], "evTopped": st["ev_topped"], "distTopped": st["dist_topped"],
+                    "laUppercut": st["la_uppercut"], "evUppercut": st["ev_uppercut"], "distUppercut": st["dist_uppercut"],
+                }
+                for st in utils._FLIGHT_STATIONS.get(result, [])
+            ],
         }
         for result, row in utils._DIFF_BANDS.items()
     }

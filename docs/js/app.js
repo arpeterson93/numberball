@@ -418,6 +418,18 @@
   }
 
   function wpFragment(m) {
+    // On-deck: no featured_wp_after/wpa (nothing has happened on this play
+    // yet), but _next_batter_moment still carries win_prob_after forward -
+    // shows the team actually leading right now, no delta to report since
+    // there's no "before" for a play that hasn't happened (same reasoning
+    // the ribbon marker in the slideshow uses).
+    if (m.is_on_deck) {
+      var hw = homeWpOf(m);
+      if (hw == null) return "";
+      var leadTeam = hw >= 0.5 ? m.home_team_abbr : m.away_team_abbr;
+      var leadPct = Math.round((hw >= 0.5 ? hw : 1 - hw) * 100);
+      return "<span>" + escapeHtml(leadTeam) + " win probability " + leadPct + "%</span>";
+    }
     if (m.featured_wp_after == null || m.featured_wpa == null) return "";
     var pct = Math.round(m.featured_wp_after * 100);
     var delta = m.featured_wpa * 100;
@@ -461,6 +473,10 @@
     var dots = [0, 1].map(function (i) {
       return '<span class="dot' + (i < m.outs_after ? " on" : "") + '"></span>';
     }).join("");
+    // On-deck placeholder: no separate tag here (Alex's later call) - the
+    // "Now Batting" pill on the play-line already says what's coming, so the
+    // diamond/outs render exactly as they would for any other in-progress
+    // situation.
     return '<div class="state-stack">' + svg + '<div class="outs-dots">' + dots + "</div></div>";
   }
 
@@ -491,7 +507,10 @@
     var why = (m.tags || []).map(function (t) {
       return '<span class="why-tag">' + escapeHtml(labels[t] || t) + "</span>";
     }).join("");
-    var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
+    // On-deck has no result yet - "Now Batting" in the same blue pill a real
+    // hitting result gets, rather than a broken lookup on a null result.
+    var resultLabel = m.is_on_deck ? "Now Batting" : ((data.meta.result_labels || {})[m.result] || m.result);
+    var resultCat = m.is_on_deck ? "hitting" : m.result_category;
     var counterpart = (m.counterpart_id && m.counterpart_id !== m.featured_id)
       ? '<span class="counterpart">vs ' +
         (isFavoritedId(m.counterpart_id)
@@ -531,7 +550,7 @@
             ? '<a class="player-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.featured_id) +
               '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.featured_name) + "</a>"
             : '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>") +
-          '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
+          '<span class="result-pill ' + (resultCat === "hitting" ? "offense" : "defense") + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
           counterpart +
@@ -958,11 +977,19 @@
   }
 
   // ── Playback speed: a per-browser preference (same "device identity" as the
-  //    favorites name), not synced anywhere - it only ever changes what
-  //    slideDwell() hands back, so every slideshow (Catch Me Up, Game Replay,
-  //    the filtered-plays reel) picks it up for free. ──────────────────────────
+  //    favorites name), not synced anywhere - it changes both what
+  //    slideDwell() hands back (how long a slide stays up) AND, via the
+  //    --play-speed CSS custom property applyPlaybackSpeedVar keeps in sync,
+  //    how fast every animation-duration/animation-delay in the slideshow
+  //    itself plays (see style.css's :root - every animated rule under
+  //    .play-scene divides its timing by var(--play-speed,1)), so 2x actually
+  //    looks twice as fast rather than just waiting half as long between
+  //    plays. Lives as a toggle button in each slideshow's own control bar
+  //    (Alex's ask) rather than a Settings-panel field - cycles 0.5x/1x/1.5x/
+  //    2x, wrapping, always showing the current value as its own label. ──────
   var PLAYBACK_SPEED_KEY = "km_playback_speed";
   var PLAYBACK_SPEED_MIN = 0.25, PLAYBACK_SPEED_MAX = 2;
+  var PLAYBACK_SPEED_STEPS = [0.5, 1, 1.5, 2];
 
   function clampSpeed(v) {
     v = Number(v);
@@ -979,19 +1006,112 @@
     }
   }
 
+  // Global, not scoped to either modal: the two slideshows never run at the
+  // same time, and setting it on the root means a slide mounted anywhere
+  // (Catch Me Up, Game Replay, a future third surface) picks it up with no
+  // extra wiring at the mount site.
+  function applyPlaybackSpeedVar(speed) {
+    try { document.documentElement.style.setProperty("--play-speed", String(speed)); } catch (e) { /* no-op */ }
+  }
+
   function setPlaybackSpeed(v) {
     var speed = clampSpeed(v);
     try { window.localStorage.setItem(PLAYBACK_SPEED_KEY, speed.toFixed(2)); } catch (e) { /* private browsing */ }
+    applyPlaybackSpeedVar(speed);
     return speed;
   }
 
-  function wirePlaybackSpeed() {
-    var input = $("playback-speed");
-    if (!input) return;
-    input.value = getPlaybackSpeed().toFixed(2);
-    function commit() { input.value = setPlaybackSpeed(input.value).toFixed(2); }
-    input.addEventListener("change", commit);
-    input.addEventListener("blur", commit);
+  function speedLabel(v) { return v.toFixed(1) + "x"; }
+
+  // Steps to the next value in PLAYBACK_SPEED_STEPS, wrapping past 2x back to
+  // 0.5x - a stored value that doesn't land exactly on a step (an old 0.25x-
+  // range preference from before this became a fixed cycle) rounds up to the
+  // nearest one first rather than getting stuck between two steps forever.
+  function cyclePlaybackSpeed() {
+    var cur = getPlaybackSpeed();
+    var i = PLAYBACK_SPEED_STEPS.findIndex(function (s) { return s >= cur - 0.001; });
+    var next = PLAYBACK_SPEED_STEPS[(i + 1 + PLAYBACK_SPEED_STEPS.length) % PLAYBACK_SPEED_STEPS.length];
+    return setPlaybackSpeed(next);
+  }
+
+  // Both slideshows' speed buttons show the same global preference - synced
+  // together on every change so whichever one opens next is never stale.
+  function syncSpeedButtons() {
+    var speed = getPlaybackSpeed();
+    var label = speedLabel(speed);
+    ["catchup-speed", "replay-speed"].forEach(function (id) {
+      var btn = $(id);
+      if (!btn) return;
+      btn.textContent = label;
+      btn.title = "Playback speed: " + label;
+    });
+    // cyclePlaybackSpeed already routes through setPlaybackSpeed, which keeps
+    // --play-speed current on its own - this call only matters at startup,
+    // before setPlaybackSpeed has ever run this session.
+    applyPlaybackSpeedVar(speed);
+  }
+
+  function wireSpeedToggle(btnId) {
+    var btn = $(btnId);
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      cyclePlaybackSpeed();
+      syncSpeedButtons();
+    });
+  }
+
+  // ── Loop mode: same per-browser, unsynced preference as playback speed,
+  //    Apple-Music-style three-state cycle (Alex's ask) -
+  //      "all"  - play through the whole run once, then loop back to the start
+  //               (the default)
+  //      "none" - play through the whole run once and stop/hold at the end
+  //      "one"  - repeat only the play currently on screen
+  //    Read fresh off localStorage by the two slideshow engines' own timeout
+  //    callbacks each time one fires, so a change mid-dwell takes effect on
+  //    the very next tick with no extra wiring. ──────────────────────────
+  var LOOP_MODE_KEY = "km_loop_mode";
+  var LOOP_MODES = ["all", "none", "one"];
+  var LOOP_MODE_LABELS = { all: "Repeat: All", none: "Repeat: Off", one: "Repeat: One" };
+
+  function getLoopMode() {
+    try {
+      var raw = window.localStorage.getItem(LOOP_MODE_KEY);
+      return LOOP_MODES.indexOf(raw) !== -1 ? raw : "all";
+    } catch (e) {
+      return "all";
+    }
+  }
+
+  function setLoopMode(mode) {
+    var m = LOOP_MODES.indexOf(mode) !== -1 ? mode : "all";
+    try { window.localStorage.setItem(LOOP_MODE_KEY, m); } catch (e) { /* private browsing */ }
+    return m;
+  }
+
+  function cycleLoopMode() {
+    var i = LOOP_MODES.indexOf(getLoopMode());
+    return setLoopMode(LOOP_MODES[(i + 1) % LOOP_MODES.length]);
+  }
+
+  function syncLoopButtons() {
+    var mode = getLoopMode();
+    var label = LOOP_MODE_LABELS[mode];
+    ["catchup-loop", "replay-loop"].forEach(function (id) {
+      var btn = $(id);
+      if (!btn) return;
+      btn.setAttribute("data-mode", mode);
+      btn.title = label;
+      btn.setAttribute("aria-label", "Cycle repeat mode (currently " + label + ")");
+    });
+  }
+
+  function wireLoopToggle(btnId) {
+    var btn = $(btnId);
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      cycleLoopMode();
+      syncLoopButtons();
+    });
   }
 
   // ── Catch Me Up: the slideshow ──────────────────────────────────────────────
@@ -1123,12 +1243,37 @@
   }
   function ftToSvg(xFt, yFt) { return projectFt(xFt, yFt, 0); }
   var HOME_SVG = ftToSvg(0, 0);
+  // Real batter's-box starting point (Alex's ask): a right-handed batter
+  // stands in the box nearer 3B (negative x here), a lefty nearer 1B
+  // (positive x) - purely the batter's OWN runner token's start; the ball's
+  // contact point and every other piece of physics still comes straight out
+  // of flightParams, untouched. Deliberately subtle (Alex's words: "just a
+  // subtle adjustment... as they come out of the batter's box") - the run
+  // to first still heads for the same real basepath, it just leaves from a
+  // couple feet to one side of dead-center on the plate instead of the
+  // exact center every other token (and every label anchored at "home")
+  // still uses.
+  var BATTER_BOX_OFFSET_FT = 5;
+  function batterBoxStartPt(hand) {
+    return ftToSvg(hand === "L" ? BATTER_BOX_OFFSET_FT : -BATTER_BOX_OFFSET_FT, 0);
+  }
 
   // Real MLB basepaths: 90ft square, so home-to-1B/3B is 90ft along the foul
   // lines (angle 90/0, i.e. offset +-45deg from dead centre) and home-to-2B
   // is the 90ft square's diagonal.
   var BASE_DIST_FT = 90;
   var BASE_DIAG_FT = BASE_DIST_FT * Math.SQRT2;
+  // Real feet, not projected screen pixels (unlike SCENE_BASES below) -
+  // throwSchedule's own real-distance-per-throw timing (Alex's ask: a relay
+  // throw must not draw for as long as a full corner-to-first throw) needs
+  // straight-line feet between two bases, computed before any perspective
+  // projection touches it.
+  var BASE_POS_FT = {
+    HOME: { x: 0, y: 0 },
+    "1B": { x: BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 },
+    "2B": { x: 0, y: BASE_DIAG_FT },
+    "3B": { x: -BASE_DIST_FT * Math.SQRT1_2, y: BASE_DIST_FT * Math.SQRT1_2 },
+  };
   // Token/marker sizes, scaled down from the old hand-placed diamond to match
   // the now-correctly-scaled (and visually smaller) real-90ft infield.
   var RUNNER_R = 6, BASE_R = 4.5, BALL_R = 3, FIELDER_R = 4;
@@ -1312,9 +1457,24 @@
     return pts;
   }
 
-  // Longer trips run a little faster rather than strictly proportionally, so
-  // even a home run's four legs finish inside the shortest play dwell (2000ms).
-  var RUN_LEG_MS = [0, 800, 1150, 1450, 1700];
+  // Real average MLB Statcast "sprint speed" (Alex's call, ideas-and-opinions
+  // conversation), applied to the real 90ft (BASE_DIST_FT) each leg actually
+  // covers - unlike the old sub-linear stylized table this replaces (tuned
+  // only to fit a fixed slide-dwell budget, not to real speed - see
+  // slideDwell's own comment for why that budget itself had to become
+  // dynamic instead), every leg here genuinely does take the same real time,
+  // since speed and per-leg distance are both constant.
+  var RUNNER_SPRINT_FT_PER_S = 27;
+  var RUN_LEG_MS = [0, 1, 2, 3, 4].map(function (legs) {
+    return Math.round(legs * BASE_DIST_FT / RUNNER_SPRINT_FT_PER_S * 1000);
+  });
+  // A put-out token's own animation total (style.css: rnOutToBase/
+  // rnOutRetreat) - run to the tag point (RUN_LEG_MS[1]) + turn red (250ms) +
+  // walk off (650ms). Kept in sync with that CSS rule's own hardcoded
+  // 4233ms/percentages by hand (see its comment) - defined here too so
+  // slideDwell's own per-play animation estimate below has a single real
+  // number to reference instead of a second hand-copied 4233 literal.
+  var OUT_CHOREOGRAPHY_MS = RUN_LEG_MS[1] + 250 + 650;
 
   /* Pair up who was on base before a play with where runners ended after it.
      Runners cannot pass each other, so listing both sides most-advanced-first
@@ -1415,7 +1575,15 @@
   // left alone - that's a real inside-the-park home run, not an error.
   function clampToFence(D, angleDeg, isHomeRun) {
     if (isHomeRun) return D;
-    return Math.min(D, fenceAt(angleDeg) - 12);
+    // No margin (Alex's call, ideas-and-opinions conversation): the old -12ft
+    // buffer hedged against the previous design's forecasting uncertainty (a
+    // solved/recomputed distance that could land anywhere near the fence
+    // unpredictably). The render target is now a real Statcast distance,
+    // already filtered at data-build time to stay under the fence
+    // (compute_flight_ranges.py's NON_HR_CLAMP_FT, kept in sync with this
+    // value) - so this is now a defensive cap for the rare no-station
+    // fallback path, not a routine one.
+    return Math.min(D, fenceAt(angleDeg));
   }
 
   // The fence as one SVG polyline, drawn once per field render but built
@@ -1902,12 +2070,33 @@
       '<path class="dm-mound-dirt" d="' + circlePathD(0, PITCHER_MOUND_FT, MOUND_DIRT_R_FT, 20) + '"></path>';
   }
 
-  function nearestFielder(x, y) {
-    var best = null, bestD = Infinity;
+  // Real fielders converge on a ball asymmetrically: coming IN (running
+  // toward home) is easier/faster than retreating (running away from home,
+  // tracking a fly ball over one's shoulder, or chasing a rolling ball
+  // that's still moving away) - this used to compare every fielder as if
+  // all approaches were equally hard, so a shallow fly or rollout between
+  // an infielder and outfielder always split exactly down the middle
+  // regardless of which direction each was actually running (Alex's
+  // report). `retreatPenalty` scales a retreating fielder's effective
+  // distance up before comparing - CATCH_RETREAT_PENALTY/
+  // PICKUP_RETREAT_PENALTY below are each anchored to an explicit ground-
+  // coverage-share anecdote (Alex's calls: 70/30 RF/2B on a fly ball, 80/20
+  // chasing a rolling one), not an arbitrary tuned number: penalty =
+  // deeperShare/shallowerShare is exactly the multiplier that makes the two
+  // fielders score equal at the real boundary point that share split
+  // describes.
+  var CATCH_RETREAT_PENALTY = 0.7 / 0.3;    // 70/30 RF/2B ground share on a fly ball
+  var PICKUP_RETREAT_PENALTY = 0.8 / 0.2;   // 80/20 RF/2B ground share chasing a rolling ball
+  function nearestFielder(x, y, retreatPenalty) {
+    var penalty = retreatPenalty || CATCH_RETREAT_PENALTY;
+    var ballDist = Math.hypot(x, y);
+    var best = null, bestScore = Infinity;
     for (var key in FIELDER_ANCHORS_FT) {
       var a = FIELDER_ANCHORS_FT[key];
-      var d = (a.x - x) * (a.x - x) + (a.y - y) * (a.y - y);
-      if (d < bestD) { bestD = d; best = key; }
+      var d = Math.hypot(a.x - x, a.y - y);
+      var anchorDist = Math.hypot(a.x, a.y);
+      var score = anchorDist >= ballDist ? d : d * penalty;
+      if (score < bestScore) { bestScore = score; best = key; }
     }
     return best;
   }
@@ -1936,6 +2125,63 @@
     return onTop
       ? ideal - (1 - q) * (ideal - band.laMin)
       : ideal + (1 - q) * (band.laMax - ideal);
+  }
+
+  // Joint EV/LA/distance selection (ideas-and-opinions conversation,
+  // physics-redesign successor to launchAngleFor above): band.stations is a
+  // table of this result's real (EV, LA, distance) triples ranked by their
+  // own real Statcast distance (hit_distance_sc, pre-trimmed to the 5th-95th
+  // percentile by compute_flight_ranges.py) - not independently-interpolated
+  // marginal ranges, and not an EV solved backward through our own physics
+  // to hit a target (both, in turn, could produce - or in the solved-EV
+  // case, report - an (EV, LA) pair no real batted ball ever was: verified
+  // root cause of sign-flipped diff-vs-distance relationships, clamp-
+  // clumping on deep hits, and physically nonsensical readouts like a
+  // 130mph EV-solve-ceiling clamp on a real play). q picks a real point's LA
+  // *and its own real paired EV and distance* directly off this real data;
+  // onTop picks which end of the real LA spread at that distance to land
+  // on. distTopped/distUppercut are each that SAME real play's own
+  // hit_distance_sc - never a value borrowed from a different real play at
+  // the same station rank (an earlier design's bug: la_topped/ev_topped
+  // were already a real pair, but the distance they got radially rescaled
+  // to came from a different real play that merely shared the station's
+  // rank). flightParams below runs the picked real pair through the real
+  // drag+lift physics and radially rescales the landing point to that same
+  // pair's own real distance, rather than trusting the physics model's own
+  // recomputed distance for it (see this function's docstring companion in
+  // compute_flight_ranges.py for why those two can legitimately differ).
+  //
+  // laMin/laIdeal/laMax/evMin/evMax on the band are kept as reference/audit
+  // only now (still read by the worked-example tests and human eyeballing)
+  // - launchAngleFor above is the fallback for a band with no stations
+  // (e.g. a stale cached meta.json), not the primary path.
+  function stationsLookup(band, q) {
+    var st = band.stations;
+    if (!st || !st.length) return null;
+    function pick(s) {
+      return {
+        laTopped: s.laTopped, evTopped: s.evTopped, distTopped: s.distTopped,
+        laUppercut: s.laUppercut, evUppercut: s.evUppercut, distUppercut: s.distUppercut,
+      };
+    }
+    var first = st[0], last = st[st.length - 1];
+    if (q <= first.q) return pick(first);
+    if (q >= last.q) return pick(last);
+    for (var i = 0; i < st.length - 1; i++) {
+      var a = st[i], b = st[i + 1];
+      if (q >= a.q && q <= b.q) {
+        var t = (b.q - a.q) > 0 ? (q - a.q) / (b.q - a.q) : 0;
+        return {
+          laTopped: a.laTopped + (b.laTopped - a.laTopped) * t,
+          evTopped: a.evTopped + (b.evTopped - a.evTopped) * t,
+          distTopped: a.distTopped + (b.distTopped - a.distTopped) * t,
+          laUppercut: a.laUppercut + (b.laUppercut - a.laUppercut) * t,
+          evUppercut: a.evUppercut + (b.evUppercut - a.evUppercut) * t,
+          distUppercut: a.distUppercut + (b.distUppercut - a.distUppercut) * t,
+        };
+      }
+    }
+    return pick(last);
   }
 
   // Radially rescale a KMTraj sample list (x,y only - z/t untouched) - used
@@ -2011,7 +2257,14 @@
   // change - only where the ball goes.
   function applyAngleOverride(flight, newAngleDeg, hand, isHomeRun) {
     var sim = clampFairTerritory(KMTraj.simulateFlight(flight.ev, flight.la, newAngleDeg - 45, hand), flight.archetype);
-    var D = distanceCap(sim, newAngleDeg, isHomeRun);
+    // Re-targets the same real distance flightParams originally picked
+    // (flight.targetDist), not just whatever this new angle's raw sim
+    // happens to produce - a direction override should still land the ball
+    // at the same real Statcast distance for this play, just thrown to a
+    // new bearing. Falls back to the raw sim distance (no-op) for a
+    // pre-stations flight object that never set targetDist.
+    var target = flight.targetDist != null ? flight.targetDist : sim.distance;
+    var D = distanceCap({ distance: target, landing: sim.landing }, newAngleDeg, isHomeRun);
     var scale = D / sim.distance;
     flight.angle = newAngleDeg;
     flight.distance = D;
@@ -2051,24 +2304,57 @@
     // pitch/swing circular delta over all three digits, not just the first
     // two the old dLA used - signedCirc already generalises to any modulus.
     var onTop = signedCirc(pitch, swing, 1000) > 0;
-    var LA = launchAngleFor(band, q, onTop);
 
     var hand = effectiveHand(play.batter_hand);
     var frac = bucket / 5;
     var angle = hand === "L" ? 45 - frac * 40 : 45 + frac * 40;
 
-    var EV = band.evMin + q * (band.evMax - band.evMin);
+    // Joint EV/LA selection (see stationsLookup above): q picks a real,
+    // jointly-observed (EV, LA) pair off real Statcast data - not a solved
+    // EV, so no risk of a physically implausible readout (e.g. an EV-solve-
+    // bracket-ceiling clamp on a real play). onTop picks which end of the
+    // real LA spread at that distance to land on. Falls back to the old
+    // independent-marginal formula only if a band has no stations (e.g. a
+    // stale cached meta.json predating this change).
+    var station = stationsLookup(band, q);
+    var LA, EV;
+    if (station) {
+      LA = onTop ? station.laTopped : station.laUppercut;
+      EV = onTop ? station.evTopped : station.evUppercut;
+    } else {
+      LA = launchAngleFor(band, q, onTop);
+      EV = band.evMin + q * (band.evMax - band.evMin);
+    }
     var isHomeRun = result === "HR";
 
     // phi = HZ - 45 (physics-redesign plan Part 1, verified); the resolved
     // hand goes into the spin formulas unchanged, not folded into phi a
     // second time - the HZ angle above already carries the hand mirror.
     var sim = clampFairTerritory(KMTraj.simulateFlight(EV, LA, angle - 45, hand), band.archetype);
-    var D = distanceCap(sim, angle, isHomeRun);
+
+    // Radial scale to the real Statcast distance for this station (see the
+    // geometric-radial-scale explanation from the ideas-and-opinions
+    // conversation): running this real EV/LA pair through the real physics
+    // can legitimately land at a different distance than that same pair's
+    // own real hit_distance_sc (ball-to-ball Cd/Cl variance the workbook
+    // itself admits, and for anything a fielder stops early, hit_distance_sc
+    // was never an uninterrupted-flight distance to begin with) - so the
+    // real distance, not the model's own recompute, is what gets rendered.
+    // Falls back to the raw simulated distance (no-op scale) when there's no
+    // station. distanceCap is handed this real target (not the raw simulated
+    // one) so the "scale to the real distance" and "clamp to the fence/field
+    // boundary, if needed" steps collapse into the single `scale` factor
+    // already applied below - the same pattern the fence-clamp-only path
+    // used before this change. scaleSamples only ever touches x/y -
+    // contactVel stays the real, unscaled physics velocity, so downstream
+    // rollout/pickup (resolveHitPickup) reads the real exit speed regardless
+    // of either scale step.
+    var targetDist = station ? (onTop ? station.distTopped : station.distUppercut) : sim.distance;
+    var D = distanceCap({ distance: targetDist, landing: sim.landing }, angle, isHomeRun);
     var scale = D / sim.distance;
 
     return {
-      la: LA, ev: EV, distance: D, angle: angle,
+      la: LA, ev: EV, distance: D, angle: angle, targetDist: targetDist,
       x: sim.landing.x * scale, y: sim.landing.y * scale,
       hangMs: 1000 * sim.hangS, hangS: sim.hangS, apexFt: sim.apexFt,
       contactVel: sim.contactVel, samples: scaleSamples(sim.samples, scale),
@@ -2170,18 +2456,18 @@
   }
 
   // ── Ball flight rendering (ball-flight-plan.md Stage 4) ───────────────────
-  // Timing constants below are animation-feel judgment calls, not derived
-  // from anything physical - flagged as tune-after-watching in the plan
-  // (Open Questions 2 and 6; physics-redesign plan OQ-3).
-  // Physics seconds -> animation ms, one knob (physics-redesign plan Part 7):
-  // flight/ground times are now real (fly balls hang 4-6.6s, grounders reach
-  // the fielder in ~0.8-1.9s), but the rest of the choreography (runner leg
-  // times, throw beats) still runs in stylized animation time - this is the
-  // one place physics time gets compressed into it. 5.35s HR hang * 0.22 =
-  // 1177ms (was pinned at 1400); a GO (0.11s flight + ~1.3s ground) * 0.22 =
-  // ~310ms (was a flat 450ms) - both land in the old feel range.
-  var ANIM_TIME_SCALE = 0.22;                          // Open Question 3
-  var HANG_MS_MIN = 450, HANG_MS_MAX = 1400;           // Open Question 6
+  // Real-time throughout (Alex's call, ideas-and-opinions conversation):
+  // every distance/speed-derived timing below - ball flight, ground time,
+  // base-running, throws - now plays at its own true real-world duration
+  // rather than a stylized "feel" compression. Pure reaction-time/margin
+  // beats (RUNNER_LEAD_MS, TAG_UP_MS, OUT_BEAT_MS, THROW_DELAY_MS,
+  // THROW_STAGGER_MS, THROW_LEAD_MS, *_MARGIN_MS) are deliberately left
+  // alone - there's no real-world "speed" to derive a tag-up reaction or a
+  // safety margin from, only a real distance/speed pair. slideDwell is now
+  // computed per-play from the real result (see its own comment) rather than
+  // assuming every play fits inside one fixed budget, which no longer holds
+  // once a home run trot alone can run 13+ real seconds.
+  var ANIM_TIME_SCALE = 1.0;
   var RUNNER_LEAD_MS = 150;         // runners begin this long after slide mount, behind the ball
   var OUT_BEAT_MS = 400;            // "outs choreography begins" beat, on top of ball travel if any
   // Alex's ask: the DIFF/HZ wheels should finish their own animation before
@@ -2209,20 +2495,78 @@
   // Throw leaves almost as the ball is fielded (was 150) so a grounder's
   // throw beats the runner to the bag (refinements plan A4/F10).
   var THROW_DELAY_MS = 60;          // throw draws in this long after the ball is fielded
-  var THROW_DRAW_MS = 180;          // how long one throw takes to draw in
-  // Gap between successive throws on a multi-throw play (a DP's relay).
-  // Tightened from 150 when THROW_LEAD_MS went 100->200: a 2-throw relay's
-  // schedule (THROW_DELAY_MS + this + THROW_DRAW_MS, stacked on top of the
-  // ball's own travel time) only had ~10ms of slack against the batter's
-  // fixed first-to-base arrival time at the old margin, so doubling that
-  // margin without also tightening this pushed the relay's second throw
-  // past the runner outright. This restores the same ~10ms slack.
+  // Real average MLB infield throw speed (Alex's call, ideas-and-opinions
+  // conversation). THROW_DRAW_MS (over BASE_DIAG_FT, 127.3ft, the real
+  // cross-diamond distance e.g. SS/3B to 1B) is the FALLBACK duration for
+  // when a throw's real endpoints aren't both known - every throw with a
+  // resolvable real distance (throwDrawMsForFt/throwDistFt, below) draws at
+  // this same mph but over its OWN actual feet, so a short relay flip draws
+  // faster than a full corner-to-first throw instead of taking the same
+  // time as one (Alex's ask - this was the deliberate scope boundary the
+  // old comment here flagged as "a bigger follow-up if it's worth the
+  // reach"; making sequential relay throws fit their own time budget is
+  // what made it worth the reach).
+  var THROW_SPEED_MPH = 90;
+  var THROW_DRAW_MS = Math.round(BASE_DIAG_FT / (THROW_SPEED_MPH * 1.46667) * 1000);
+  function throwDrawMsForFt(distFt) {
+    return Math.max(1, Math.round(distFt / (THROW_SPEED_MPH * 1.46667) * 1000));
+  }
+  // Straight-line real feet from a real {x,y} origin to a named base, or null
+  // when the origin isn't known (e.g. ball_flight_test.py's minimal A4
+  // timing-race flight objects, built without a resolved fielder position) -
+  // callers fall back to the flat THROW_DRAW_MS/BASE_DIAG_FT model in that
+  // case, exactly the old always-BASE_DIAG_FT behavior.
+  function throwDistFt(fromPt, toBase) {
+    var to = BASE_POS_FT[toBase];
+    if (!to || !fromPt || !isFinite(fromPt.x) || !isFinite(fromPt.y)) return null;
+    return Math.hypot(to.x - fromPt.x, to.y - fromPt.y);
+  }
+  // A relay "leg" the same fielder covers themselves (an unassisted putout -
+  // e.g. a 3B fielding a bunt with the force at third, stepping on the bag
+  // himself before throwing on to first for a 5-3 DP) is a jog, not a
+  // throw - Alex's ask: it should draw at a runner's pace, not 90mph.
+  // Mirrors throwDrawMsForFt exactly, just off RUNNER_SPRINT_FT_PER_S.
+  function runnerDrawMsForFt(distFt) {
+    return Math.max(1, Math.round(distFt / RUNNER_SPRINT_FT_PER_S * 1000));
+  }
+  // Per-target whether outThrowTargets' leg i is that same "fielder covers
+  // it himself" case, in chain order - the exact coverage rule
+  // fieldingChainDetail already uses to collapse the notation (a repeated
+  // position touching the ball twice in a row is one unassisted play, not a
+  // throw to himself), just kept per-leg here instead of collapsed, since
+  // throwSchedule still needs real geometry/timing for every leg whether
+  // it's a throw or a jog. Defaults every leg to "assisted" (a real throw)
+  // if the fielder itself somehow isn't resolved - the same conservative
+  // fallback throwDistFt's own null case already uses elsewhere.
+  function relayLegIsUnassisted(targets, flight) {
+    if (!flight.fielder) return targets.map(function () { return false; });
+    var prevPos = flight.fielder;
+    return targets.map(function (b) {
+      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder);
+      var unassisted = pos === prevPos;
+      prevPos = pos;
+      return unassisted;
+    });
+  }
+  // Catch-and-transfer beat before a relay throw leaves, on a multi-throw
+  // play (a DP's relay) - Alex's ask: the second throw must not start
+  // drawing until the first one has actually landed (was a flat i*this
+  // offset from every throw's own start, so a relay's throws overlapped
+  // and read as simultaneous instead of thrown/caught/thrown - see
+  // throwSchedule, which now chains start[i] off end[i-1] instead).
   var THROW_STAGGER_MS = 50;
   // One id per rendered throw line's reveal clip-path (throwLineHtml) - just
   // needs to be unique within the DOM at any moment, not stable/meaningful.
   var THROW_CLIP_SEQ = 0;
   var THROW_LEAD_MS = 200;          // required margin: every throw must land at least this early
   var TAG_UP_MS = 80;               // a tagging runner leaves this long after the catch (B5)
+  // Stylized walk off the field after being put out, same "no real-world
+  // distance to derive from" duration out-walk's own choreography already
+  // used (its old fixed 650ms shape) - now shared by every out choreography
+  // via runnerOutMotionHtml, so a token's walk to the dugout always starts
+  // the instant they're actually out (Alex's ask) and takes this long to
+  // get there, regardless of which shape put them out.
+  var RN_OUT_WALK_MS = 650;
   // A caught-ball throw that isn't chasing a real out (SacF/DSacF/FO's "the
   // drama of a sac fly" throw - see throwSchedule) is chasing a runner who's
   // already safe, same convention as STEAL_THROW_MARGIN_MS: the runner beats
@@ -2234,38 +2578,19 @@
   // visible throw origin.
   var SHOW_FIELDER_TOKENS = false;
 
-  // How long the ball is airborne, in animation ms - physics hang time
-  // scaled by ANIM_TIME_SCALE and clamped to the old feel range. No more
-  // isGrounder branch (F7 fixed): a grounder's own hangS is tiny (~0.1-0.8s),
-  // so this clamps to HANG_MS_MIN for essentially every grounder anyway -
-  // the same 450ms floor the old flat GROUNDER_ROLL_MS constant gave, just
-  // arrived at from the real physics instead of a second hardcoded number
-  // that happened to agree with it.
+  // How long the ball is airborne, in animation ms - the real physics hang
+  // time, verbatim (ANIM_TIME_SCALE=1.0). No clamp: a real HR hang time (up
+  // to ~6.6s) and a real grounder's near-zero hang time both play at their
+  // own true duration now, not squeezed into a shared "feel" range.
   function ballTravelMs(flight) {
-    if (!flight) return 0;
-    return clamp((flight.hangMs || 0) * ANIM_TIME_SCALE, HANG_MS_MIN, HANG_MS_MAX);
+    return flight ? (flight.hangMs || 0) : 0;
   }
 
-  // A much smaller scale than ANIM_TIME_SCALE, deliberately (Open Question
-  // 3): ballTravelMs already floors every grounder at HANG_MS_MIN (450ms) -
-  // real grounder hang time is under a second, so ANIM_TIME_SCALE never
-  // lifts it off that floor - which leaves only ~60ms of the stylized
-  // runner-to-first budget (RUN_LEG_MS/THROW_LEAD_MS, both preserved exactly
-  // per Part 5) for the ground-phase delay before a deep SS/2B grounder's
-  // throw would stop beating the runner, and a two-throw DP relay
-  // (THROW_STAGGER_MS on top of that) leaves less than 10ms of that budget
-  // once THROW_DELAY/DRAW/LEAD are accounted for. Applying ANIM_TIME_SCALE
-  // itself to ground time (as a single shared knob) can't satisfy both this
-  // and a readable fly-ball hang time at once - tuned here to the small
-  // starting value that keeps the worst realistic case (a full-depth SS/2B
-  // grounder feeding a two-throw relay, ~1.4s of ground time) inside that
-  // budget with a few ms to spare. Genuinely tight by construction, not a
-  // margin of comfort - Stage E's real task here is deciding whether the
-  // ground-phase visual (currently near-instant at this scale) needs a
-  // bigger budget carved out elsewhere (THROW_STAGGER_MS, THROW_LEAD_MS) or
-  // stays this subtle; re-tune together with ANIM_TIME_SCALE against the
-  // full timing-race sweep, not in isolation.
-  var GROUND_TIME_SCALE = 0.005;
+  // Ground-phase time (bounce/roll to the fielder) at its own true real
+  // duration too, for the same reason - no longer artificially compressed
+  // to fit inside a fixed stylized runner-to-first budget, since RUN_LEG_MS
+  // itself is real-time now and has ample room for it.
+  var GROUND_TIME_SCALE = 1.0;
 
   // Ball-in-flight time plus the additional ground time until the fielder
   // actually has it (physics-redesign plan Part 7) - the throw can't be
@@ -2409,7 +2734,7 @@
     // (involvedPositions/"Fielded by", fielderTokensHtml's convergence
     // point) reads this same corrected value.
     var restPt = groundDirPoint(flight, pickupFt);
-    flight.fielder = nearestFielder(restPt.x, restPt.y);
+    flight.fielder = nearestFielder(restPt.x, restPt.y, PICKUP_RETREAT_PENALTY);
   }
 
   // A physically low trajectory reads as "ground" for CSS purposes - the old
@@ -2565,12 +2890,17 @@
     // first keyframe (0% - the real contact point) apply during the delay
     // instead, same fix already in place for .fielder/.rn/.dm-base.on
     // elsewhere in this file.
-    var settleRule = "animation: " + name + " var(--dur) linear var(--fdelay,0s) both, " +
-      "ballSettle 350ms ease calc(var(--fdelay,0s) + var(--dur)) forwards;";
+    // Every duration/delay here divides by --play-speed (Alex's ask: the
+    // slideshow speed toggle should actually speed the animation up, not
+    // just shorten the wait between plays) - same live CSS custom property
+    // style.css's own rules key off, so this generated block stays in sync
+    // with the toggle without needing to know the current speed itself.
+    var settleRule = "animation: " + name + " calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both, " +
+      "ballSettle calc(350ms / var(--play-speed,1)) ease calc((var(--fdelay,0s) + var(--dur)) / var(--play-speed,1)) forwards;";
     var style = "<style>" +
       "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
       "@keyframes " + name + "-trail { " + trailStops + "} " +
-      ".ball-trail." + name + " { animation: " + name + "-trail var(--dur) linear var(--fdelay,0s) forwards; }" +
+      ".ball-trail." + name + " { animation: " + name + "-trail calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) forwards; }" +
       "</style>";
     var pathD = projected.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
     return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1] };
@@ -2605,7 +2935,20 @@
   function ballFlightHtml(m, flight, seqDelay) {
     if (!flight) return "";
     var cleared = flight.clearedFence;
-    var dur = ballTravelMs(flight);
+    // fieldedMs, not ballTravelMs (Alex's report, real-time conversation):
+    // flightSampleSeries/ballArcHtml already build ONE continuous keyframe
+    // timeline from contact all the way to the ball's final resting/fielded
+    // point (air samples concatenated with ground-roll samples, "Part 6.3
+    // item 5" - a real, deliberate existing feature). But the CSS animation-
+    // duration here was still only the AIRBORNE time - so the ball visually
+    // covered its full journey, air AND roll, compressed into just the
+    // hang time. Invisible while GROUND_TIME_SCALE kept ground time near
+    // zero; very visible now that it's real (up to ~1-2s for a routine
+    // grounder) - confirmed directly: a real grounder's arc.endPt (the
+    // keyframe's own 100% stop) already projects to the true fielded point,
+    // not the landing point, so the fix is purely the duration, not a
+    // missing visual.
+    var dur = fieldedMs(flight);
     var arc = ballArcHtml(m, flight);
     var fdelay = seqDelay || 0;
     var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
@@ -3213,6 +3556,26 @@
     return notation;
   }
 
+  /* Chains a relay's throws end-to-end: throw i doesn't start drawing until
+     throw i-1 has actually landed (endMs) plus a catch-and-transfer beat
+     (THROW_STAGGER_MS) - never overlapping, so a double play visibly reads
+     as thrown, caught, THEN thrown again, not two dashed lines animating at
+     once (Alex's ask). Only the first throw's start is a caller-supplied
+     anchor; every throw after it is fully determined by the one before.
+     drawMsFor(i, base), when given, picks each throw's own duration (see
+     throwSchedule's real-distance closures below) - defaults to the flat
+     THROW_DRAW_MS when omitted. */
+  function sequentialThrowSchedule(targets, firstStartMs, realCount, drawMsFor) {
+    var prevEnd = null;
+    return targets.map(function (b, i) {
+      var start = i === 0 ? firstStartMs : prevEnd + THROW_STAGGER_MS;
+      var draw = drawMsFor ? drawMsFor(i, b) : THROW_DRAW_MS;
+      var end = start + draw;
+      prevEnd = end;
+      return { base: b, startMs: start, endMs: end, drawMs: draw, out: i < realCount };
+    });
+  }
+
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
      throw i+1 relays from throw i's target base. Kept separate from the
      rendering so the timing race against the runner can be asserted rather
@@ -3245,9 +3608,14 @@
         runnerArrival = Math.max(runnerArrival, catchMs + TAG_UP_MS + (RUN_LEG_MS[legs] || 0));
       });
       var tagStart = Math.max(0, runnerArrival + TAG_THROW_MARGIN_MS - THROW_DRAW_MS);
-      return targets.map(function (b, i) {
-        var start = tagStart + i * THROW_STAGGER_MS;
-        return { base: b, startMs: start, endMs: start + THROW_DRAW_MS, out: i < realCount };
+      // The first throw keeps the flat THROW_DRAW_MS here (tagStart's own
+      // math above is built on that assumption - it's already timed to land
+      // at runnerArrival+TAG_THROW_MARGIN_MS); only a relay leg past it gets
+      // its own real base-to-base distance.
+      return sequentialThrowSchedule(targets, tagStart, realCount, function (i, b) {
+        if (i === 0) return THROW_DRAW_MS;
+        var dist = throwDistFt(BASE_POS_FT[targets[i - 1]], b);
+        return dist == null ? THROW_DRAW_MS : throwDrawMsForFt(dist);
       });
     }
 
@@ -3257,17 +3625,73 @@
     // throwHtml's origin). fieldedMs (Part 7) replaces the old
     // ballTravelMs+rollMs sum with one physically-timed number.
     var base = fieldedMs(flight) + THROW_DELAY_MS;
-    return targets.map(function (b, i) {
-      var start = base + i * THROW_STAGGER_MS;
-      return { base: b, startMs: start, endMs: start + THROW_DRAW_MS, out: i < realCount };
+    // Real distance per throw (Alex's ask - a relay leg must not take as
+    // long as a full corner-to-first throw): throw 0 runs from the ball's
+    // actual fielded spot (fieldedPoint), every throw after it from the
+    // previous throw's own target base - both real, known points, so both
+    // get their own accurate draw time. Falls back to the flat THROW_DRAW_MS/
+    // BASE_DIAG_FT model only when the origin isn't resolvable (ball_flight_
+    // test.py's minimal A4 timing-race flights, built without a fielder
+    // position) - the same conservative number this whole model used
+    // everywhere before this.
+    var origin0 = fieldedPoint(flight);
+    // A leg the same fielder covers themselves (relayLegIsUnassisted, Alex's
+    // ask) draws at a runner's jog, not a 90mph throw - a 3B stepping on
+    // third himself before relaying to first (a 5-3 DP) shouldn't cross that
+    // ground any faster than a runner would.
+    var unassisted = relayLegIsUnassisted(targets, flight);
+    return sequentialThrowSchedule(targets, base, realCount, function (i, b) {
+      var fromPt = i === 0 ? origin0 : BASE_POS_FT[targets[i - 1]];
+      var dist = throwDistFt(fromPt, b);
+      if (dist == null) return THROW_DRAW_MS;
+      return unassisted[i] ? runnerDrawMsForFt(dist) : throwDrawMsForFt(dist);
     });
   }
 
-  // The .out-to-first keyframe's 47.06% stop is where the batter reaches
-  // first (A4) - kept as one named function so the throw-beats-runner
-  // assertion has a single source of truth to check against.
+  /* When each throw-corroborated out actually happens - the moment its own
+     throw lands (schedule[i].endMs), keyed by target base - shared by
+     scorebugOutsHtml (the out-dot pops at this exact moment, Alex's ask)
+     and sceneFieldHtml (the runner token turns red at this exact moment,
+     same ask - "the corresponding batter/runner who is out" should flip red
+     together with the dot, not on the old fixed 3333ms-into-the-run-
+     choreography guess). Only covers outs a real throw resolves; a caught-
+     in-the-air out or a no-flight out (K) has no entry here - callers fall
+     back to the catch moment or the old flat beat themselves. */
+  function outThrowEndByBase(m, moves, flight) {
+    var schedule = throwSchedule(m, moves, flight);
+    var map = {};
+    schedule.forEach(function (t) { if (t.out) map[t.base] = t.endMs; });
+    return map;
+  }
+
+  /* When a caught-stealing out is actually recorded (the tag, not the
+     throw's own release) - null when this play isn't one. A steal never has
+     a ball flight, so runDelay is always 0 here, same as sceneFieldHtml's
+     own runDelay/outDelay/delayedStartMs would independently compute for
+     one; pulled out as its own function so scorebugOutsHtml's dot and
+     sceneFieldHtml's runner token read it off one shared formula instead of
+     the dot falling back to a generic (and, for this case, wrong) guess. */
+  function stealOutAtMs(m, moves) {
+    var stealOut = stealThrowTarget(m, moves);
+    if (!stealOut || !stealOut.caught) return null;
+    var outDelay = OUT_BEAT_MS;
+    var delayedStartMs = outDelay + TAG_UP_MS;
+    var stealOutDelay = stealOut.delay ? delayedStartMs : outDelay;
+    return stealRunnerArrivalMs(true, 0, stealOutDelay) + TAG_UP_MS;
+  }
+
+  // The .out-to-first keyframe's own "reaches first" checkpoint (style.css:
+  // rnOutToBase, currently 78.72% of its 4233ms total - see that rule's own
+  // comment) is where the batter reaches first (A4) - kept as one named
+  // function so the throw-beats-runner assertion has a single source of
+  // truth to check against. Was RUNNER_LEAD_MS + 0.4706*1700, a magic-
+  // fraction-of-the-old-hardcoded-total indirection that happened to equal
+  // RUN_LEG_MS[1] (800 at the time) - references it directly now, so this
+  // stays correct automatically whenever RUN_LEG_MS changes instead of
+  // silently drifting out of sync with a CSS percentage computed by hand
+  // from a different constant.
   function batterFirstArrivalMs() {
-    return RUNNER_LEAD_MS + 0.4706 * 1700;
+    return RUNNER_LEAD_MS + RUN_LEG_MS[1];
   }
 
   // A dashed <line>'s own geometry attributes (x1/y1/x2/y2) aren't CSS-
@@ -3282,11 +3706,11 @@
   // own bearing. Animating just its width via CSS is what actually grows
   // the visible portion of the (separately, statically dashed) line
   // underneath.
-  function throwLineHtml(x1, y1, x2, y2, cls, startMs) {
+  function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs) {
     var len = Math.hypot(x2 - x1, y2 - y1) || 1;
     var angleDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
     var id = "throwClip" + (THROW_CLIP_SEQ++);
-    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + THROW_DRAW_MS + "ms";
+    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + (drawMs || THROW_DRAW_MS) + "ms";
     var clip = '<clipPath id="' + id + '" clipPathUnits="userSpaceOnUse">' +
       '<rect class="throw-clip-rect" x="' + x1.toFixed(1) + '" y="' + (y1 - 4).toFixed(1) +
       '" width="0" height="8" transform="rotate(' + angleDeg.toFixed(2) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
@@ -3315,7 +3739,7 @@
       // seqDelay added only here, at the final write - throwSchedule itself
       // (shared with ball_flight_test.py's timing-race assertions) stays a
       // pure, offset-free function of the play/flight alone.
-      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay);
+      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay, t.drawMs);
       origin = to;   // next throw relays from here (A5)
       return html;
     }).join("");
@@ -3411,7 +3835,9 @@
     effectiveHand: effectiveHand, landingPoint: landingPoint, clampToFence: clampToFence,
     distanceCap: distanceCap, boundaryRFt: boundaryRFt,
     nearestFielder: nearestFielder, flightParams: flightParams, fenceAt: fenceAt,
+    CATCH_RETREAT_PENALTY: CATCH_RETREAT_PENALTY, PICKUP_RETREAT_PENALTY: PICKUP_RETREAT_PENALTY,
     launchAngleFor: launchAngleFor,
+    stationsLookup: stationsLookup,
     FENCE_DEPTH_FT: FENCE_DEPTH_FT,
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
@@ -3497,12 +3923,80 @@
     return deriveRunnerMoves(before, after, m.runs || 0);
   }
 
+  var rnOutArcCounter = 0;
+
+  /* Per-token generated position keyframe for an out-bound runner (Alex's
+     report: a caught fly ball's batter ran the full fixed choreography all
+     the way to first, only turning red - and starting to walk off - well
+     after the ball had actually been caught; a runner "shouldn't start
+     heading to the dugout until they're out," and turning red/heading to
+     the dugout/being out should all read as the same moment). The old
+     rnOutToBase/rnOutRetreat keyframes always played out a FIXED 3333ms
+     "run to the base" phase before turning red or walking off, regardless
+     of when the real out (outAtMsFor - the catch, or whichever throw
+     resolves it) actually happened - fine when the two coincidentally lined
+     up, visibly wrong whenever they didn't (a quick catch left the runner
+     still "safely" running well past being out; a slow one left them stuck
+     waiting at the base with nothing to show for it).
+     pathPoints choreographs the pre-out portion as one or more waypoints,
+     each `{frac, x, y}` - frac is how far through fullSprintMs (real time to
+     cover that leg at sprint speed) it's reached, in increasing order,
+     last one normally at frac:1 (a single target base for out-to-base/
+     out-to-first) or two (out-retreat's break-halfway-then-scramble-back).
+     Real per-play math: walks pathPoints up to outAtMs's own real fraction
+     of fullSprintMs, cutting the final leg short (interpolated) if the out
+     happens mid-leg - a quick catch/throw now visibly catches the runner
+     between bases, not after a full sprint that never happened. If outAtMs
+     lags behind the choreographed path (a slow throw arriving after the
+     runner's already back at their base), an explicit hold keyframe keeps
+     them waiting there rather than snapping ahead. Either way the walk to
+     the dugout starts turning-red's own instant (outAtMs) - not a fixed
+     beat later - so out/turn-red/dugout-bound are the same moment, and the
+     token is still visibly moving (not already faded, per Alex's second
+     report) when rnFadeOut picks up shortly after. */
+  function runnerOutMotionHtml(fx, fy, pathPoints, dugoutX, dugoutY, fullSprintMs, outAtMs, walkMs) {
+    var reachFrac = fullSprintMs > 0 ? clamp(outAtMs / fullSprintMs, 0, 1) : 1;
+    var reachAtMs = reachFrac * fullSprintMs;
+    var prevFrac = 0, prevX = fx, prevY = fy;
+    var stops = [{ ms: 0, x: fx, y: fy }];
+    for (var i = 0; i < pathPoints.length; i++) {
+      var wp = pathPoints[i];
+      if (reachFrac >= wp.frac) {
+        stops.push({ ms: wp.frac * fullSprintMs, x: wp.x, y: wp.y });
+        prevFrac = wp.frac; prevX = wp.x; prevY = wp.y;
+      } else {
+        var segSpan = wp.frac - prevFrac;
+        var segFrac = segSpan > 0 ? (reachFrac - prevFrac) / segSpan : 0;
+        stops.push({ ms: reachAtMs, x: prevX + segFrac * (wp.x - prevX), y: prevY + segFrac * (wp.y - prevY) });
+        break;
+      }
+    }
+    var lastStop = stops[stops.length - 1];
+    var totalMs = outAtMs + walkMs;
+    if (outAtMs > lastStop.ms + 0.01) stops.push({ ms: outAtMs, x: lastStop.x, y: lastStop.y });
+    stops.push({ ms: totalMs, x: dugoutX, y: dugoutY });
+
+    var name = "rnOut" + (rnOutArcCounter++);
+    var kfBody = stops.map(function (s) {
+      var pct = totalMs > 0 ? (s.ms / totalMs) * 100 : 0;
+      return pct.toFixed(3) + "% { transform: translate(" + s.x.toFixed(1) + "px," + s.y.toFixed(1) + "px); }";
+    }).join(" ");
+    return { style: "<style>@keyframes " + name + " { " + kfBody + " }</style>", name: name, totalMs: totalMs };
+  }
+
   function sceneFieldHtml(m, flight) {
     var before = String(m.obc_before || "000");
     var after = String(m.obc_after || "000");
     var moves = resolveRunnerMoves(m);
     var dugoutFt = dugoutFor(m);
     var dugoutSvg = ftToSvg(dugoutFt.x, dugoutFt.y);
+    // The batter's own token starts a couple feet off dead-center on the
+    // plate, toward whichever box their hand stands in (Alex's ask) - every
+    // OTHER token/label anchored at "home" (labels, the ball's own contact
+    // point) stays at the real plate center; only the batter's own starting
+    // point moves.
+    var batterHand = effectiveHand(m.batter_hand);
+    var batterBoxSvg = batterBoxStartPt(batterHand);
 
     // Which OUT-bound moves are corroborated by an actual throw, batted-ball
     // (outThrowTargets, already capped to real outs) or steal (stealThrowTarget) -
@@ -3523,6 +4017,23 @@
     var runDelay = flight ? RUNNER_LEAD_MS : 0;
     var outDelay = (flight ? ballTravelMs(flight) : 0) + OUT_BEAT_MS;
     var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+    // Real per-out timing (Alex's ask - "the corresponding batter/runner who
+    // is out" should turn red at the exact moment the dot fills, not a fixed
+    // guess): outEndByBase is the same map scorebugOutsHtml's dots use, so a
+    // runner forced/tagged out at a base neither one drifts out of sync with
+    // the other. outAtMsFor falls back to the catch moment (caught in the
+    // air, no throw needed), the caught-stealing tag moment, or the old flat
+    // outDelay (a no-flight, non-steal out - a strikeout, or an out nothing
+    // here corroborates) when a base isn't in the map.
+    var outEndByBase = outThrowEndByBase(m, moves, flight);
+    // Closure, not called until the moves.map() loop below - stealOut is
+    // assigned further down but already final by then, same as every other
+    // var this function reads late.
+    function outAtMsFor(forcedBase) {
+      if (forcedBase && outEndByBase[forcedBase] != null) return outEndByBase[forcedBase];
+      if (stealOut && stealOut.caught && forcedBase === stealOut.base) return stealOutAtMs(m, moves);
+      return catchMs || outDelay;
+    }
     // Explicit "delay" flag (import_BRC.csv, e.g. KCS): this move doesn't
     // start until the ball is caught by the fielder - literally
     // ballTravelMs(flight) for a play with a flight, or outDelay itself for a
@@ -3561,7 +4072,7 @@
        otherwise be competing to animate `transform` on one element, and only
        one of them could win. */
     var tokens = moves.map(function (mv) {
-      var from = mv.from === "BATTER" ? SCENE_BASES.HOME : SCENE_BASES[mv.from];
+      var from = mv.from === "BATTER" ? batterBoxSvg : SCENE_BASES[mv.from];
       var isOut = mv.to === "OUT";
       if (!from || (!isOut && !SCENE_BASES[mv.to] && !mv.scored)) return "";
       // I8: an out-bound runner travels toward the base the throw actually
@@ -3677,6 +4188,44 @@
         vars += "--p" + (i + 1) + "x:" + p.x + "px;--p" + (i + 1) + "y:" + p.y + "px;";
       });
       vars += "--dur:" + (RUN_LEG_MS[legs] || 0) + "ms";
+      var outStyle = "";
+      if (isOut) {
+        // Real turn-red moment (Alex's ask), same held clock as --rdelay
+        // above (+seqDelay) so it can never land before the token's own run
+        // has even started - see outAtMsFor and scorebugOutsHtml's matching
+        // dot delay.
+        var outAtAbs = outAtMsFor(forcedBase) + seqDelay;
+        vars += ";--outat:" + outAtAbs + "ms";
+        // A put-out runner with somewhere to be forced travels there first
+        // (or gets cut short partway, or waits at the base for a slow
+        // throw - runnerOutMotionHtml sorts out which), THEN turns red AND
+        // heads to the dugout in the same instant (Alex's ask). Only when
+        // there's an actual leg to run - a plain out-walk (no corroborated
+        // base, no partial-advance path) has nothing to interpolate and
+        // keeps its simple shared keyframe, fixed up separately in CSS.
+        if (path.length) {
+          var fullSprintMs = RUN_LEG_MS[legs] || 0;
+          // Relative to THIS token's own run start (mvDelay), not the play's
+          // absolute clock - runnerOutMotionHtml's fullSprintMs is also "time
+          // since this run started," so the two have to share an origin.
+          // Clamped at 0: a caught-in-the-air out can resolve before this
+          // runner's own (deliberately cautious) mvDelay would have even
+          // started them moving - outAtRel:0 correctly shows them heading
+          // straight for the dugout from where they started, never running
+          // toward a base at all, instead of a negative-time keyframe.
+          var outAtRel = Math.max(0, outAtMsFor(forcedBase) - mvDelay);
+          var pathPoints = useRetreat
+            ? [{ frac: 0.75, x: path[0].x, y: path[0].y }, { frac: 1, x: from.x, y: from.y }]
+            : [{ frac: 1, x: path[path.length - 1].x, y: path[path.length - 1].y }];
+          var motion = runnerOutMotionHtml(from.x, from.y, pathPoints, dugoutSvg.x, dugoutSvg.y,
+            fullSprintMs, outAtRel, RN_OUT_WALK_MS);
+          outStyle = motion.style;
+          vars += ";animation-name:" + motion.name +
+            ";animation-duration:calc(" + motion.totalMs + "ms / var(--play-speed,1))" +
+            ";animation-delay:calc(" + (mvDelay + seqDelay) + "ms / var(--play-speed,1))" +
+            ";animation-timing-function:linear;animation-fill-mode:both";
+        }
+      }
       // A put-out runner with somewhere to be forced travels there first,
       // THEN turns red, THEN walks a straight line to the dugout (Stage
       // 6a/6b, generalised by I8). legsN is a safe-runner-only class - the
@@ -3686,7 +4235,7 @@
       var cls = "rn" + (legs && !isOut && !strandedSafe ? " legs" + legs : "") + outCls +
                 (strandedSafe ? " stranded-to-dugout" : "") +
                 (mv.scored ? " score" : "") + (mv.from === "BATTER" ? " batter" : "");
-      return '<g class="' + cls + '" style="' + vars + '">' +
+      return outStyle + '<g class="' + cls + '" style="' + vars + '">' +
         '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
     }).join("");
 
@@ -3698,7 +4247,10 @@
     // batter did nothing at all and gets no token, no walk to the dugout.
     var noPa = (data.meta.flight && data.meta.flight.no_pa) || [];
     var batterReached = moves.some(function (mv) { return mv.from === "BATTER"; });
-    if (!batterReached && noPa.indexOf(m.result) === -1) {
+    // m.result is only null on the on-deck placeholder (no real play has a
+    // null result) - nothing has happened yet, so no phantom batter walking
+    // to the dugout for it.
+    if (!batterReached && m.result != null && noPa.indexOf(m.result) === -1) {
       var h = SCENE_BASES.HOME;
       if (BATTER_REACHES_FIRST[m.result]) {
         // A3/F5: the FC family reaches first safely - someone else was
@@ -3707,7 +4259,7 @@
         // batter is invisible and the whole play renders static. Plain safe
         // token, not the out choreography - the batter isn't out here.
         var fc1 = SCENE_BASES["1B"];
-        var fcVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
+        var fcVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--tx:" + fc1.x + "px;--ty:" + fc1.y + "px;" +
                      "--p1x:" + fc1.x + "px;--p1y:" + fc1.y + "px;" +
                      "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + RUN_LEG_MS[1] + "ms";
@@ -3715,22 +4267,39 @@
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
         maxArrival = Math.max(maxArrival, runDelay + RUN_LEG_MS[1]);
       } else if (flight) {
-        // 6b: runs to first on the normal basepath, THEN turns red, THEN
-        // returns to the dugout - what makes a groundout read differently
-        // from a strikeout.
+        // 6b: runs to first on the normal basepath, cut short (or held
+        // waiting at the bag) exactly at the real out moment, THEN turns
+        // red and heads for the dugout in that same instant (Alex's ask) -
+        // what makes a groundout read differently from a strikeout.
+        // outAtMsFor("1B") resolves to the real throw-to-first's arrival
+        // when there is one (a grounder), or falls through to the catch
+        // moment for a caught-in-the-air out (a fly/line/pop out never has
+        // a throw to 1B in the schedule at all) - either way the real
+        // moment this specific out was recorded.
         var p1 = SCENE_BASES["1B"];
-        var voVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
+        var batterOutAtAbs = outAtMsFor("1B") + seqDelay;
+        var batterOutAtRel = Math.max(0, outAtMsFor("1B") - runDelay);
+        var batterMotion = runnerOutMotionHtml(batterBoxSvg.x, batterBoxSvg.y, [{ frac: 1, x: p1.x, y: p1.y }],
+          dugoutSvg.x, dugoutSvg.y, RUN_LEG_MS[1], batterOutAtRel, RN_OUT_WALK_MS);
+        var voVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--p1x:" + p1.x + "px;--p1y:" + p1.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
-                     "--rdelay:" + (runDelay + seqDelay) + "ms";
-        tokens += '<g class="rn out-to-first batter" style="' + voVars + '">' +
+                     "--rdelay:" + (runDelay + seqDelay) + "ms;" +
+                     "--outat:" + batterOutAtAbs + "ms;" +
+                     "animation-name:" + batterMotion.name +
+                     ";animation-duration:calc(" + batterMotion.totalMs + "ms / var(--play-speed,1))" +
+                     ";animation-delay:calc(" + (runDelay + seqDelay) + "ms / var(--play-speed,1))" +
+                     ";animation-timing-function:linear;animation-fill-mode:both";
+        tokens += batterMotion.style + '<g class="rn out-to-first batter" style="' + voVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
       } else {
         // 6c: no batted ball (strikeout and friends) - straight from home to
-        // the dugout, no trip to first.
-        var owVars = "--fx:" + h.x + "px;--fy:" + h.y + "px;" +
+        // the dugout, no trip to first. outAtMsFor(null) falls through to
+        // outDelay - identical to this token's own --rdelay, same as before.
+        var owVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
-                     "--rdelay:" + (outDelay + seqDelay) + "ms";
+                     "--rdelay:" + (outDelay + seqDelay) + "ms;" +
+                     "--outat:" + (outAtMsFor(null) + seqDelay) + "ms";
         tokens += '<g class="rn out-walk batter" style="' + owVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
         if (STRIKEOUT_RESULTS[m.result]) {
@@ -4130,7 +4699,12 @@
          it can be one continuous curve. So the badge is a callout about the
          moment rather than a label for the dot's height: on an away-team gain
          the dot still sits at the home team's win probability. */
-      var homeGained = homeDelta == null ? true : homeDelta >= 0;
+      // No "before" to diff against (the very first plotted play, or the
+      // on-deck placeholder, which never gets a win_prob_before - see
+      // _next_batter_moment) - fall back to whoever's actually leading right
+      // now instead of defaulting to home. gain stays null in that case, so
+      // the WPA delta label below is already skipped, not just the team pick.
+      var homeGained = homeDelta == null ? wpAfter >= 0.5 : homeDelta >= 0;
       var gainAbbr = homeGained ? slide.homeAbbr : slide.awayAbbr;
       var gainPct = homeGained ? wpAfter : 1 - wpAfter;
       var gain = homeDelta == null ? null : Math.abs(homeDelta) * 100;
@@ -4312,18 +4886,77 @@
     return '<path d="' + WHEEL_BAT_PATH + '"></path>';
   }
 
+  // Steal DIFF (Alex's ask): the "offense" role here is a runner breaking for
+  // the next base, not a batter at the plate - a bat reads wrong for that.
+  // Drawn upright and always facing the same way (no rotate(angleDeg+180) -
+  // unlike the bat, a runner has no "point this end out" story, so
+  // wheelMarkerHtml skips that rotation for this icon). Alex's call: the
+  // head stays directly over the torso on a straight vertical axis rather
+  // than leaning with it - only the limbs splay for the motion cue, not the
+  // head-neck line itself.
+  //
+  // Redrawn by eye against Alex's reference sprinter icon (a by-eye trace,
+  // not a literal path extraction - see the code review discussion: the
+  // reference only ever reached this codebase as an inline chat image, never
+  // a file, and even as a file it's a flattened PNG preview of a vector
+  // asset, not path data itself): a driving front knee raised near level
+  // with the hip before the shin drops, a trailing back leg kicked up behind
+  // rather than just angled down, both arms bent and pumping opposite their
+  // matching leg - front arm down toward the hip, back arm swept up behind -
+  // plus three short motion strokes trailing off the back shoulder/hip,
+  // Alex's reference's own speed cue. One stroked path covers the torso,
+  // both legs and both arms as separate M-started subpaths, round caps/
+  // joins so each thin segment still reads as a limb at this size instead
+  // of a hairline; the motion lines are a second, separate path (see why in
+  // wheelRunnerIconSvg below).
+  var WHEEL_RUNNER_PATH = "M0,-2.5 L0,0.5 " +
+    "M0,0.5 L-1.0,1.6 L-2.3,1.3 " +
+    "M0,0.5 L1.7,0.4 L1.3,2.6 " +
+    "M0,-1.7 L-1.2,-1.3 L-1.9,-0.3 " +
+    "M0,-1.7 L1.3,-1.0 L1.0,0.6";
+  var WHEEL_RUNNER_MOTION_PATH = "M-2.0,-3.0 L-3.2,-3.0 " +
+    "M-2.2,-1.5 L-3.6,-1.5 " +
+    "M-2.4,0.4 L-3.8,0.4";
+  function wheelRunnerIconSvg() {
+    // A team's own color can land pale against the wheel's light card
+    // background (Alex's report) - a fixed thin black outline keeps the
+    // silhouette readable regardless of which team's color it's wearing. The
+    // head gets a plain stroke; the stroked limb path can't take a second,
+    // differently-colored stroke on the same element, so it's duplicated -
+    // a slightly thicker black copy underneath, the team-colored one on top,
+    // leaving a black rim showing on each side. The motion lines skip that
+    // outline treatment entirely - they're a light trailing cue, not part of
+    // the figure's own silhouette, so a heavy black rim on them read as
+    // clutter rather than speed.
+    return '<circle class="wheel-runner-head" cx="0" cy="-3.6" r="1.1"></circle>' +
+      '<path class="wheel-runner-body-outline" d="' + WHEEL_RUNNER_PATH + '"></path>' +
+      '<path class="wheel-runner-body" d="' + WHEEL_RUNNER_PATH + '"></path>' +
+      '<path class="wheel-runner-motion" d="' + WHEEL_RUNNER_MOTION_PATH + '"></path>';
+  }
+
   // angleDeg is the marker's own position on the ring, in wheelPt's
   // convention (0 = straight up from centre, clockwise). The bat is drawn
   // barrel-down/handle-up in its own local coordinates, so rotating it by
   // angleDeg+180 swings the handle to point straight in at the wheel's
   // centre and the barrel straight out - perpendicular to the ring at that
   // point, every time, regardless of where the marker lands.
-  function wheelMarkerHtml(pt, angleDeg, cls, dotIdxCls) {
+  // offIcon picks which shape the "off" role gets ("bat", the default, or
+  // "runner" for a steal - see sceneWheelDiffHtml); offColorHex optionally
+  // overrides its fill/stroke with a team's own color (via currentColor -
+  // see .wheel-dot-runner in style.css) instead of the fixed wood-bat tones,
+  // for the runner icon specifically (Alex's ask). Only the bat rotates to
+  // point outward along the ring - a runner has no "this end points out"
+  // story the way a bat's barrel does, so it stays upright regardless of
+  // where on the ring it lands.
+  function wheelMarkerHtml(pt, angleDeg, cls, dotIdxCls, offIcon, offColorHex) {
     var isOff = cls === "off";
+    var isRunner = isOff && offIcon === "runner";
     var xf = "translate(" + pt.x.toFixed(2) + "," + pt.y.toFixed(2) + ")" +
-      (isOff ? " rotate(" + (angleDeg + 180).toFixed(1) + ")" : "");
-    return '<g transform="' + xf + '"><g class="wheel-dot ' + dotIdxCls + ' wheel-dot-' + cls + '">' +
-      (isOff ? wheelBatIconSvg() : wheelBallIconSvg()) +
+      (isOff && !isRunner ? " rotate(" + (angleDeg + 180).toFixed(1) + ")" : "");
+    var style = isRunner && offColorHex ? ' style="color:' + escapeHtml(offColorHex) + '"' : "";
+    return '<g transform="' + xf + '"><g class="wheel-dot ' + dotIdxCls + ' wheel-dot-' + cls +
+      (isRunner ? " wheel-dot-runner" : "") + '"' + style + '">' +
+      (isOff ? (isRunner ? wheelRunnerIconSvg() : wheelBatIconSvg()) : wheelBallIconSvg()) +
       "</g></g>";
   }
 
@@ -4353,8 +4986,11 @@
      left-handed hitter, matching flightParams' own hand mirror on the
      HZ->spray-angle mapping (see angle = hand==="L" ? 45-frac*40 :
      45+frac*40) so the wheel's left/right reads the same way the resulting
-     spray direction does, for either hand. */
-  function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls, pinTop, mirrored) {
+     spray direction does, for either hand. offIcon/offColorHex (Alex's ask)
+     swap the "off" role's marker from the default bat to a runner in a
+     team's own color, for a steal's DIFF wheel - see wheelMarkerHtml. */
+  function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls, pinTop, mirrored,
+                      offIcon, offColorHex) {
     var deg1 = pinTop ? 0 : wheelAngleOf(v1, mod);
     var delta = signedCirc(v1, v2, mod);
     var deltaDeg = delta / mod * 360;
@@ -4387,8 +5023,8 @@
         bandHtml +
         '<path class="wheel-arc wheel-arc-' + arcCls + '" d="' + wheelArcD(WHEEL_RING_R, deg1, deltaDeg) +
           '" style="--alen:' + arcLen.toFixed(2) + 'px"></path>' +
-        wheelMarkerHtml(dot1Pt, deg1, cls1, "wheel-dot-1") +
-        wheelMarkerHtml(dot2Pt, deg1 + deltaDeg, cls2, "wheel-dot-2") +
+        wheelMarkerHtml(dot1Pt, deg1, cls1, "wheel-dot-1", offIcon, offColorHex) +
+        wheelMarkerHtml(dot2Pt, deg1 + deltaDeg, cls2, "wheel-dot-2", offIcon, offColorHex) +
         '<text class="wheel-val wheel-val-1" x="' + label1Pt.x.toFixed(2) + '" y="' + label1Pt.y.toFixed(2) +
           '">' + escapeHtml(String(v1)) + "</text>" +
         '<text class="wheel-val wheel-val-2" x="' + label2Pt.x.toFixed(2) + '" y="' + label2Pt.y.toFixed(2) +
@@ -4415,12 +5051,13 @@
     if (!(m.pitch != null && m.swing != null || isSteal)) return "";
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     if (isSteal) {
-      // Runner (offense, bat marker) breaks first; catcher (defense,
-      // baseball marker) throws second - per Alex's spec, "runner # then
-      // progress to catcher #". No archetype band - steals don't have one.
+      // Runner (offense, runner marker in the stealing team's own color)
+      // breaks first; catcher (defense, baseball marker) throws second - per
+      // Alex's spec, "runner # then progress to catcher #". No archetype
+      // band - steals don't have one.
       return wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
         String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
-        wasOut ? "out" : "hit");
+        wasOut ? "out" : "hit", null, null, "runner", teamColor(m.off_team_abbr));
     }
     var bandRow = (data.meta.flight && data.meta.flight.bands || {})[m.result];
     // Exit velo used to also show here (centerSmall) - dropped (Alex's
@@ -4432,15 +5069,25 @@
       bandRow ? { lo: bandRow.lo, hi: bandRow.hi } : null,
       wasOut ? "out" : "hit");
   }
-  // HZ: batted balls only (Alex's call) - `flight` truthy is exactly that
-  // gate (flightParams returns null for everything else, the same set
-  // sceneFlightReadoutHtml below already checks against).
+  // SPRAY (labelled "HZ" internally until Alex's rename ask): batted balls
+  // only (Alex's call) - `flight` truthy is exactly that gate (flightParams
+  // returns null for everything else, the same set sceneFlightReadoutHtml
+  // below already checks against).
+  //
+  // flight.angle itself stays 0-90 (0 = dead down the 3B line, 90 = dead
+  // down the 1B line) everywhere else in this file - fenceAt, dirtEdgeFt,
+  // HZ_FIELDER_BY_ANGLE, coveringPosition, the LF/CF/RF split, all of it is
+  // built on that range, so re-basing the value itself would mean touching
+  // every one of those. The -45/+45 convention (Alex's ask, to match other
+  // sources: -45 = 3B line, 0 = dead center, +45 = 1B line) is display-only,
+  // applied right here where the wheel's center label is built - the only
+  // place flight.angle ever reaches the screen as a number.
   function sceneWheelHzHtml(m, flight) {
     if (!flight) return "";
     var d1p = lastDigit(m.pitch), d1s = lastDigit(m.swing);
     var mirrored = effectiveHand(m.batter_hand) === "L";
-    return wheelHtml("HZ", d1p, d1s, 10, "def", "off", flight.angle.toFixed(0) + "°", null, null, "neutral",
-      true, mirrored);
+    return wheelHtml("SPRAY", d1p, d1s, 10, "def", "off", (flight.angle - 45).toFixed(0) + "°", null, null,
+      "neutral", true, mirrored);
   }
 
   /* Compact "telemetry" readout beside the result pill (ball-flight-plan.md
@@ -4467,6 +5114,14 @@
      exit velo) stays below the field with the rest of sceneDetailHtml
      (Alex's spec). */
   function sceneResultPillHtml(m, flight) {
+    // On-deck: there's no result yet, so no label to look up - just says
+    // who's up (Alex's call: "Now Batting" over "At Bat", to avoid repeating
+    // sceneDetailHtml's own "AT BAT" matchup-row label right below it).
+    if (m.is_on_deck) {
+      return '<div class="scene-result-line">' +
+        '<span class="result-pill on-deck">Now Batting</span>' +
+      "</div>";
+    }
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
     return '<div class="scene-result-line">' +
       '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
@@ -4552,15 +5207,63 @@
     return '<span class="val counter">' + steps + "</span>";
   }
 
+  // Every out this play actually records, each at its own real moment -
+  // outThrowEndByBase's throw arrivals first (a DP's two outs land at two
+  // different times, matching two different throws), padded out with the
+  // catch moment (caught in the air), the caught-stealing tag moment, or
+  // the old flat "ball travel + beat" fallback (a no-flight, non-steal out -
+  // K, an uncorroborated retreat/stranded case) for any out neither one
+  // accounts for. Sorted so dot i+1's out never reads as happening before
+  // dot i's (Alex's ask: no more one shared guess for every out on a multi-
+  // out play - see scorebugOutsHtml below, and sceneFieldHtml's own per-
+  // runner lookup off the same outThrowEndByBase/stealOutAtMs sources, so
+  // the token that's actually out turns red at this identical moment too).
+  function outAtMomentsMs(m, flight, count) {
+    if (!count) return [];
+    var moves = resolveRunnerMoves(m);
+    var endByBase = outThrowEndByBase(m, moves, flight);
+    var moments = [];
+    for (var base in endByBase) if (endByBase.hasOwnProperty(base)) moments.push(endByBase[base]);
+    var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+    var stealAt = stealOutAtMs(m, moves);
+    var fallback = ballTravelMs(flight) + OUT_BEAT_MS;
+    while (moments.length < count) moments.push(catchMs || stealAt || fallback);
+    moments.sort(function (a, b) { return a - b; });
+    return moments;
+  }
+
   // Outs as plain dots, no "OUTS" label (the header scorebug's own inning
   // row already reads as game state at a glance). Three dots, not the live
   // feed's up-to-two-then-a-badge-swap convention (stateStack) - this is a
   // replay of a completed play, not a live scoreboard, so the third out
   // gets its own dot same as the old sceneOutsHtml did.
-  function scorebugOutsHtml(m) {
-    var after = Math.max(0, Math.min(3, m.outs_after == null ? (m.outs_before || 0) : m.outs_after));
+  // Dots already on before this play (outs_before) render on immediately -
+  // they're not what THIS play's animation is showing. Dots that turn on
+  // DURING this play (between outs_before and outs_after) fill in at
+  // outAtMomentsMs' own real per-out timing (Alex's ask - was one shared
+  // "ball travel + OUT_BEAT_MS" guess for every out on the play, now each
+  // dot lands exactly when its own out is actually recorded: the catch, or
+  // whichever throw resolves it).
+  function scorebugOutsHtml(m, flight) {
+    var before = Math.max(0, Math.min(3, m.outs_before || 0));
+    var after = Math.max(0, Math.min(3, m.outs_after == null ? before : m.outs_after));
+    var moments = outAtMomentsMs(m, flight, after - before);
     var dots = [0, 1, 2].map(function (i) {
-      return '<span class="dot' + (i < after ? " on" : "") + '"></span>';
+      if (i < before) return '<span class="dot on"></span>';
+      // +FIELD_SEQUENCE_DELAY_MS here (unlike scoreArrivals' own raw times):
+      // sceneFieldHtml's matching runner token turns red off this exact same
+      // outAtMomentsMs/outThrowEndByBase source, and that token's own
+      // movement never starts before its --rdelay, which always carries the
+      // field-sequence hold - an un-held dot could otherwise fire before the
+      // runner has even appeared at the base it's supposedly being put out
+      // at. Keeping both on the same held clock is what makes "the dot and
+      // the runner turn red at the very same moment" (Alex's ask) literally
+      // true, not just close.
+      if (i < after) {
+        return '<span class="dot new" style="--delay:' +
+          (moments[i - before] + FIELD_SEQUENCE_DELAY_MS) + 'ms"></span>';
+      }
+      return '<span class="dot"></span>';
     }).join("");
     return '<div class="outs-dots">' + dots + "</div>";
   }
@@ -4587,7 +5290,7 @@
         '<div class="scene-scorebug-state' + (newHalf ? " new-half" : "") + '">' +
           '<div class="tri ' + (m.half === "top" ? "up" : "down") + '"></div>' +
           '<div class="inning-num">' + m.inning + "</div>" +
-          scorebugOutsHtml(m) +
+          scorebugOutsHtml(m, flight) +
         "</div>" +
         sceneMeterHtml(m) +
       "</div>" +
@@ -4664,6 +5367,17 @@
     return '<div class="scene-recap"><span class="scene-recap-head">' + head + "</span>" + top + "</div>";
   }
 
+  // Live-edge placeholder for an in-progress game (Alex's ask, ideas-and-
+  // opinions conversation): "who's due up next," not a real play. Runs
+  // through the exact same play-scene pipeline as a real play rather than a
+  // separate simplified scene (Alex's later call, after seeing the first
+  // pass) - flight/pitch/swing/result/diff are all null on this moment, and
+  // every sub-component below (wheels, flight readout, defense line, the
+  // phantom-batter-walk guard just above) already degrades gracefully given
+  // that shape. Only sceneResultPillHtml needs an explicit is_on_deck check
+  // (there's no result to look up a label for), and _next_batter_moment
+  // carries win_prob_after forward so the ribbon still has a "current odds"
+  // marker to show.
   function playSceneHtml(slide) {
     var m = slide.play;
     var flight = flightParams(m, data.meta.flight);
@@ -4694,7 +5408,7 @@
     // inning indicator, so the break between halves is felt rather than just
     // waited through.
     var newHalf = startsHalfInning(slide);
-    return '<div class="play-scene" data-key="' +
+    return '<div class="play-scene' + (m.is_on_deck ? " on-deck" : "") + '" data-key="' +
       (isKey ? "1" : "0") + '" data-new-half="' + (newHalf ? "1" : "0") +
       '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
       sceneRecapHtml(slide.recap) +
@@ -4803,12 +5517,74 @@
   var CF_BREAK_CROSSFADE_MS = 2400;
   var CF_BREAK_BONUS_MS = 1800;
 
+  // Real-time running/ball flight (Alex's call, ideas-and-opinions
+  // conversation) means individual plays now vary hugely in how long their
+  // own animation actually takes - a strikeout finishes almost immediately,
+  // a bases-loaded double can send a runner the better part of a full real-
+  // time circuit (up to RUN_LEG_MS[4], 13+ real seconds). The single fixed
+  // "animation always finishes well inside ~2700ms" assumption baked into
+  // PLAY_DWELL_MS_ROUTINE/KEY (see that constant's own comment) no longer
+  // holds, so this estimates THIS play's own animation length directly
+  // instead. Not a byte-for-byte replay of sceneFieldHtml's own per-move
+  // timing (forced-on-contact/tag-up/retreat branches, each with their own
+  // start delay) - a reasonable UPPER-BOUND estimate of the slowest token's
+  // own duration: an out-bound runner always costs the fixed out-
+  // choreography total (OUT_CHOREOGRAPHY_MS - the same regardless of which
+  // base was targeted, since that animation's shape doesn't scale with
+  // distance), a safe runner costs RUN_LEG_MS for however many bases they
+  // actually covered. Erring toward a slightly-too-generous estimate (a
+  // fixed start-delay margin folded in below) is the safe failure mode here -
+  // an animation cut off mid-flight by an early auto-advance reads as
+  // broken, a slide that lingers a little past when it strictly needed to
+  // doesn't.
+  function estimatedRunMs(play) {
+    var moves = deriveRunnerMoves(String(play.obc_before || "000"), String(play.obc_after || "000"), play.runs || 0);
+    var worst = 0;
+    moves.forEach(function (mv) {
+      var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
+      if (startOrd == null) return;
+      if (mv.to === "OUT") {
+        worst = Math.max(worst, OUT_CHOREOGRAPHY_MS);
+        return;
+      }
+      var endOrd = mv.scored ? 4 : BASE_ORDINAL[mv.to];
+      if (endOrd == null) return;
+      var legs = Math.min(Math.max(endOrd - startOrd, 0), RUN_LEG_MS.length - 1);
+      worst = Math.max(worst, RUN_LEG_MS[legs] || 0);
+    });
+    return worst;
+  }
+
   function slideDwell(slide) {
     var speed = getPlaybackSpeed();
     if (slide.kind !== "play") return TITLE_DWELL_MS / speed;
-    var base = slide.play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
-    var isHalfEnd = !!slide.play.is_half_inning_final && !slide.play.is_game_final;
-    return (base + FIELD_SEQUENCE_DELAY_MS + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0) +
+    var play = slide.play;
+    var readBudget = play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
+    var isHalfEnd = !!play.is_half_inning_final && !play.is_game_final;
+    var flight = flightParams(play, data.meta.flight);
+    // A relay's throws are now sequential, not overlapping (Alex's ask -
+    // see throwSchedule) - a double play's real throw chain can run well
+    // past one throw's worth of time, and the dwell estimate must never
+    // undercut that, or the slide would auto-advance mid-relay and cut the
+    // second throw off before it's even drawn. Math.max against the old
+    // flat single-throw budget rather than replacing it outright, so a play
+    // with no throw at all keeps exactly its old (already-conservative)
+    // estimate.
+    var throwMs = THROW_DELAY_MS + THROW_DRAW_MS;
+    var schedule = throwSchedule(play, deriveRunnerMoves(
+      String(play.obc_before || "000"), String(play.obc_after || "000"), play.runs || 0), flight);
+    if (schedule.length) {
+      var lastThrowEnd = Math.max.apply(null, schedule.map(function (t) { return t.endMs; }));
+      throwMs = Math.max(throwMs, lastThrowEnd - fieldedMs(flight));
+    }
+    // Real animation length first (ball travel/ground time plus whichever
+    // token takes longest to finish), the same reading-time budget as
+    // before on top of THAT rather than assumed already included in it -
+    // slightly more generous total dwell than the pre-real-time numbers
+    // worked out to, a deliberate tradeoff (see this function's own
+    // comment).
+    var animMs = fieldedMs(flight) + throwMs + estimatedRunMs(play);
+    return (animMs + readBudget + FIELD_SEQUENCE_DELAY_MS + (startsHalfInning(slide) ? HALF_INNING_BONUS_MS : 0) +
       (isHalfEnd ? CF_BREAK_BONUS_MS : 0)) / speed;
   }
 
@@ -4905,12 +5681,21 @@
     catchUp.remaining = ms;
     catchUp.timer = window.setTimeout(function () {
       catchUp.timer = null;
-      showCatchUpSlide(catchUp.index + 1);
+      // "one": stay on the same slide - a fresh full dwell, not the leftover
+      // of the one that just fired, so it reads as playing again rather than
+      // recovering an already-spent timer.
+      showCatchUpSlide(getLoopMode() === "one" ? catchUp.index : catchUp.index + 1);
     }, ms);
   }
 
   function showCatchUpSlide(i) {
-    if (i >= catchUp.slides.length) { closeCatchUp(); return; }
+    if (i >= catchUp.slides.length) {
+      // "all": the run wraps back to the first slide instead of closing -
+      // same fresh-fade-in treatment slide 0 gets when the show first opens.
+      if (getLoopMode() === "all") { showCatchUpSlide(0); return; }
+      closeCatchUp();
+      return;
+    }
     var prev = catchUp.index >= 0 ? catchUp.slides[catchUp.index] : null;
     catchUp.index = i;
     var slide = catchUp.slides[i];
@@ -4930,10 +5715,17 @@
       progress.textContent = "Game " + slide.gameNo + " of " + slide.gameTotal;
     }
 
-    // The closing slide is the one place the show stops on its own - it waits
-    // for the user rather than blinking out from under them.
+    // The closing slide is where the show stops on its own by default - it
+    // waits for the user rather than blinking out from under them. On "all"
+    // it still gets its own full dwell (the same TITLE_DWELL_MS a title slide
+    // gets, since it's the same kind of pause-to-read card) before the wrap
+    // above sends the run back to slide 0.
     if (slide.kind === "done") {
-      clearCatchUpTimer();
+      if (getLoopMode() === "all" && !catchUp.paused) {
+        scheduleCatchUp(slideDwell(slide));
+      } else {
+        clearCatchUpTimer();
+      }
       return;
     }
     if (!catchUp.paused) scheduleCatchUp(slideDwell(slide));
@@ -4964,7 +5756,10 @@
       catchUp.remaining = Math.max(0, catchUp.remaining - elapsed);
       clearCatchUpTimer();
     } else if (catchUp.slides[catchUp.index] &&
-               catchUp.slides[catchUp.index].kind !== "done") {
+               // "done" only resumes into another dwell on "all" - the loop-
+               // back that's about to happen there (see showCatchUpSlide).
+               // Every other mode parks on it the same as before.
+               (catchUp.slides[catchUp.index].kind !== "done" || getLoopMode() === "all")) {
       scheduleCatchUp(catchUp.remaining || slideDwell(catchUp.slides[catchUp.index]));
     }
   }
@@ -5030,6 +5825,8 @@
     var modal = $("catchup-modal");
     if (!modal) return;
     wireFullscreenToggle("catchup-modal", "catchup-fullscreen");
+    wireSpeedToggle("catchup-speed");
+    wireLoopToggle("catchup-loop");
     $("catchup-banner").addEventListener("click", openCatchUp);
     $("catchup-close").addEventListener("click", closeCatchUp);
     $("catchup-prev").addEventListener("click", function () { stepCatchUp(-1); });
@@ -5198,12 +5995,20 @@
     replay.remaining = ms;
     replay.timer = window.setTimeout(function () {
       replay.timer = null;
-      showReplaySlide(replay.index + 1);
+      // "one": stay on the same slide - a fresh full dwell, not the leftover
+      // of the one that just fired.
+      showReplaySlide(getLoopMode() === "one" ? replay.index : replay.index + 1);
     }, ms);
   }
 
   function showReplaySlide(i) {
-    if (i >= replay.slides.length) { closeReplay(); return; }
+    if (i >= replay.slides.length) {
+      // "all": wrap back to the first slide instead of closing - same
+      // fresh-fade-in treatment slide 0 gets when the replay first opens.
+      if (getLoopMode() === "all") { showReplaySlide(0); return; }
+      closeReplay();
+      return;
+    }
     var prev = replay.index >= 0 ? replay.slides[replay.index] : null;
     replay.index = i;
     var slide = replay.slides[i];
@@ -5220,11 +6025,20 @@
       progress.style.setProperty("--catchup-pct", "0");
     }
 
-    /* A replay ends by holding on the game's actual last play, not by cutting
-       to a summary card. Without a trailing slide to stop on, the final play
-       has to stop the timer itself - otherwise its dwell would expire, the
-       index would run past the end and the overlay would auto-close. */
-    if (i === replay.slides.length - 1) { clearReplayTimer(); return; }
+    /* A replay ends by holding on the game's actual last play by default,
+       not by cutting to a summary card - so unlike Catch Me Up's "done" card,
+       the final play has to stop the timer itself, or its dwell would expire,
+       the index would run past the end and the overlay would auto-close. On
+       "all" it still gets that same dwell first, then the wrap above sends
+       the run back to slide 0 instead of holding. */
+    if (i === replay.slides.length - 1) {
+      if (getLoopMode() === "all" && !replay.paused) {
+        scheduleReplay(slideDwell(slide));
+      } else {
+        clearReplayTimer();
+      }
+      return;
+    }
     if (!replay.paused) scheduleReplay(slideDwell(slide));
   }
 
@@ -5247,9 +6061,10 @@
       replay.remaining = Math.max(0, replay.remaining - elapsed);
       clearReplayTimer();
     } else if (replay.slides[replay.index] &&
-               replay.index !== replay.slides.length - 1) {
-      // The last play is the resting point - resuming there has nothing to
-      // advance to, same as the closing card it replaced.
+               // The last play only resumes into another dwell on "all" -
+               // the loop-back that's about to happen there (see
+               // showReplaySlide). Every other mode rests there as before.
+               (replay.index !== replay.slides.length - 1 || getLoopMode() === "all")) {
       scheduleReplay(replay.remaining || slideDwell(replay.slides[replay.index]));
     }
   }
@@ -5339,6 +6154,8 @@
     var modal = $("replay-modal");
     if (!modal) return;
     wireFullscreenToggle("replay-modal", "replay-fullscreen");
+    wireSpeedToggle("replay-speed");
+    wireLoopToggle("replay-loop");
     $("replay-close").addEventListener("click", closeReplay);
     $("replay-prev").addEventListener("click", function () { stepReplay(-1); });
     $("replay-next").addEventListener("click", function () { stepReplay(1); });
@@ -5827,7 +6644,8 @@
     wireCatchUp();
     wireReplay();
     wireSettings();
-    wirePlaybackSpeed();
+    syncSpeedButtons();
+    syncLoopButtons();
   }
 
   // Gear icon: Manage Favorites, Dark/Light Mode, Slideshow speed - same

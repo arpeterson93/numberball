@@ -25,6 +25,7 @@
 <div class="page">
 
   <div class="title-row">
+    <img class="title-logo" src="favicon.png" alt="" width="36" height="36">
     <h1 id="page-title">MLN GAMEDAY</h1>
     <div class="title-actions">
       <select id="session-select" class="session-select" aria-label="Session"></select>
@@ -235,14 +236,10 @@
           </svg>
         </button>
       </div>
-      <div class="settings-row">
-        <span>Slideshow speed</span>
-        <div class="speed-field">
-          <input type="number" id="playback-speed" min="0.25" max="2" step="0.01" value="1.00" inputmode="decimal">
-          <span class="speed-x">x</span>
-        </div>
-      </div>
-      <p class="modal-note">Speed applies to Catch Me Up, Game Replay and the filtered-plays slideshow. Range 0.25x-2x.</p>
+      <!-- Slideshow speed moved to its own toggle button inside each
+           slideshow's own control bar (Alex's ask) - one live control next to
+           the thing it affects, instead of a setting buried in a separate
+           panel. -->
     </div>
   </div>
 </div>
@@ -274,6 +271,22 @@
      more presentation-like than the compact favorites card. -->
 <div class="modal catchup-modal" id="catchup-modal" hidden>
   <div class="catchup-card" id="catchup-card">
+    <button type="button" class="catchup-speed" id="catchup-speed" title="Playback speed" aria-label="Cycle playback speed">1.0x</button>
+    <button type="button" class="catchup-loop" id="catchup-loop" title="Repeat: All" aria-label="Cycle repeat mode" data-mode="all">
+      <svg class="icon-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 2l4 4-4 4"></path>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <path d="M7 22l-4-4 4-4"></path>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+      </svg>
+      <svg class="icon-repeat-one" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 2l4 4-4 4"></path>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <path d="M7 22l-4-4 4-4"></path>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        <text x="12" y="15.2" font-size="8.5" font-weight="800" stroke="none" fill="currentColor" text-anchor="middle">1</text>
+      </svg>
+    </button>
     <button type="button" class="catchup-fullscreen" id="catchup-fullscreen" title="Toggle fullscreen" aria-label="Toggle fullscreen">
       <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 3 3 3 3 8"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="3 16 3 21 8 21"></polyline><polyline points="21 16 21 21 16 21"></polyline></svg>
       <svg class="icon-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 8 8 8 8 3"></polyline><polyline points="21 8 16 8 16 3"></polyline><polyline points="8 21 8 16 3 16"></polyline><polyline points="16 21 16 16 21 16"></polyline></svg>
@@ -297,6 +310,22 @@
      its own element ids, matching the separate state/timer machinery in app.js. -->
 <div class="modal catchup-modal" id="replay-modal" hidden>
   <div class="catchup-card" id="replay-card">
+    <button type="button" class="catchup-speed" id="replay-speed" title="Playback speed" aria-label="Cycle playback speed">1.0x</button>
+    <button type="button" class="catchup-loop" id="replay-loop" title="Repeat: All" aria-label="Cycle repeat mode" data-mode="all">
+      <svg class="icon-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 2l4 4-4 4"></path>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <path d="M7 22l-4-4 4-4"></path>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+      </svg>
+      <svg class="icon-repeat-one" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 2l4 4-4 4"></path>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <path d="M7 22l-4-4 4-4"></path>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        <text x="12" y="15.2" font-size="8.5" font-weight="800" stroke="none" fill="currentColor" text-anchor="middle">1</text>
+      </svg>
+    </button>
     <button type="button" class="catchup-fullscreen" id="replay-fullscreen" title="Toggle fullscreen" aria-label="Toggle fullscreen">
       <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 3 3 3 3 8"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="3 16 3 21 8 21"></polyline><polyline points="21 16 21 21 16 21"></polyline></svg>
       <svg class="icon-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 8 8 8 8 3"></polyline><polyline points="21 8 16 8 16 3"></polyline><polyline points="8 21 8 16 3 16"></polyline><polyline points="16 21 16 16 21 16"></polyline></svg>

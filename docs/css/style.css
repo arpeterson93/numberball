@@ -29,6 +29,15 @@
   --dot-off-stroke: #c7ccd3;
   --shadow: rgba(0,0,0,0.12);
   --scrim: rgba(15,34,56,0.45);
+
+  /* Global slideshow playback-speed multiplier (Alex's ask: the speed toggle
+     should actually speed up the animations, not just shorten the wait
+     between plays). app.js's setPlaybackSpeed() keeps this in sync with the
+     toggle - every animation-duration/animation-delay below that belongs to
+     the slideshow divides by it, so 2x genuinely plays twice as fast rather
+     than just cutting the pause between slides in half. Defaults to 1 so
+     nothing depends on JS having run yet. */
+  --play-speed: 1;
 }
 
 /* Dark theme. --red stays put: it only ever appears as a fill under white
@@ -87,6 +96,7 @@ button{font-family:inherit;cursor:pointer;}
   padding:10px 0;margin-top:-10px;border-bottom:1px solid var(--border);
 }
 .title-row h1{font-size:24px;margin:0;letter-spacing:normal;}
+.title-logo{width:36px;height:36px;border-radius:7px;flex:none;}
 .session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
@@ -345,6 +355,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0.3px;white-space:nowrap;}
 .result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:var(--tint-blue-border);background:var(--tint-blue);}
 .result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:var(--tint-red-border);background:var(--tint-red);}
+.result-pill.on-deck{color:var(--navy);border-color:var(--navy);background:transparent;}
 
 .scoring-line{font-size:12.5px;color:var(--muted);font-style:italic;}
 
@@ -384,6 +395,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .outs-dots{display:flex;gap:5px;}
 .outs-dots .dot{width:7px;height:7px;border-radius:50%;border:1px solid var(--dot-off-stroke);background:var(--dot-off-fill);}
 .outs-dots .dot.on{background:var(--red);border-color:var(--red);}
+/* Only the play-scene scorebug (scorebugOutsHtml) ever emits .dot.new - a
+   dot already on before this play started (outs_before) renders plainly via
+   .dot.on above. One that turns on DURING this play starts looking exactly
+   like an empty dot (it never carries .on - see scorebugOutsHtml) and FILLS
+   in at the out's own real timing (--delay, now the actual catch/throw
+   moment - Alex's ask) with a quick pop, rather than popping in from
+   nothing/invisible the way it used to - the empty circle is there the
+   whole time, same as an out that hasn't happened yet, and only its fill
+   changes when the out actually lands. */
+.outs-dots .dot.new{animation:dotFillIn calc(300ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;}
+@keyframes dotFillIn{
+  0%{background:var(--dot-off-fill);border-color:var(--dot-off-stroke);transform:scale(1);}
+  55%{background:var(--red);border-color:var(--red);transform:scale(1.35);}
+  100%{background:var(--red);border-color:var(--red);transform:scale(1);}
+}
 .state-badge{
   font-size:10.5px;font-weight:800;letter-spacing:0.6px;padding:5px 9px;
   border-radius:4px;border:1px solid var(--border);color:var(--muted);background:var(--tint);
@@ -406,9 +432,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .name-row{display:flex;gap:8px;}
 .name-row input{flex:1;}
 .settings-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;}
-.speed-field{display:flex;align-items:center;gap:6px;}
-.speed-field input{width:64px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--tint);color:var(--text);font-size:13px;text-align:right;}
-.speed-field .speed-x{color:var(--muted);font-size:13px;}
 .fav-list{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:6px;max-height:320px;overflow-y:auto;}
 .fav-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px;}
 .fav-row:last-child{border-bottom:none;}
@@ -461,6 +484,38 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .catchup-fullscreen .icon-compress{display:none;}
 .catchup-fullscreen.is-fullscreen .icon-expand{display:none;}
 .catchup-fullscreen.is-fullscreen .icon-compress{display:block;}
+
+/* Loop mode, left of fullscreen (Alex's ask) - three states, same
+   Apple-Music-style single glyph as their own repeat toggle: muted for "play
+   through once, don't loop back" (the icon's default/off look), highlighted
+   for "loop the whole run," highlighted plus a small "1" badge for "loop
+   just this play." Cycling and the current-state label live in app.js. */
+.catchup-loop{
+  position:absolute;top:8px;right:82px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  width:30px;height:30px;padding:5px;cursor:pointer;border-radius:6px;
+}
+.catchup-loop:hover{color:var(--text);background:var(--tint);}
+.catchup-loop svg{width:100%;height:100%;}
+/* "none"/off is deliberately faded rather than just left at .catchup-loop's
+   own muted default - navy-on-muted alone read too close together at this
+   size to tell active from inactive at a glance. */
+.catchup-loop[data-mode="none"]{opacity:0.45;}
+.catchup-loop[data-mode="all"],.catchup-loop[data-mode="one"]{color:var(--navy);}
+.catchup-loop .icon-repeat-one{display:none;}
+.catchup-loop[data-mode="one"] .icon-repeat{display:none;}
+.catchup-loop[data-mode="one"] .icon-repeat-one{display:block;}
+
+/* Playback speed, left of the loop toggle - text label instead of an icon
+   (the whole point is showing the current multiplier at a glance), same
+   footprint/hover treatment as its icon-button neighbours. */
+.catchup-speed{
+  position:absolute;top:8px;right:118px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  min-width:34px;height:30px;padding:5px 6px;cursor:pointer;border-radius:6px;
+  font-size:12px;font-weight:800;letter-spacing:0.2px;
+}
+.catchup-speed:hover{color:var(--text);background:var(--tint);}
 
 /* Progress doubles as the slide counter and the bar: the ::after strip is
    driven by --catchup-pct, which showCatchUpSlide() sets per slide. */
@@ -538,6 +593,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    few px off its own clearance is barely noticeable, unlike doing the
    same to the wheels/ribbon spacing. */
 .scene-scorebug{margin-bottom:-1px;}
+/* On-deck placeholder (Alex's ask, ideas-and-opinions conversation) - "who's
+   due up next" for an in-progress game's live edge, not a real play. Reuses
+   .state-badge for the card-feed tag (stateStack, same treatment as the
+   FINAL/MID-END badges); the slideshow's own on-deck cue is the
+   .result-pill.on-deck "Now Batting" pill above instead. */
+.on-deck-tag{background:var(--navy);color:#fff;border-color:var(--navy);}
 /* The result pill, seated right under the leverage meter and above the
    defense text line (Alex's spec) - everything else that used to share its
    row (diff pill, LA/EV readout) stayed behind in .scene-play-line, below
@@ -597,7 +658,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    up before any runner had visibly reached them. Delayed to --blight (the
    slowest arriving safe/scoring runner, computed in sceneFieldHtml) so the
    gold fill lands after the tokens do. */
-.dm-base.on{animation:baseLight 200ms ease var(--blight,0s) both;}
+.dm-base.on{animation:baseLight calc(200ms / var(--play-speed,1)) ease calc(var(--blight,0s) / var(--play-speed,1)) both;}
 @keyframes baseLight{
   /* Matches .dm-base's own fixed (non-theme-adaptive) colors, not
      --dot-off-fill/--dot-off-stroke (those are for the wheel/outs dots,
@@ -618,13 +679,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    here deliberately: this element's position/rotation come from an SVG
    `transform` ATTRIBUTE, and any CSS `transform` on the same element would
    replace rather than compose with it. */
-.dm-base.steal-safe{animation:baseStealSafe 260ms ease var(--sflash,0s) both;}
+.dm-base.steal-safe{animation:baseStealSafe calc(260ms / var(--play-speed,1)) ease calc(var(--sflash,0s) / var(--play-speed,1)) both;}
 @keyframes baseStealSafe{
   0%{fill:#f2f0e6;stroke:#9aa1ab;}
   40%{fill:var(--green);stroke:var(--green);}
   100%{fill:var(--gold);stroke:var(--gold);}
 }
-.dm-base.steal-out{animation:baseStealOut 260ms ease var(--sflash,0s) both;}
+.dm-base.steal-out{animation:baseStealOut calc(260ms / var(--play-speed,1)) ease calc(var(--sflash,0s) / var(--play-speed,1)) both;}
 @keyframes baseStealOut{
   0%{fill:#f2f0e6;stroke:#9aa1ab;}
   40%{fill:var(--red);stroke:var(--red);}
@@ -640,13 +701,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .ball{fill:#fff;stroke:var(--navy);stroke-width:1.5;transform:translate(var(--tx),var(--ty));}
 .ball-trail{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3;opacity:0.6;}
 .ball.air, .ball.ground, .ball.land, .ball.clear{
-  animation:ballFly var(--dur) ease-out forwards, ballSettle 350ms ease var(--dur) forwards;
+  animation:ballFly calc(var(--dur) / var(--play-speed,1)) ease-out forwards,
+            ballSettle calc(350ms / var(--play-speed,1)) ease calc(var(--dur) / var(--play-speed,1)) forwards;
 }
 @keyframes ballFly{from{transform:translate(var(--fx),var(--fy));}to{transform:translate(var(--tx),var(--ty));}}
 @keyframes ballSettle{to{opacity:0.85;}}
 .ball-trail.air, .ball-trail.ground, .ball-trail.land, .ball-trail.clear{
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:trailDraw var(--dur) ease-out forwards;
+  animation:trailDraw calc(var(--dur) / var(--play-speed,1)) ease-out forwards;
 }
 @keyframes trailDraw{to{stroke-dashoffset:0;}}
 /* C1: the ball's own colour tells the story - the stroke (never the white
@@ -667,7 +729,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .ball-label, .ball-dist{
   font-size:7px;font-weight:800;fill:var(--text);paint-order:stroke;
   stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
-  opacity:0;animation:labelIn 260ms ease var(--delay) both;
+  opacity:0;animation:labelIn calc(260ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
 }
 .ball-dist{font-size:8.5px;font-weight:700;fill:var(--muted);}
 @keyframes labelIn{to{opacity:1;}}
@@ -680,7 +742,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;
   stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
   text-anchor:middle;
-  opacity:0;animation:labelIn 260ms ease var(--delay) both;
+  opacity:0;animation:labelIn calc(260ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
 }
 /* The original fielder's stacked label (result above name, both inside the
    same <text> as tspans - inherits fielder-name's fill/stroke/halo/pop-in).
@@ -697,14 +759,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    to change on reduced motion. */
 .ball-rollout{fill:#fff;stroke:var(--muted);stroke-width:1.2;opacity:0;
   transform:translate(var(--tx),var(--ty));
-  animation:ballRoll var(--rdur) ease-out var(--rdelay) forwards;}
+  animation:ballRoll calc(var(--rdur) / var(--play-speed,1)) ease-out calc(var(--rdelay) / var(--play-speed,1)) forwards;}
 @keyframes ballRoll{
   from{transform:translate(var(--fx),var(--fy));opacity:0.6;}
   to{transform:translate(var(--tx),var(--ty));opacity:0.6;}
 }
 .ball-rollout-trail{fill:none;stroke:var(--muted);stroke-width:1;opacity:0.35;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:trailDraw var(--rdur) ease-out var(--rdelay) forwards;}
+  animation:trailDraw calc(var(--rdur) / var(--play-speed,1)) ease-out calc(var(--rdelay) / var(--play-speed,1)) forwards;}
 
 /* Fielder convergence (Stage 4e) - sits at the landing point by default (the
    reduced-motion/finished end state), animates in from its fixed anchor after
@@ -712,7 +774,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    app.js's fielderTokensHtml already omits the element in that case. */
 .fielder{transform:translate(var(--tx),var(--ty));opacity:1;}
 .fielder circle{fill:var(--muted);stroke:var(--card);stroke-width:1.5;}
-.fielder{animation:fielderIn 350ms ease var(--delay) both;}
+.fielder{animation:fielderIn calc(350ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;}
 @keyframes fielderIn{
   from{transform:translate(var(--fx),var(--fy));opacity:0;}
   20%{opacity:1;}
@@ -749,7 +811,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .throw-line.throw-out{stroke:var(--red);}
 .throw-line.throw-safe{stroke:var(--green);}
 .throw-clip-rect{
-  animation:throwClipGrow var(--draw,180ms) ease var(--delay) both;
+  animation:throwClipGrow calc(var(--draw,180ms) / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
 }
 @keyframes throwClipGrow{from{width:0;}to{width:var(--len);}}
 
@@ -770,8 +832,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    pausing on each bag. Delayed by --rdelay so they lead off behind the ball
    on a batted-ball play (0 on an excluded play - Stage 4e). */
 .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4{
-  animation-duration:var(--dur);animation-timing-function:linear;animation-fill-mode:both;
-  animation-delay:var(--rdelay,0s);
+  animation-duration:calc(var(--dur) / var(--play-speed,1));animation-timing-function:linear;animation-fill-mode:both;
+  animation-delay:calc(var(--rdelay,0s) / var(--play-speed,1));
 }
 .rn.legs1{animation-name:rnLegs1;}
 .rn.legs2{animation-name:rnLegs2;}
@@ -802,72 +864,83 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 
 .rn-inner{transform-box:fill-box;transform-origin:center;}
-.rn.batter .rn-inner{animation:rnBatter 380ms ease var(--rdelay,0s) both;}
+/* No pop-in for the batter (Alex's report: "the circle for the batter
+   isn't always present" - it used to sit at opacity:0 until --rdelay, on a
+   safe/reaches-base play with nothing else to override that). Unlike every
+   other token, which really is arriving/appearing fresh this play, the
+   batter is already standing in the box before the pitch even happens - the
+   base .rn-inner rule above (no opacity set, so it defaults to fully
+   visible) is correct for them as-is, so this class needs no animation of
+   its own at all now. An out-bound batter token was never affected by this -
+   the out-choreography rules below win the cascade for those regardless
+   (see the comment above them). */
 .rn.score circle{fill:var(--green);}
 /* Flash on arrival, so the delay is however long the run itself took (plus
    the shared lead-off delay the runner started from). */
-.rn.score .rn-inner{animation:rnScore 460ms ease calc(var(--rdelay,0s) + var(--dur)) both;}
+.rn.score .rn-inner{animation:rnScore calc(460ms / var(--play-speed,1)) ease calc((var(--rdelay,0s) + var(--dur)) / var(--play-speed,1)) both;}
 
 /* Out choreography (ball-flight-plan.md Stage 6, generalised by the
-   refinements round's I8/A2): a put-out token turns red in place, THEN walks
-   a straight line to the dugout, fading on arrival - a person leaving, not a
-   token quietly fading. Two shapes:
+   refinements round's I8/A2): a put-out token turns red AND heads for the
+   dugout in the same instant they're actually out (Alex's ask), fading on
+   arrival - a person leaving, not a token quietly fading. Two shapes:
      .out-walk       - runner put out with no partial advance to show (a
                         strikeout and friends, or a backward-relative throw
                         target like a doubled-off runner - see basepathWaypoints'
                         end<=start guard) - one leg, straight to the dugout.
+                        Shares one fixed keyframe/timing for every play (no
+                        real base to run toward at all, so there's nothing
+                        for runnerOutMotionHtml to interpolate).
      .out-to-first,
-     .out-to-base    - reaches partway toward the base the throw targeted on
-                        the normal basepath timing FIRST, then red, then
-                        dugout - two legs, so the out reads as "thrown out
-                        going somewhere" rather than "vanished in place."
-                        .out-to-first is the batter-specific case (always to
-                        1B); .out-to-base is the same shape for any other
-                        forced/tag runner, waypoint supplied per play.
+     .out-to-base,
+     .out-retreat    - reaches wherever the real out moment (--outat) catches
+                        them along the base they were forced/tagged toward
+                        (cut short mid-leg on a quick catch/throw, or held
+                        waiting at the bag on a slow one - never the old
+                        fixed "always a full 3333ms sprint" guess), THEN red
+                        and dugout-bound together. app.js's
+                        runnerOutMotionHtml generates each of these a fresh,
+                        play-specific @keyframes and sets animation-name/
+                        -duration/-delay inline (highest specificity, so it
+                        always wins here regardless of what these classes'
+                        own rules say) - .out-to-first is the batter-specific
+                        case (always to 1B); .out-to-base/.out-retreat are
+                        the same idea for any other forced/tag/doubled-off
+                        runner, waypoints supplied per play.
    Both rules come after .rn.batter above deliberately: an out token that also
    carries the .batter class (the batter-out fallback) needs THIS animation to
    win the cascade, not the plain appear-in-place one. */
-.rn.out-walk, .rn.out-to-first, .rn.out-to-base{animation-fill-mode:both;animation-timing-function:linear;}
-.rn.out-walk{animation-name:rnOutWalk;animation-duration:650ms;animation-delay:calc(var(--rdelay,0s) + 250ms);}
-.rn.out-to-first, .rn.out-to-base{animation-name:rnOutToBase;animation-duration:1700ms;animation-delay:var(--rdelay,0s);}
+.rn.out-walk, .rn.out-to-first, .rn.out-to-base, .rn.out-retreat{animation-fill-mode:both;animation-timing-function:linear;}
+.rn.out-walk{animation-name:rnOutWalk;animation-duration:calc(650ms / var(--play-speed,1));animation-delay:calc(var(--rdelay,0s) / var(--play-speed,1));}
 @keyframes rnOutWalk{
   from{transform:translate(var(--fx),var(--fy));}
   to{transform:translate(var(--tx),var(--ty));}
 }
-@keyframes rnOutToBase{
-  from{transform:translate(var(--fx),var(--fy));}
-  47.06%{transform:translate(var(--p1x),var(--p1y));}
-  61.76%{transform:translate(var(--p1x),var(--p1y));}
-  to{transform:translate(var(--tx),var(--ty));}
-}
-/* Explicit "retreat" flag (import_BRC.csv, e.g. LODP - doubled off a caught
-   line drive): same run-pause-then-leave timing as .out-to-base (identical
-   duration/beats, so it drops into the same choreography), but --p1x/--p1y
-   here is the HALFWAY point toward aN (sceneFieldHtml), not a real base - the
-   runner gets partway there, then the very same keyframe stop doubles as the
-   moment they reverse back to --fx/--fy (their own base) before walking off,
-   instead of continuing on to a new spot. */
-.rn.out-retreat{animation-fill-mode:both;animation-timing-function:linear;animation-name:rnOutRetreat;animation-duration:1700ms;animation-delay:var(--rdelay,0s);}
-@keyframes rnOutRetreat{
-  from{transform:translate(var(--fx),var(--fy));}
-  35.29%{transform:translate(var(--p1x),var(--p1y));}
-  47.06%{transform:translate(var(--fx),var(--fy));}
-  61.76%{transform:translate(var(--fx),var(--fy));}
-  to{transform:translate(var(--tx),var(--ty));}
-}
-.rn.out-retreat circle{animation:rnTurnRed 250ms ease calc(var(--rdelay,0s) + 800ms) forwards;}
-.rn.out-retreat .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
+/* --outat (sceneFieldHtml, Alex's ask): the real moment THIS runner's own
+   out was recorded - whichever throw actually forced/tagged them, or the
+   catch itself when there's no throw - same source scorebugOutsHtml's dot
+   fills off, so the token and its dot flip red at the identical instant
+   instead of the token always waiting out a fixed 3333ms-into-the-run
+   guess. Falls back to that old fixed guess only if --outat is somehow
+   missing (defensive - sceneFieldHtml always sets it on every out token). */
+.rn.out-retreat circle{animation:rnTurnRed calc(250ms / var(--play-speed,1)) ease
+  calc(var(--outat, calc(var(--rdelay,0s) + 3333ms)) / var(--play-speed,1)) forwards;}
+.rn.out-retreat .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
+  calc((var(--outat, calc(var(--rdelay,0s) + 3333ms)) + 500ms) / var(--play-speed,1)) forwards;}
 /* Team colour until the flash, matching every other token - the base fill
    must NOT be red here, or the animation below has nothing to animate from
    (an explicit `to` with no `from` interpolates from whatever the property
    would otherwise be, which would make it red from t=0). Reduced motion
    overrides this to red directly, with no animation, in the media block
    below. */
-.rn.out-walk circle{animation:rnTurnRed 250ms ease var(--rdelay,0s) forwards;}
-.rn.out-to-first circle, .rn.out-to-base circle{animation:rnTurnRed 250ms ease calc(var(--rdelay,0s) + 800ms) forwards;}
+.rn.out-walk circle{animation:rnTurnRed calc(250ms / var(--play-speed,1)) ease
+  calc(var(--outat, var(--rdelay,0s)) / var(--play-speed,1)) forwards;}
+.rn.out-to-first circle, .rn.out-to-base circle{animation:rnTurnRed calc(250ms / var(--play-speed,1)) ease
+  calc(var(--outat, calc(var(--rdelay,0s) + 3333ms)) / var(--play-speed,1)) forwards;}
 @keyframes rnTurnRed{from{fill:var(--rn-fill,var(--navy));}to{fill:var(--red);}}
-.rn.out-walk .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 500ms) forwards;}
-.rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
+.rn.out-walk .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
+  calc((var(--outat, var(--rdelay,0s)) + 500ms) / var(--play-speed,1)) forwards;}
+.rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
+  calc((var(--outat, calc(var(--rdelay,0s) + 3333ms)) + 500ms) / var(--play-speed,1)) forwards;}
 @keyframes rnFadeOut{to{opacity:0;}}
 
 /* A safe runner (reached or held their forced base, never put out) whose
@@ -881,14 +954,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    harmless no-op on this keyframe. */
 .rn.stranded-to-dugout{
   animation-fill-mode:both;animation-timing-function:linear;
-  animation-name:rnOutToBase;animation-duration:1700ms;animation-delay:var(--rdelay,0s);
+  animation-name:rnOutToBase;animation-duration:calc(4233ms / var(--play-speed,1));animation-delay:calc(var(--rdelay,0s) / var(--play-speed,1));
 }
-.rn.stranded-to-dugout .rn-inner{animation:rnFadeOut 400ms ease calc(var(--rdelay,0s) + 1300ms) forwards;}
+.rn.stranded-to-dugout .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease calc((var(--rdelay,0s) + 3833ms) / var(--play-speed,1)) forwards;}
 
-@keyframes rnBatter{
-  from{opacity:0;transform:scale(0.6);}
-  to{opacity:1;transform:scale(1);}
-}
 @keyframes rnScore{
   0%{transform:scale(1);opacity:1;}
   40%{transform:scale(1.9);opacity:1;}
@@ -901,7 +970,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   align-self:center;display:flex;flex-direction:column;align-items:center;gap:2px;
   padding:5px 12px;border-radius:8px;text-align:center;
   background:var(--navy);color:#fff;
-  animation:recapIn 420ms ease 260ms both;
+  animation:recapIn calc(420ms / var(--play-speed,1)) ease calc(260ms / var(--play-speed,1)) both;
 }
 .scene-recap.live{background:var(--tint);color:var(--muted);border:1px solid var(--border);}
 .scene-recap-head{font-size:12px;font-weight:800;letter-spacing:0.4px;}
@@ -935,13 +1004,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    only fill AFTER their delay, so before --at the step is simply invisible and
    between the two it stays put. The last step has no --until and holds. */
 .scene-scorebug-team .tick-step{
-  animation:scoreStepIn 420ms cubic-bezier(.2,1.6,.4,1) var(--at) both,
-            scoreStepOut 1ms linear var(--until,600s) forwards;
+  animation:scoreStepIn calc(420ms / var(--play-speed,1)) cubic-bezier(.2,1.6,.4,1) calc(var(--at) / var(--play-speed,1)) both,
+            scoreStepOut calc(1ms / var(--play-speed,1)) linear calc(var(--until,600s) / var(--play-speed,1)) forwards;
 }
 /* The value the play started from was already on the board - it shows at once
    rather than popping in, and only needs the exit. */
 .scene-scorebug-team .tick-step.first{
-  opacity:1;animation:scoreStepOut 1ms linear var(--until,600s) forwards;
+  opacity:1;animation:scoreStepOut calc(1ms / var(--play-speed,1)) linear calc(var(--until,600s) / var(--play-speed,1)) forwards;
 }
 @keyframes scoreStepIn{
   0%{opacity:0;transform:translateY(7px) scale(0.75);}
@@ -955,7 +1024,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .scene-scorebug-mid{display:flex;flex-direction:column;align-items:center;justify-self:center;gap:2px;flex:0 0 auto;}
 .scene-scorebug-state{display:flex;align-items:center;gap:8px;}
 /* The beat that marks a new half-inning starting. */
-.scene-scorebug-state.new-half{animation:newHalf 900ms ease both;}
+.scene-scorebug-state.new-half{animation:newHalf calc(900ms / var(--play-speed,1)) ease both;}
 @keyframes newHalf{
   0%{transform:scale(1);opacity:0.35;}
   35%{transform:scale(1.35);opacity:1;}
@@ -986,10 +1055,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .mt-fill{
   fill:none;stroke:url(#levGradient);stroke-width:9;stroke-linecap:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--off);
-  animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both;
+  animation:meterFill calc(700ms / var(--play-speed,1)) cubic-bezier(.2,.7,.3,1) both;
 }
 @keyframes meterFill{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:var(--off);}}
-.scene-meter.hot .mt-fill{animation:meterFill 700ms cubic-bezier(.2,.7,.3,1) both, meterPulse 700ms ease 700ms 2;}
+.scene-meter.hot .mt-fill{
+  animation:meterFill calc(700ms / var(--play-speed,1)) cubic-bezier(.2,.7,.3,1) both,
+            meterPulse calc(700ms / var(--play-speed,1)) ease calc(700ms / var(--play-speed,1)) 2;
+}
 @keyframes meterPulse{0%,100%{filter:none;}50%{filter:drop-shadow(0 0 7px var(--red));}}
 .scene-meter-val{
   position:absolute;left:0;right:0;top:38%;font-size:19px;font-weight:800;letter-spacing:-0.3px;
@@ -1027,7 +1099,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* The result is the headline of the slide - it lands with a bounce rather than
    just appearing. Scoped to the scene so the main feed's pills stay static. */
 .play-scene .result-pill{
-  font-size:13px;padding:3px 11px;animation:resultPop 460ms cubic-bezier(.2,1.5,.4,1) both;
+  font-size:13px;padding:3px 11px;animation:resultPop calc(460ms / var(--play-speed,1)) cubic-bezier(.2,1.5,.4,1) both;
 }
 @keyframes resultPop{
   0%{opacity:0;transform:scale(0.55);}
@@ -1089,7 +1161,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wheel-arc{
   fill:none;stroke-width:2;stroke-linecap:round;
   stroke-dasharray:var(--alen);stroke-dashoffset:var(--alen);
-  animation:wheelArcDraw 500ms ease 150ms forwards;
+  animation:wheelArcDraw calc(500ms / var(--play-speed,1)) ease calc(150ms / var(--play-speed,1)) forwards;
 }
 .wheel-arc-neutral{stroke:var(--text);}
 .wheel-arc-hit{stroke:var(--green);}
@@ -1107,11 +1179,24 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wheel-dot{transform-box:fill-box;transform-origin:center;opacity:0;}
 .wheel-dot-def{fill:#ffffff;stroke:#9aa1ab;stroke-width:0.7;}
 .wheel-dot-off{fill:#8b5a2b;stroke:#4a2f14;stroke-width:0.35;stroke-linejoin:round;}
+/* Steal DIFF's runner marker (Alex's ask): color is set inline per-play as
+   the stealing team's own primary hex (sceneWheelDiffHtml/wheelMarkerHtml),
+   picked up here via currentColor so one `color` declaration drives both the
+   filled head and the stroked limbs; --navy is just the fallback for a team
+   with no resolved color. */
+.wheel-dot-runner{color:var(--navy);}
+.wheel-dot-runner .wheel-runner-head{fill:currentColor;stroke:#000;stroke-width:0.3;}
+.wheel-dot-runner .wheel-runner-body-outline{fill:none;stroke:#000;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.wheel-dot-runner .wheel-runner-body{fill:none;stroke:currentColor;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;}
+/* Speed-line trail (Alex's reference icon) - lighter and thinner than the
+   figure itself, no black outline, so it reads as a wind cue behind the
+   runner rather than a fifth limb. */
+.wheel-dot-runner .wheel-runner-motion{fill:none;stroke:currentColor;stroke-width:0.6;stroke-linecap:round;opacity:0.55;}
 /* Baseball seam curves on the defense marker - real stitch red, overriding
    the ball body's stroke so they read as seams, not another outline. */
 .wheel-dot-seam{fill:none;stroke:var(--red);stroke-width:0.6;stroke-linecap:round;}
-.wheel-dot-1{animation:wheelDotIn 160ms ease 0ms both;}
-.wheel-dot-2{animation:wheelDotIn 160ms ease 650ms both;}
+.wheel-dot-1{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease 0ms both;}
+.wheel-dot-2{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease calc(650ms / var(--play-speed,1)) both;}
 @keyframes wheelDotIn{
   from{opacity:0;transform:scale(0.3);}
   to{opacity:1;transform:scale(1);}
@@ -1127,16 +1212,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
   opacity:0;
 }
-.wheel-val-1{animation:wheelDotIn 160ms ease 0ms both;}
-.wheel-val-2{animation:wheelDotIn 160ms ease 650ms both;}
+.wheel-val-1{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease 0ms both;}
+.wheel-val-2{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease calc(650ms / var(--play-speed,1)) both;}
 .wheel-center-big{
   font-size:15px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
-  opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
+  opacity:0;animation:wheelFadeIn calc(200ms / var(--play-speed,1)) ease calc(700ms / var(--play-speed,1)) forwards;
 }
 .wheel-center-small{
   font-size:8px;font-weight:700;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;
-  opacity:0;animation:wheelFadeIn 200ms ease 700ms forwards;
+  opacity:0;animation:wheelFadeIn calc(200ms / var(--play-speed,1)) ease calc(700ms / var(--play-speed,1)) forwards;
 }
 @keyframes wheelFadeIn{to{opacity:1;}}
 /* Batting team's mark, painted on the center-field grass (Alex's call - was
@@ -1154,9 +1239,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    dwell, extended by CF_BREAK_BONUS_MS so the pill gets real reading time
    before auto-advance. Fixed/non-theme-adaptive same as every other on-field
    mark - the grass under it never changes with theme, so neither does this. */
-.dm-mark-fading{animation:cfMarkFadeOut 450ms ease var(--break-delay,0s) both;}
+.dm-mark-fading{animation:cfMarkFadeOut calc(450ms / var(--play-speed,1)) ease calc(var(--break-delay,0s) / var(--play-speed,1)) both;}
 @keyframes cfMarkFadeOut{from{opacity:0.75;}to{opacity:0;}}
-.dm-break-pill{opacity:0;animation:cfBreakPillIn 450ms ease var(--break-delay,0s) both;}
+.dm-break-pill{opacity:0;animation:cfBreakPillIn calc(450ms / var(--play-speed,1)) ease calc(var(--break-delay,0s) / var(--play-speed,1)) both;}
 @keyframes cfBreakPillIn{from{opacity:0;}to{opacity:1;}}
 .dm-break-pill rect{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:1.5;}
 .dm-break-pill text{
@@ -1217,7 +1302,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Already-seen stretches recede without losing their team identity. */
 .rb-seg.seen{stroke-width:1.5;opacity:0.45;}
 .rb-new{
-  stroke-width:3;stroke-dasharray:var(--len);animation:ribbonDraw 650ms ease both;
+  stroke-width:3;stroke-dasharray:var(--len);animation:ribbonDraw calc(650ms / var(--play-speed,1)) ease both;
 }
 @keyframes ribbonDraw{from{stroke-dashoffset:var(--len);}to{stroke-dashoffset:0;}}
 /* Marker: the home team's badge riding the newest point, carrying their odds
@@ -1229,7 +1314,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    off to one side without moving the logo. */
 .rb-marker{
   position:absolute;width:0;height:0;transform:translate(-50%,-50%);
-  animation:ribbonDot 650ms ease both;
+  animation:ribbonDot calc(650ms / var(--play-speed,1)) ease both;
 }
 @keyframes ribbonDot{0%,55%{opacity:0;}to{opacity:1;}}
 .rb-marker-logo, .rb-marker-dot{
@@ -1254,7 +1339,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 .scene-flash{
   position:absolute;inset:-12px;border-radius:12px;pointer-events:none;z-index:1;
-  opacity:0;animation:sceneFlash 900ms ease both;
+  opacity:0;animation:sceneFlash calc(900ms / var(--play-speed,1)) ease both;
 }
 @keyframes sceneFlash{0%{opacity:0;}25%{opacity:0.22;}to{opacity:0;}}
 
@@ -1335,8 +1420,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-slide.in{transition:none;}
   .catchup-progress::after{transition:none;}
   .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
-  .rn.batter .rn-inner, .rn.score .rn-inner,
-  .rn.out-walk, .rn.out-to-first, .rn.out-to-base, .rn.out-retreat, .rn.stranded-to-dugout,
+  .rn.score .rn-inner,
+  .rn.out-walk, .rn.stranded-to-dugout,
   .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle, .rn.out-retreat circle,
   .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner, .rn.out-retreat .rn-inner,
   .rn.stranded-to-dugout .rn-inner,
@@ -1348,16 +1433,28 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small,
-  .dm-mark-fading, .dm-break-pill{animation:none;}
+  .dm-mark-fading, .dm-break-pill, .outs-dots .dot.new{animation:none;}
   /* !important (physics-redesign plan Part 6.3 item 3): each play generates
      its own .ball.kmArc-<id> rule with the same 2-class specificity as
      .ball.clear here, inserted later in document order (a fresh <style>
      block per slide) - without !important that per-play rule would win and
-     defeat this preference. */
-  .ball, .ball.clear, .ball-trail{animation:none!important;}
+     defeat this preference. runnerOutMotionHtml's out-to-first/out-to-base/
+     out-retreat tokens are the same story but one step further - app.js
+     sets their animation-name/-duration/-delay directly as an INLINE style
+     (needed so it always wins over these classes' own rules in normal use).
+     !important promotes a stylesheet rule into the tier the CSS cascade
+     checks before plain inline styles at all (inline only outranks other
+     NORMAL declarations) - so a single !important here is enough to win,
+     no matching !important needed on the inline side. */
+  .ball, .ball.clear, .ball-trail,
+  .rn.out-to-first, .rn.out-to-base, .rn.out-retreat{animation:none!important;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
   .dm-base.on{fill:var(--gold);stroke:var(--gold);}
+  /* .dot.new no longer carries .on (its redness comes entirely from
+     dotFillIn now - see that rule's own comment) - animation:none above
+     would otherwise leave it stuck at its unfilled starting look. */
+  .outs-dots .dot.new{background:var(--red);border-color:var(--red);}
   /* The half-inning break pill: end state is the pill fully in, the mark
      fully faded - same "skip straight to the settled outcome" rule as
      everything else here. */
@@ -1407,12 +1504,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .moment{flex-wrap:wrap;}
 }
 
-/* Above the phone breakpoint the filters panel is always open, whatever
-   class JS last left on the card. */
-@media (min-width: 601px){
-  .filters-body{display:block !important;}
-}
-
 /* ---- Phone ---- */
 @media (max-width: 600px){
   .page{padding:18px 14px 40px;}
@@ -1430,6 +1521,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      selector, the icon buttons themselves, and the gaps between them is
      what leaves enough room now that there are four icons instead of two. */
   .title-row{gap:6px;flex-wrap:nowrap;}
+  .title-logo{width:26px;height:26px;}
   .title-row h1{font-size:16px;letter-spacing:normal;white-space:nowrap;}
   .title-actions{gap:4px;}
   .icon-btn{width:24px;height:24px;}
@@ -1493,6 +1585,40 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .state-stack svg{width:24px;height:24px;}
   .outs-dots .dot{width:6px;height:6px;}
   .state-badge{font-size:9.5px;padding:4px 7px;letter-spacing:0.4px;}
+}
+
+/* ---- Tablet + widescreen main feed ---- */
+/* Same collapsible filters panel phone already has, now also available at
+   tablet and desktop widths (Alex's ask) - collapsed-by-default falls
+   straight out of this: .filters-card ships with the "collapsed" class
+   right in the markup, so once this is the only rule deciding whether
+   .filters-body shows, a fresh page load is collapsed with no extra JS
+   needed. */
+@media (min-width: 601px){
+  .filters-toggle{display:flex;}
+  .filters-card.collapsed .filters-body{display:none;}
+  .filters-card:not(.collapsed) .filters-body{margin-top:14px;}
+  /* Key Moments/Favorites now collapse out of sight along with the rest of
+     the filters panel above - same phone-only shortcut icons (already fully
+     wired; only ever CSS-hidden here) give a one-click way to flip either
+     one without reopening the panel (Alex's ask). */
+  .header-toggle-btn{display:inline-flex;}
+  /* Collapsed filters bar sits left of the play/sort-chips row instead of
+     stacked above it (Alex's ask - same .controls flex trick phone already
+     uses): filters-card only claims a full row of its own once it's
+     actually expanded, so collapsed is the one state cheap enough to share
+     a line with sort-bar. */
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;margin-bottom:16px;}
+  .filters-card{flex:1 1 auto;margin-bottom:0;}
+  .filters-card:not(.collapsed){flex:1 1 100%;}
+  .sort-bar{flex:0 0 auto;margin-bottom:0;}
+  /* Same 7px vertical padding as .chip (Alex's ask - was still the base
+     18px/20px card padding here, towering over the sort row beside it) so
+     the collapsed bar matches the sort chips' height exactly, same trick
+     phone already uses (10c). Only collapsed - expanded keeps the roomier
+     base padding, it's back to being a full-width panel on its own row by
+     then anyway. */
+  .filters-card.collapsed{padding:7px 13px;}
 }
 
 /* ---- Widescreen slideshow ---- */

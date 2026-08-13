@@ -633,10 +633,51 @@ def _load_result_diff_bands() -> None:
         pass
 
 
+# result -> [station, ...] (sorted by station_idx), from flight_stations.csv
+# (compute_flight_ranges.py). Each station is a percentile point along this
+# result's real (EV, LA) pairs (drawn from a sample pre-trimmed to the 5th-
+# 95th percentile by hit_distance_sc) ranked by their own real Statcast
+# distance - the joint-selection replacement for the old independent
+# la_min/la_ideal/la_max + ev_min/ev_max marginals (ideas-and-opinions
+# conversation: independently-drawn marginals, and later an EV solved
+# backward through our own physics, could each produce/report an (EV, LA)
+# pair no real batted ball ever was). la_topped/ev_topped/dist_topped and
+# la_uppercut/ev_uppercut/dist_uppercut are each ONE real play's own paired
+# values, distance included - never mixed across two different real plays
+# (an earlier design shared one distance across both topped and uppercut,
+# borrowed from whichever different real play happened to sit at that
+# station's exact rank; fixed here). Read by docs/js/app.js's stationsLookup
+# (which radially rescales the rendered flight to that same real play's own
+# distance) via key_moments_build.py's _flight_meta().
+_FLIGHT_STATIONS: dict[str, list[dict]] = {}
+
+
+def _load_flight_stations() -> None:
+    global _FLIGHT_STATIONS
+    try:
+        _sdf = pd.read_csv("flight_stations.csv").sort_values(["result", "station_idx"])
+        _FLIGHT_STATIONS = {
+            str(result): [
+                {
+                    "station_idx": int(r["station_idx"]), "q": float(r["q"]),
+                    "la_topped": float(r["la_topped"]), "ev_topped": float(r["ev_topped"]),
+                    "dist_topped": float(r["dist_topped"]),
+                    "la_uppercut": float(r["la_uppercut"]), "ev_uppercut": float(r["ev_uppercut"]),
+                    "dist_uppercut": float(r["dist_uppercut"]),
+                }
+                for _, r in group.iterrows()
+            ]
+            for result, group in _sdf.groupby("result")
+        }
+    except FileNotFoundError:
+        pass
+
+
 _load_re24_ranges()
 _load_sim_state_weights()
 _load_state_frequencies()
 _load_result_diff_bands()
+_load_flight_stations()
 
 
 def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead: int) -> float:
@@ -8581,6 +8622,55 @@ def lineup_alignment_at(lineup_rows: list[dict], team: str, seq: int,
                   file=sys.stderr)
         result[pos] = {"player_id": player_id, "name": name}
     return result
+
+
+def next_batter_info(lineup_rows: list[dict], team: str, last_batter_id: int | None,
+                      name_to_id: dict[str, int]) -> dict | None:
+    """Who's due up next for `team`, per the live Lineups tab - the offense's
+    own counterpart to lineup_alignment_at (which resolves defense). Not
+    seq-bounded like that resolver: "next batter" is inherently a live,
+    right-now question (any substitution already on the sheet should count),
+    not "as of a specific past play" - so this always reads the single
+    latest row per slot, full stop.
+
+    Finds last_batter_id's own current slot (whichever slot's latest row
+    names them), then resolves whoever most recently occupied the next slot
+    (mod 9, wrapping 9->1). last_batter_id=None (this team hasn't batted yet
+    this game) starts at the leadoff slot. Returns None - never a guess -
+    when last_batter_id can't be placed in the order at all (the lineup tab
+    hasn't caught up to a very recent substitution yet) or the next slot
+    itself has no row on the sheet.
+    """
+    latest_by_slot: dict[int, dict] = {}
+    for r in lineup_rows:
+        if r.get("team") != team or r.get("order_slot") is None:
+            continue
+        slot = r["order_slot"]
+        cur = latest_by_slot.get(slot)
+        if cur is None or (r.get("row") or -1) > (cur.get("row") or -1):
+            latest_by_slot[slot] = r
+
+    if last_batter_id is None:
+        next_slot = 1
+    else:
+        last_slot = next(
+            (slot for slot, r in latest_by_slot.items() if name_to_id.get(r["player_name"]) == last_batter_id),
+            None,
+        )
+        if last_slot is None:
+            return None
+        next_slot = (last_slot % 9) + 1
+
+    r = latest_by_slot.get(next_slot)
+    if r is None:
+        return None
+    name = r["player_name"]
+    player_id = name_to_id.get(name)
+    if player_id is None:
+        print(f"WARNING: lineup name {name!r} ({team}, slot {next_slot}) has no matching "
+              f"player_id - traded/released player off the current roster tab?",
+              file=sys.stderr)
+    return {"order_slot": next_slot, "player_id": player_id, "name": name}
 
 
 # Row types that occupy their own Play row without representing a new turn

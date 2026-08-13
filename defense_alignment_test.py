@@ -105,6 +105,42 @@ def test_path_a_lineup_alignment() -> None:
     check("unresolved name -> player_id None", at_unknown.get("SS"), {"player_id": None, "name": "Alice"})
 
 
+# ── next_batter_info (offense's counterpart to lineup_alignment_at) ────────
+
+def test_next_batter_info() -> None:
+    print("next_batter_info:")
+    name_to_id = {"Alice": 1, "Bob": 2, "Carol": 3, "Dave": 4, "Nina": 9, "Sub": 10}
+    rows = [
+        {"team": "GHG", "row": 1, "pos": "SS", "player_name": "Alice", "order_slot": 1, "seq": 1},
+        {"team": "GHG", "row": 2, "pos": "2B", "player_name": "Bob", "order_slot": 2, "seq": 1},
+        {"team": "GHG", "row": 3, "pos": "3B", "player_name": "Carol", "order_slot": 3, "seq": 1},
+        {"team": "GHG", "row": 4, "pos": "LF", "player_name": "Nina", "order_slot": 9, "seq": 1},
+        # A late substitution at slot 2 - the LATEST row wins, no seq bound.
+        {"team": "GHG", "row": 5, "pos": "2B", "player_name": "Sub", "order_slot": 2, "seq": 5},
+        # A different team's rows must never leak in.
+        {"team": "OTH", "row": 6, "pos": "SS", "player_name": "Dave", "order_slot": 1, "seq": 1},
+    ]
+
+    check("nobody's batted yet -> leadoff (slot 1)",
+          utils.next_batter_info(rows, "GHG", None, name_to_id),
+          {"order_slot": 1, "player_id": 1, "name": "Alice"})
+    check("after slot 1 (Alice) -> slot 2's CURRENT occupant (the sub, not the original)",
+          utils.next_batter_info(rows, "GHG", 1, name_to_id),
+          {"order_slot": 2, "player_id": 10, "name": "Sub"})
+    check("after the substitute (slot 2) -> slot 3",
+          utils.next_batter_info(rows, "GHG", 10, name_to_id),
+          {"order_slot": 3, "player_id": 3, "name": "Carol"})
+    check("wraps 9 -> 1",
+          utils.next_batter_info(rows, "GHG", 9, name_to_id),
+          {"order_slot": 1, "player_id": 1, "name": "Alice"})
+    check("last batter not found in any slot (lineup tab hasn't caught up) -> None",
+          utils.next_batter_info(rows, "GHG", 999, name_to_id), None)
+    check("next slot has no row at all -> None, not a guess",
+          utils.next_batter_info(rows, "GHG", 3, name_to_id), None)  # slot 4 never appears
+    check("unresolved name -> player_id None, not dropped",
+          utils.next_batter_info(rows, "GHG", None, {})["player_id"], None)
+
+
 # ── Path B: reconstruct_defense_timeline (slot-based, rewritten per Alex's ──
 # real-data review of game 130121 - see fielding-resolution-spec.html) ─────
 #
@@ -234,6 +270,7 @@ def main() -> None:
     test_play_num_round_trip()
     test_league_wide_seq_contiguity()
     test_path_a_lineup_alignment()
+    test_next_batter_info()
     test_path_b_slot_basics()
     test_path_b_ph_backward_fill()
 
