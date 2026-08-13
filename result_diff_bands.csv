@@ -1,32 +1,32 @@
 result,archetype,n,band_lo,band_hi,source,la_min,la_ideal,la_max,ev_min,ev_max,depth_min,depth_max,flight_source
-B1B,bunt,17,41,400,archetype,-66.0,-31.0,18.8,22.0,47.0,1.0,34.8,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-B1BWH,bunt,17,41,400,archetype,-66.0,-31.0,18.8,22.0,47.0,1.0,34.8,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-BDP,bunt,3,41,400,archetype,-68.0,-30.0,35.0,22.5,44.6,1.0,41.0,"borrowed:bunt pool (n=7<20); depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-BFC,bunt,6,41,400,archetype,-68.0,-30.0,36.0,22.5,44.6,1.0,41.0,"borrowed:bunt pool (n=0<20); depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-BGO,bunt,3,41,400,archetype,-65.0,-3.0,67.0,24.6,43.8,1.0,61.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-SacB,bunt,3,41,400,archetype,-70.1,-38.0,8.0,22.4,43.6,1.0,22.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-2B,double,2544,26,56,own,4.0,17.0,28.0,83.5,108.4,86.0,377.0,own
-2BWH,double,303,19,47,own,14.0,20.0,27.0,98.7,110.4,264.0,391.0,own
-DFO,fly_ball,80,200,244,own,26.0,33.0,42.0,88.7,102.6,310.0,380.0,own
-DSacF,fly_ball,32,195,241,own,25.0,33.0,40.0,91.2,102.6,326.0,383.0,own
-FO,fly_ball,4098,185,240,own,33.0,46.0,57.0,75.4,95.7,206.0,294.0,own
-SacF,fly_ball,263,206,263,own,30.0,40.0,50.0,79.7,96.5,255.0,315.0,own
-DP,grounder,873,420,491,own,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-DP21,grounder,203,393,454,own,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-DP31,grounder,176,444,494,own,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-DPH1,grounder,69,468,494,own,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-DPRun,grounder,7,257,417,archetype,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-FC,grounder,784,259,329,own,-41.0,-13.0,2.0,58.5,102.2,2.0,56.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-FC3rd,grounder,92,281,338,own,-41.0,-13.0,2.0,58.5,102.2,2.0,56.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-FCH,grounder,46,273,418,own,-41.0,-13.0,2.0,58.5,102.2,2.0,56.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-GO,grounder,9982,263,385,own,-40.0,-11.0,4.0,62.7,102.9,2.0,78.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-GORA,grounder,490,177,224,own,-40.0,-11.0,4.0,62.7,102.9,2.0,78.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-TP,grounder,6,257,417,archetype,-25.0,-7.0,4.2,71.1,104.5,5.0,84.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-HR,home_run,1856,1,19,own,22.0,28.0,36.0,99.0,110.0,364.0,428.0,own
-IF1B,infield_single,922,131,159,own,-58.0,-9.0,10.0,45.3,103.3,1.0,132.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-LODP,line_drive,32,497,500,own,6.0,9.0,21.0,71.1,105.3,97.0,276.6,own
-PO,pop_up,1797,227,278,own,53.0,66.0,80.0,61.1,91.8,47.0,185.0,own
-1B,single,6817,67,134,own,-3.0,11.0,23.0,73.7,105.5,27.0,255.0,own
-1BWH,single,1133,54,107,own,12.0,17.0,24.0,103.7,113.6,247.4,371.6,own
-1BWH2,single,47,67,122,own,10.0,13.0,18.0,102.4,111.2,195.4,306.0,own
-3B,triple,588,10,27,own,6.5,20.0,32.0,88.8,107.6,123.4,398.0,own
+B1B,bunt,17,41,400,archetype,-63.0,-31.0,12.0,21.0,46.7,1.0,28.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+B1BWH,bunt,17,41,400,archetype,-63.0,-31.0,12.0,21.0,46.7,1.0,28.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+BDP,bunt,3,41,400,archetype,-66.0,-31.0,26.0,22.3,44.3,1.0,34.0,"borrowed:bunt pool (n=5<20); depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+BFC,bunt,6,41,400,archetype,-66.0,-31.0,27.0,22.2,44.2,1.0,34.0,"borrowed:bunt pool (n=0<20); depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+BGO,bunt,3,41,400,archetype,-64.0,-6.0,67.9,24.2,42.9,1.0,55.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+SacB,bunt,3,41,400,archetype,-68.0,-38.0,2.0,22.0,43.1,1.0,16.9,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+2B,double,2544,26,56,own,6.0,16.0,27.0,81.9,108.3,110.0,351.0,own
+2BWH,double,303,19,47,own,14.0,19.0,25.0,98.2,110.2,267.0,366.0,own
+DFO,fly_ball,80,200,244,own,26.0,34.0,42.0,88.5,100.9,312.0,362.0,own
+DSacF,fly_ball,32,195,241,own,25.0,33.0,41.0,91.0,101.7,326.4,365.0,own
+FO,fly_ball,4098,185,240,own,33.0,46.0,56.0,75.7,95.7,214.0,292.0,own
+SacF,fly_ball,263,206,263,own,30.0,40.0,48.9,80.0,96.5,261.0,313.0,own
+DP,grounder,873,420,491,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+DP21,grounder,203,393,454,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+DP31,grounder,176,444,494,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+DPH1,grounder,69,468,494,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+DPRun,grounder,7,257,417,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+FC,grounder,784,259,329,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+FC3rd,grounder,92,281,338,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+FCH,grounder,46,273,418,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+GO,grounder,9982,263,385,own,-35.0,-11.0,3.0,65.0,103.0,3.0,61.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+GORA,grounder,490,177,224,own,-35.0,-11.0,3.0,65.0,103.0,3.0,61.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+TP,grounder,6,257,417,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+HR,home_run,1856,1,19,own,22.0,28.0,35.0,99.6,109.6,369.0,423.0,own
+IF1B,infield_single,922,131,159,own,-57.0,-10.0,8.0,44.6,103.3,1.0,108.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
+LODP,line_drive,32,497,500,own,6.0,9.0,19.0,74.2,105.5,104.0,264.0,own
+PO,pop_up,1797,227,278,own,54.0,66.0,78.0,61.0,91.8,56.0,179.0,own
+1B,single,6817,67,134,own,-1.0,11.0,23.0,73.1,105.5,41.0,247.0,own
+1BWH,single,1133,54,107,own,13.0,17.0,22.7,103.8,113.3,253.3,356.7,own
+1BWH2,single,47,67,122,own,10.0,13.0,17.0,103.5,110.7,204.0,296.0,own
+3B,triple,588,10,27,own,7.0,17.0,29.0,86.2,107.8,138.6,358.0,own

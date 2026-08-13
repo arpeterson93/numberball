@@ -204,21 +204,58 @@ def main() -> None:
             ],
             # Each band carries its own laMin/laIdeal/laMax/evMin/evMax/
             # depthMin/depthMax directly (result_diff_bands.csv's real shape -
-            # the old separate archetype-keyed range table is retired). These
-            # illustrative mock numbers aren't the real Statcast-derived ones;
-            # they only need to be internally consistent enough to validate
-            # the formula's own mechanics.
+            # the old separate archetype-keyed range table is retired) - these
+            # are reference/audit only now, kept only as launchAngleFor's
+            # fallback path. `stations` is the primary path (joint EV/LA/
+            # distance selection, ideas-and-opinions conversation): 3 clean
+            # synthetic percentile points (q=0/0.5/1) per band, illustrative
+            # numbers chosen to be hand-interpolable, not the real Statcast-
+            # derived ones - they only need to be internally consistent
+            # enough to validate stationsLookup's own interpolation
+            # arithmetic. Each topped/uppercut entry is a real-play-shaped
+            # (la, ev, dist) TRIPLE read together, not an EV solved backward
+            # through physics and not a distance shared with a different
+            # play at the same rank (an earlier design's bug) - topped and
+            # uppercut deliberately get their own distinct dist values below
+            # to exercise that.
             "bands": {
                 "HR": {"archetype": "home_run", "lo": 2, "hi": 21,
-                       "laMin": 25, "laIdeal": 28, "laMax": 35, "evMin": 98, "evMax": 115, "depthMin": 370, "depthMax": 420},
+                       "laMin": 25, "laIdeal": 28, "laMax": 35, "evMin": 98, "evMax": 115, "depthMin": 370, "depthMax": 420,
+                       "stations": [
+                           # q=0's targets sit below the fence (345/355 < 375)
+                           # on purpose, matching the real generated data's own
+                           # shape (its own q=0 station lands under the fence
+                           # too) - the ground-truth invariant sweep below
+                           # checks inside-the-park HRs are still reachable,
+                           # not just over-the-fence ones (Alex's ground-truth
+                           # invariant: both are legal outcomes for a HR).
+                           {"q": 0.0, "laTopped": 25, "evTopped": 100, "distTopped": 345, "laUppercut": 32, "evUppercut": 95, "distUppercut": 355},
+                           {"q": 0.5, "laTopped": 27, "evTopped": 108, "distTopped": 405, "laUppercut": 30, "evUppercut": 103, "distUppercut": 415},
+                           {"q": 1.0, "laTopped": 28, "evTopped": 112, "distTopped": 435, "laUppercut": 29, "evUppercut": 107, "distUppercut": 445},
+                       ]},
                 "GO": {"archetype": "grounder", "lo": 180, "hi": 470,
-                       "laMin": -15, "laIdeal": 8, "laMax": 8, "evMin": 70, "evMax": 100, "depthMin": 60, "depthMax": 150},
+                       "laMin": -15, "laIdeal": 8, "laMax": 8, "evMin": 70, "evMax": 100, "depthMin": 60, "depthMax": 150,
+                       "stations": [
+                           {"q": 0.0, "laTopped": -30, "evTopped": 40, "distTopped": 35, "laUppercut": 10, "evUppercut": 60, "distUppercut": 45},
+                           {"q": 0.5, "laTopped": -20, "evTopped": 55, "distTopped": 145, "laUppercut": 8, "evUppercut": 75, "distUppercut": 155},
+                           {"q": 1.0, "laTopped": -15, "evTopped": 65, "distTopped": 275, "laUppercut": 6, "evUppercut": 90, "distUppercut": 285},
+                       ]},
                 "FO": {"archetype": "fly_ball", "lo": 55, "hi": 240,
-                       "laMin": 25, "laIdeal": 28, "laMax": 50, "evMin": 80, "evMax": 98, "depthMin": 250, "depthMax": 380},
+                       "laMin": 25, "laIdeal": 28, "laMax": 50, "evMin": 80, "evMax": 98, "depthMin": 250, "depthMax": 380,
+                       "stations": [
+                           {"q": 0.0, "laTopped": 35, "evTopped": 75, "distTopped": 195, "laUppercut": 55, "evUppercut": 70, "distUppercut": 205},
+                           {"q": 0.5, "laTopped": 30, "evTopped": 85, "distTopped": 275, "laUppercut": 45, "evUppercut": 80, "distUppercut": 285},
+                           {"q": 1.0, "laTopped": 28, "evTopped": 95, "distTopped": 345, "laUppercut": 40, "evUppercut": 90, "distUppercut": 355},
+                       ]},
                 # C5 recalibration: was -5,10,...,60,160 - half of real singles
                 # landed on the infield dirt. See the infield-dirt sweep below.
                 "1B": {"archetype": "single", "lo": 20, "hi": 150,
-                       "laMin": 6, "laIdeal": 12, "laMax": 20, "evMin": 75, "evMax": 98, "depthMin": 130, "depthMax": 230},
+                       "laMin": 6, "laIdeal": 12, "laMax": 20, "evMin": 75, "evMax": 98, "depthMin": 130, "depthMax": 230,
+                       "stations": [
+                           {"q": 0.0, "laTopped": 2, "evTopped": 70, "distTopped": 45, "laUppercut": 25, "evUppercut": 80, "distUppercut": 55},
+                           {"q": 0.5, "laTopped": 8, "evTopped": 85, "distTopped": 145, "laUppercut": 18, "evUppercut": 90, "distUppercut": 155},
+                           {"q": 1.0, "laTopped": 10, "evTopped": 90, "distTopped": 245, "laUppercut": 15, "evUppercut": 95, "distUppercut": 255},
+                       ]},
             },
         }
 
@@ -235,55 +272,63 @@ def main() -> None:
         )
         check("null pitch -> null", r, None)
 
-        # la/angle/ev assertions are unchanged - that gating/wheel path never
-        # moved in the physics-redesign port (Part 2.3). distance/x/y/hangMs
-        # used to be hand-computed literals against the OLD depthMin+q*(...)
-        # /vacuum-hangtime formula; that formula is gone (Part 2.3/2.4), so
-        # those fields are checked against a fresh, independent
-        # KMTraj.simulateFlight(ev, la, angle-45, hand) call plus the same
-        # distanceCap step flightParams itself applies - this is the actual
-        # port contract (did flightParams wire EV/LA/angle/hand into KMTraj
-        # correctly and apply clamp/scale right), not a re-test of the
-        # integrator's own correctness (that's the golden-vector parity block
-        # above, checked independently against tools/trajectory_reference.py).
+        # la/ev/angle assertions are exact (hand/script-derived from the mock
+        # `stations` tables above via linear interpolation - stationsLookup's
+        # own arithmetic; la and ev now come straight off the same real-play-
+        # shaped pair, no solving involved). distance/x/y/hangMs are checked
+        # against a fresh, independent KMTraj.simulateFlight(ev, la, angle-45,
+        # hand) call plus the same radial-scale-to-real-distance + distanceCap steps
+        # flightParams itself applies - this is the port contract (did
+        # flightParams wire the station's (la, ev) into KMTraj correctly and
+        # scale the result to the station's real distance right), not a
+        # re-test of the integrator's own correctness (that's the golden-
+        # vector parity block above).
         cases = [
             {
-                # la: q = 1 - clamp((5-2)/(21-2)) = 16/19 = 0.8421 (close to the
-                # band's low end, i.e. well-timed contact); onTop (swing > pitch,
-                # all digits) -> LA = 28 - (1-q)*(28-25) = 27.53, close to but
-                # not quite laIdeal since this diff isn't AT the band's floor.
+                # q = 1 - clamp((5-2)/(21-2)) = 16/19 = 0.842105...; onTop
+                # (swing > pitch, all digits) -> topped end. q sits between
+                # the HR band's q=0.5 and q=1 mock stations, t=(q-0.5)/0.5 =
+                # 13/19 -> la = 27 + 1*t = 27.684211, ev = 108 + 4*t =
+                # 110.736842, dist(topped) = 405 + 30*t = 425.526316.
                 "label": "HR pulled RHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "R", "diff": 5},
-                "want": {"la": 27.53, "angle": 5.00, "ev": 112.32},
+                "want": {"la": 27.684211, "ev": 110.736842, "angle": 5.00, "dist": 425.526316},
             },
             {
+                # Same q/onTop/la/ev/dist as above (none depend on hand) -
+                # only angle (HZ mirrors for LHH) differs.
                 "label": "HR same numbers LHH",
                 "play": {"result": "HR", "pitch": 407, "swing": 412, "batter_hand": "L", "diff": 5},
-                "want": {"la": 27.53, "angle": 85.00},
+                "want": {"la": 27.684211, "ev": 110.736842, "angle": 85.00, "dist": 425.526316},
             },
             {
-                # la: q clamps to 0 (diff 481 is past the GO band's own hi=470),
-                # so LA bottoms out at grounder's laMin (-15) regardless of
-                # direction - the "least ideal" end of the formula's range.
+                # q clamps to 0 (diff 481 is past the GO band's own hi=470) -
+                # hits the q=0 mock station exactly, no interpolation. onTop
+                # (swing 631 > pitch 150) -> la = laTopped = -30, ev =
+                # evTopped = 40, dist = distTopped = 35.
                 "label": "Groundout RHH",
                 "play": {"result": "GO", "pitch": 150, "swing": 631, "batter_hand": "R", "diff": 481},
-                "want": {"la": -15.0, "angle": 53.00, "ev": 70.00},
+                "want": {"la": -30.0, "ev": 40.0, "angle": 53.00, "dist": 35.0},
             },
             {
-                # la: diff 48 is below the FO band's own lo=55, so q clamps to 1 -
-                # LA lands exactly on fly_ball's laIdeal (28), independent of
-                # direction (the (1-q) deviation term is zero at q=1).
+                # diff 48 is below the FO band's own lo=55, so q clamps to 1 -
+                # hits the q=1 mock station exactly. onTop (swing 268 > pitch
+                # 220) -> la = laTopped = 28, ev = evTopped = 95,
+                # dist = distTopped = 345.
                 "label": "Flyout RHH",
                 "play": {"result": "FO", "pitch": 220, "swing": 268, "batter_hand": "R", "diff": 48},
-                "want": {"la": 28.0, "angle": 29.00, "ev": 98.00},
+                "want": {"la": 28.0, "ev": 95.0, "angle": 29.00, "dist": 345.0},
             },
             {
-                # la: q = 1 - clamp((87-20)/(150-20)) = 1 - 67/130 = 0.4846; swing
-                # (801) < pitch (888) on the full 1000-wheel -> "below" the pitch
-                # (uppercut) -> LA = 12 + (1-q)*(20-12) = 16.12.
+                # q = 1 - clamp((87-20)/(150-20)) = 1 - 67/130 = 0.484615...;
+                # swing (801) < pitch (888) on the full 1000-wheel -> "below"
+                # the pitch (uppercut). q sits between the 1B band's q=0 and
+                # q=0.5 mock stations, t=q/0.5 = 63/65 -> la = 25 + (18-25)*t
+                # = 18.215385, ev = 80 + (90-80)*t = 89.692308,
+                # dist(uppercut) = 55 + (155-55)*t = 151.923077.
                 "label": "Single LHH",
                 "play": {"result": "1B", "pitch": 888, "swing": 801, "batter_hand": "L", "diff": 87},
-                "want": {"la": 16.12, "angle": 21.00, "ev": 86.15},
+                "want": {"la": 18.215385, "ev": 89.692308, "angle": 21.00, "dist": 151.923077},
             },
         ]
 
@@ -291,17 +336,19 @@ def main() -> None:
         for c in cases:
             print(f" {c['label']}:")
             hand = c["play"]["batter_hand"]
+            archetype = tables["bands"][c["play"]["result"]]["archetype"]
             r = page.evaluate("(a) => KMFlight.flightParams(a.play, a.tables)", {"play": c["play"], "tables": tables})
-            for key, want in c["want"].items():
-                tol = 0.005 if key in ("la", "angle") else 0.15
-                check(f"{c['label']}.{key}", r[key], want, tol=tol)
+            check(f"{c['label']}.la", r["la"], c["want"]["la"], tol=0.005)
+            check(f"{c['label']}.ev (real paired station value, not solved)", r["ev"], c["want"]["ev"], tol=0.005)
+            check(f"{c['label']}.angle", r["angle"], c["want"]["angle"], tol=0.005)
+            check(f"{c['label']}.targetDist is THIS play's own real distance (not a shared station value)", r["targetDist"], c["want"]["dist"], tol=0.005)
 
             oracle = page.evaluate(
                 """(a) => {
                     var raw = KMTraj.simulateFlight(a.ev, a.la, a.angle - 45, a.hand);
                     var sim = KMFlight.clampFairTerritory(raw, a.archetype);
                     var isHomeRun = a.result === 'HR';
-                    var D = KMFlight.distanceCap(sim, a.angle, isHomeRun);
+                    var D = KMFlight.distanceCap({distance: a.target, landing: sim.landing}, a.angle, isHomeRun);
                     var scale = D / sim.distance;
                     return {
                         distance: D, x: sim.landing.x * scale, y: sim.landing.y * scale,
@@ -310,25 +357,52 @@ def main() -> None:
                 }""",
                 {
                     "ev": r["ev"], "la": r["la"], "angle": r["angle"], "hand": hand,
-                    "result": c["play"]["result"], "archetype": tables["bands"][c["play"]["result"]]["archetype"],
+                    "result": c["play"]["result"], "archetype": archetype, "target": c["want"]["dist"],
                 },
             )
-            check(f"{c['label']}.distance matches independent KMTraj+clampFairTerritory+clampToFence oracle", r["distance"], oracle["distance"], tol=0.01)
+            check(f"{c['label']}.distance matches independent radial-scale-to-real-distance oracle", r["distance"], oracle["distance"], tol=0.01)
+            check(f"{c['label']}.distance == this play's real distance (no fence clamp in play here)", r["distance"], c["want"]["dist"], tol=0.01)
             check(f"{c['label']}.x matches oracle", r["x"], oracle["x"], tol=0.01)
             check(f"{c['label']}.y matches oracle", r["y"], oracle["y"], tol=0.01)
             check(f"{c['label']}.hangMs matches oracle", r["hangMs"], oracle["hangMs"], tol=0.01)
             check(f"{c['label']}.apexFt matches oracle", r["apexFt"], oracle["apexFt"], tol=0.01)
             check(f"{c['label']}.hangMs is a real number (F10: no more null-for-grounders)", r["hangMs"] is not None, True)
 
-        print("\nq-clamp checks:")
+        print("\nstationsLookup checks (boundary + midpoint interpolation, called directly):")
+        hr_stations = tables["bands"]["HR"]["stations"]
+        s_lo = page.evaluate("(a) => KMFlight.stationsLookup({stations: a}, -0.3)", hr_stations)
+        check("q below first station clamps to first station's distTopped", s_lo["distTopped"], 345.0, tol=0.005)
+        check("q below first station clamps to first station's distUppercut", s_lo["distUppercut"], 355.0, tol=0.005)
+        check("q below first station clamps to first station's laTopped", s_lo["laTopped"], 25.0, tol=0.005)
+        check("q below first station clamps to first station's evTopped", s_lo["evTopped"], 100.0, tol=0.005)
+        s_hi = page.evaluate("(a) => KMFlight.stationsLookup({stations: a}, 1.4)", hr_stations)
+        check("q above last station clamps to last station's distTopped", s_hi["distTopped"], 435.0, tol=0.005)
+        check("q above last station clamps to last station's distUppercut", s_hi["distUppercut"], 445.0, tol=0.005)
+        check("q above last station clamps to last station's evUppercut", s_hi["evUppercut"], 107.0, tol=0.005)
+        s_exact = page.evaluate("(a) => KMFlight.stationsLookup({stations: a}, 0.5)", hr_stations)
+        check("q exactly on a station hits it exactly (distTopped)", s_exact["distTopped"], 405.0, tol=0.005)
+        check("q exactly on a station hits it exactly (distUppercut)", s_exact["distUppercut"], 415.0, tol=0.005)
+        check("q exactly on a station hits it exactly (laUppercut)", s_exact["laUppercut"], 30.0, tol=0.005)
+        check("q exactly on a station hits it exactly (evUppercut)", s_exact["evUppercut"], 103.0, tol=0.005)
+        s_mid = page.evaluate("(a) => KMFlight.stationsLookup({stations: a}, 0.25)", hr_stations)
+        # Midpoint of the q=0/q=0.5 mock stations: distTopped = 345 + (405-345)*0.5 = 375.
+        check("q midway between two stations interpolates linearly (distTopped)", s_mid["distTopped"], 375.0, tol=0.005)
+        check("q midway between two stations interpolates linearly (distUppercut)", s_mid["distUppercut"], 385.0, tol=0.005)
+        check("q midway between two stations interpolates linearly (laTopped)", s_mid["laTopped"], 26.0, tol=0.005)
+        check("q midway between two stations interpolates linearly (evTopped)", s_mid["evTopped"], 104.0, tol=0.005)
+        check("q midway between two stations interpolates linearly (evUppercut)", s_mid["evUppercut"], 99.0, tol=0.005)
+        s_none = page.evaluate("() => KMFlight.stationsLookup({stations: []}, 0.5)")
+        check("empty stations array falls back to null (launchAngleFor path)", s_none, None)
+
+        print("\nq-clamp checks (HR band, q clamps to a mock station exactly):")
         r_below = page.evaluate(
             "(t) => KMFlight.flightParams({result:'HR', pitch:500, swing:501, batter_hand:'R', diff:-5}, t)", tables
         )
         r_above = page.evaluate(
             "(t) => KMFlight.flightParams({result:'HR', pitch:500, swing:501, batter_hand:'R', diff:9999}, t)", tables
         )
-        check("diff below band -> q=1 -> max EV", r_below["ev"], 115.0)
-        check("diff above band -> q=0 -> min EV", r_above["ev"], 98.0)
+        check("diff below band -> q=1 -> hits last station's la exactly", r_below["la"], 28.0, tol=0.005)
+        check("diff above band -> q=0 -> hits first station's la exactly", r_above["la"], 25.0, tol=0.005)
 
         print("\nGround-truth invariant sweep (non-HR never clears the uniform fence):")
         sweep_result = page.evaluate(
@@ -680,6 +754,46 @@ def main() -> None:
                 check(f"{result} band_lo != band_hi", band["lo"] != band["hi"], True)
         else:
             print("  [skip] no meta.json found on disk")
+
+        print("\nnearestFielder retreat-bias checks (Alex's report: catching/picking up a")
+        print("ball is asymmetric - coming IN toward home is easier than retreating away")
+        print("from it - anchored to explicit ground-coverage-share anecdotes, not an")
+        print("arbitrary tuned constant):")
+        check("CATCH_RETREAT_PENALTY == 70/30 RF/2B ground share", page.evaluate("KMFlight.CATCH_RETREAT_PENALTY"), 7 / 3, tol=0.001)
+        check("PICKUP_RETREAT_PENALTY == 80/20 RF/2B ground share", page.evaluate("KMFlight.PICKUP_RETREAT_PENALTY"), 4.0, tol=0.001)
+
+        fielder_bias = page.evaluate(
+            """() => {
+                var anchors = KMFlight.FIELDER_ANCHORS_FT;
+                var b2 = anchors['2B'], rf = anchors['RF'];
+                function along(t) {
+                    return { x: b2.x + t * (rf.x - b2.x), y: b2.y + t * (rf.y - b2.y) };
+                }
+                // t=0.25 sits between the catch boundary (t=0.3, where
+                // 0.25*2.333 == 0.75) and the pickup boundary (t=0.2, where
+                // 0.25*4 > 0.75 already) - raw distance still favors 2B, the
+                // catch penalty isn't quite strong enough to flip it, but the
+                // pickup penalty is. A single point that discriminates all
+                // three modes at once.
+                var mid = along(0.25);
+                var near2B = along(0.05), nearRF = along(0.95);
+                return {
+                    rawD2B: Math.hypot(b2.x - mid.x, b2.y - mid.y),
+                    rawDRF: Math.hypot(rf.x - mid.x, rf.y - mid.y),
+                    noPenalty: KMFlight.nearestFielder(mid.x, mid.y, 1),
+                    catchPenalty: KMFlight.nearestFielder(mid.x, mid.y, KMFlight.CATCH_RETREAT_PENALTY),
+                    pickupPenalty: KMFlight.nearestFielder(mid.x, mid.y, KMFlight.PICKUP_RETREAT_PENALTY),
+                    obviously2B: KMFlight.nearestFielder(near2B.x, near2B.y, KMFlight.PICKUP_RETREAT_PENALTY),
+                    obviouslyRF: KMFlight.nearestFielder(nearRF.x, nearRF.y, KMFlight.CATCH_RETREAT_PENALTY),
+                };
+            }"""
+        )
+        check("sanity: raw distance to 2B/RF really is closer to 2B at t=0.25", fielder_bias["rawD2B"] < fielder_bias["rawDRF"], True)
+        check("unbiased (penalty=1) comparison picks 2B (raw-nearest)", fielder_bias["noPenalty"], "2B")
+        check("catch penalty (2.33x) not quite enough to flip it - still 2B", fielder_bias["catchPenalty"], "2B")
+        check("pickup penalty (4x) flips it to RF - chasing a rolling ball favors the deeper fielder more", fielder_bias["pickupPenalty"], "RF")
+        check("a point clearly in 2B's own territory still resolves to 2B despite the bias", fielder_bias["obviously2B"], "2B")
+        check("a point clearly in RF's own territory still resolves to RF despite the bias", fielder_bias["obviouslyRF"], "RF")
 
         print("\nResolver grid sweep (physics-redesign plan Part 4/11): one function")
         print("replaces five disagreeing mechanisms - assert its invariants hold over")
