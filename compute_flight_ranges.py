@@ -187,8 +187,11 @@ def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
         (bip["bb_type"] == "fly_ball") |
         ((bip["bb_type"] == "line_drive") & bip["hit_location"].isin([7, 8, 9]))
     )
+    # 2/3 quantile, not the median (Alex's ask) - FO is meant to be the
+    # larger, more "routine" share of this pool and DFO the smaller "deep"
+    # tail, not an even split.
     sf_fly = bip[(bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball")]
-    fo_median = bip.loc[fo_dfo_pool, "hit_distance_sc"].median()
+    fo_cutoff = bip.loc[fo_dfo_pool, "hit_distance_sc"].quantile(2 / 3)
     sf_median = sf_fly["hit_distance_sc"].median()
 
     ground_out = bip["events"].isin(["field_out", "force_out"]) & (bip["bb_type"] == "ground_ball") & not_bunt
@@ -227,8 +230,8 @@ def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
         "3B": (bip["events"] == "triple"),
         "HR": (bip["events"] == "home_run"),
 
-        "FO": fo_dfo_pool & (bip["hit_distance_sc"] < fo_median),
-        "DFO": fo_dfo_pool & (bip["hit_distance_sc"] >= fo_median),
+        "FO": fo_dfo_pool & (bip["hit_distance_sc"] < fo_cutoff),
+        "DFO": fo_dfo_pool & (bip["hit_distance_sc"] >= fo_cutoff),
         "SacF": (bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] < sf_median),
         "DSacF": (bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] >= sf_median),
 
