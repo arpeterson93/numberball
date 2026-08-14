@@ -1356,11 +1356,17 @@
   // duplicated as a second, independently hand-placed set of anchors below,
   // which could and did drift out of sync with these numbers).
   var INFIELDER_DEPTH_FT = { "3B": 119, SS: 147, P: 60, "2B": 147, "1B": 111 };
-  // Midpoint HZ angle of each position's own bucket set (see
-  // HZ_FIELDER_BY_ANGLE): {5,13}->9, {21,29,37}->29, {45}->45, {53,61,69}->61,
-  // {77,85}->81 - the "straight out from home at this depth" direction used
-  // to derive that position's anchor point below.
-  var CANONICAL_ANGLE = { "3B": 9, SS: 29, P: 45, "2B": 61, "1B": 81 };
+  // The "straight out from home at this depth" direction used to derive
+  // each position's starting anchor point below - Alex's own explicit
+  // -30/-12/12/35deg (3B/SS/2B/1B) spec, in the same landingPoint
+  // offset-from-45 convention OF_CANONICAL_ANGLE uses (so angleDeg here is
+  // just 45+that offset). No longer tied to HZ_FIELDER_BY_ANGLE's own
+  // bucket midpoints (the previous 9/29/61/81 values, which were) - that
+  // bucket system still independently decides which infielder fields a
+  // given grounder angle, this table only ever feeds the anchor a fielder
+  // starts and animates from, so the two can differ without conflict. P
+  // keeps 45 (dead centre, offset 0) - not part of Alex's ask.
+  var CANONICAL_ANGLE = { "3B": 15, SS: 33, P: 45, "2B": 57, "1B": 80 };
   // The minimum lattice angle mapping to each position - the direction a
   // BRC-excluded ground ball gets redirected to on override (Part 4.2/4.3).
   var MIN_ANGLE_FOR_POS = { "3B": 5, SS: 21, P: 45, "2B": 53, "1B": 77 };
@@ -1369,18 +1375,32 @@
   // 1-for-1, they've just never had scorecard numbers attached before.
   var POSITION_NUMBER = { P: 1, C: 2, "1B": 3, "2B": 4, "3B": 5, SS: 6, LF: 7, CF: 8, RF: 9 };
 
+  // Starting (pre-pitch) outfield depth (Alex's ask) - same 295ft radial
+  // distance from home for all three, since no real per-position starting-
+  // depth data exists to justify unequal ones (the previous hand-placed
+  // anchors had LF/RF sitting deeper than CF, backwards from real MLB
+  // positioning, purely as an artifact of nobody having derived them from a
+  // radial distance in the first place). angle uses the same landingPoint
+  // offset-from-45 convention CANONICAL_ANGLE already relies on, so
+  // OF_CANONICAL_ANGLE's 18/45/72 land exactly on Alex's own -27/0/27deg
+  // spec (LF/CF/RF) once landingPoint subtracts the 45 back out.
+  var OUTFIELDER_DEPTH_FT = { LF: 295, CF: 295, RF: 295 };
+  var OF_CANONICAL_ANGLE = { LF: 18, CF: 45, RF: 72 };
+
   // Nine generic fielder anchors, field-plane feet. No names, no per-play
   // defensive alignment - that data doesn't exist (ball-flight-plan.md
-  // Decision 5). Infield anchors are DERIVED from INFIELDER_DEPTH_FT/
-  // CANONICAL_ANGLE rather than hand-placed (physics-redesign plan Part 4.1) -
-  // one real-world-unit source instead of two that can disagree (a 3B anchor
-  // used to sit at the hand-placed (-75,85), about 13ft from where its own
-  // documented 119ft depth actually points; that's now impossible by
-  // construction). Outfield + C anchors stay hand-placed - no depth table
-  // exists for them.
+  // Decision 5). Infield AND outfield anchors are both DERIVED from their
+  // own depth/angle tables above (physics-redesign plan Part 4.1 did this
+  // for infield first; outfield followed the same pattern once Alex had a
+  // real depth/angle spec for it) - one real-world-unit source instead of
+  // hand-placed (x,y) pairs that can silently drift out of sync with the
+  // depth numbers those positions are documented at (a 3B anchor once sat at
+  // the hand-placed (-75,85), about 13ft from where its own documented
+  // 119ft depth actually points; that's now impossible by construction, for
+  // either infield or outfield). C alone stays hand-placed - no depth
+  // concept applies to a position that starts at the plate.
   var FIELDER_ANCHORS_FT = {
     C: { x: 0, y: -5 },
-    LF: { x: -200, y: 260 }, CF: { x: 0, y: 320 }, RF: { x: 200, y: 260 },
   };
   // Deep enough to read as center field grass, clear of the infield dirt
   // skin and mound, but shallow enough that the mark's own box doesn't
@@ -1389,6 +1409,10 @@
   var CF_MARK_DEPTH_FT = 245;
   ["3B", "SS", "P", "2B", "1B"].forEach(function (pos) {
     var pt = landingPoint(INFIELDER_DEPTH_FT[pos], CANONICAL_ANGLE[pos]);
+    FIELDER_ANCHORS_FT[pos] = { x: pt.x, y: pt.y };
+  });
+  ["LF", "CF", "RF"].forEach(function (pos) {
+    var pt = landingPoint(OUTFIELDER_DEPTH_FT[pos], OF_CANONICAL_ANGLE[pos]);
     FIELDER_ANCHORS_FT[pos] = { x: pt.x, y: pt.y };
   });
 
@@ -4308,6 +4332,7 @@
     TEAM_COLOR_MIN_DISTANCE: TEAM_COLOR_MIN_DISTANCE,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
     INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
+    OUTFIELDER_DEPTH_FT: OUTFIELDER_DEPTH_FT, OF_CANONICAL_ANGLE: OF_CANONICAL_ANGLE,
     HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE,
     TAG_UP_MS: TAG_UP_MS, TAG_THROW_MARGIN_MS: TAG_THROW_MARGIN_MS,
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
