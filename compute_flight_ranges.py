@@ -174,9 +174,21 @@ def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
     is_bunt = bip["des"].astype(str).str.contains("bunt", case=False, na=False)
     not_bunt = ~is_bunt
 
-    fo_fly = bip[(bip["events"] == "field_out") & (bip["bb_type"] == "fly_ball")]
+    # FO/DFO base pool (Alex's ask): every fly-ball field_out (any fielder)
+    # PLUS line-drive field_outs specifically to an outfielder (hit_location
+    # 7/8/9) - MLN has no separate "line out" result outside LODP, which only
+    # covers ones that turn into a double play, so a caught liner to the
+    # outfield that isn't a DP is already being scored FO/DFO in MLN's own
+    # data today. Deliberately NOT every line-drive field_out: a hard liner
+    # snagged by an infielder is a completely different EV/LA/distance
+    # profile from what FO/DFO represent, so hit_location keeps this to just
+    # the ones that actually carried out to the grass.
+    fo_dfo_pool = (bip["events"] == "field_out") & (
+        (bip["bb_type"] == "fly_ball") |
+        ((bip["bb_type"] == "line_drive") & bip["hit_location"].isin([7, 8, 9]))
+    )
     sf_fly = bip[(bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball")]
-    fo_median = fo_fly["hit_distance_sc"].median()
+    fo_median = bip.loc[fo_dfo_pool, "hit_distance_sc"].median()
     sf_median = sf_fly["hit_distance_sc"].median()
 
     ground_out = bip["events"].isin(["field_out", "force_out"]) & (bip["bb_type"] == "ground_ball") & not_bunt
@@ -215,8 +227,8 @@ def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
         "3B": (bip["events"] == "triple"),
         "HR": (bip["events"] == "home_run"),
 
-        "FO": (bip["events"] == "field_out") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] < fo_median),
-        "DFO": (bip["events"] == "field_out") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] >= fo_median),
+        "FO": fo_dfo_pool & (bip["hit_distance_sc"] < fo_median),
+        "DFO": fo_dfo_pool & (bip["hit_distance_sc"] >= fo_median),
         "SacF": (bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] < sf_median),
         "DSacF": (bip["events"] == "sac_fly") & (bip["bb_type"] == "fly_ball") & (bip["hit_distance_sc"] >= sf_median),
 
