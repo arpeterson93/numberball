@@ -144,6 +144,17 @@ WINDOW_FRAC = 0.03
 FENCE_DEPTH_FT = 375
 NON_HR_CLAMP_FT = FENCE_DEPTH_FT
 
+# HR-only (Alex's ask): a station strictly ABOVE this q must be built only
+# from real homers that actually cleared FENCE_DEPTH_FT; AT or below it,
+# whatever real (possibly short-fence, or a genuine inside-the-parker)
+# distance the trimmed sample naturally has there is kept as-is - a
+# controlled, real-data-driven inside-the-park rate instead of however many
+# happen to survive DIST_TRIM_LO. docs/js/app.js's flightParams maps a play's
+# diff to q via q = 1 - (diff-lo)/(hi-lo), a straight linear map, so this q
+# cutoff already IS the softest ~2.5% of HR's own diff band - not a second
+# number that has to be kept in sync with anything band-side.
+HR_IPHR_MAX_Q = 0.025
+
 
 def _build_filters(bip: pd.DataFrame) -> dict[str, "pd.Series[bool]"]:
     """One boolean mask per MLN result, over `bip` (Statcast rows where
@@ -232,7 +243,7 @@ def _percentiles(series: "pd.Series[float]") -> tuple[float, float, float]:
     return (round(s.quantile(PCTL_LO), 1), round(s.quantile(PCTL_MID), 1), round(s.quantile(PCTL_HI), 1))
 
 
-def _build_stations(sub: pd.DataFrame) -> list[dict]:
+def _build_stations(sub: pd.DataFrame, floor_ft: float | None = None, floor_above_q: float | None = None) -> list[dict]:
     """Rank this result's real (launch_speed, launch_angle, hit_distance_sc)
     triples - already trimmed to the DIST_TRIM_LO/HI percentile range by the
     caller - by their own real hit_distance_sc, not a recomputed physics
@@ -243,6 +254,17 @@ def _build_stations(sub: pd.DataFrame) -> list[dict]:
     infield single, a bunt), an uninterrupted-flight distance was never
     going to match what actually happened, no matter how faithful the
     physics is (see this module's own docstring).
+
+    floor_ft/floor_above_q (HR only, Alex's ask): every station with q
+    STRICTLY above floor_above_q ranks against a second pool pre-filtered to
+    hit_distance_sc >= floor_ft, with q rescaled onto that pool's own [0,1]
+    range - not just a same-window post-filter, which could hand an
+    above-the-cutoff station an empty (or freak-outlier-thin) local window
+    whenever its unfiltered rank happened to land among the short real
+    samples this pool exists to exclude. Stations at/below floor_above_q
+    keep ranking against the full (unfiltered) pool exactly as every other
+    result already does - real short/inside-the-parker distances there are
+    intentional, not a leak.
 
     At each station, la_topped/la_uppercut are picked from a percentile
     within a local window of the nearest real points by rank, tied to the
@@ -268,15 +290,27 @@ def _build_stations(sub: pd.DataFrame) -> list[dict]:
     topped/uppercut pair could be internally consistent with each other
     while still getting radially stretched to a completely different real
     play's distance)."""
-    pairs = sub[["launch_speed", "launch_angle", "hit_distance_sc"]].dropna()
-    pairs = pairs.sort_values("hit_distance_sc").reset_index(drop=True)
+    pairs_all = sub[["launch_speed", "launch_angle", "hit_distance_sc"]].dropna()
+    pairs_all = pairs_all.sort_values("hit_distance_sc").reset_index(drop=True)
+    n_all = len(pairs_all)
+    window_all = max(WINDOW_MIN, round(WINDOW_FRAC * n_all))
 
-    n = len(pairs)
-    window = max(WINDOW_MIN, round(WINDOW_FRAC * n))
+    use_floor = floor_ft is not None and floor_above_q is not None
+    if use_floor:
+        pairs_floor = pairs_all[pairs_all["hit_distance_sc"] >= floor_ft].reset_index(drop=True)
+        n_floor = len(pairs_floor)
+        window_floor = max(WINDOW_MIN, round(WINDOW_FRAC * n_floor))
+
     stations = []
     for i in range(N_STATIONS):
         q = i / (N_STATIONS - 1)
-        rank = round(q * (n - 1))
+        if use_floor and q > floor_above_q:
+            pairs, n, window = pairs_floor, n_floor, window_floor
+            q_rank = (q - floor_above_q) / (1 - floor_above_q)
+        else:
+            pairs, n, window = pairs_all, n_all, window_all
+            q_rank = q
+        rank = round(q_rank * (n - 1))
         lo = max(0, rank - window // 2)
         hi = min(n, lo + window)
         lo = max(0, hi - window)  # re-clamp so short windows at either edge still get `window` points
@@ -470,7 +504,11 @@ def main() -> None:
     print(f"\nBuilding {N_STATIONS}-station flight tables...")
     station_rows = []
     for result, sample in sample_by_result.items():
-        for station in _build_stations(sample):
+        if result == "HR":
+            stations = _build_stations(sample, floor_ft=FENCE_DEPTH_FT, floor_above_q=HR_IPHR_MAX_Q)
+        else:
+            stations = _build_stations(sample)
+        for station in stations:
             station_rows.append({"result": result, **station})
     stations_df = pd.DataFrame(station_rows)
     stations_df.to_csv(args.stations_out, index=False)

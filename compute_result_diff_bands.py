@@ -89,7 +89,7 @@ def _season_of(row: dict) -> int | None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--season-start", type=int, default=6, help="lowest season to include (default 6)")
+    ap.add_argument("--season-start", type=int, default=5, help="lowest season to include (default 5)")
     ap.add_argument("--out", default=OUT_CSV, help=f"output CSV path (default {OUT_CSV})")
     args = ap.parse_args()
 
@@ -153,7 +153,7 @@ def main() -> None:
     # has a fallback ready regardless of processing order.
     pooled = (
         df.groupby("archetype")["diff"]
-        .agg(n="count", band_lo=lambda s: s.quantile(0.10), band_hi=lambda s: s.quantile(0.90))
+        .agg(n="count", band_lo=lambda s: s.quantile(0.005), band_hi=lambda s: s.quantile(0.995))
     )
 
     rows = []
@@ -172,8 +172,8 @@ def main() -> None:
         else:
             rows.append({
                 "result": result, "archetype": archetype, "n": n,
-                "band_lo": int(round(g["diff"].quantile(0.10))),
-                "band_hi": int(round(g["diff"].quantile(0.90))),
+                "band_lo": int(round(g["diff"].quantile(0.005))),
+                "band_hi": int(round(g["diff"].quantile(0.995))),
                 "source": "own",
             })
 

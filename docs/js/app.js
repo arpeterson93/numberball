@@ -2457,7 +2457,16 @@
   // a moving ball to field it cleanly (sometimes bare-handed) is a
   // deliberately controlled sprint, a notch under a runner's own
   // RUNNER_SPRINT_FT_PER_S(27) top-speed line-drive-to-the-gap sprint.
-  var FIELDER_CHARGE_FT_PER_S = 22;
+  // Tuned down from an original 22 (Alex's ask, after checking a ~100mph
+  // comebacker still nibbled ~16ft/~0.1s off a fielder camped at depth - not
+  // wrong, exactly, since the ball IS still decelerating right up to the
+  // fielder's spot, but 22 read as too close to a flat-out sprint for what's
+  // supposed to be a controlled, glove-down-ready approach). At 16, a hard
+  // ~100mph shot's own nibble shrinks to ~12ft/~0.08s while a genuine slow
+  // roller (session 2, BBEG@POR, Trotter's comebacker) keeps the bulk of its
+  // own real fix (1.11s of the original 1.28s) - see chargeInIntercept's own
+  // comment for why the fast-ball tail can never reach exactly zero.
+  var FIELDER_CHARGE_FT_PER_S = 16;
   // Recognize-it's-a-roller-and-break beat, same flavor as every other
   // "notice, then react" constant here (OUT_BEAT_MS, THROW_DELAY_MS) - just
   // its own value since a charge decision is a different kind of read than
@@ -2520,10 +2529,39 @@
   // changes the answer when someone else genuinely gets there sooner (a
   // comebacker up the middle, fielded by the pitcher rather than the
   // catcher chasing it in from behind the plate, say).
-  function chargeInIntercept(flight, gp) {
+  //
+  // campedPos/campedAlongFt (Alex's ask, session 5, after the Trotter play -
+  // session 2, BBEG@POR - showed a ball that DOES reach its assigned
+  // fielder's own depth while still rolling, just barely and just slowly,
+  // 2.8 real seconds to cover the last 124ft, with the old model having that
+  // fielder plant and wait the whole time): resolveGrounderInterception's
+  // own assigned position - the one HZ_FIELDER_BY_ANGLE already re-projected
+  // onto the ball's real line at their canonical depth, same "gets in front
+  // of it" assumption that position's ordinary at-rat depth already carries
+  // - races from that projected depth point instead of its true
+  // FIELDER_ANCHORS_FT spot, same as every other candidate here. That's the
+  // one exception: every other candidate still races from where they
+  // actually stand. A fast, hard-hit ball still resolves to "wait at depth"
+  // in practice (nobody, including the camped fielder's own charge-in, can
+  // out-race a fielder already standing on the line while the ball's still
+  // carrying real pace) - h(campedAlongFt) is where that comparison starts,
+  // and it's only very close to campedAlongFt itself that the ball's own
+  // instantaneous speed has decayed down near FIELDER_CHARGE_FT_PER_S, so
+  // the earliest a crossing can appear is right near the end of the roll
+  // regardless of the ball's own opening speed. That's also why this can
+  // never land on EXACTLY zero savings for a hard-hit ball reaching its
+  // fielder while still moving at all - the camped anchor's own "distance 0,
+  // reaction beat only" comparison at campedAlongFt itself is always
+  // slightly favorable, just by a shrinking margin as the ball's own pace at
+  // that depth climbs (FIELDER_CHARGE_FT_PER_S's own tuning already prices
+  // this in - Alex's call, after checking real numbers, that this shrinking
+  // margin is fine as-is rather than adding a separate minimum-gain gate).
+  function chargeInIntercept(flight, gp, campedPos, campedAlongFt) {
     var best = null;
     CHARGE_CANDIDATE_POSITIONS.forEach(function (pos) {
-      var anchor = FIELDER_ANCHORS_FT[pos];
+      var anchor = (pos === campedPos && campedAlongFt != null)
+        ? groundDirPoint(flight, campedAlongFt)
+        : FIELDER_ANCHORS_FT[pos];
       if (!anchor) return;
       var result = fielderInterceptS(anchor, flight, gp);
       if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS };
@@ -2549,18 +2587,18 @@
     var fieldedFt, groundTimeS;
     if (alongFt != null && alongFt <= 0) {
       fieldedFt = 0; groundTimeS = 0;
-    } else if (alongFt != null && alongFt <= gp.restFt) {
-      fieldedFt = alongFt; groundTimeS = gp.timeAt(alongFt);
     } else {
-      // Alex's ask: doesn't reach the assigned fielder's own positioned
-      // depth while still rolling - a real infielder (any of them, not just
-      // the one HZ_FIELDER_BY_ANGLE happened to name) charges in rather than
-      // waiting for it to die on its own. chargeInIntercept may hand the
-      // play to a different, faster-converging fielder than `pos` - that's
-      // correct, not just for timing but for fieldingNotation's own
-      // scorecard credit too, which reads flight.fielder same as everything
-      // else here.
-      var intercept = chargeInIntercept(flight, gp);
+      // Alex's ask (session 5, after the Trotter play showed the old
+      // "reaches depth while still rolling -> just wait" branch letting a
+      // fielder plant and watch a slow chopper take 2.8 real seconds to
+      // arrive): there's no meaningful line anymore between "doesn't reach
+      // the fielder's own depth" and "reaches it, but slowly" - both are the
+      // same question, does charging in beat standing still, so both go
+      // through the one race. chargeInIntercept may still hand the play to
+      // a different, faster-converging fielder than `pos` - correct, not
+      // just for timing but for fieldingNotation's own scorecard credit
+      // too, which reads flight.fielder same as everything else here.
+      var intercept = chargeInIntercept(flight, gp, pos, alongFt);
       pos = intercept.pos;
       fieldedFt = intercept.alongFt;
       groundTimeS = intercept.atS;
