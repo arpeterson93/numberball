@@ -2446,6 +2446,91 @@
      (3) Interception: the fielder's depth crossing along that path, or the
      ball dying first (charge-in). fieldedFt <= alongFt always, by
      construction in every branch. */
+  // Alex's ask, after the Avant play (session 4, POR@RLY, top 3 - a
+  // comebacker landing 2ft out that the old model let roll a full 3.9 real
+  // seconds before "fielding" it, well past the batter's own sprint to
+  // first): a ball that dies before reaching its assigned fielder's own
+  // positioned depth doesn't just sit there waiting to be picked up at rest -
+  // a real infielder charges in and grabs it while it's still moving. Real
+  // MLB "arm strength" scouting speeds run faster than this, but that's a
+  // full-extension crow-hop throw, not a barehand-charge speed - closing on
+  // a moving ball to field it cleanly (sometimes bare-handed) is a
+  // deliberately controlled sprint, a notch under a runner's own
+  // RUNNER_SPRINT_FT_PER_S(27) top-speed line-drive-to-the-gap sprint.
+  var FIELDER_CHARGE_FT_PER_S = 22;
+  // Recognize-it's-a-roller-and-break beat, same flavor as every other
+  // "notice, then react" constant here (OUT_BEAT_MS, THROW_DELAY_MS) - just
+  // its own value since a charge decision is a different kind of read than
+  // "the ball's already in my glove, throw now."
+  var CHARGE_REACTION_S = 0.15;
+  // Every infielder who could plausibly be the one who actually gets to a
+  // short roller - LF/CF/RF never win this (they're hundreds of feet away,
+  // the race below prices that in for free without needing an explicit
+  // exclusion), so there's no point racing them.
+  var CHARGE_CANDIDATE_POSITIONS = ["P", "C", "1B", "2B", "3B", "SS"];
+  function chargeFielderArriveS(anchor, flight, alongFt) {
+    var p = groundDirPoint(flight, alongFt);
+    var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
+    return CHARGE_REACTION_S + distFt / FIELDER_CHARGE_FT_PER_S;
+  }
+  // Earliest point along the ball's own roll (0..gp.restFt) where this one
+  // fielder's own charge-in catches up to it, real seconds since contact for
+  // both. h(alongFt) = this fielder's own arrival time there minus the
+  // ball's own arrival time there - starts positive (nobody's already
+  // standing on the landing spot) and, for a fielder charging toward where
+  // the ball is actually headed, eventually goes non-positive as the gap
+  // closes faster than the ball can open it back up. A coarse forward scan
+  // finds the first interval where that happens (charge distance-to-ball
+  // isn't guaranteed monotonic - a fielder can be closing, pass their own
+  // closest approach, then start losing ground again as the ball keeps
+  // rolling past them - so this deliberately isn't a plain bisection
+  // assuming one clean crossing), then a short bisection refines within
+  // that interval. If the fielder never gets there while the ball's still
+  // moving (a comebacker rolling AWAY from a catcher's own behind-the-plate
+  // anchor, say - see the Avant play), the ball just sits at rest waiting
+  // for them - the fielder's own travel time to that dead-ball spot is what
+  // actually gates the play at that point, not the ball's (already-elapsed)
+  // arrival there.
+  function fielderInterceptS(anchor, flight, gp) {
+    var restFt = gp.restFt;
+    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt) - gp.timeAt(alongFt); }
+    if (h(0) <= 0) return { alongFt: 0, atS: gp.timeAt(0) };
+    var STEPS = 40;
+    var prevAlong = 0;
+    for (var i = 1; i <= STEPS; i++) {
+      var along = restFt * i / STEPS;
+      if (h(along) <= 0) {
+        var lo = prevAlong, hi = along;
+        for (var j = 0; j < 20; j++) {
+          var mid = (lo + hi) / 2;
+          if (h(mid) > 0) lo = mid; else hi = mid;
+        }
+        var alongFt = (lo + hi) / 2;
+        return { alongFt: alongFt, atS: gp.timeAt(alongFt) };
+      }
+      prevAlong = along;
+    }
+    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt) };
+  }
+  // Races every plausible infielder's own charge-in (above) and returns
+  // whichever actually gets there first - "who fields it" and "how long does
+  // it take" are the same question for a short roller like this, not two
+  // separate lookups (Alex's ask). A ball hit right at one fielder's own
+  // anchor still correctly comes back as that same fielder; this only
+  // changes the answer when someone else genuinely gets there sooner (a
+  // comebacker up the middle, fielded by the pitcher rather than the
+  // catcher chasing it in from behind the plate, say).
+  function chargeInIntercept(flight, gp) {
+    var best = null;
+    CHARGE_CANDIDATE_POSITIONS.forEach(function (pos) {
+      var anchor = FIELDER_ANCHORS_FT[pos];
+      if (!anchor) return;
+      var result = fielderInterceptS(anchor, flight, gp);
+      if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS };
+    });
+    return best;
+  }
+
   function resolveGrounderInterception(m, flight, hand) {
     var hzPos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
     var pos = hzPos;
@@ -2454,15 +2539,31 @@
       applyAngleOverride(flight, MIN_ANGLE_FOR_POS[pos], hand, false);
     }
     var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
+    // INFIELDER_DEPTH_FT has no "C" entry (a catcher has no real "standard
+    // depth" the way an infielder does - they start at the plate) - explicit
+    // null check rather than leaning on `undefined - flight.distance` being
+    // NaN and failing both comparisons below by accident, same outcome
+    // (straight to the charge-in race) but readable as a deliberate case.
     var depth = INFIELDER_DEPTH_FT[pos];
-    var alongFt = depth - flight.distance;
+    var alongFt = depth != null ? depth - flight.distance : null;
     var fieldedFt, groundTimeS;
-    if (alongFt <= 0) {
+    if (alongFt != null && alongFt <= 0) {
       fieldedFt = 0; groundTimeS = 0;
-    } else if (alongFt <= gp.restFt) {
+    } else if (alongFt != null && alongFt <= gp.restFt) {
       fieldedFt = alongFt; groundTimeS = gp.timeAt(alongFt);
     } else {
-      fieldedFt = gp.restFt; groundTimeS = gp.totalS;
+      // Alex's ask: doesn't reach the assigned fielder's own positioned
+      // depth while still rolling - a real infielder (any of them, not just
+      // the one HZ_FIELDER_BY_ANGLE happened to name) charges in rather than
+      // waiting for it to die on its own. chargeInIntercept may hand the
+      // play to a different, faster-converging fielder than `pos` - that's
+      // correct, not just for timing but for fieldingNotation's own
+      // scorecard credit too, which reads flight.fielder same as everything
+      // else here.
+      var intercept = chargeInIntercept(flight, gp);
+      pos = intercept.pos;
+      fieldedFt = intercept.alongFt;
+      groundTimeS = intercept.atS;
     }
     flight.fielder = pos;
     flight.fieldedDistFt = flight.distance + fieldedFt;
@@ -2799,12 +2900,30 @@
   // 6) rather than animating on to its full, often far-off-canvas true
   // landing point - cut the sample list at the first point that crosses
   // fence+15ft.
+  //
+  // Alex's report: a HR that only barely clears (say 378ft against a 375ft
+  // wall) never trips that cut at all - its own true landing point sits only
+  // a few real feet past the wall's own GROUND position, which (the wall
+  // also has real drawn height, fenceWallPathD) reads as landing at or on
+  // the wall instead of past it, even though it legitimately cleared. Same
+  // fix in the other direction: nudge the last sample out to this same
+  // fence+15 floor, along its own real bearing, when the natural flight
+  // never reaches it. The ball's real distance (flight.distance, and every
+  // label reading it) stays the true number either way - only the marker's
+  // own visual stopping point moves, exactly the same "cap the display, not
+  // the data" precedent the long-ball truncation above already set.
   function fenceTruncatedSamples(samples) {
     var maxD = FENCE_DEPTH_FT + 15;
     for (var i = 0; i < samples.length; i++) {
       if (Math.hypot(samples[i].x, samples[i].y) >= maxD) return samples.slice(0, i + 1);
     }
-    return samples;
+    var last = samples[samples.length - 1];
+    var d = Math.hypot(last.x, last.y) || 1;
+    if (d >= maxD) return samples;
+    var scale = maxD / d;
+    return samples.slice(0, samples.length - 1).concat([
+      { t: last.t, x: last.x * scale, y: last.y * scale, z: last.z }
+    ]);
   }
 
   // Ground-phase samples (Part 6.3 item 5: hops flatten into decaying bounces
@@ -4107,7 +4226,7 @@
     CATCH_RETREAT_PENALTY: CATCH_RETREAT_PENALTY, PICKUP_RETREAT_PENALTY: PICKUP_RETREAT_PENALTY,
     launchAngleFor: launchAngleFor,
     stationsLookup: stationsLookup,
-    FENCE_DEPTH_FT: FENCE_DEPTH_FT,
+    FENCE_DEPTH_FT: FENCE_DEPTH_FT, fenceTruncatedSamples: fenceTruncatedSamples,
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,
     throwLineHtml: throwLineHtml,
@@ -4132,6 +4251,9 @@
     parseThrowOrder: parseThrowOrder,
     brcExcludes: brcExcludes,
     resolveGrounderInterception: resolveGrounderInterception,
+    chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
+    FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
+    CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
     applyAirPositionOverride: applyAirPositionOverride,
     resolveHitPickup: resolveHitPickup,
     applyAngleOverride: applyAngleOverride, clampFairTerritory: clampFairTerritory,
@@ -4549,6 +4671,30 @@
             ";animation-delay:calc(" + (mvDelay + runnerSeqDelay) + "ms / var(--play-speed,1))" +
             ";animation-timing-function:linear;animation-fill-mode:both";
         }
+      } else if (strandedSafe) {
+        // Alex's report: a safe runner really advancing when their own
+        // half-inning ends (obc_before/after says as much, and their own
+        // real path here has more than one point to prove it) was showing
+        // no visible movement at all - straight from their own base to the
+        // dugout, skipping the leg they actually ran. This class used to
+        // reference a shared @keyframes (rnOutToBase) that got removed when
+        // the out choreography above migrated to its own per-token generated
+        // keyframe (runnerOutMotionHtml) - this rule was never brought along
+        // with it, so the animation-name simply stopped resolving to
+        // anything and the token just sat at its --tx/--ty (the dugout) the
+        // whole time. Same generator the out tokens already use, just with
+        // outAtRel pinned to the full sprint time itself - there's no real
+        // "out" here to cut the run short for, so they always finish the
+        // whole leg before peeling off to the dugout, never turning red.
+        var fullSprintMs = legDurMs;
+        var pathPoints = [{ frac: 1, x: path[path.length - 1].x, y: path[path.length - 1].y }];
+        var motion = runnerOutMotionHtml(from.x, from.y, pathPoints, dugoutSvg.x, dugoutSvg.y,
+          fullSprintMs, fullSprintMs, RN_OUT_WALK_MS);
+        outStyle = motion.style;
+        vars += ";animation-name:" + motion.name +
+          ";animation-duration:calc(" + motion.totalMs + "ms / var(--play-speed,1))" +
+          ";animation-delay:calc(" + (mvDelay + runnerSeqDelay) + "ms / var(--play-speed,1))" +
+          ";animation-timing-function:linear;animation-fill-mode:both";
       }
       // A put-out runner with somewhere to be forced travels there first,
       // THEN turns red, THEN walks a straight line to the dugout (Stage
@@ -4712,6 +4858,24 @@
     // last play - that one's already carrying the FINAL recap banner, and
     // there's no next half to bridge to.
     var isHalfEnd = !!m.is_half_inning_final && !m.is_game_final;
+    // Alex's report: the pill used to fade in at a flat delay regardless of
+    // when this play's own last out actually lands in the animation -
+    // reading as the half-inning being "over" before the out choreography
+    // (the throw, the catch, the runner turning red) had even resolved.
+    // outAtMomentsMs is the same real-out-timing source the scorebug's own
+    // out-dots and each runner token's --outat already use (their own
+    // comments) - the LAST of this play's own moments (there can be more
+    // than one on a double play) is the actual instant the half inning ends,
+    // raw/unanchored same as everywhere else here, so runnerSeqDelay (0 on a
+    // steal, FIELD_SEQUENCE_DELAY_MS otherwise - that var's own comment) is
+    // what turns it into an absolute delay.
+    var breakDelayMs = 0;
+    if (isHalfEnd) {
+      var haloutCount = (m.outs_after || 0) - (m.outs_before || 0);
+      var haloutMoments = outAtMomentsMs(m, flight, haloutCount);
+      var haloutLastMs = haloutMoments.length ? haloutMoments[haloutMoments.length - 1] : 0;
+      breakDelayMs = haloutLastMs + runnerSeqDelay;
+    }
     var watermark = markUrl
       ? '<image class="dm-mark' + (isHalfEnd ? " dm-mark-fading" : "") + '" href="' + escapeHtml(markUrl) +
         '" x="' + (centroid.x - markSize / 2).toFixed(1) + '" y="' + (centroid.y - markSize / 2).toFixed(1) +
@@ -4753,7 +4917,7 @@
     // anchor point. Runner tokens still stay on top of everything - they're
     // what the viewer follows.
     var svgVars = (runHex ? "--rn-fill:" + escapeHtml(runHex) + ";" : "") +
-      (isHalfEnd ? "--break-delay:" + CF_BREAK_CROSSFADE_MS + "ms;" : "");
+      (isHalfEnd ? "--break-delay:" + breakDelayMs + "ms;" : "");
     return '<div class="scene-diamond-wrap">' +
       '<svg class="scene-diamond" viewBox="0 0 ' + FIELD_W + " " + FIELD_H + '" aria-hidden="true"' +
         (svgVars ? ' style="' + svgVars + '"' : "") + ">" +
@@ -5236,49 +5400,46 @@
   // Steal DIFF (Alex's ask): the "offense" role here is a runner breaking for
   // the next base, not a batter at the plate - a bat reads wrong for that.
   // Drawn upright and always facing the same way (no rotate(angleDeg+180) -
-  // unlike the bat, a runner has no "point this end out" story, so
-  // wheelMarkerHtml skips that rotation for this icon). Alex's call: the
-  // head stays directly over the torso on a straight vertical axis rather
-  // than leaning with it - only the limbs splay for the motion cue, not the
-  // head-neck line itself.
+  // unlike the bat, this icon has no "point this end out" story, so
+  // wheelMarkerHtml skips that rotation for it). Real vector data this time
+  // (running_shoe.svg, Alex's file - "Created by Nawicon from the Noun
+  // Project", per that file's own credit text), not a by-eye redraw - the
+  // path `d` below is copied verbatim from its single source <path>
+  // (viewBox "0 0 32 40"), minus its own last two M...Z sub-loops (the two
+  // motion-line bars trailing the heel - Alex's ask, this pass, was to drop
+  // those; everything before them is the shoe silhouette itself, unedited).
   //
-  // Redrawn by eye against Alex's reference sprinter icon (a by-eye trace,
-  // not a literal path extraction - see the code review discussion: the
-  // reference only ever reached this codebase as an inline chat image, never
-  // a file, and even as a file it's a flattened PNG preview of a vector
-  // asset, not path data itself): a driving front knee raised near level
-  // with the hip before the shin drops, a trailing back leg kicked up behind
-  // rather than just angled down, both arms bent and pumping opposite their
-  // matching leg - front arm down toward the hip, back arm swept up behind -
-  // plus three short motion strokes trailing off the back shoulder/hip,
-  // Alex's reference's own speed cue. One stroked path covers the torso,
-  // both legs and both arms as separate M-started subpaths, round caps/
-  // joins so each thin segment still reads as a limb at this size instead
-  // of a hairline; the motion lines are a second, separate path (see why in
-  // wheelRunnerIconSvg below).
-  var WHEEL_RUNNER_PATH = "M0,-2.5 L0,0.5 " +
-    "M0,0.5 L-1.0,1.6 L-2.3,1.3 " +
-    "M0,0.5 L1.7,0.4 L1.3,2.6 " +
-    "M0,-1.7 L-1.2,-1.3 L-1.9,-0.3 " +
-    "M0,-1.7 L1.3,-1.0 L1.0,0.6";
-  var WHEEL_RUNNER_MOTION_PATH = "M-2.0,-3.0 L-3.2,-3.0 " +
-    "M-2.2,-1.5 L-3.6,-1.5 " +
-    "M-2.4,0.4 L-3.8,0.4";
+  // The transform centers and scales that path into this file's own small
+  // icon-space convention (the bat/ball icons both live in roughly a +-4
+  // unit box around the origin): the shoe-only path's real bounding box is
+  // x:[2.8,30] y:[2,30] (measured directly, getBBox, after dropping the
+  // motion bars - they'd pulled the box further left/down), so
+  // translate(-16.4,-16) centers it on its own midpoint first, then
+  // scale(0.33) brings that ~28-unit box down to a ~9.2-unit one - Alex's
+  // ask to size it up a little from the first pass (2/7, an 8-unit box)
+  // landed it right at the bat icon's own ~9.2-unit span (WHEEL_BAT_PATH),
+  // rather than an arbitrary bump. stroke-width below is left as-is
+  // (declared in this group's own pre-scale coordinate space, same as the
+  // path data itself) so it scales up right along with the geometry instead
+  // of holding the old, now-comparatively-thinner line weight.
+  var WHEEL_SHOE_PATH = "M24,18a1,1,0,0,1-1-1V10a2,2,0,0,0-2-2H19.59A3.59,3.59,0,0,1,16,4.41,2.41,2.41,0,0,0,13.59,2a2.37,2.37,0,0,0-1.71.71L3.71,10.88a3,3,0,0,0,0,4.24L17.12,28.54A5,5,0,0,0,20.66,30H27a3,3,0,0,0,3-3V24A6,6,0,0,0,24,18ZM13.29,4.12a.42.42,0,0,1,.3-.12.42.42,0,0,1,.41.41A5.6,5.6,0,0,0,19.59,10H21v2H19a1,1,0,0,0,0,2h2v2H19a1,1,0,0,0,0,2h2.18A3,3,0,0,0,24,20a4,4,0,0,1,4,4H21.07L7.24,10.17ZM27,28H20.66a3,3,0,0,1-2.12-.88L5.12,13.71a1,1,0,0,1,0-1.42l.71-.71L20,25.71a1.05,1.05,0,0,0,.71.29H28v1A1,1,0,0,1,27,28Z";
+  // Just the outer silhouette loop (WHEEL_SHOE_PATH's own first M...Z,
+  // before the two inner cutout loops that carve out the collar/tab/stitch
+  // detail lines) - Alex's ask: those cutouts read as transparent right now
+  // (a single path, nonzero fill rule - the inner loops are real holes, not
+  // a colour of their own, so they show whatever's behind the icon: the
+  // wheel's own card background, which flips dark in dark mode). A solid
+  // white copy of just the outer boundary, layered underneath the full
+  // (team-coloured) path in wheelRunnerIconSvg below, shows through exactly
+  // those hole regions - the same "colour ink over a white backing" two-tone
+  // look the source icon's own line-art style implies, pinned to white
+  // rather than left to the theme.
+  var WHEEL_SHOE_OUTLINE_PATH = "M24,18a1,1,0,0,1-1-1V10a2,2,0,0,0-2-2H19.59A3.59,3.59,0,0,1,16,4.41,2.41,2.41,0,0,0,13.59,2a2.37,2.37,0,0,0-1.71.71L3.71,10.88a3,3,0,0,0,0,4.24L17.12,28.54A5,5,0,0,0,20.66,30H27a3,3,0,0,0,3-3V24A6,6,0,0,0,24,18Z";
   function wheelRunnerIconSvg() {
-    // A team's own color can land pale against the wheel's light card
-    // background (Alex's report) - a fixed thin black outline keeps the
-    // silhouette readable regardless of which team's color it's wearing. The
-    // head gets a plain stroke; the stroked limb path can't take a second,
-    // differently-colored stroke on the same element, so it's duplicated -
-    // a slightly thicker black copy underneath, the team-colored one on top,
-    // leaving a black rim showing on each side. The motion lines skip that
-    // outline treatment entirely - they're a light trailing cue, not part of
-    // the figure's own silhouette, so a heavy black rim on them read as
-    // clutter rather than speed.
-    return '<circle class="wheel-runner-head" cx="0" cy="-3.6" r="1.1"></circle>' +
-      '<path class="wheel-runner-body-outline" d="' + WHEEL_RUNNER_PATH + '"></path>' +
-      '<path class="wheel-runner-body" d="' + WHEEL_RUNNER_PATH + '"></path>' +
-      '<path class="wheel-runner-motion" d="' + WHEEL_RUNNER_MOTION_PATH + '"></path>';
+    return '<g transform="scale(0.33) translate(-16.4,-16)">' +
+      '<path class="wheel-shoe-bg" d="' + WHEEL_SHOE_OUTLINE_PATH + '"></path>' +
+      '<path class="wheel-shoe" d="' + WHEEL_SHOE_PATH + '"></path>' +
+    "</g>";
   }
 
   // angleDeg is the marker's own position on the ring, in wheelPt's
@@ -5865,14 +6026,14 @@
   // Extra beat on the play that opens a half-inning, so the break between
   // halves registers instead of the reel running straight through it.
   var HALF_INNING_BONUS_MS = 800;
-  // The last play of a half-inning: how long its own CF mark shows before
-  // fading to the "Mid Nth"/"End Nth" pill (sceneFieldHtml's isHalfEnd,
-  // --break-delay), and how much extra dwell that slide gets on top of its
-  // normal reading time so the pill isn't just barely on screen before
-  // auto-advance cuts it off - same reasoning as HALF_INNING_BONUS_MS's own
-  // beat, just sized like a title slide's dwell (TITLE_DWELL_MS) since the
-  // pill is effectively a title card appearing in place.
-  var CF_BREAK_CROSSFADE_MS = 2400;
+  // The last play of a half-inning: how much extra dwell that slide gets on
+  // top of its normal reading time so the "Mid Nth"/"End Nth" pill (fades in
+  // once this play's own last out is actually recorded - sceneFieldHtml's
+  // isHalfEnd/breakDelayMs, off the same outAtMomentsMs every out-timing
+  // consumer here uses) isn't just barely on screen before auto-advance cuts
+  // it off - same reasoning as HALF_INNING_BONUS_MS's own beat, just sized
+  // like a title slide's dwell (TITLE_DWELL_MS) since the pill is
+  // effectively a title card appearing in place.
   var CF_BREAK_BONUS_MS = 1800;
 
   // Real-time running/ball flight (Alex's call, ideas-and-opinions

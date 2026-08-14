@@ -1057,17 +1057,19 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* A safe runner (reached or held their forced base, never put out) whose
    half-inning ends on this very play: nobody's left on the bases between
    innings, so after reaching/holding they walk off to the dugout same as an
-   out would - just never turning red, since they were never retired. Reuses
-   rnOutToBase's exact run-pause-then-leave shape (a single forced advance is
-   always one leg, identical to the out choreography's own timing), with
-   --p1x/--p1y set to the runner's own current position when there's no real
-   advance to show (a true hold, not a forced move) - a same-point "run" is a
-   harmless no-op on this keyframe. */
-.rn.stranded-to-dugout{
-  animation-fill-mode:both;animation-timing-function:linear;
-  animation-name:rnOutToBase;animation-duration:calc(4233ms / var(--play-speed,1));animation-delay:calc(var(--rdelay,0s) / var(--play-speed,1));
-}
-.rn.stranded-to-dugout .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease calc((var(--rdelay,0s) + 3833ms) / var(--play-speed,1)) forwards;}
+   out would - just never turning red, since they were never retired.
+   Position is entirely inline now (sceneFieldHtml's own strandedSafe branch -
+   the same per-token runnerOutMotionHtml generator the out choreography
+   uses, not a shared class-level rule) - Alex's report: this used to point
+   at a shared @keyframes (rnOutToBase) that got removed when the out
+   choreography migrated to that per-token generation and nothing here came
+   along with it, so the animation-name silently stopped resolving and the
+   token just sat at the dugout for the whole play, never visibly running
+   the leg it actually took. Only the inner fade-out is still class-driven -
+   --dur is the token's own real (per-play, not a fixed guess) full-sprint
+   time, already set alongside --rdelay for every token here. */
+.rn.stranded-to-dugout .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
+  calc((var(--rdelay,0s) + var(--dur,0s) + 500ms) / var(--play-speed,1)) forwards;}
 
 @keyframes rnScore{
   0%{transform:scale(1);opacity:1;}
@@ -1297,19 +1299,28 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wheel-dot{transform-box:fill-box;transform-origin:center;opacity:0;}
 .wheel-dot-def{fill:#ffffff;stroke:#9aa1ab;stroke-width:0.7;}
 .wheel-dot-off{fill:#8b5a2b;stroke:#4a2f14;stroke-width:0.35;stroke-linejoin:round;}
-/* Steal DIFF's runner marker (Alex's ask): color is set inline per-play as
-   the stealing team's own primary hex (sceneWheelDiffHtml/wheelMarkerHtml),
-   picked up here via currentColor so one `color` declaration drives both the
-   filled head and the stroked limbs; --navy is just the fallback for a team
-   with no resolved color. */
+/* Steal DIFF's runner marker (Alex's ask - now a running shoe, real vector
+   data from Alex's own running_shoe.svg, not a redraw - see wheelRunnerIconSvg's
+   own comment): color is set inline per-play as the stealing team's own
+   primary hex (sceneWheelDiffHtml/wheelMarkerHtml), picked up here via
+   currentColor; --navy is just the fallback for a team with no resolved
+   color. stroke-width is ~5x the target final thickness (0.4) - declared in
+   the icon's own pre-scale coordinate space (wheelRunnerIconSvg's
+   transform), same as the path data itself. */
 .wheel-dot-runner{color:var(--navy);}
-.wheel-dot-runner .wheel-runner-head{fill:currentColor;stroke:#000;stroke-width:0.3;}
-.wheel-dot-runner .wheel-runner-body-outline{fill:none;stroke:#000;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
-.wheel-dot-runner .wheel-runner-body{fill:none;stroke:currentColor;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;}
-/* Speed-line trail (Alex's reference icon) - lighter and thinner than the
-   figure itself, no black outline, so it reads as a wind cue behind the
-   runner rather than a fifth limb. */
-.wheel-dot-runner .wheel-runner-motion{fill:none;stroke:currentColor;stroke-width:0.6;stroke-linecap:round;opacity:0.55;}
+/* Solid team-coloured backing (Alex's ask - swapped from the first pass,
+   which had these two the other way around: white outline shape over a
+   team-coloured backing) behind the white outline path, showing through its
+   own inner cutout loops - wheelRunnerIconSvg's own comment on why those
+   read as transparent/theme-dependent without an explicit backing here. */
+.wheel-dot-runner .wheel-shoe-bg{fill:currentColor;}
+.wheel-dot-runner .wheel-shoe{fill:#fff;stroke:#000;stroke-width:1.4;stroke-linejoin:round;}
+/* Dark mode's card background is close to black already, so a black-stroked
+   white shoe reads muddy against it - inverting to a dark fill/light stroke
+   (Alex's ask) restores the same contrast dark mode gives every other icon.
+   The team-coloured backing (.wheel-shoe-bg) is untouched - it's not part of
+   the white/black pair Alex meant. */
+:root[data-theme="dark"] .wheel-dot-runner .wheel-shoe{fill:#1a1a1a;stroke:#fff;}
 /* Baseball seam curves on the defense marker - real stitch red, overriding
    the ball body's stroke so they read as seams, not another outline. */
 .wheel-dot-seam{fill:none;stroke:var(--red);stroke-width:0.6;stroke-linecap:round;}
@@ -1543,7 +1554,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .catchup-progress::after{transition:none;}
   .rn, .rn.legs1, .rn.legs2, .rn.legs3, .rn.legs4, .rn-inner,
   .rn.score .rn-inner,
-  .rn.out-walk, .rn.stranded-to-dugout,
+  .rn.out-walk,
   .rn.out-walk circle, .rn.out-to-first circle, .rn.out-to-base circle, .rn.out-retreat circle,
   .rn.out-walk .rn-inner, .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner, .rn.out-retreat .rn-inner,
   .rn.stranded-to-dugout .rn-inner,
@@ -1568,9 +1579,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      !important promotes a stylesheet rule into the tier the CSS cascade
      checks before plain inline styles at all (inline only outranks other
      NORMAL declarations) - so a single !important here is enough to win,
-     no matching !important needed on the inline side. */
+     no matching !important needed on the inline side. .rn.stranded-to-dugout
+     is the same story now too - its own position animation moved from a
+     shared class rule to this same per-token inline generation (Alex's
+     report, that class rule's own comment). */
   .ball, .ball.clear, .ball-trail,
-  .rn.out-to-first, .rn.out-to-base, .rn.out-retreat{animation:none!important;}
+  .rn.out-to-first, .rn.out-to-base, .rn.out-retreat, .rn.stranded-to-dugout{animation:none!important;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
   .dm-base.on{fill:var(--gold);stroke:var(--gold);}
