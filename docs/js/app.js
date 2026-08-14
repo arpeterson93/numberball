@@ -1257,6 +1257,18 @@
   function batterBoxStartPt(hand) {
     return ftToSvg(hand === "L" ? BATTER_BOX_OFFSET_FT : -BATTER_BOX_OFFSET_FT, 0);
   }
+  // Alex's ask: a walk's pitch should visibly miss the zone - away from
+  // whichever side the batter stands on (an "outside" pitch), not down the
+  // middle like every other result's pitch. Literal mirror of
+  // batterBoxStartPt's own sign: that function offsets the batter TOWARD
+  // their own box side, this one offsets the pitch to the FAR side of the
+  // plate from wherever that box is - a lefty (box toward 1B/+x) sees the
+  // ball miss toward 3B/-x, and vice versa. A bigger offset than the box's
+  // own 5ft so it doesn't read as landing on the batter themselves.
+  var WALK_PITCH_OFFSET_FT = 8;
+  function walkPitchTargetSvg(hand) {
+    return ftToSvg(hand === "L" ? -WALK_PITCH_OFFSET_FT : WALK_PITCH_OFFSET_FT, 0);
+  }
 
   // Real MLB basepaths: 90ft square, so home-to-1B/3B is 90ft along the foul
   // lines (angle 90/0, i.e. offset +-45deg from dead centre) and home-to-2B
@@ -1538,6 +1550,29 @@
     if (d > mod / 2) d -= mod;
     else if (d < -mod / 2) d += mod;
     return d;
+  }
+
+  // Alex's ask, steals only: the DIFF wheel's own pace becomes a function of
+  // how close the underlying steal_num/throw_num roll actually was
+  // (500-diff - the biggest a circular diff on this mod-1000 scale can ever
+  // be, so 500-diff ranges 0..500 same as diff itself, just inverted) - the
+  // closer the two numbers, the slower the wheel spins itself out. 1 (CSS's
+  // own var(--wheel-pace,1) default, i.e. today's fixed baseline) for a
+  // blowout diff (500) or anything that isn't a steal at all; WHEEL_PACE_MIN
+  // at a dead-even diff (0). Linear in (500-diff), per Alex's own framing.
+  // Consumed two places: wheelHtml (steal DIFF instance only - sets
+  // --wheel-pace inline, everything else leaves it unset/1) and
+  // sceneFieldHtml (pitchBallHtml's own arrival, already synced to "whenever
+  // the wheel finishes" - a slower wheel here means a later pitch arrival,
+  // which is what actually gives the runner - who still breaks on the pitch
+  // itself, runnerSeqDelay, entirely unaffected by this - Alex's own "a
+  // bigger jump on the catcher," for free, no separate mechanism needed).
+  var WHEEL_PACE_MIN = 0.5;
+  function stealWheelPace(m) {
+    var isSteal = m.pitch == null && m.steal_num != null && m.throw_num != null;
+    if (!isSteal) return 1;
+    var diff = Math.abs(signedCirc(m.steal_num, m.throw_num, 1000));
+    return WHEEL_PACE_MIN + (1 - WHEEL_PACE_MIN) * (diff / 500);
   }
 
   function firstTwo(v) { return Math.floor((v - 1) / 10); }   // 0..99
@@ -2511,6 +2546,13 @@
   function throwDrawMsForFt(distFt) {
     return Math.max(1, Math.round(distFt / (THROW_SPEED_MPH * 1.46667) * 1000));
   }
+  // Alex's ask: a pitch animation ahead of every play (Balk excepted - there
+  // was never an actual pitch on one). Real representative MLB pitch speed,
+  // same "real distance over a real mph" model as THROW_DRAW_MS above, just
+  // over the fixed mound-to-plate distance (always PITCHER_MOUND_FT - unlike
+  // a throw this one never varies by fielder position).
+  var PITCH_SPEED_MPH = 88;
+  var PITCH_TRAVEL_MS = Math.round(PITCHER_MOUND_FT / (PITCH_SPEED_MPH * 1.46667) * 1000);
   // Straight-line real feet from a real {x,y} origin to a named base, or null
   // when the origin isn't known (e.g. ball_flight_test.py's minimal A4
   // timing-race flight objects, built without a resolved fielder position) -
@@ -2570,8 +2612,10 @@
   // A caught-ball throw that isn't chasing a real out (SacF/DSacF/FO's "the
   // drama of a sac fly" throw - see throwSchedule) is chasing a runner who's
   // already safe, same convention as STEAL_THROW_MARGIN_MS: the runner beats
-  // the throw home by at least this much, instead of racing it.
-  var TAG_THROW_MARGIN_MS = 200;
+  // the throw home by at least this much, instead of racing it. 200 -> 400
+  // (Alex's ask): read as too close a race for a play that was never
+  // actually contested - a bigger gap makes the runner's safety obvious.
+  var TAG_THROW_MARGIN_MS = 400;
   // Off for now (Item 15) - Alex found the converging dot in the outfield an
   // unnecessary touch. The function, its CSS and its reduced-motion entry are
   // all still correct; this is a one-word revert if it comes back, e.g. as a
@@ -2836,7 +2880,15 @@
      ball token did (most obvious on a high PO/FO arc). Same offsets, same
      linear timing-function as the ball's own keyframes, so the two can never
      drift apart. */
-  function ballArcHtml(m, flight) {
+  // handoffMs (Alex's report - "only one baseball on the field at a time"):
+  // raw/unanchored moment (same units as --dur/--fdelay before the final
+  // +seqDelay write) a following throw's own first leg starts, when there is
+  // one - null for a play with no throw at all (a clean hit, an HR, a fly
+  // ball caught with nobody trying anyone). When present, this ball fades
+  // OUT instead of merely dimming (ballSettle), so the very next thing the
+  // throw's own ball appears doing isn't overlapping a second, still-visible
+  // ball sitting at the same spot.
+  function ballArcHtml(m, flight, handoffMs) {
     var series = flightSampleSeries(flight);
     var totalS = series.totalS > 0 ? series.totalS : 1e-6;
     var projected = series.samples.map(function (s) { return projectFt(s.x, s.y, s.z); });
@@ -2895,15 +2947,44 @@
     // just shorten the wait between plays) - same live CSS custom property
     // style.css's own rules key off, so this generated block stays in sync
     // with the toggle without needing to know the current speed itself.
+    // Alex's report: the ball used to sit fully visible (and already
+    // green/red) at the contact point for the whole --fdelay wait, thanks to
+    // the `both` fill-mode this needs anyway - ballAppear (style.css) holds
+    // it invisible until that same moment instead, cross-fading in exactly
+    // as pitchBallHtml's own small ball fades out.
+    //
+    // handoffMs != null (Alex's report, above): swaps the settle-and-stay
+    // ballSettle for a real fade-to-0 (ballHandoffFade, style.css), timed to
+    // --handoff - the moment a following throw's own ball is about to fade
+    // in and take over. Skips ballSettle entirely rather than stacking both.
+    //
+    // ballHandoffFade MUST be the last animation listed here, after
+    // ballAppear, not before - when two animations both hold a `both`/
+    // forwards fill on the same property, the one listed LAST wins for
+    // their entire overlap (which for two `forwards`-filled animations is
+    // "forever after whichever started first"), regardless of which one's
+    // own active window comes later in real time. Listed before ballAppear,
+    // ballAppear's own permanent post-930ms hold at opacity:1 silently beat
+    // this fade every time, no matter what --handoff said (caught by
+    // testing, not by reasoning about it up front).
+    var hasHandoff = handoffMs != null;
     var settleRule = "animation: " + name + " calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both, " +
-      "ballSettle calc(350ms / var(--play-speed,1)) ease calc((var(--fdelay,0s) + var(--dur)) / var(--play-speed,1)) forwards;";
+      (hasHandoff ? "" : "ballSettle calc(350ms / var(--play-speed,1)) ease calc((var(--fdelay,0s) + var(--dur)) / var(--play-speed,1)) forwards, ") +
+      "ballAppear calc(120ms / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both" +
+      (hasHandoff
+        ? ", ballHandoffFade calc(120ms / var(--play-speed,1)) linear calc(var(--handoff,0s) / var(--play-speed,1)) both;"
+        : ";");
     var style = "<style>" +
       "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
       "@keyframes " + name + "-trail { " + trailStops + "} " +
       ".ball-trail." + name + " { animation: " + name + "-trail calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) forwards; }" +
       "</style>";
     var pathD = projected.map(function (p, i) { return (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
-    return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1] };
+    // startPt (Alex's ask, separate report): the ball's real contact point,
+    // for pitchBallHtml to hand off to pixel-exactly instead of guessing
+    // flat home plate - a batted ball's contact height projects a little
+    // differently than ground-level home does.
+    return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1], startPt: projected[0] };
   }
 
   // True when fielderNameLabelsHtml (below) will stack the same short/
@@ -2932,7 +3013,7 @@
   var BALL_LABEL_DY = -11;
   var BALL_DIST_DY = 17;
 
-  function ballFlightHtml(m, flight, seqDelay) {
+  function ballFlightHtml(m, flight, moves, seqDelay) {
     if (!flight) return "";
     var cleared = flight.clearedFence;
     // fieldedMs, not ballTravelMs (Alex's report, real-time conversation):
@@ -2949,9 +3030,18 @@
     // not the landing point, so the fix is purely the duration, not a
     // missing visual.
     var dur = fieldedMs(flight);
-    var arc = ballArcHtml(m, flight);
+    // Alex's report: "only one baseball on the field at a time" - when a real
+    // throw follows (throwSchedule, the same pure function throwHtml itself
+    // calls - TAG_THROW_ARCHETYPES' decorative sac-fly throw counts too, it's
+    // still a real ball leaving a fielder's hand), this ball needs to fade
+    // out right as that throw's own ball fades in, not just dim and linger
+    // forever (ballArcHtml's own handoffMs comment).
+    var throwSched = throwSchedule(m, moves, flight);
+    var handoffMs = throwSched.length ? Math.min.apply(null, throwSched.map(function (t) { return t.startMs; })) : null;
+    var arc = ballArcHtml(m, flight, handoffMs);
     var fdelay = seqDelay || 0;
-    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
+    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms" +
+      (handoffMs != null ? ";--handoff:" + (handoffMs + fdelay) + "ms" : "");
     var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
     // and the ball itself having been caught wins that tie. Except a ground
@@ -2965,10 +3055,88 @@
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     var groundedOut = wasOut && !!GROUND_ARCHETYPES[flight.archetype];
     var cls = (cleared ? " clear" : " land") + (flight.apexFt < GROUND_APEX_THRESHOLD_FT ? " ground" : " air") +
-              (wasOut ? " out" : " hit") + (groundedOut ? " grounded-out" : "");
+              (wasOut ? " out" : " hit") + (groundedOut ? " grounded-out" : "") +
+              (handoffMs != null ? " handoff" : "");
+    // Alex's ask: the flight ball is the same baseball (size + seams) the
+    // pitch/throw markers now use, not a plain circle - wheelBallIconSvg's
+    // own "ball-body" class is what .ball.hit/.ball.out/.ball.out.grounded-out
+    // (style.css) key their coloured-border verdict off, now one level
+    // deeper than before (the outer .ball<name> element still owns every
+    // existing position/opacity animation untouched - a <g> takes CSS
+    // transform/opacity animations exactly like the <circle> it replaces).
     return arc.style +
       '<path class="ball-trail' + cls + " " + arc.name + '" d="' + arc.pathD + '" style="' + trailVars + '"></path>' +
-      '<circle class="ball' + cls + " " + arc.name + '" r="' + BALL_R + '" style="' + moveVars + '"></circle>';
+      '<g class="ball' + cls + " " + arc.name + '" style="' + moveVars + '">' +
+        wheelBallIconSvg(BALL_R, "ball-body") +
+      "</g>";
+  }
+
+  // Alex's ask: every play (a Balk excepted - it's the one result with no
+  // actual pitch) opens with the ball travelling mound-to-plate before
+  // anything else happens, reusing the wheel's own small-ball icon. Position
+  // is a fixed mound->home line every time (PITCH_TRAVEL_MS - the ball's own
+  // real mound-to-plate travel time - never varies by play), so unlike
+  // ballArcHtml this needs no per-play generated keyframes - one shared
+  // @keyframes in style.css covers every play, only the delay varies.
+  //
+  // Alex's ask: the ball should physically ARRIVE right as the wheel
+  // finishes instead of arriving early and then just sitting at the plate
+  // for the remainder of that wait - "contact" (or, on a steal, "the catcher
+  // has it") and the wheel's own reveal should read as the same instant, not
+  // two separate beats. The seqDelay param here is sceneFieldHtml's
+  // wheelFinishMs - deliberately NOT runnerSeqDelay even on a steal (Alex's
+  // follow-up ask was specifically to keep the pitch itself landing on the
+  // wheel's own finish there too, same as every other play, even though the
+  // runner's own break/throw/tag timing stays on runnerSeqDelay's earlier,
+  // wheel-independent anchor) - and, on a steal, already stealWheelPace-
+  // adjusted (Alex's ask: the closer the underlying steal_num/throw_num
+  // roll, the slower the wheel plays out for real, so the pitch's own
+  // arrival - and the runner's real head start before the catcher/throw,
+  // since that runner is already moving well before this - drift later right
+  // along with it). Solved by working backwards from that arrival instead of
+  // forwards from mount: the ball still takes exactly PITCH_TRAVEL_MS to
+  // cross the real 60.5ft, it just leaves the pitcher's hand
+  // seqDelay-PITCH_TRAVEL_MS after slide mount instead of immediately, so
+  // pStart+PITCH_TRAVEL_MS lands exactly on seqDelay. Math.max(0, ...) is a
+  // defensive floor only - never actually hit today, since PITCH_TRAVEL_MS
+  // is comfortably under even the slowest wheel pace's finish time.
+  // fadeAt is simply wherever the ball actually lands - handing off into
+  // ballFlightHtml's hit-ball (which now itself stays invisible until that
+  // same fdelay moment, Alex's report - see ballAppear in style.css) or just
+  // vanishing for a walk/K/steal.
+  //
+  // Alex's ask: a walk's pitch visibly misses the zone (walkPitchTargetSvg,
+  // away from whichever side the batter's box is on) - every other result
+  // (contact, a strikeout, a steal) is a pitch that was actually in the
+  // zone, so those all still go dead down the middle.
+  function pitchBallHtml(m, flight, seqDelay) {
+    // m.result is null only on the on-deck "Now Batting" placeholder (see
+    // the moves.map batter-token guard above/key_moments_build.py's
+    // _next_batter_moment) - nothing has actually been pitched yet there.
+    if (m.result == null || BALK_RESULTS[m.result]) return "";
+    var from = ftToSvg(0, PITCHER_MOUND_FT);
+    // Alex's report: a batted ball's real contact point (flight.samples[0] -
+    // the same first sample ballArcHtml's own arc.startPt projects, read
+    // directly here rather than re-running flightSampleSeries/groundPhase
+    // Samples' full ground-roll computation just for one point that never
+    // differs from this raw first sample either way) isn't flat ground-level
+    // home plate - contact happens with some real height on the bat, which
+    // projects a few pixels off from HOME_SVG. Matching it exactly is what
+    // makes the hand-off into ballFlightHtml's own hit-ball (starting at that
+    // identical point) read as one ball, not two overlapping-but-not-quite
+    // markers during the crossfade.
+    var contactPt = flight ? projectFt(flight.samples[0].x, flight.samples[0].y, flight.samples[0].z) : null;
+    var to = WALK_RESULTS[m.result] ? walkPitchTargetSvg(effectiveHand(m.batter_hand)) : (contactPt || HOME_SVG);
+    var pStart = Math.max(0, (seqDelay || 0) - PITCH_TRAVEL_MS);
+    var fadeAt = pStart + PITCH_TRAVEL_MS;
+    var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
+               "--tx:" + to.x + "px;--ty:" + to.y + "px;" +
+               "--pdur:" + PITCH_TRAVEL_MS + "ms;--pstart:" + pStart + "ms;--pfade:" + fadeAt + "ms";
+    // Alex's ask: sized/bordered exactly like the flight ball (BALL_R,
+    // "ball-body" - style.css's shared .ball-body rule), not the wheel's own
+    // smaller WHEEL_DOT_R dot - the same baseball the whole diamond now uses.
+    return '<g class="pitch-ball" style="' + vars + '">' +
+      '<g class="pitch-ball-inner">' + wheelBallIconSvg(BALL_R, "ball-body") + '</g></g>';
   }
 
   // Split out of ballFlightHtml (Alex's report) so the render order in
@@ -3706,18 +3874,56 @@
   // own bearing. Animating just its width via CSS is what actually grows
   // the visible portion of the (separately, statically dashed) line
   // underneath.
-  function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs) {
+  function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs, fadeAtMs) {
     var len = Math.hypot(x2 - x1, y2 - y1) || 1;
     var angleDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
     var id = "throwClip" + (THROW_CLIP_SEQ++);
-    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + (drawMs || THROW_DRAW_MS) + "ms";
+    var draw = drawMs || THROW_DRAW_MS;
+    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + draw + "ms";
     var clip = '<clipPath id="' + id + '" clipPathUnits="userSpaceOnUse">' +
       '<rect class="throw-clip-rect" x="' + x1.toFixed(1) + '" y="' + (y1 - 4).toFixed(1) +
       '" width="0" height="8" transform="rotate(' + angleDeg.toFixed(2) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
       ')" style="' + clipVars + '"></rect></clipPath>';
     var line = '<line class="' + cls + '" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) +
       '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" clip-path="url(#' + id + ')"></line>';
-    return clip + line;
+    // Alex's ask: every throw is now a moving baseball, not just a dashed
+    // line revealing itself - travels x1,y1->x2,y2 over the exact same
+    // startMs/draw window the clip-rect above already uses, so the ball and
+    // the line's own reveal always agree. Reuses pitchBallHtml's own
+    // pitchFly keyframe (a generic --fx/--fy->--tx/--ty translate) and the
+    // shared .ball-body styling (wheelBallIconSvg(BALL_R,"ball-body")) - the
+    // same baseball everywhere else on the diamond, not a new visual of its
+    // own. Every call site (throwHtml's per-leg schedule loop, stealThrowHtml)
+    // already computes startMs as an absolute, anchor-included delay - see
+    // each caller's own comment - so --pstart needs no further offset here.
+    //
+    // Alex's report: this used to be visible (sitting at x1,y1) from slide
+    // mount, every leg of every throw at once, `both` fill-mode giving it
+    // presence during the pre-pstart delay same as everything else here -
+    // but unlike the pitch/flight ball, nothing ever faded this IN, so it
+    // just sat there the whole time instead of appearing only once actually
+    // thrown. Same two-nested-groups split as everywhere else (outer owns
+    // position, inner owns opacity): .throw-ball-inner reuses the existing
+    // ballAppear keyframe (opacity 0->1, style.css) timed to this same
+    // --pstart, so the ball only appears the instant it actually leaves the
+    // fielder's hand - "only one ball on the field at a time," since by then
+    // whatever came before it (the flight ball, handoffMs'd out at this same
+    // moment - ballFlightHtml - or a previous relay leg, fadeAtMs'd out the
+    // same way right below) has already faded out at this exact real-world
+    // point, not a second, separately-visible ball sitting there too.
+    //
+    // fadeAtMs (a relay's own leg-to-leg handoff, throwHtml's loop): null on
+    // a play's LAST (or only) leg, which just stays settled once it arrives -
+    // same "nothing else is coming, let it sit" treatment the flight ball
+    // gets when there's no throw at all.
+    var ballVars = "--fx:" + x1.toFixed(1) + "px;--fy:" + y1.toFixed(1) + "px;" +
+      "--tx:" + x2.toFixed(1) + "px;--ty:" + y2.toFixed(1) + "px;" +
+      "--pdur:" + draw + "ms;--pstart:" + startMs + "ms" +
+      (fadeAtMs != null ? ";--pfade2:" + fadeAtMs + "ms" : "");
+    var ballCls = "throw-ball" + (fadeAtMs != null ? " fades" : "");
+    var ball = '<g class="' + ballCls + '" style="' + ballVars + '">' +
+      '<g class="throw-ball-inner">' + wheelBallIconSvg(BALL_R, "ball-body") + "</g></g>";
+    return clip + line + ball;
   }
 
   function throwHtml(m, flight, moves, seqDelay) {
@@ -3729,7 +3935,7 @@
     // ground-contact direction (Part 1), not the HZ launch bearing.
     var origin = ftToSvg(fieldedPoint(flight).x, fieldedPoint(flight).y);
     var delay = seqDelay || 0;
-    return schedule.map(function (t) {
+    return schedule.map(function (t, i) {
       var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
       if (!to) return "";
       // Red for a throw that puts someone out, green for the rare safe/
@@ -3739,7 +3945,15 @@
       // seqDelay added only here, at the final write - throwSchedule itself
       // (shared with ball_flight_test.py's timing-race assertions) stays a
       // pure, offset-free function of the play/flight alone.
-      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay, t.drawMs);
+      // Alex's report: "only one baseball on the field at a time" - a relay
+      // (a double play's second leg, say) needs the FIRST leg's own ball to
+      // fade out right as this one fades in, or both sit there visible at
+      // once. Every leg but the last one gets this - the last has nothing
+      // after it to hand off to, so throwLineHtml leaves it settled instead
+      // (its own fadeAtMs comment).
+      var next = schedule[i + 1];
+      var fadeAtMs = next ? next.startMs + delay : null;
+      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay, t.drawMs, fadeAtMs);
       origin = to;   // next throw relays from here (A5)
       return html;
     }).join("");
@@ -3757,14 +3971,42 @@
   // runner stealing on the same pitch - caught, not safe.
   var STEAL_SAFE_CODES = { SB: 1, SB2: 1, SB3: 1, SB4: 1, SB32: 1, SB42: 1, SB43: 1, SB432: 1 };
   var STEAL_CAUGHT_CODES = { CS: 1, CS2: 1, CS3: 1, CS4: 1, KCS: 1 };
-  var STEAL_THROW_MARGIN_MS = 200;  // CS: throw arrives this early; SB: this late
+  // Alex's ask: a stolen-base runner is shown already taking their lead - 12
+  // of the real 90ft basepath - rather than starting flat-footed on the bag,
+  // so the animated leg is only the remaining 78ft (sceneFieldHtml's own
+  // token rendering, and the arrival math right below, both key off this).
+  var STEAL_LEADOFF_FT = 12;
+  // Real sprint speed over the shortened leg (mirrors RUN_LEG_MS[1]'s own
+  // runnerDrawMsForFt(BASE_DIST_FT) formula, just BASE_DIST_FT-STEAL_LEADOFF_FT
+  // instead of the full 90ft) - the runner covers less ground in less real
+  // time, not the same RUN_LEG_MS[1] duration over a shorter distance (which
+  // would just be a slower-looking sprint for no reason).
+  var STEAL_LEG_DUR_MS = runnerDrawMsForFt(BASE_DIST_FT - STEAL_LEADOFF_FT);
+  // Alex's ask: instead of a single flat gap, the throw's own margin off the
+  // runner's arrival now scales with how decisive the underlying
+  // steal_num/throw_num roll was (500-diff, same input stealWheelPace reads -
+  // see that function's own comment) - a narrow, bang-bang margin at a
+  // near-even diff, opening up toward a comfortably decisive one the further
+  // apart the roll. CS keeps arriving early by this amount, SB late by it -
+  // same convention as before, just no longer a constant.
+  var STEAL_THROW_MARGIN_MIN_MS = 80;
+  var STEAL_THROW_MARGIN_MAX_MS = 450;
+  function stealThrowMarginMs(diff) {
+    return STEAL_THROW_MARGIN_MIN_MS + (STEAL_THROW_MARGIN_MAX_MS - STEAL_THROW_MARGIN_MIN_MS) * (diff / 500);
+  }
+  // Alex's ask: the catcher can't release a throw before actually receiving
+  // the pitch (now a real, synced arrival - pitchBallHtml/wheelFinishMs) plus
+  // a beat to catch it, come up, and get the ball out - stealThrowHtml's own
+  // floor on when the throw may start.
+  var CATCHER_POP_MS = 250;
 
-  // The runner token's own "reaches the base" moment - RUN_LEG_MS[1] (800ms)
-  // is both a plain legs1 advance's full duration AND (per batterFirstArrivalMs's
-  // 47.06%-of-1700ms note above) the out-to-base keyframe's first-leg
-  // checkpoint, so one formula covers both a safe steal and a caught one.
+  // The runner token's own "reaches the base" moment - STEAL_LEG_DUR_MS (the
+  // shortened, leadoff-adjusted leg, above) is both a plain legs1 advance's
+  // full duration AND (per batterFirstArrivalMs's own sibling note) the
+  // out-to-base keyframe's first-leg checkpoint, so one formula covers both a
+  // safe steal and a caught one.
   function stealRunnerArrivalMs(isCaught, runDelay, outDelay) {
-    return (isCaught ? outDelay : runDelay) + RUN_LEG_MS[1];
+    return (isCaught ? outDelay : runDelay) + STEAL_LEG_DUR_MS;
   }
 
   function stealThrowTarget(m, moves) {
@@ -3805,6 +4047,12 @@
   function stealThrowHtml(m, moves, runDelay, outDelay, seqDelay) {
     var target = stealThrowTarget(m, moves);
     if (!target) return "";
+    // Alex's ask: a steal of home where the pitcher (not the catcher) is the
+    // thrower doesn't get a separate throw line at all - the pitch itself
+    // (pitchBallHtml, already heading to HOME on every play) already IS that
+    // throw, so drawing a second one on top would be redundant/wrong (there's
+    // no real "catcher receives, then throws home" step happening here).
+    if (target.base === "HOME" && stealThrowOrigin(m) === "P") return "";
     var to = target.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[target.base];
     if (!to) return "";
     var originAnchor = FIELDER_ANCHORS_FT[stealThrowOrigin(m)] || FIELDER_ANCHORS_FT.C;
@@ -3818,7 +4066,28 @@
     // sibling logic in sceneFieldHtml.
     var effOutDelay = target.delay ? outDelay + TAG_UP_MS : outDelay;
     var arrival = stealRunnerArrivalMs(target.caught, runDelay, effOutDelay);
-    var arrive = target.caught ? arrival - STEAL_THROW_MARGIN_MS : arrival + STEAL_THROW_MARGIN_MS;
+    // Alex's ask: variable margin instead of a flat gap - a diff near 0 (the
+    // steal_num/throw_num roll was nearly even) reads as a real bang-bang
+    // play, a diff near 500 (a decisive roll either way) reads as an easy
+    // one. 250 (the middle of the diff range) is only a fallback for the
+    // formally-possible case target matched on m.result alone with no real
+    // steal_num/throw_num on the row.
+    var diff = (m.steal_num != null && m.throw_num != null)
+      ? Math.abs(signedCirc(m.steal_num, m.throw_num, 1000)) : 250;
+    var margin = stealThrowMarginMs(diff);
+    var idealArrive = target.caught ? arrival - margin : arrival + margin;
+    // Alex's ask: the catcher can't release the throw before the pitch has
+    // actually arrived (pitchBallHtml's own wheelFinishMs - CATCHER_POP_MS's
+    // own comment) - Math.max only ever pushes idealArrive LATER, never
+    // earlier, so this is a floor, not a second target.
+    var pitchArriveMs = Math.round(FIELD_SEQUENCE_DELAY_MS / stealWheelPace(m));
+    var arrive = Math.max(idealArrive, pitchArriveMs + CATCHER_POP_MS + THROW_DRAW_MS);
+    // But that floor must never be allowed to push a caught-stealing's throw
+    // past the runner's own arrival - a real out has to keep reading as one
+    // regardless of how slow the wheel/how tight the diff-based margin above
+    // was. (A safe steal has no equivalent risk - arriving later than
+    // idealArrive only ever reads as "even more clearly safe.")
+    if (target.caught) arrive = Math.min(arrive, arrival - STEAL_THROW_MARGIN_MIN_MS);
     var start = Math.max(0, arrive - THROW_DRAW_MS);
     var cls = "throw-line steal-throw " + (target.caught ? "throw-out" : "throw-safe");
     return throwLineHtml(from.x, from.y, to.x, to.y, cls, start + (seqDelay || 0));
@@ -3844,7 +4113,16 @@
     throwLineHtml: throwLineHtml,
     batterFirstArrivalMs: batterFirstArrivalMs,
     stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
-    stealThrowOrigin: stealThrowOrigin,
+    stealThrowOrigin: stealThrowOrigin, stealThrowHtml: stealThrowHtml, stealOutAtMs: stealOutAtMs,
+    stealThrowMarginMs: stealThrowMarginMs, STEAL_LEG_DUR_MS: STEAL_LEG_DUR_MS,
+    STEAL_LEADOFF_FT: STEAL_LEADOFF_FT, CATCHER_POP_MS: CATCHER_POP_MS,
+    STEAL_THROW_MARGIN_MIN_MS: STEAL_THROW_MARGIN_MIN_MS, STEAL_THROW_MARGIN_MAX_MS: STEAL_THROW_MARGIN_MAX_MS,
+    pitchBallHtml: pitchBallHtml, PITCH_TRAVEL_MS: PITCH_TRAVEL_MS, PITCH_SPEED_MPH: PITCH_SPEED_MPH,
+    walkPitchTargetSvg: walkPitchTargetSvg, WALK_PITCH_OFFSET_FT: WALK_PITCH_OFFSET_FT,
+    stealWheelPace: stealWheelPace, WHEEL_PACE_MIN: WHEEL_PACE_MIN, wheelHtml: wheelHtml,
+    PITCHER_MOUND_FT: PITCHER_MOUND_FT, FIELD_SEQUENCE_DELAY_MS: FIELD_SEQUENCE_DELAY_MS,
+    scorebugOutsHtml: scorebugOutsHtml, outAtMomentsMs: outAtMomentsMs,
+    BALK_RESULTS: BALK_RESULTS,
     THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     RUNNER_LEAD_MS: RUNNER_LEAD_MS,
@@ -4065,6 +4343,27 @@
     // runner, catch vs. tag-up, ...) keeps exactly the same margin it
     // already had; this just pushes the whole picture later, uniformly.
     var seqDelay = FIELD_SEQUENCE_DELAY_MS;
+    // Alex's ask: a steal attempt's runner breaks the instant the pitcher
+    // begins the delivery, not after the wheel-wait every other play's field
+    // choreography holds for. Used only for the runner token's own motion/
+    // out-at moment, the base's steal flash, and the catcher's throw-down
+    // (stealThrowHtml) - every one of those already shares runDelay/outDelay/
+    // stealOutDelay as its raw-unit baseline (stealOutAtMs is built the same
+    // way), so swapping the shared anchor from seqDelay to 0 for all of them
+    // together keeps their existing relative race (throw vs. runner, tag vs.
+    // arrival) exactly as tuned - it only moves the whole steal picture
+    // earlier, uniformly, same principle as seqDelay's own comment above.
+    // Non-steal elements (ball flight, grounder throws, labels) are untouched.
+    var runnerSeqDelay = stealOut ? 0 : seqDelay;
+    // Alex's ask: a steal's own wheel pace (stealWheelPace, same formula
+    // sceneWheelDiffHtml's DIFF wheel instance uses to set --wheel-pace)
+    // slows the wheel's real on-screen finish time down as the underlying
+    // diff shrinks - wheelFinishMs mirrors that same division so
+    // pitchBallHtml's "arrive exactly when the wheel finishes" sync (its own
+    // seqDelay param) tracks the wheel's REAL pace instead of the fixed
+    // baseline. 1 for anything that isn't a steal, so this is just seqDelay
+    // unchanged for every other play.
+    var wheelFinishMs = Math.round(FIELD_SEQUENCE_DELAY_MS / stealWheelPace(m));
 
     /* Two nested groups per token, deliberately: the outer one owns position
        (the multi-leg basepath run) and the inner one owns opacity and scale
@@ -4135,6 +4434,31 @@
       if (strandedSafe && !path.length) path = [from];
       var end = isOut ? dugoutSvg : (strandedSafe ? dugoutSvg : (path.length ? path[path.length - 1] : from));
       var legs = Math.min(path.length, RUN_LEG_MS.length - 1);
+      // Alex's ask: a stolen-base runner is shown already having taken their
+      // lead - STEAL_LEADOFF_FT of the real 90ft path - instead of starting
+      // flat-footed on the bag. Only a runner genuinely advancing on a real
+      // steal attempt (stealOut - this whole play; !strandedSafe/path.length -
+      // an actual leg to interpolate toward, not a no-op "hold" token;
+      // !useRetreat - LODP's own separate scramble, never a steal, and
+      // per-row anyway so the two can't co-occur in practice). Reassigns
+      // `from` in place - every downstream use (--fx/--fy, runnerOutMotionHtml's
+      // own start point) picks the shortened leg up for free - and swaps in
+      // STEAL_LEG_DUR_MS (real sprint speed over the now-shorter distance,
+      // not RUN_LEG_MS[legs]'s full-90ft time over less ground, which would
+      // just read as a slower jog) everywhere that duration is used below.
+      // Plain SVG-space interpolation toward path[0] - same simplification
+      // useRetreat's own midpoint above already relies on; true perspective-
+      // correct feet would mean reprojecting through BASE_POS_FT/ftToSvg, not
+      // worth it over a 12ft/90ft fraction.
+      var isStealAdvance = stealOut && !useRetreat && !strandedSafe && path.length > 0;
+      if (isStealAdvance) {
+        var leadoffFrac = STEAL_LEADOFF_FT / BASE_DIST_FT;
+        from = {
+          x: from.x + (path[0].x - from.x) * leadoffFrac,
+          y: from.y + (path[0].y - from.y) * leadoffFrac,
+        };
+      }
+      var legDurMs = isStealAdvance ? STEAL_LEG_DUR_MS : (RUN_LEG_MS[legs] || 0);
       // A genuinely forced runner (isForcedRunner, on one of the ground-ball
       // results where that applies) leaves on contact - same beat as a safe
       // runner on a hit - because they have no choice but to vacate the
@@ -4177,24 +4501,24 @@
               : ((stealOut && stealOut.caught) ? stealOutDelay : runDelay));
       // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
       // matching the out choreography's own run-then-leave timing exactly)
-      // - RUN_LEG_MS[legs] here would understate how long the token is
-      // actually on screen for maxArrival's "don't light a base up before
-      // everyone's actually arrived" purpose.
-      if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (strandedSafe ? 1700 : (RUN_LEG_MS[legs] || 0)));
+      // - legDurMs here would understate how long the token is actually on
+      // screen for maxArrival's "don't light a base up before everyone's
+      // actually arrived" purpose.
+      if (!isOut) maxArrival = Math.max(maxArrival, mvDelay + (strandedSafe ? 1700 : legDurMs));
       var vars = "--fx:" + from.x + "px;--fy:" + from.y + "px;" +
                  "--tx:" + end.x + "px;--ty:" + end.y + "px;" +
-                 "--rdelay:" + (mvDelay + seqDelay) + "ms;";
+                 "--rdelay:" + (mvDelay + runnerSeqDelay) + "ms;";
       path.forEach(function (p, i) {
         vars += "--p" + (i + 1) + "x:" + p.x + "px;--p" + (i + 1) + "y:" + p.y + "px;";
       });
-      vars += "--dur:" + (RUN_LEG_MS[legs] || 0) + "ms";
+      vars += "--dur:" + legDurMs + "ms";
       var outStyle = "";
       if (isOut) {
         // Real turn-red moment (Alex's ask), same held clock as --rdelay
-        // above (+seqDelay) so it can never land before the token's own run
-        // has even started - see outAtMsFor and scorebugOutsHtml's matching
-        // dot delay.
-        var outAtAbs = outAtMsFor(forcedBase) + seqDelay;
+        // above (+runnerSeqDelay) so it can never land before the token's own
+        // run has even started - see outAtMsFor and scorebugOutsHtml's
+        // matching dot delay.
+        var outAtAbs = outAtMsFor(forcedBase) + runnerSeqDelay;
         vars += ";--outat:" + outAtAbs + "ms";
         // A put-out runner with somewhere to be forced travels there first
         // (or gets cut short partway, or waits at the base for a slow
@@ -4204,7 +4528,7 @@
         // base, no partial-advance path) has nothing to interpolate and
         // keeps its simple shared keyframe, fixed up separately in CSS.
         if (path.length) {
-          var fullSprintMs = RUN_LEG_MS[legs] || 0;
+          var fullSprintMs = legDurMs;
           // Relative to THIS token's own run start (mvDelay), not the play's
           // absolute clock - runnerOutMotionHtml's fullSprintMs is also "time
           // since this run started," so the two have to share an origin.
@@ -4222,7 +4546,7 @@
           outStyle = motion.style;
           vars += ";animation-name:" + motion.name +
             ";animation-duration:calc(" + motion.totalMs + "ms / var(--play-speed,1))" +
-            ";animation-delay:calc(" + (mvDelay + seqDelay) + "ms / var(--play-speed,1))" +
+            ";animation-delay:calc(" + (mvDelay + runnerSeqDelay) + "ms / var(--play-speed,1))" +
             ";animation-timing-function:linear;animation-fill-mode:both";
         }
       }
@@ -4240,19 +4564,27 @@
     }).join("");
 
     // deriveRunnerMoves only tracks RUNNERS, so a play where the batter never
-    // reached base yields no token for them at all. Three shapes: the FC
-    // family (BATTER_REACHES_FIRST - safe at first, A3), a batted-ball out
-    // (Stage 6b) or no batted ball at all (Stage 6c) - except on a
-    // no-plate-appearance play (a steal, a caught stealing, a balk), where the
-    // batter did nothing at all and gets no token, no walk to the dugout.
+    // reached base yields no token for them at all. Four shapes: a
+    // no-plate-appearance play (a steal, a caught stealing, a balk - Alex's
+    // ask below), the FC family (BATTER_REACHES_FIRST - safe at first, A3),
+    // a batted-ball out (Stage 6b), or no batted ball at all (Stage 6c).
     var noPa = (data.meta.flight && data.meta.flight.no_pa) || [];
     var batterReached = moves.some(function (mv) { return mv.from === "BATTER"; });
     // m.result is only null on the on-deck placeholder (no real play has a
     // null result) - nothing has happened yet, so no phantom batter walking
     // to the dugout for it.
-    if (!batterReached && m.result != null && noPa.indexOf(m.result) === -1) {
+    if (!batterReached && m.result != null) {
       var h = SCENE_BASES.HOME;
-      if (BATTER_REACHES_FIRST[m.result]) {
+      if (noPa.indexOf(m.result) !== -1) {
+        // Alex's ask: a stolen base attempt or a balk still has a batter
+        // standing in their box the whole time - no PA happened on either,
+        // so no motion, no colour change, no walk to the dugout, just
+        // present the entire play (--tx/--ty only - .rn's own base rule
+        // renders straight from that with no animation class to move it).
+        var boxVars = "--tx:" + batterBoxSvg.x + "px;--ty:" + batterBoxSvg.y + "px";
+        tokens += '<g class="rn batter" style="' + boxVars + '">' +
+          '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
+      } else if (BATTER_REACHES_FIRST[m.result]) {
         // A3/F5: the FC family reaches first safely - someone else was
         // forced out. deriveRunnerMoves pairs obc_before/after like-for-like
         // for these codes and never emits a BATTER move, so without this the
@@ -4354,7 +4686,7 @@
       var flashCls = stealTarget && stealTarget.base === b
         ? (stealTarget.caught ? " steal-out" : " steal-safe") : "";
       return '<rect class="dm-base' + (occupied ? " on" : "") + flashCls +
-        '" style="--blight:' + (maxArrival + seqDelay) + 'ms;--sflash:' + (stealFlashDelay + seqDelay) + 'ms' +
+        '" style="--blight:' + (maxArrival + runnerSeqDelay) + 'ms;--sflash:' + (stealFlashDelay + runnerSeqDelay) + 'ms' +
         '" x="-' + BASE_R + '" y="-' + BASE_R + '" width="' + (BASE_R * 2) + '" height="' + (BASE_R * 2) +
         '" rx="1.5" transform="translate(' +
         p.x.toFixed(1) + "," + p.y.toFixed(1) + ') rotate(45)"></rect>';
@@ -4437,9 +4769,10 @@
         plates +
         '<path class="dm-plate" d="' + platePath + '"></path>' +
         (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight, seqDelay) : "") +
-        ballFlightHtml(m, flight, seqDelay) +
+        pitchBallHtml(m, flight, wheelFinishMs) +
+        ballFlightHtml(m, flight, moves, seqDelay) +
         throwHtml(m, flight, moves, seqDelay) +
-        stealThrowHtml(m, moves, runDelay, outDelay, seqDelay) +
+        stealThrowHtml(m, moves, runDelay, outDelay, runnerSeqDelay) +
         fielderNameLabelsHtml(m, flight, seqDelay) +
         ballResultLabelHtml(m, flight, seqDelay) +
         tokens +
@@ -4867,10 +5200,24 @@
   // lands on the inner <g class="wheel-dot ..."> instead, since a CSS
   // `transform` animation replaces (rather than composes with) an element's
   // own transform attribute - nesting keeps the two from fighting.
-  function wheelBallIconSvg() {
-    return '<circle r="' + WHEEL_DOT_R + '"></circle>' +
-      '<path class="wheel-dot-seam" d="M -2.4,-1.7 Q -0.8,0 -2.4,1.7"></path>' +
-      '<path class="wheel-dot-seam" d="M 2.4,-1.7 Q 0.8,0 2.4,1.7"></path>';
+  // r/circleClass (Alex's ask): reused at BALL_R with a "ball-body" class for
+  // the pitch ball and the flight ball's own marker (pitchBallHtml,
+  // ballFlightHtml, throwLineHtml's new moving throw-ball - all three want
+  // this exact baseball, sized/bordered identically), not just the wheel's
+  // own tiny WHEEL_DOT_R dot. Seam control points scale proportionally
+  // (r/WHEEL_DOT_R) rather than living as a second hand-tuned set of
+  // constants at the new size - same curve shape at any radius. Defaults
+  // reproduce the original wheel-only call exactly (r=WHEEL_DOT_R, no class).
+  function wheelBallIconSvg(r, circleClass) {
+    var radius = r || WHEEL_DOT_R;
+    var k = radius / WHEEL_DOT_R;
+    var cls = circleClass ? ' class="' + circleClass + '"' : "";
+    function sx(v) { return (v * k).toFixed(2); }
+    return '<circle' + cls + ' r="' + radius + '"></circle>' +
+      '<path class="wheel-dot-seam" d="M ' + sx(-2.4) + ',' + sx(-1.7) + ' Q ' + sx(-0.8) + ',0 ' +
+        sx(-2.4) + ',' + sx(1.7) + '"></path>' +
+      '<path class="wheel-dot-seam" d="M ' + sx(2.4) + ',' + sx(-1.7) + ' Q ' + sx(0.8) + ',0 ' +
+        sx(2.4) + ',' + sx(1.7) + '"></path>';
   }
 
   // Drawn barrel-down (positive local y) so the caller's rotation can point
@@ -4990,7 +5337,7 @@
      swap the "off" role's marker from the default bat to a runner in a
      team's own color, for a steal's DIFF wheel - see wheelMarkerHtml. */
   function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls, pinTop, mirrored,
-                      offIcon, offColorHex) {
+                      offIcon, offColorHex, wheelPace) {
     var deg1 = pinTop ? 0 : wheelAngleOf(v1, mod);
     var delta = signedCirc(v1, v2, mod);
     var deltaDeg = delta / mod * 360;
@@ -5012,7 +5359,13 @@
     var label1Pt = wheelPt(label1R, label1Deg);
     var label2Pt = wheelPt(label2R, label2Deg);
     var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod) : "";
-    return '<div class="wheel">' +
+    // --wheel-pace (Alex's ask, steals only - stealWheelPace): every timing
+    // calc() in style.css's wheel rules divides by this alongside
+    // --play-speed, so omitting it here (every non-steal caller) is
+    // identical to the explicit 1 a steal's DIFF wheel passes for a blowout
+    // diff - var(--wheel-pace,1)'s own fallback covers both the same way.
+    var paceStyle = wheelPace && wheelPace !== 1 ? ' style="--wheel-pace:' + wheelPace.toFixed(3) + '"' : "";
+    return '<div class="wheel"' + paceStyle + '>' +
       '<svg class="wheel-svg" viewBox="0 0 ' + WHEEL_VB + " " + WHEEL_VB + '" aria-hidden="true">' +
         '<circle class="wheel-ring" cx="' + WHEEL_CX + '" cy="' + WHEEL_CY + '" r="' + WHEEL_RING_R + '"></circle>' +
         // Was an external label above the SVG - moved inside the ring
@@ -5057,7 +5410,7 @@
       // band - steals don't have one.
       return wheelHtml("DIFF", m.steal_num, m.throw_num, 1000, "off", "def",
         String(Math.abs(signedCirc(m.steal_num, m.throw_num, 1000))), null, null,
-        wasOut ? "out" : "hit", null, null, "runner", teamColor(m.off_team_abbr));
+        wasOut ? "out" : "hit", null, null, "runner", teamColor(m.off_team_abbr), stealWheelPace(m));
     }
     var bandRow = (data.meta.flight && data.meta.flight.bands || {})[m.result];
     // Exit velo used to also show here (centerSmall) - dropped (Alex's
@@ -5248,20 +5601,25 @@
     var before = Math.max(0, Math.min(3, m.outs_before || 0));
     var after = Math.max(0, Math.min(3, m.outs_after == null ? before : m.outs_after));
     var moments = outAtMomentsMs(m, flight, after - before);
+    // A steal attempt's runner token now moves on runnerSeqDelay (0, not the
+    // usual field-sequence hold - sceneFieldHtml's own comment) since it
+    // breaks on the pitch itself, not after the wheel - the dot has to hold
+    // the exact same anchor or it drifts out of sync with that token's own
+    // --outat the moment this is a caught-stealing out.
+    var dotSeqDelay = stealThrowTarget(m, resolveRunnerMoves(m)) ? 0 : FIELD_SEQUENCE_DELAY_MS;
     var dots = [0, 1, 2].map(function (i) {
       if (i < before) return '<span class="dot on"></span>';
-      // +FIELD_SEQUENCE_DELAY_MS here (unlike scoreArrivals' own raw times):
-      // sceneFieldHtml's matching runner token turns red off this exact same
-      // outAtMomentsMs/outThrowEndByBase source, and that token's own
-      // movement never starts before its --rdelay, which always carries the
-      // field-sequence hold - an un-held dot could otherwise fire before the
-      // runner has even appeared at the base it's supposedly being put out
-      // at. Keeping both on the same held clock is what makes "the dot and
-      // the runner turn red at the very same moment" (Alex's ask) literally
-      // true, not just close.
+      // +dotSeqDelay here (unlike scoreArrivals' own raw times): sceneFieldHtml's
+      // matching runner token turns red off this exact same outAtMomentsMs/
+      // outThrowEndByBase source, and that token's own movement never starts
+      // before its --rdelay, which always carries the same held anchor - an
+      // un-held dot could otherwise fire before the runner has even appeared
+      // at the base it's supposedly being put out at. Keeping both on the
+      // same held clock is what makes "the dot and the runner turn red at
+      // the very same moment" (Alex's ask) literally true, not just close.
       if (i < after) {
         return '<span class="dot new" style="--delay:' +
-          (moments[i - before] + FIELD_SEQUENCE_DELAY_MS) + 'ms"></span>';
+          (moments[i - before] + dotSeqDelay) + 'ms"></span>';
       }
       return '<span class="dot"></span>';
     }).join("");
@@ -6497,11 +6855,21 @@
       selectScoreboardTile(tile);
     });
 
+    // Alex's ask: an X inside each search box (player/result) to clear just
+    // that one - shown only once there's actually something to clear, so it
+    // doesn't just sit there empty-handed on a fresh page. Called after
+    // every place either input's own .value gets set, typed or programmatic
+    // alike, so it never drifts out of sync with what's actually in the box.
+    function syncClearBtn(inputId, btnId) {
+      $(btnId).hidden = !$(inputId).value;
+    }
+
     var playerTimer;
     $("player-input").addEventListener("input", function (e) {
       var v = e.target.value;
       filters.playerId = null;   // typing again invalidates a previous exact pick
       renderPlayerSuggest(v);
+      syncClearBtn("player-input", "player-input-clear");
       window.clearTimeout(playerTimer);
       playerTimer = window.setTimeout(function () {
         filters.player = v.trim();
@@ -6530,6 +6898,22 @@
       filters.player = name;
       $("player-input").value = name;
       $("player-suggest").hidden = true;
+      syncClearBtn("player-input", "player-input-clear");
+      window.clearTimeout(playerTimer);
+      render();
+    });
+
+    // mousedown (not click), same reasoning as player-suggest's own pick
+    // handler above - fires before the input's blur would otherwise close
+    // this out from under it.
+    $("player-input-clear").addEventListener("mousedown", function (e) {
+      e.preventDefault();
+      $("player-input").value = "";
+      $("player-input").focus();
+      filters.player = "";
+      filters.playerId = null;
+      $("player-suggest").hidden = true;
+      syncClearBtn("player-input", "player-input-clear");
       window.clearTimeout(playerTimer);
       render();
     });
@@ -6541,6 +6925,7 @@
     $("result-code-input").addEventListener("input", function (e) {
       filters.resultCode = "";
       renderResultCodeSuggest(e.target.value);
+      syncClearBtn("result-code-input", "result-code-input-clear");
       render();
     });
 
@@ -6560,6 +6945,17 @@
       filters.resultCode = code;
       $("result-code-input").value = code;
       $("result-code-suggest").hidden = true;
+      syncClearBtn("result-code-input", "result-code-input-clear");
+      render();
+    });
+
+    $("result-code-input-clear").addEventListener("mousedown", function (e) {
+      e.preventDefault();
+      $("result-code-input").value = "";
+      $("result-code-input").focus();
+      filters.resultCode = "";
+      $("result-code-suggest").hidden = true;
+      syncClearBtn("result-code-input", "result-code-input-clear");
       render();
     });
 
@@ -6620,6 +7016,8 @@
       $("team-select").value = "";
       $("player-input").value = "";
       $("result-code-input").value = "";
+      syncClearBtn("player-input", "player-input-clear");
+      syncClearBtn("result-code-input", "result-code-input-clear");
       renderMaybeLoading();
     });
 

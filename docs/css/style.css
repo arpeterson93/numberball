@@ -247,6 +247,27 @@ button{font-family:inherit;cursor:pointer;}
    frees up room for the row to actually fit on one line on a wide screen. */
 .fields-row .filter-group.compact{flex:0 0 auto;min-width:0;max-width:none;}
 .player-search-group{position:relative;}
+/* Positioned relative to just the input itself (not the whole filter-group,
+   which also includes the label above) - centering the clear button below
+   only needs to measure against this, not guess the label's own height. */
+.search-input-wrap{position:relative;}
+/* Room for the clear button (below) so typed text never runs under it -
+   scoped to just these two search boxes, not select/input[type=text]'s own
+   shared rule every other text input on the page also uses. */
+.search-input-wrap input[type=text]{padding-right:26px;}
+/* X button to clear just this one search box (Alex's ask) - same minimal
+   transparent-button-in-a-corner language as .catchup-close, just smaller
+   and inline rather than pinned to a card corner. Hidden (via the markup's
+   own [hidden] attribute, toggled in app.js) whenever the box is empty, so
+   it doesn't sit there doing nothing on first load. */
+.input-clear-btn{
+  position:absolute;right:2px;top:50%;transform:translateY(-50%);
+  border:none;background:transparent;color:var(--muted);
+  font-size:16px;line-height:1;width:22px;height:22px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;border-radius:5px;
+}
+.input-clear-btn:hover{color:var(--text);background:var(--tint);}
 .player-suggest{
   position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;
   background:var(--card);border:1px solid var(--border);border-radius:6px;
@@ -698,14 +719,48 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    its own pixel length (app.js computes --len) drawn in via
    stroke-dashoffset. Both lead the runners, which start RUNNER_LEAD_MS behind
    them (see --rdelay below). */
-.ball{fill:#fff;stroke:var(--navy);stroke-width:1.5;transform:translate(var(--tx),var(--ty));}
+/* opacity:1 here is also the reduced-motion end state for free - that block
+   strips every .ball* animation (including ballAppear below) via
+   animation:none!important, which falls straight back to this bare rule. */
+.ball{transform:translate(var(--tx),var(--ty));opacity:1;}
+/* Alex's ask: the flight ball is now a real baseball (wheelBallIconSvg,
+   seams included) rather than a plain circle, wrapped in a <g> - the fill/
+   stroke that used to live directly on .ball's own <circle> now targets this
+   child instead (shared with the pitch ball and every throw-line's own
+   moving marker below - one visual, reused everywhere a ball needs to show
+   up on the diamond). */
+.ball-body{fill:#fff;stroke:var(--navy);stroke-width:1.5;}
 .ball-trail{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3;opacity:0.6;}
 .ball.air, .ball.ground, .ball.land, .ball.clear{
   animation:ballFly calc(var(--dur) / var(--play-speed,1)) ease-out forwards,
-            ballSettle calc(350ms / var(--play-speed,1)) ease calc(var(--dur) / var(--play-speed,1)) forwards;
+            ballSettle calc(350ms / var(--play-speed,1)) ease calc(var(--dur) / var(--play-speed,1)) forwards,
+            ballAppear calc(120ms / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both;
 }
 @keyframes ballFly{from{transform:translate(var(--fx),var(--fy));}to{transform:translate(var(--tx),var(--ty));}}
 @keyframes ballSettle{to{opacity:0.85;}}
+/* Alex's report: the hit-ball's own `both` fill-mode (needed so it holds at
+   the real contact point, not its final landing spot, for the whole
+   FIELD_SEQUENCE_DELAY_MS wait - see ballArcHtml's own comment) was leaving
+   it sitting there fully visible AND already coloured green/red the entire
+   time, spoiling the outcome before the new pitch-ball (pitchBallHtml) even
+   arrives. Cross-fades in right as the pitch ball fades out at the same
+   --fdelay/--pfade moment (sceneFieldHtml passes both the same anchor for a
+   batted ball) instead of being visible from slide-mount. */
+@keyframes ballAppear{from{opacity:0;}to{opacity:1;}}
+/* Alex's report: "only one baseball on the field at a time" - when a real
+   throw follows (app.js's ballFlightHtml/handoffMs), this ball fades fully
+   out instead of merely dimming (ballSettle, skipped in that case) right as
+   the throw's own ball fades in at that same real-world point - see
+   .throw-ball-inner's own ballAppear below. */
+/* No explicit from{} (deliberate): with fill-mode both, a keyframe with no
+   0%/from rule for a property uses the "underlying value" (whatever the
+   property would be from the rest of the cascade/other animations, e.g.
+   ballAppear above) for its own backwards-fill period, i.e. a pass-through
+   before --handoff/--pfade2 rather than a hard lock to 1 - an explicit
+   from{opacity:1} here would win the whole pre-handoff window too (same
+   listed-last-wins composite rule as ballAppear/settleRule's own comment)
+   and clobber ballAppear's real 0->1 fade-in with a flat 1 from t=0. */
+@keyframes ballHandoffFade{to{opacity:0;}}
 .ball-trail.air, .ball-trail.ground, .ball-trail.land, .ball-trail.clear{
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
   animation:trailDraw calc(var(--dur) / var(--play-speed,1)) ease-out forwards;
@@ -714,14 +769,38 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* C1: the ball's own colour tells the story - the stroke (never the white
    fill, which stays visible against the grass in both themes) goes green for
    a hit, red for an out. A play that is both (a sac fly) reads as an out -
-   the ball itself was caught. */
-.ball.hit, .ball-trail.hit{stroke:var(--green);}
-.ball.out, .ball-trail.out{stroke:var(--red);}
+   the ball itself was caught. Targets .ball-body (the child circle) now that
+   .ball itself is a <g> - .ball-trail is still a plain stroked <path>, no
+   child to descend into. */
+.ball.hit .ball-body, .ball-trail.hit{stroke:var(--green);}
+.ball.out .ball-body, .ball-trail.out{stroke:var(--red);}
 /* A ground ball out specifically goes neutral grey instead - the throw
    itself (throw-out, below) now carries the red "who's out" verdict, so the
    grounder's own trail doesn't also claim it. Two classes beats one, so this
    wins the cascade over the plain .out rule above without needing !important. */
-.ball.out.grounded-out, .ball-trail.out.grounded-out{stroke:var(--muted);}
+.ball.out.grounded-out .ball-body, .ball-trail.out.grounded-out{stroke:var(--muted);}
+
+/* Pitch animation (Alex's ask): the small ball travels mound->plate ahead of
+   every play (app.js's BALK_RESULTS check skips rendering this one entirely
+   for a Balk - never any real pitch there). Position is a fixed mound->home
+   line every time, so - unlike ballArcHtml's per-play arcs - one shared
+   @keyframes covers every play; only --pdur (app.js's PITCH_TRAVEL_MS) plus
+   --pstart/--pfade (worked backwards from the wheel-finish/runnerSeqDelay
+   moment - pitchBallHtml's own comment) vary per play. Two nested groups,
+   same convention as every other token here: the outer owns position, the
+   inner owns opacity so the two never fight over `transform`. Sized/bordered
+   via the shared .ball-body class (Alex's ask - same baseball the flight
+   ball and every throw-line's own marker use, wheelBallIconSvg(BALL_R,
+   "ball-body")) rather than the wheel's own smaller WHEEL_DOT_R dot or a
+   pitch-specific style of its own; .wheel-dot-seam's red stroke is already a
+   bare global rule, so the seams pick that up for free regardless of size. */
+.pitch-ball{transform:translate(var(--fx),var(--fy));
+  animation:pitchFly calc(var(--pdur) / var(--play-speed,1)) linear
+    calc(var(--pstart,0s) / var(--play-speed,1)) both;}
+@keyframes pitchFly{from{transform:translate(var(--fx),var(--fy));}to{transform:translate(var(--tx),var(--ty));}}
+.pitch-ball-inner{animation:pitchFadeOut calc(120ms / var(--play-speed,1)) linear
+  calc(var(--pfade) / var(--play-speed,1)) both;}
+@keyframes pitchFadeOut{from{opacity:1;}to{opacity:0;}}
 
 /* C2/C3: small landing-point labels - a terse result abbreviation on every
    batted ball, plus feet on home runs only. Both land after the ball does,
@@ -814,6 +893,38 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   animation:throwClipGrow calc(var(--draw,180ms) / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
 }
 @keyframes throwClipGrow{from{width:0;}to{width:var(--len);}}
+/* Alex's ask: the throw itself is now a moving baseball, not just the
+   dashed line's own reveal - throwLineHtml's own comment. Reuses pitchFly
+   (style.css, pitch-ball's own keyframe - a generic --fx/--fy->--tx/--ty
+   translate) and the shared .ball-body styling, so this is pixel-identical
+   to the pitch/flight ball, just travelling a different line. ease, not
+   linear (unlike pitchFly's other callers) - matches throwClipGrow's own
+   easing immediately above, so the ball and the line's leading edge stay
+   together instead of the ball drifting ahead of or behind the reveal. */
+.throw-ball{transform:translate(var(--fx),var(--fy));
+  animation:pitchFly calc(var(--pdur) / var(--play-speed,1)) ease
+    calc(var(--pstart,0s) / var(--play-speed,1)) both;}
+/* Alex's report: without this, the ball sat visible at x1,y1 from slide
+   mount (throwLineHtml's own comment) - reuses ballAppear (opacity 0->1,
+   above) timed to the same --pstart the position animation above already
+   uses, so it only appears the instant it's actually thrown, same "invisible
+   until its own moment" split as .pitch-ball/.pitch-ball-inner. No matching
+   fade-out on a play's last (or only) leg - stays visible once arrived, same
+   as the flight ball's own no-handoff ballSettle treatment. */
+.throw-ball-inner{
+  animation:ballAppear calc(120ms / var(--play-speed,1)) linear
+    calc(var(--pstart,0s) / var(--play-speed,1)) both;
+}
+/* .fades (throwHtml's loop, a relay leg that isn't the last one): adds the
+   fade-out ballHandoffFade already reuses (above) timed to --pfade2, the
+   NEXT leg's own start - two classes beats one, wins the cascade over the
+   bare rule above without needing !important. */
+.throw-ball.fades .throw-ball-inner{
+  animation:ballAppear calc(120ms / var(--play-speed,1)) linear
+      calc(var(--pstart,0s) / var(--play-speed,1)) both,
+    ballHandoffFade calc(120ms / var(--play-speed,1)) linear
+      calc(var(--pfade2,0s) / var(--play-speed,1)) both;
+}
 
 /* Position lives on .rn, opacity/scale on .rn-inner - one element cannot run
    two competing transform animations, and a scoring runner needs both a path
@@ -1158,10 +1269,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    verdict. DIFF is the wheel that actually produced the result, so its arc
    takes the same green/red the ball marker uses (C1) - hit or out, at a
    glance, no need to also read the result pill. */
+/* --wheel-pace (Alex's ask, steals only - app.js's stealWheelPace): every
+   timing calc() below divides by this alongside --play-speed, defaulting to
+   1 (today's fixed baseline) for every wheel that isn't a steal's DIFF -
+   only wheelHtml's steal caller ever sets it inline. The closer the
+   underlying steal_num/throw_num roll, the smaller this is, the slower the
+   whole sequence below plays out. */
 .wheel-arc{
   fill:none;stroke-width:2;stroke-linecap:round;
   stroke-dasharray:var(--alen);stroke-dashoffset:var(--alen);
-  animation:wheelArcDraw calc(500ms / var(--play-speed,1)) ease calc(150ms / var(--play-speed,1)) forwards;
+  animation:wheelArcDraw calc(500ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
+    calc(150ms / (var(--play-speed,1) * var(--wheel-pace,1))) forwards;
 }
 .wheel-arc-neutral{stroke:var(--text);}
 .wheel-arc-hit{stroke:var(--green);}
@@ -1195,8 +1313,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Baseball seam curves on the defense marker - real stitch red, overriding
    the ball body's stroke so they read as seams, not another outline. */
 .wheel-dot-seam{fill:none;stroke:var(--red);stroke-width:0.6;stroke-linecap:round;}
-.wheel-dot-1{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease 0ms both;}
-.wheel-dot-2{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease calc(650ms / var(--play-speed,1)) both;}
+.wheel-dot-1{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease 0ms both;}
+.wheel-dot-2{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
+  calc(650ms / (var(--play-speed,1) * var(--wheel-pace,1))) both;}
 @keyframes wheelDotIn{
   from{opacity:0;transform:scale(0.3);}
   to{opacity:1;transform:scale(1);}
@@ -1212,16 +1331,19 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
   opacity:0;
 }
-.wheel-val-1{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease 0ms both;}
-.wheel-val-2{animation:wheelDotIn calc(160ms / var(--play-speed,1)) ease calc(650ms / var(--play-speed,1)) both;}
+.wheel-val-1{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease 0ms both;}
+.wheel-val-2{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
+  calc(650ms / (var(--play-speed,1) * var(--wheel-pace,1))) both;}
 .wheel-center-big{
   font-size:15px;font-weight:800;fill:var(--text);text-anchor:middle;dominant-baseline:middle;
   paint-order:stroke;stroke:var(--card);stroke-width:2.5px;stroke-linejoin:round;
-  opacity:0;animation:wheelFadeIn calc(200ms / var(--play-speed,1)) ease calc(700ms / var(--play-speed,1)) forwards;
+  opacity:0;animation:wheelFadeIn calc(200ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
+    calc(700ms / (var(--play-speed,1) * var(--wheel-pace,1))) forwards;
 }
 .wheel-center-small{
   font-size:8px;font-weight:700;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;
-  opacity:0;animation:wheelFadeIn calc(200ms / var(--play-speed,1)) ease calc(700ms / var(--play-speed,1)) forwards;
+  opacity:0;animation:wheelFadeIn calc(200ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
+    calc(700ms / (var(--play-speed,1) * var(--wheel-pace,1))) forwards;
 }
 @keyframes wheelFadeIn{to{opacity:1;}}
 /* Batting team's mark, painted on the center-field grass (Alex's call - was
@@ -1433,7 +1555,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small,
-  .dm-mark-fading, .dm-break-pill, .outs-dots .dot.new{animation:none;}
+  .dm-mark-fading, .dm-break-pill, .outs-dots .dot.new,
+  .pitch-ball, .pitch-ball-inner, .throw-ball, .throw-ball-inner{animation:none;}
   /* !important (physics-redesign plan Part 6.3 item 3): each play generates
      its own .ball.kmArc-<id> rule with the same 2-class specificity as
      .ball.clear here, inserted later in document order (a fresh <style>
@@ -1461,6 +1584,26 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .dm-mark-fading{opacity:0;}
   .dm-break-pill{opacity:1;}
   .ball-label, .ball-dist, .fielder-name{opacity:1;}
+  /* Pitch already arrived and handed off (or vanished) by the time a
+     reduced-motion viewer sees anything - never caught mid-flight from the
+     mound. */
+  .pitch-ball{transform:translate(var(--tx),var(--ty));}
+  .pitch-ball-inner{opacity:0;}
+  /* "Only one baseball on the field at a time" (Alex's report) still holds
+     under reduced motion: a ball that hands off to something else (a
+     following throw, or - for a throw's own relay leg - the next leg) is
+     already gone by the time a reduced-motion viewer sees the settled
+     scene, same reasoning as the pitch ball just above. Two classes beats
+     one, so these win over .ball's own opacity:1 base rule and
+     .throw-ball-inner's own animation:none fallback without !important. */
+  .ball.handoff{opacity:0;}
+  .throw-ball.fades .throw-ball-inner{opacity:0;}
+  /* Same "already arrived" end state as the pitch ball above - a
+     reduced-motion viewer sees every throw already at its target base,
+     already visible (unlike the pitch ball, a throw-ball has no fade-out -
+     opacity:1 is its real settled state, not just a safe fallback). */
+  .throw-ball{transform:translate(var(--tx),var(--ty));}
+  .throw-ball-inner{opacity:1;}
   .ball-rollout{opacity:0.6;}
   .ball-rollout-trail{stroke-dashoffset:0;}
   .wheel-arc{stroke-dashoffset:0;}

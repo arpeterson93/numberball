@@ -137,7 +137,10 @@
       </div>
       <div class="filter-group player-search-group">
         <label class="group-label">Player</label>
-        <input type="text" id="player-input" placeholder="Player name" autocomplete="off">
+        <div class="search-input-wrap">
+          <input type="text" id="player-input" placeholder="Player name" autocomplete="off">
+          <button type="button" class="input-clear-btn" id="player-input-clear" aria-label="Clear player search" hidden>&times;</button>
+        </div>
         <div id="player-suggest" class="player-suggest" hidden></div>
       </div>
     </div>
@@ -149,7 +152,10 @@
     <div class="filter-row fields-row">
       <div class="filter-group player-search-group">
         <label class="group-label">Result</label>
-        <input type="text" id="result-code-input" placeholder="Search e.g. GO, Double" autocomplete="off">
+        <div class="search-input-wrap">
+          <input type="text" id="result-code-input" placeholder="Search e.g. GO, Double" autocomplete="off">
+          <button type="button" class="input-clear-btn" id="result-code-input-clear" aria-label="Clear result search" hidden>&times;</button>
+        </div>
         <div id="result-code-suggest" class="player-suggest" hidden></div>
       </div>
       <div class="filter-group compact">
