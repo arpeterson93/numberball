@@ -770,8 +770,67 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
     }
 
 
+# obc_before/obc_after string index order (utils._RUNNER_SLOT_DEFS' own
+# comment: "obc_before is [3B,2B,1B] (index 0/1/2)").
+_OBC_BASE_ORDER = ("3B", "2B", "1B")
+
+
+def _trace_base_occupants(half_moments: list[dict]) -> dict[str, dict]:
+    """Replays this half-inning's own already-built moments (in play order)
+    to reconstruct WHO is actually standing on each currently-occupied base -
+    not just the occupancy pattern (obc), which every real play already
+    carries, but the specific runner's own identity. Nothing else in this
+    pipeline has ever needed that (a real play's own runner tokens render
+    anonymously, self-contained within that one play's own before/after diff
+    - docs/js/app.js's resolveRunnerMoves/deriveRunnerMoves), but the on-deck
+    placeholder needs to label who's on base ahead of a plate appearance that
+    hasn't happened yet (Alex's ask) - see _next_batter_moment.
+
+    Uses each moment's own runner_moves (utils._build_runner_moves_for_row) -
+    a "from": "BATTER" entry is that moment's own batter reaching base
+    (that function's own comment: only added when they're NOT out), every
+    other "from" is a real base a previously-tracked runner is leaving,
+    which is how identity carries forward leg to leg. A moment with no
+    trustworthy runner_moves (that function returned None for it) drops
+    tracking for any base whose own occupancy actually changed there rather
+    than guessing who's on it now - Alex's own standing rule for this
+    placeholder generally (next_batter_info's own docstring: "never a
+    guess").
+    """
+    occupants: dict[str, dict] = {}
+    for m in half_moments:
+        moves = m.get("runner_moves")
+        before_obc = str(m.get("obc_before") or "000")
+        after_obc = str(m.get("obc_after") or "000")
+        if moves is None:
+            for idx, base in enumerate(_OBC_BASE_ORDER):
+                if before_obc[idx] != after_obc[idx]:
+                    occupants.pop(base, None)
+            continue
+        next_occ = dict(occupants)
+        for mv in moves:
+            frm = mv.get("from")
+            if frm in next_occ:
+                del next_occ[frm]
+        for mv in moves:
+            frm, to = mv.get("from"), mv.get("to")
+            if to not in ("1B", "2B", "3B"):
+                continue
+            if frm == "BATTER":
+                next_occ[to] = {"id": m.get("batter_id"), "name": m.get("batter_name")}
+            else:
+                ident = occupants.get(frm)
+                if ident is not None:
+                    next_occ[to] = ident
+                else:
+                    next_occ.pop(to, None)
+        occupants = next_occ
+    return occupants
+
+
 def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
-                         last_moment: dict, game_lineup_rows: list[dict]) -> dict | None:
+                         last_moment: dict, game_lineup_rows: list[dict],
+                         game_moments: list[dict]) -> dict | None:
     """Synthesizes an on-deck placeholder moment for an in-progress game's
     live edge - who's due up next, per the live Lineups tab (Alex's ask,
     ideas-and-opinions conversation). Not a real play: no result, no pitch/
@@ -799,6 +858,27 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
     outs = 0 if half_ended else last_state["outs_after"]
     obc = "000" if half_ended else last_state["obc_after"]
     batting_is_home = (half == "bottom")
+
+    # Who's actually on base right now, [full_name, last_name] per occupied
+    # base - same shape _defense_entry already returns for the defense dict,
+    # so the client can reuse identical last-name-label rendering (Alex's
+    # ask: label base runners on the on-deck slide the same way fielders are
+    # already labeled during a real play). half_ended means the frame resets
+    # to empty before this plate appearance - nothing to trace. Otherwise,
+    # trace only THIS still-open half-inning's own moments (obc always
+    # starts empty at the top of every half-inning, so there's no earlier
+    # state to carry in from outside that window).
+    on_base_runners: dict[str, list[str]] = {}
+    if not half_ended:
+        half_moments = sorted(
+            (gm for gm in game_moments
+             if gm.get("inning") == last_state["inning"] and gm.get("half") == last_state["half"]),
+            key=lambda gm: gm["play_num"],
+        )
+        for base, ident in _trace_base_occupants(half_moments).items():
+            entry = _defense_entry(ref, ident.get("id"), ident.get("name"))
+            if entry:
+                on_base_runners[base] = entry
 
     play = last_state["play"]
     off = _team_view(ref, play.get("home") if batting_is_home else play.get("away"))
@@ -875,6 +955,11 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         "is_half_inning_final": False, "is_game_final": False,
         "is_on_deck": True, "on_deck_order_slot": next_up["order_slot"],
     })
+    # Omitted entirely (not an empty dict) when nobody's on - same convention
+    # as "defense" above, so the client's existing missing-data handling
+    # needs no special casing.
+    if on_base_runners:
+        m["on_base_runners"] = on_base_runners
     return m
 
 
@@ -940,6 +1025,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
             game_lineup_rows = lineups_by_game.get((game or {}).get("game_id_short"), [])
 
         last_state = None
+        game_rows_start = len(rows)
         for state in replay_game(game_plays, game):
             last_state = state
             play = state["play"]
@@ -954,7 +1040,13 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         # after the last real play" - there isn't one) or one whose last
         # real play already ended it.
         if not is_final and last_state is not None and not last_state["game_ended"] and rows:
-            next_moment = _next_batter_moment(ref, game_plays, last_state, rows[-1], game_lineup_rows)
+            # This game's own already-built moments (obc_before/after,
+            # runner_moves, batter_name/id - the real fields _next_batter_
+            # moment's own base-occupant tracer needs), not the raw game_plays
+            # rows those fields don't exist on yet at this point in the
+            # pipeline (build_moment is what computes them).
+            next_moment = _next_batter_moment(ref, game_plays, last_state, rows[-1], game_lineup_rows,
+                                               rows[game_rows_start:])
             if next_moment:
                 rows.append(next_moment)
 

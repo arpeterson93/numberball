@@ -810,7 +810,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   stroke:var(--card);stroke-width:2.5;stroke-linejoin:round;
   opacity:0;animation:labelIn calc(260ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
 }
-.ball-dist{font-size:8.5px;font-weight:700;fill:var(--muted);}
+.ball-dist{font-size:8.5px;font-weight:700;}
 @keyframes labelIn{to{opacity:1;}}
 
 /* Fielder name labels (Decisions 5-6) - same halo/pop-in treatment AND same
@@ -1065,11 +1065,19 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    choreography migrated to that per-token generation and nothing here came
    along with it, so the animation-name silently stopped resolving and the
    token just sat at the dugout for the whole play, never visibly running
-   the leg it actually took. Only the inner fade-out is still class-driven -
-   --dur is the token's own real (per-play, not a fixed guess) full-sprint
-   time, already set alongside --rdelay for every token here. */
+   the leg it actually took.
+   Only the inner fade-out is still class-driven - anchored to --outat now
+   (Alex's follow-up report: it was still keyed off --rdelay+--dur, --dur
+   being this token's original FIXED leg duration set once up top for every
+   move - not this branch's own real, often much longer on a deep fly,
+   motion.totalMs - so the token visibly faded away on the old short
+   schedule while the ball was still in the air, well before the real catch/
+   throw the position animation above was already correctly waiting for).
+   --outat is the same real absolute out-recorded moment every isOut
+   token's own --outat already carries, sceneFieldHtml's strandedSafe branch
+   sets it the identical way. */
 .rn.stranded-to-dugout .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
-  calc((var(--rdelay,0s) + var(--dur,0s) + 500ms) / var(--play-speed,1)) forwards;}
+  calc((var(--outat, calc(var(--rdelay,0s) + var(--dur,0s))) + 500ms) / var(--play-speed,1)) forwards;}
 
 @keyframes rnScore{
   0%{transform:scale(1);opacity:1;}

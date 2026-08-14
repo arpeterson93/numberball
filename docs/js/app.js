@@ -2841,19 +2841,22 @@
 
   /* Hits that stay in the park (physics-redesign plan Part 4.6): the ball
      needs a visible end point (labels, rollout, plausibility) but no out
-     choreography. Runs groundPath from the real landing contact velocity;
-     picked up at the first crossing of the assigned outfielder's radial
-     depth (outfielder by angle-third of the HZ angle), if the roll segment
-     reaches that far; otherwise at rest. Infield-archetype hits (bunt,
-     infield_single) skip the OF rule and just use rest - they die on the
-     dirt by construction of their EV range, now physically instead of by a
-     hand-tuned rollout constant. The dirt-clearance floor is kept as a
-     runtime floor on the pickup point for non-infield hits (still cheap
-     insurance against a squibber that technically never left the dirt
-     circle). Always capped at fenceAt(angle)-2. Sets flight.fieldedDistFt/
-     groundTimeS the same way the grounder-out resolver does, so every
-     consumer (labels, throwHtml on the rare hit-then-throw case) reads one
-     shape regardless of out vs. hit. */
+     choreography. Picked up at its own real friction-decay rest point
+     (gp.restFt - already pickupFt's default below), no separate "outfielder
+     depth" cutoff (Alex's call: that was always an artificial stand-in for
+     an outfielder actually closing on the ball, not a real quantity, and it
+     had already twice needed hand-tuning to chase FIELDER_ANCHORS_FT's own
+     starting-position depth around - simplest fix is not having a second
+     number to keep in sync with anything at all). Infield-archetype hits
+     (bunt, infield_single) skip this and just use rest too, capped the other
+     direction (see the else branch below) - they die on the dirt by
+     construction of their EV range, not a hand-tuned rollout constant. The
+     dirt-clearance floor is kept as a runtime floor on the pickup point for
+     non-infield hits (still cheap insurance against a squibber that
+     technically never left the dirt circle). Always capped at
+     fenceAt(angle)-2. Sets flight.fieldedDistFt/groundTimeS the same way the
+     grounder-out resolver does, so every consumer (labels, throwHtml on the
+     rare hit-then-throw case) reads one shape regardless of out vs. hit. */
   // How far along the ball's real ground-contact direction (not necessarily
   // the nominal HZ angle - sidespin drift can point it elsewhere) a point
   // stays within boundaryRFt's own shape, home-centred - the roll-phase
@@ -2890,17 +2893,11 @@
     var pickupFt = gp.restFt, groundTimeS = gp.totalS;
 
     if (!STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
-      var ofPos = flight.angle < 33 ? "LF" : (flight.angle <= 57 ? "CF" : "RF");
-      var ofAnchor = FIELDER_ANCHORS_FT[ofPos];
-      var ofDepth = Math.hypot(ofAnchor.x, ofAnchor.y);
-      var alongFt = ofDepth - flight.distance;
-      if (alongFt <= 0) {
-        pickupFt = 0; groundTimeS = 0;
-      } else if (alongFt <= gp.restFt) {
-        pickupFt = alongFt; groundTimeS = gp.timeAt(alongFt);
-      }
-      // else: dies before reaching the outfielder's depth - stays at rest
-      // (gp.restFt/gp.totalS, already the default above).
+      // pickupFt/groundTimeS already default to gp.restFt/gp.totalS above -
+      // the ball's own real roll, full stop. Only remaining job here is the
+      // dirt-clearance floor: a shallow humpback that lands right at the
+      // infield dirt's edge with barely any roll of its own still needs to
+      // visibly clear it.
       var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
       if (need > pickupFt) { pickupFt = need; groundTimeS = gp.timeAt(need) != null ? gp.timeAt(need) : gp.totalS; }
     } else {
@@ -3541,6 +3538,29 @@
         '<tspan class="fielder-result" x="' + x + '" dy="-' + LABEL_ANCHOR_OFFSET_STACKED_PX + '">' + escapeHtml(l.lines[0]) + '</tspan>' +
         '<tspan x="' + x + '" dy="10">' + escapeHtml(l.lines[1]) + '</tspan>' +
       "</text>";
+    }).join("");
+  }
+
+  // On-deck slide only (Alex's ask): the base occupants shown ahead of a
+  // plate appearance that hasn't happened yet have no fielding chain to
+  // anchor off (fielderNameLabelsHtml above is entirely play-driven), just
+  // a static base to sit above - same .fielder-name treatment (font/halo)
+  // as a real play's fielder labels, single-line, no result line stacked
+  // (there's no result yet). on_base_runners (key_moments_build.py's own
+  // _trace_base_occupants) is [full_name, last_name] per occupied base,
+  // same shape the defense dict already uses, omitted entirely rather than
+  // an empty object when nobody's on - no batter label here, Alex's call,
+  // this is base occupants only. delay:0 - nothing else on this slide
+  // animates in on a stagger for these to match.
+  function onDeckRunnerLabelsHtml(m) {
+    var runners = m.on_base_runners;
+    if (!m.is_on_deck || !runners) return "";
+    return ["1B", "2B", "3B"].map(function (base) {
+      var entry = runners[base];
+      var pt = entry && SCENE_BASES[base];
+      if (!pt) return "";
+      return '<text class="fielder-name" x="' + pt.x.toFixed(1) + '" y="' + pt.y.toFixed(1) +
+        '" dy="-' + LABEL_ANCHOR_OFFSET_PX + '" style="--delay:0ms">' + escapeHtml(entry[1]) + "</text>";
     }).join("");
   }
 
@@ -4324,7 +4344,8 @@
     fieldingChain: fieldingChain, fieldingChainDetail: fieldingChainDetail, involvedPositions: involvedPositions,
     fielderLabelHasResult: fielderLabelHasResult, ballFlightHtml: ballFlightHtml,
     ballResultLabelHtml: ballResultLabelHtml,
-    fielderNameLabelsHtml: fielderNameLabelsHtml, fieldingNotation: fieldingNotation,
+    fielderNameLabelsHtml: fielderNameLabelsHtml, onDeckRunnerLabelsHtml: onDeckRunnerLabelsHtml,
+    fieldingNotation: fieldingNotation,
     sceneDefenseLineHtml: sceneDefenseLineHtml, playSceneHtml: playSceneHtml,
     scoreboardCard: scoreboardCard,
     teamColor: teamColor, teamSecondaryColor: teamSecondaryColor,
@@ -4550,6 +4571,22 @@
     // unchanged for every other play.
     var wheelFinishMs = Math.round(FIELD_SEQUENCE_DELAY_MS / stealWheelPace(m));
 
+    // Real timing of this play's own last-recorded out (Alex's ask) - hoisted
+    // up here from what used to be only the half-inning pill's own
+    // computation below, since a strandedSafe token (tokens.map, further
+    // down) needs this same real moment too: whichever out actually ends the
+    // half inning, not a fixed guess. Gated on the raw is_half_inning_final
+    // flag rather than isHalfEnd's narrower (!is_game_final) version - a
+    // stranded runner on the game's own final play still needs their real
+    // out-timing, even though the pill itself is skipped there (isHalfEnd,
+    // still computed below where it's actually consumed).
+    var haloutLastMs = 0;
+    if (m.is_half_inning_final) {
+      var haloutCount = (m.outs_after || 0) - (m.outs_before || 0);
+      var haloutMoments = outAtMomentsMs(m, flight, haloutCount);
+      haloutLastMs = haloutMoments.length ? haloutMoments[haloutMoments.length - 1] : 0;
+    }
+
     /* Two nested groups per token, deliberately: the outer one owns position
        (the multi-leg basepath run) and the inner one owns opacity and scale
        (fading out, the batter appearing, the flash on scoring). Both would
@@ -4745,14 +4782,40 @@
         // keyframe (runnerOutMotionHtml) - this rule was never brought along
         // with it, so the animation-name simply stopped resolving to
         // anything and the token just sat at its --tx/--ty (the dugout) the
-        // whole time. Same generator the out tokens already use, just with
-        // outAtRel pinned to the full sprint time itself - there's no real
-        // "out" here to cut the run short for, so they always finish the
-        // whole leg before peeling off to the dugout, never turning red.
+        // whole time. Same generator the out tokens already use.
+        //
+        // outAtRel used to be pinned to the full sprint time itself (always
+        // finish the whole leg, THEN peel off) - Alex's second report: on a
+        // caught 3rd out, that let a short advance finish and start walking
+        // to the dugout well before the ball was actually shown being
+        // caught, and separately gave a longer advance no way to be cut off
+        // mid-leg at all when the real out landed partway through it. Now
+        // reads the same real haloutLastMs this play's own last out actually
+        // lands at (hoisted above, same source the half-inning pill and
+        // every isOut token's own --outat already use) - runnerOutMotionHtml
+        // already knows how to cut a leg short mid-run (a fast out) or hold
+        // at the arrived base until the real moment (a slow one, the old
+        // always-finish-the-leg case now falls out of this for free rather
+        // than being hardcoded), exactly like an out-bound runner's own run
+        // already does; this token just never turns red.
         var fullSprintMs = legDurMs;
         var pathPoints = [{ frac: 1, x: path[path.length - 1].x, y: path[path.length - 1].y }];
+        var outAtRel = Math.max(0, haloutLastMs - mvDelay);
+        // Alex's third report on this same token: the POSITION animation
+        // above now correctly waits for the real catch/throw before
+        // diverting, but the .rn-inner FADE-out is a separate CSS animation
+        // (style.css) that was still anchored to --rdelay+--dur - --dur is
+        // the token's original fixed leg duration, set once up top for
+        // every move regardless of branch, not this branch's own newly-real
+        // (and often much longer, on a deep fly) motion.totalMs. That let
+        // the token visibly fade away on the old short schedule while the
+        // ball was still in the air. --outat here is the same real absolute
+        // moment (haloutLastMs + runnerSeqDelay) every isOut token's own
+        // --outat already carries, letting the CSS rule reuse that exact
+        // fallback chain instead of a stranded-only formula.
+        vars += ";--outat:" + (haloutLastMs + runnerSeqDelay) + "ms";
         var motion = runnerOutMotionHtml(from.x, from.y, pathPoints, dugoutSvg.x, dugoutSvg.y,
-          fullSprintMs, fullSprintMs, RN_OUT_WALK_MS);
+          fullSprintMs, outAtRel, RN_OUT_WALK_MS);
         outStyle = motion.style;
         vars += ";animation-name:" + motion.name +
           ";animation-duration:calc(" + motion.totalMs + "ms / var(--play-speed,1))" +
@@ -4925,20 +4988,12 @@
     // when this play's own last out actually lands in the animation -
     // reading as the half-inning being "over" before the out choreography
     // (the throw, the catch, the runner turning red) had even resolved.
-    // outAtMomentsMs is the same real-out-timing source the scorebug's own
-    // out-dots and each runner token's --outat already use (their own
-    // comments) - the LAST of this play's own moments (there can be more
-    // than one on a double play) is the actual instant the half inning ends,
-    // raw/unanchored same as everywhere else here, so runnerSeqDelay (0 on a
-    // steal, FIELD_SEQUENCE_DELAY_MS otherwise - that var's own comment) is
-    // what turns it into an absolute delay.
-    var breakDelayMs = 0;
-    if (isHalfEnd) {
-      var haloutCount = (m.outs_after || 0) - (m.outs_before || 0);
-      var haloutMoments = outAtMomentsMs(m, flight, haloutCount);
-      var haloutLastMs = haloutMoments.length ? haloutMoments[haloutMoments.length - 1] : 0;
-      breakDelayMs = haloutLastMs + runnerSeqDelay;
-    }
+    // haloutLastMs (hoisted above tokens.map now, strandedSafe tokens need
+    // the same real moment too) is raw/unanchored same as everywhere else
+    // here, so runnerSeqDelay (0 on a steal, FIELD_SEQUENCE_DELAY_MS
+    // otherwise - that var's own comment) is what turns it into an absolute
+    // delay.
+    var breakDelayMs = isHalfEnd ? haloutLastMs + runnerSeqDelay : 0;
     var watermark = markUrl
       ? '<image class="dm-mark' + (isHalfEnd ? " dm-mark-fading" : "") + '" href="' + escapeHtml(markUrl) +
         '" x="' + (centroid.x - markSize / 2).toFixed(1) + '" y="' + (centroid.y - markSize / 2).toFixed(1) +
@@ -5001,6 +5056,7 @@
         throwHtml(m, flight, moves, seqDelay) +
         stealThrowHtml(m, moves, runDelay, outDelay, runnerSeqDelay) +
         fielderNameLabelsHtml(m, flight, seqDelay) +
+        onDeckRunnerLabelsHtml(m) +
         ballResultLabelHtml(m, flight, seqDelay) +
         tokens +
       "</svg>" +
@@ -5740,18 +5796,42 @@
 
      B5: a runner tagging up on a caught fly does not leave until the catch
      (see sceneFieldHtml's matching mvDelay logic) - this must add the same
-     offset or the scoreboard ticks before the runner visibly arrives. */
+     offset or the scoreboard ticks before the runner visibly arrives.
+
+     Alex's report (Crimson Chin's 3-run HR, session 4, CAR@MIA bot 2): the
+     scorebug's own count-up was firing well before the runner tokens
+     actually crossed the plate. Two things were missing, both already
+     present in sceneFieldHtml's own per-move timing for the exact same
+     runners: (1) the non-caught case had no lead-in at all (0), when a
+     normal safe/scoring runner always starts running RUNNER_LEAD_MS after
+     slide mount (sceneFieldHtml's own runDelay), not instantly; (2) these
+     times are consumed as a RAW, unanchored delay (scoreCellHtml's --at/
+     --until go straight into CSS with nothing else added on top - unlike
+     scorebugOutsHtml's own dots, whose comment explicitly flags this
+     function's times as "raw" for exactly that reason) but were never
+     anchored with the same runnerSeqDelay (0 on a steal,
+     FIELD_SEQUENCE_DELAY_MS=810ms otherwise) every other raw timing source
+     here needs before it's usable as a real delay - recomputed locally
+     rather than threaded in as a param, same as scorebugOutsHtml's own
+     dotSeqDelay sibling computation. Also now uses STEAL_LEG_DUR_MS instead
+     of the full base-to-base RUN_LEG_MS on a steal-of-home run, matching
+     sceneFieldHtml's own isStealAdvance case (a scored move is never
+     strandedSafe/a retreat, so that condition reduces to just "this play
+     has a steal attempt" for scoreArrivals' own purposes). */
   function scoreArrivals(m, flight) {
     var moves = m.runner_moves || deriveRunnerMoves(String(m.obc_before || "000"),
                                   String(m.obc_after || "000"), m.runs || 0);
     var catchMs = flight && CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+    var runDelay = flight ? RUNNER_LEAD_MS : 0;
+    var stealOut = stealThrowTarget(m, moves);
+    var runnerSeqDelay = stealOut ? 0 : FIELD_SEQUENCE_DELAY_MS;
     var times = [];
     moves.forEach(function (mv) {
       if (!mv.scored) return;
       var legs = basepathWaypoints(mv.from, mv.to, true).length;
-      var dur = RUN_LEG_MS[Math.min(legs, RUN_LEG_MS.length - 1)] || 0;
-      var lead = catchMs ? catchMs + TAG_UP_MS : 0;
-      times.push(lead + dur);
+      var dur = stealOut ? STEAL_LEG_DUR_MS : (RUN_LEG_MS[Math.min(legs, RUN_LEG_MS.length - 1)] || 0);
+      var lead = catchMs ? catchMs + TAG_UP_MS : runDelay;
+      times.push(lead + runnerSeqDelay + dur);
     });
     return times.sort(function (a, b) { return a - b; });
   }
