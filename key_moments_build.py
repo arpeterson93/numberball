@@ -24,8 +24,10 @@ than publishing stale or empty data.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -36,6 +38,16 @@ import utils
 MLN_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 CURRENT_SEASON = 13
 MLN_INNINGS = utils.LEAGUE_INNINGS.get("MLN", 6)
+
+# The MLN Historical Archive - a separate public sheet covering seasons 1-12,
+# read-only source for historical-seasons-implementation-plan.md. Same gviz
+# CSV endpoint, same utils.py readers (archive-aware by column-name
+# detection), different sheet id.
+ARCHIVE_SHEET_ID = "1H9ES_TL9nC0x-Q3auM6jtLcb6bII--eu4MtcAPoFcqg"
+# The archive's "Plays" tab gid (from the sheet's own URL, #gid=...), passed
+# to utils.read_mln_plays_from_sheet to route around the gviz Pos* column
+# type-inference bug documented on that function - see its docstring.
+ARCHIVE_PLAYS_GID = "1141271229"
 
 OUT_DIR = os.path.join("docs", "data")
 
@@ -314,10 +326,28 @@ def _effective_category(result: str, runs: int) -> str:
 
 # ── reference data ────────────────────────────────────────────────────────────
 
-def load_reference(sheet_id: str) -> dict:
-    """Load teams and players once, indexed for per-play lookups."""
-    teams = utils.read_mln_teams_from_sheet(sheet_id)
-    players = utils.read_mln_players_from_sheet(sheet_id, tab="Players", season=CURRENT_SEASON)
+def load_reference(sheet_id: str, archive_season: int | None = None,
+                    teams_raw: list[dict] | None = None,
+                    players_raw: list[dict] | None = None) -> dict:
+    """Load teams and players once, indexed for per-play lookups.
+
+    Archive mode (`archive_season` set): both tabs carry every season's rows
+    (franchise history - abbreviations and team identities change across
+    seasons per Part 0 finding 9 of the historical-seasons plan), so they
+    MUST be filtered to this season before indexing by abbrev/id, or teams
+    and players from other seasons would collide in by_abbrev/by_player_id.
+    `teams_raw`/`players_raw` let `--archive-all` pass in tabs already
+    fetched once instead of re-fetching per season.
+    """
+    if archive_season is not None:
+        teams = teams_raw if teams_raw is not None else utils.read_mln_teams_from_sheet(sheet_id)
+        teams = [t for t in teams if t.get("season") == archive_season]
+        players = players_raw if players_raw is not None else utils.read_mln_players_from_sheet(sheet_id, tab="Rosters")
+        players = [p for p in players if p.get("season") == archive_season]
+    else:
+        teams = teams_raw if teams_raw is not None else utils.read_mln_teams_from_sheet(sheet_id)
+        players = players_raw if players_raw is not None else utils.read_mln_players_from_sheet(
+            sheet_id, tab="Players", season=CURRENT_SEASON)
     if not teams:
         raise RuntimeError("No teams found in the MLN Teams tab.")
     if not players:
@@ -965,18 +995,36 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
 
 # ── build ─────────────────────────────────────────────────────────────────────
 
-def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
-    """Return (all plays scored and tagged, roster, meta)."""
-    ref = load_reference(sheet_id)
+def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
+          teams_raw: list[dict] | None = None, players_raw: list[dict] | None = None,
+          games_raw: list[dict] | None = None, plays_raw: list[dict] | None = None,
+          ) -> tuple[list[dict], list[dict], dict]:
+    """Return (all plays scored and tagged, roster, meta).
 
-    games = utils.read_mln_games_from_sheet(sheet_id)
+    `archive_season` set -> build from the MLN Historical Archive sheet
+    instead of the live season: reads the archive's `Rosters`/`Teams`/`Games`/
+    `Plays` tabs (vs. `Players`/`Teams`/`Games`/`Plays (Raw)` for the current
+    season), filters every tab to this season, and every archive game is
+    treated as final (Part 0 finding 1 - archive Games always has Win/scores
+    populated). The `*_raw` params let `--archive-all` fetch each tab once
+    and reuse it across all twelve seasons instead of re-fetching per season.
+    """
+    ref = load_reference(sheet_id, archive_season, teams_raw, players_raw)
+
+    games = games_raw if games_raw is not None else utils.read_mln_games_from_sheet(sheet_id)
+    if archive_season is not None:
+        games = [g for g in games if g.get("season") == archive_season]
     if not games:
         raise RuntimeError("No games found in the MLN Games tab.")
     game_by_code = {g["game_code"]: g for g in games if g.get("game_code")}
 
-    plays = utils.read_mln_plays_from_sheet(sheet_id, tab="Plays (Raw)")
+    plays_tab = "Plays" if archive_season is not None else "Plays (Raw)"
+    plays_gid = ARCHIVE_PLAYS_GID if archive_season is not None else None
+    plays = plays_raw if plays_raw is not None else utils.read_mln_plays_from_sheet(sheet_id, tab=plays_tab, gid=plays_gid)
+    if archive_season is not None:
+        plays = [p for p in plays if p.get("season") == archive_season]
     if not plays:
-        raise RuntimeError("No plays found in the MLN 'Plays (Raw)' tab.")
+        raise RuntimeError(f"No plays found in the MLN '{plays_tab}' tab.")
 
     by_game: dict[str, list[dict]] = {}
     for p in plays:
@@ -999,7 +1047,18 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
     for game_code in sorted(by_game):
         game = game_by_code.get(game_code)
         game_plays = by_game[game_code]
-        is_final = utils.game_is_final(game)
+        if archive_season is not None:
+            # Every archive game is final (Part 0 finding 1); the Lineups
+            # tab it would otherwise fall back to for a non-final game
+            # doesn't exist on the archive sheet. Treat as final even on the
+            # handful of data quirks where Win/scores are missing (Part 4
+            # risk) rather than crash on a nonexistent tab fetch.
+            is_final = True
+            if not utils.game_is_final(game):
+                print(f"WARNING: archive game {game_code} missing Win/scores; treating as final anyway",
+                      file=sys.stderr)
+        else:
+            is_final = utils.game_is_final(game)
 
         # Path B: reconstruct once per team per game (not once per play - a
         # fresh reconstruction per play would be quadratic in play count).
@@ -1085,7 +1144,7 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
     meta = {
         "built_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "sheet_id": sheet_id,
-        "season": CURRENT_SEASON,
+        "season": archive_season if archive_season is not None else CURRENT_SEASON,
         "innings": MLN_INNINGS,
         "sessions": sessions,
         "plays_scanned": len(rows),
@@ -1119,6 +1178,12 @@ def build(sheet_id: str = MLN_SHEET_ID) -> tuple[list[dict], list[dict], dict]:
         # for "Full season".
         "games": {str(s): _scoreboard(rows, games, s) for s in sessions},
     }
+    if archive_season is not None:
+        meta["is_archive"] = True
+        meta["post_sessions"] = sorted({
+            g["session_number"] for g in games
+            if g.get("session_number") in sessions_set and g.get("type") == "Post"
+        })
     return rows, roster, meta
 
 
@@ -1341,34 +1406,81 @@ def _write(path: str, payload) -> None:
         fh.write("\n")
 
 
-def _prune_stale_session_files(sessions: list[int]) -> None:
-    """Drop plays_NN.json files for sessions that no longer exist in the feed."""
+def _prune_stale_session_files(sessions: list[int], out_dir: str = OUT_DIR) -> None:
+    """Drop plays_NN.json files for sessions that no longer exist in the feed.
+
+    Only ever called for the current-season build (out_dir stays the default
+    top-level docs/data) - an archive season's dir is a one-time build with
+    no iterative churn to prune, and scanning/pruning docs/data itself from
+    inside an archive build would risk deleting the live season's files.
+    """
     keep = {f"plays_{s:02d}.json" for s in sessions}
-    for name in os.listdir(OUT_DIR):
+    for name in os.listdir(out_dir):
         if name.startswith("plays_") and name.endswith(".json") and name not in keep:
-            os.remove(os.path.join(OUT_DIR, name))
+            os.remove(os.path.join(out_dir, name))
 
 
-def main() -> None:
+def _archive_seasons_on_disk() -> list[int]:
+    """Season numbers of already-committed docs/data/sNN/ archive dirs - how
+    the live build's meta.json tells the client what to offer (Part 2:
+    'discovered by scanning docs/data/s*/ in the checkout') without an extra
+    request.
+    """
+    if not os.path.isdir(OUT_DIR):
+        return []
+    seasons = []
+    for name in os.listdir(OUT_DIR):
+        m = re.fullmatch(r"s(\d{2})", name)
+        if m and os.path.isdir(os.path.join(OUT_DIR, name)):
+            seasons.append(int(m.group(1)))
+    return sorted(seasons)
+
+
+def _fetch_archive_raw(sheet_id: str) -> dict:
+    """Fetch every archive tab exactly once. `--archive-all` reuses this
+    across all twelve seasons instead of re-downloading the same ~75k-row
+    Plays tab (and Teams/Rosters/Games) twelve times.
+    """
+    return {
+        "teams_raw": utils.read_mln_teams_from_sheet(sheet_id),
+        "players_raw": utils.read_mln_players_from_sheet(sheet_id, tab="Rosters"),
+        "games_raw": utils.read_mln_games_from_sheet(sheet_id),
+        "plays_raw": utils.read_mln_plays_from_sheet(sheet_id, tab="Plays", gid=ARCHIVE_PLAYS_GID),
+    }
+
+
+def _build_and_write(sheet_id: str, archive_season: int | None = None, **raw) -> None:
+    """Build one season (current, when archive_season is None, or one
+    historical archive season) and write its docs/data output. `**raw`
+    forwards any of build()'s *_raw pre-fetched-tab params (used by
+    --archive-all; empty for a single-season build).
+    """
+    out_dir = OUT_DIR if archive_season is None else os.path.join(OUT_DIR, f"s{archive_season:02d}")
+    label = "current season" if archive_season is None else f"archive season {archive_season}"
+
     try:
-        rows, roster, meta = build()
+        rows, roster, meta = build(sheet_id, archive_season=archive_season, **raw)
     except Exception as exc:
-        print(f"FATAL: {exc}", file=sys.stderr)
+        print(f"FATAL ({label}): {exc}", file=sys.stderr)
         sys.exit(1)
 
     moments = [m for m in rows if m["is_key_moment"]]
     if not moments:
-        print("FATAL: no key moments produced - refusing to publish an empty feed.", file=sys.stderr)
+        print(f"FATAL ({label}): no key moments produced - refusing to publish an empty feed.", file=sys.stderr)
         sys.exit(1)
 
-    os.makedirs(OUT_DIR, exist_ok=True)
-    _write(os.path.join(OUT_DIR, "key_moments.json"), moments)
-    _write(os.path.join(OUT_DIR, "players.json"), roster)
-    _write(os.path.join(OUT_DIR, "meta.json"), meta)
+    if archive_season is None:
+        meta["archive_seasons"] = _archive_seasons_on_disk()
+
+    os.makedirs(out_dir, exist_ok=True)
+    _write(os.path.join(out_dir, "key_moments.json"), moments)
+    _write(os.path.join(out_dir, "players.json"), roster)
+    _write(os.path.join(out_dir, "meta.json"), meta)
     for session in meta["sessions"]:
         session_rows = [m for m in rows if m["session_number"] == session]
-        _write(os.path.join(OUT_DIR, f"plays_{session:02d}.json"), session_rows)
-    _prune_stale_session_files(meta["sessions"])
+        _write(os.path.join(out_dir, f"plays_{session:02d}.json"), session_rows)
+    if archive_season is None:
+        _prune_stale_session_files(meta["sessions"], out_dir)
 
     counts: dict[str, int] = {}
     per_session: dict[int, list[int]] = {}
@@ -1380,7 +1492,7 @@ def main() -> None:
             tally[0] += 1
             tally[1] += 1 if m["is_key_moment"] else 0
 
-    print(f"Scanned {meta['plays_scanned']} plays -> {len(moments)} key moments "
+    print(f"[{label}] Scanned {meta['plays_scanned']} plays -> {len(moments)} key moments "
           f"across sessions {meta['sessions']}")
     print(f"  thresholds: leverage >= {LEVERAGE_THRESHOLD}, |wpa| >= {WPA_THRESHOLD}")
     for session in sorted(per_session, reverse=True):
@@ -1388,8 +1500,35 @@ def main() -> None:
         print(f"  session {session:02d}: {moments_n} moments / {plays_n} plays")
     for tag in TAG_LABELS:
         print(f"  tag {tag:<28} {counts.get(tag, 0)}")
-    print(f"Wrote {OUT_DIR}/key_moments.json, players.json, meta.json, "
+    print(f"Wrote {out_dir}/key_moments.json, players.json, meta.json, "
           f"plays_NN.json x{len(meta['sessions'])}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the static Key Moments feed.")
+    parser.add_argument("--archive-season", type=int, default=None, metavar="N",
+                         help="Build one historical season (1-12) from the MLN Historical Archive sheet "
+                              "into docs/data/sNN/ instead of building the current season.")
+    parser.add_argument("--archive-all", action="store_true",
+                         help="Build every season found in the archive's Games tab (one fetch of each "
+                              "archive tab, reused across all seasons).")
+    args = parser.parse_args()
+
+    if args.archive_all:
+        raw = _fetch_archive_raw(ARCHIVE_SHEET_ID)
+        seasons = sorted({g["season"] for g in raw["games_raw"] if g.get("season")})
+        if not seasons:
+            print("FATAL: no seasons found in the archive Games tab.", file=sys.stderr)
+            sys.exit(1)
+        for season in seasons:
+            _build_and_write(ARCHIVE_SHEET_ID, archive_season=season, **raw)
+        return
+
+    if args.archive_season is not None:
+        _build_and_write(ARCHIVE_SHEET_ID, archive_season=args.archive_season)
+        return
+
+    _build_and_write(MLN_SHEET_ID, archive_season=None)
 
 
 if __name__ == "__main__":

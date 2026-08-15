@@ -28,6 +28,9 @@
     <img class="title-logo" src="favicon.png" alt="" width="36" height="36">
     <h1 id="page-title">MLN GAMEDAY</h1>
     <div class="title-actions">
+      <!-- Hidden by app.js's populateSeasonSelect until at least one archive
+           season is committed to docs/data/sNN/. -->
+      <select id="season-select" class="season-select" aria-label="Season" hidden></select>
       <select id="session-select" class="session-select" aria-label="Session"></select>
       <!-- Phone-only shortcuts mirroring #toggle-chips's keymoments/favorites
            buttons (hidden above 600px via .header-toggle-btn's CSS) - kept in

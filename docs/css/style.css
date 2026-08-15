@@ -97,7 +97,7 @@ button{font-family:inherit;cursor:pointer;}
 }
 .title-row h1{font-size:24px;margin:0;letter-spacing:normal;}
 .title-logo{width:36px;height:36px;border-radius:7px;flex:none;}
-.session-select{
+.season-select,.session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
 }
@@ -1692,7 +1692,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .icon-btn{width:24px;height:24px;}
   .icon-btn svg{width:13px;height:13px;}
   .header-toggle-btn{display:inline-flex;}
-  .session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
+  .season-select,.session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
 
   /* 10c: collapsed filters bar and the sort chips share one line - same
      7px vertical padding as .sort-chip-row .chip below, so the two match

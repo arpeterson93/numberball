@@ -48,6 +48,16 @@
 
   var loadingPlays = false;
 
+  // Which season's data is loaded into `data` above. `current` is the live
+  // season (data.meta.season at boot, never changes after that); `active` is
+  // whichever season the visitor is currently browsing - equal to `current`
+  // except while browsing history. `cache` holds every season's data object
+  // once loaded, keyed by season number, so switching back is instant and
+  // costs no re-fetch. Historical season dirs are immutable once committed,
+  // so nothing here needs invalidating.
+  var season = { current: null, active: null, cache: {} };
+  var archiveSeasonsList = []; // from the live season's meta.archive_seasons, captured once at boot
+
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   function $(id) { return document.getElementById(id); }
@@ -67,6 +77,28 @@
       if (!r.ok) throw new Error(url + ": " + r.status);
       return r.json();
     });
+  }
+
+  // Historical season files are immutable once committed (Part 2) - no
+  // cache-buster, no no-store, so the browser/CDN can actually cache them.
+  function getJSONCached(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + ": " + r.status);
+      return r.json();
+    });
+  }
+
+  // Path to a file in the ACTIVE season's data dir - current season's own
+  // files live at the top level, any other (historical) season's live under
+  // data/sNN/.
+  function dataPath(file) {
+    return season.active === season.current ? "data/" + file : "data/s" + pad2(season.active) + "/" + file;
+  }
+
+  // Fetch a file from the active season, live-vs-cached per the same rule.
+  function fetchSeasonJSON(file) {
+    var url = dataPath(file);
+    return season.active === season.current ? getJSON(url) : getJSONCached(url);
   }
 
   function pad2(n) { return String(n).padStart(2, "0"); }
@@ -706,27 +738,35 @@
   var SCOREBOARD_GAP = 10;
   var SCOREBOARD_MOBILE_MAX_COLS = 2;
   var SCOREBOARD_MOBILE_BREAKPOINT = 600;
+  // A full slate's game count - not a hard cap on how many games can ever
+  // show, just the reference size whose balanced column count every row
+  // borrows (see below).
+  var SCOREBOARD_FULL_SESSION_GAMES = 8;
 
-  /* Balances the grid so a row never has noticeably more tiles than the
-     next - e.g. 8 tiles at a natural fit of 6-per-row becomes two rows of 4
-     instead of 6-then-2. maxCols is however many tiles the row can fit at
-     the tile's minimum width (or a hard cap of 2 on phones); rows is the
-     fewest rows that fit within that cap, and cols redistributes the tiles
-     evenly across exactly that many rows. */
+  /* Caps every row at however many columns a FULL slate
+     (SCOREBOARD_FULL_SESSION_GAMES) would balance into at the current width
+     - e.g. a natural fit of 6-per-row balances 8 tiles into two rows of 4 -
+     rather than balancing against however many games THIS session actually
+     has. That way a light session's cards render at the same size as a full
+     session's instead of stretching to fill the row (Alex's ask): 2 games
+     still render at the full session's per-tile width, just with 2 empty
+     grid cells trailing rather than 2 tiles stretched to fill the row. Still
+     adapts to viewport width - narrower windows still get fewer, larger
+     columns, down to the phone cap - just never against the session's own
+     game count. */
   function applyScoreboardColumns() {
     var row = document.querySelector("#scoreboard .scoreboard-row");
     if (!row) return;
-    var n = row.children.length;
-    if (!n) return;
-    var maxCols;
+    if (!row.children.length) return;
+    var cols;
     if (window.innerWidth <= SCOREBOARD_MOBILE_BREAKPOINT) {
-      maxCols = SCOREBOARD_MOBILE_MAX_COLS;
+      cols = SCOREBOARD_MOBILE_MAX_COLS;
     } else {
-      maxCols = Math.max(1, Math.floor((row.clientWidth + SCOREBOARD_GAP) / (SCOREBOARD_TILE_MIN + SCOREBOARD_GAP)));
+      var fitsByWidth = Math.max(1, Math.floor((row.clientWidth + SCOREBOARD_GAP) / (SCOREBOARD_TILE_MIN + SCOREBOARD_GAP)));
+      var refCols = Math.min(fitsByWidth, SCOREBOARD_FULL_SESSION_GAMES);
+      var refRows = Math.ceil(SCOREBOARD_FULL_SESSION_GAMES / refCols);
+      cols = Math.ceil(SCOREBOARD_FULL_SESSION_GAMES / refRows);
     }
-    maxCols = Math.min(maxCols, n);
-    var rows = Math.ceil(n / maxCols);
-    var cols = Math.ceil(n / rows);
     row.style.gridTemplateColumns = "repeat(" + cols + ", 1fr)";
   }
 
@@ -837,7 +877,7 @@
     loadingPlays = true;
     render();
     return Promise.all(needed.map(function (s) {
-      return getJSON("data/plays_" + pad2(s) + ".json").then(function (rows) {
+      return fetchSeasonJSON("plays_" + pad2(s) + ".json").then(function (rows) {
         data.playsBySession[s] = rows;
       });
     })).then(function () {
@@ -859,7 +899,7 @@
     var sessions = (data.meta.sessions || []).slice();
     return Promise.all(sessions.map(function (s) {
       if (data.playsBySession[s]) return Promise.resolve(data.playsBySession[s]);
-      return getJSON("data/plays_" + pad2(s) + ".json").then(function (rows) {
+      return fetchSeasonJSON("plays_" + pad2(s) + ".json").then(function (rows) {
         data.playsBySession[s] = rows;
         return rows;
       });
@@ -6533,7 +6573,7 @@
   function loadGameReplay(gameCode, session) {
     var fetchPromise = data.playsBySession[session]
       ? Promise.resolve(data.playsBySession[session])
-      : getJSON("data/plays_" + pad2(session) + ".json").then(function (rows) {
+      : fetchSeasonJSON("plays_" + pad2(session) + ".json").then(function (rows) {
           data.playsBySession[session] = rows;
           return rows;
         });
@@ -6772,9 +6812,9 @@
       toast("Could not determine which session this play belongs to.");
       return;
     }
-    btn.classList.add("loading");
+    if (btn) btn.classList.add("loading");
     loadGameReplay(gameCode, session).then(function (plays) {
-      btn.classList.remove("loading");
+      if (btn) btn.classList.remove("loading");
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
       replay.slides = buildGameReplaySlides(plays);
       var target = -1;
@@ -6799,7 +6839,7 @@
         showReplaySlide(target >= 0 ? target : 0);
       }, REPLAY_JUMP_OPEN_DELAY_MS);
     }).catch(function () {
-      btn.classList.remove("loading");
+      if (btn) btn.classList.remove("loading");
       toast("Could not load that game's plays.");
     });
   }
@@ -6884,7 +6924,9 @@
   function populateSessionSelect(keepSelection) {
     var sel = $("session-select");
     var sessions = data.meta.sessions || [];
-    // Plain integer - never "Session 03".
+    // Plain integer - never "Session 03". meta.post_sessions (archive
+    // seasons only) flags which of these are playoffs, but that's not
+    // called out in the label - it ate too much width in the header.
     sel.innerHTML = '<option value="">Full season</option>' +
       sessions.map(function (s) {
         return '<option value="' + s + '">Session ' + parseInt(s, 10) + "</option>";
@@ -6895,6 +6937,137 @@
       filters.session = sessions[0];
       sel.value = String(sessions[0]);
     }
+  }
+
+  // Hidden entirely until at least one archive season is committed
+  // (archiveSeasonsList empty) - the site behaves exactly as it does today
+  // until then. Rebuilt only from archiveSeasonsList/season.current, never
+  // from the active season's own meta (historical meta.json files don't
+  // carry archive_seasons - only the live one does).
+  function populateSeasonSelect() {
+    var sel = $("season-select");
+    if (!sel) return;
+    if (!archiveSeasonsList.length) {
+      sel.hidden = true;
+      sel.innerHTML = "";
+      return;
+    }
+    var seasons = archiveSeasonsList.slice().sort(function (a, b) { return b - a; });
+    var options = ['<option value="' + season.current + '">S' + season.current + "</option>"];
+    seasons.forEach(function (s) {
+      options.push('<option value="' + s + '">S' + s + "</option>");
+    });
+    sel.innerHTML = options.join("");
+    sel.value = String(season.active);
+    sel.hidden = false;
+  }
+
+  // Everything reloadData()/boot() already re-render after a fresh data
+  // load, replayed here after a season switch. Filter state that can't
+  // survive the switch is reset: selectedGame and session (recomputed by
+  // populateSessionSelect below) always; team, since abbreviations differ
+  // across seasons. playerId is a global human id (Part 0 finding 9) and
+  // survives untouched.
+  function activateSeasonData() {
+    rookieIds = null; // rebuild from the newly-active season's roster
+    filters.selectedGame = null;
+    filters.team = "";
+    deselectScoreboardTile();
+    var historical = season.active !== season.current;
+    $("built-at").textContent = historical
+      ? "Season " + season.active + " archive"
+      : formatBuiltAt(data.meta.built_at);
+    populateSeasonSelect();
+    populateSessionSelect(false);
+    renderScoreboard();
+    populateTeamSelect();
+    populateTagChips();
+    Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
+      c.classList.toggle("active", filters.tags.has(c.getAttribute("data-tag")));
+    });
+    populateObcChips();
+    Array.prototype.forEach.call(document.querySelectorAll("#obc-chips .chip"), function (c) {
+      c.classList.toggle("active", c.getAttribute("data-obc") === filters.obc);
+    });
+    renderMaybeLoading();
+    if (window.KMFavorites && window.KMFavorites.setPlayers) {
+      window.KMFavorites.setPlayers(data.players);
+      window.KMFavorites.refreshList();
+    }
+    // Live-only features: refresh (a finished season never has anything new
+    // to fetch) and Catch Me Up (meaningless for a season that's over, and
+    // its cursor must not advance just from browsing history).
+    var refreshBtn = $("refresh-btn");
+    if (refreshBtn) refreshBtn.hidden = historical;
+    if (historical) {
+      var status = $("refresh-status");
+      if (status) status.textContent = "";
+      var banner = $("catchup-banner");
+      if (banner) banner.hidden = true;
+    } else {
+      computeCatchUp().then(function (groups) {
+        data.catchUpGroups = groups;
+        renderCatchUpBanner();
+      });
+    }
+  }
+
+  // Snapshot/restore data's contents wholesale (Part 2: keep the existing
+  // global `data` object as "the active season's data" rather than
+  // threading a season key through every data.meta reference).
+  function snapshotSeasonData() {
+    return {
+      moments: data.moments, players: data.players, meta: data.meta,
+      playsBySession: data.playsBySession, catchUpGroups: data.catchUpGroups,
+    };
+  }
+
+  function applySeasonData(snap) {
+    data.moments = snap.moments;
+    data.players = snap.players;
+    data.meta = snap.meta;
+    data.playsBySession = snap.playsBySession;
+    data.catchUpGroups = snap.catchUpGroups;
+  }
+
+  // Switch the active season, fetching (or reusing from cache) that
+  // season's key_moments/players/meta. Returns a Promise. The live season
+  // is never served from cache - it keeps changing under a long-running
+  // tab, so returning to it always re-fetches fresh (bust() + no-store,
+  // same as boot/reloadData).
+  function setActiveSeason(n) {
+    if (n === season.active) return Promise.resolve();
+    season.cache[season.active] = snapshotSeasonData();
+
+    if (n === season.current) {
+      return Promise.all([
+        getJSON("data/key_moments.json"),
+        getJSON("data/players.json"),
+        getJSON("data/meta.json"),
+      ]).then(function (res) {
+        applySeasonData({ moments: res[0], players: res[1], meta: res[2], playsBySession: {}, catchUpGroups: null });
+        season.active = n;
+        activateSeasonData();
+      });
+    }
+
+    if (season.cache[n]) {
+      applySeasonData(season.cache[n]);
+      season.active = n;
+      activateSeasonData();
+      return Promise.resolve();
+    }
+
+    var dir = "data/s" + pad2(n) + "/";
+    return Promise.all([
+      getJSONCached(dir + "key_moments.json"),
+      getJSONCached(dir + "players.json"),
+      getJSONCached(dir + "meta.json"),
+    ]).then(function (res) {
+      applySeasonData({ moments: res[0], players: res[1], meta: res[2], playsBySession: {}, catchUpGroups: null });
+      season.active = n;
+      activateSeasonData();
+    });
   }
 
   function populateTeamSelect() {
@@ -7046,6 +7219,22 @@
       renderScoreboard();
       renderMaybeLoading();
     });
+
+    var seasonSel = $("season-select");
+    if (seasonSel) {
+      seasonSel.addEventListener("change", function (e) {
+        var n = Number(e.target.value);
+        var prev = season.active;
+        seasonSel.disabled = true;
+        setActiveSeason(n).then(function () {
+          seasonSel.disabled = false;
+        }).catch(function () {
+          seasonSel.disabled = false;
+          seasonSel.value = String(prev);
+          toast("Could not load that season.");
+        });
+      });
+    }
 
     window.addEventListener("resize", scheduleScoreboardResize);
 
@@ -7377,7 +7566,9 @@
       data.moments = res[0];
       data.meta = res[1];
       data.playsBySession = {};   // stale once the feed moves
+      archiveSeasonsList = (data.meta.archive_seasons || []).slice();
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
+      populateSeasonSelect();
       populateSessionSelect(true);
       renderScoreboard();
       populateTeamSelect();
@@ -7459,6 +7650,53 @@
 
   // ── boot ────────────────────────────────────────────────────────────────────
 
+  // ── deep links: ?game=130419&play=34 ────────────────────────────────────────
+  //
+  // Read-only input, parsed once at boot - no pushState/history management in
+  // v1 (plan Stage 4 item 4), so closing the replay modal just leaves the
+  // param sitting in the address bar, harmless.
+
+  function parseDeepLinkGame() {
+    var params = new URLSearchParams(location.search);
+    var raw = params.get("game");
+    if (!raw) return null;
+    var digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      toast("That link's game code isn't valid.");
+      return null;
+    }
+    var code = digits.padStart(6, "0");
+    var gameSeason = parseInt(code.slice(0, 2), 10);
+    var session = parseInt(code.slice(2, 4), 10);
+    var playRaw = params.get("play");
+    var play = playRaw ? parseInt(playRaw.replace(/\D/g, ""), 10) : null;
+    if (play != null && isNaN(play)) play = null;
+    return { code: code, season: gameSeason, session: session, play: play };
+  }
+
+  // Runs after boot's own load has rendered the normal page underneath -
+  // resolving the season (switching to it first if it's a committed archive
+  // season, toasting if it's neither the live season nor archived) is exactly
+  // the flow setActiveSeason + openReplayAtPlay already support for the
+  // season selector, reused here rather than duplicated.
+  function handleDeepLink() {
+    var link = parseDeepLinkGame();
+    if (!link) return;
+    var playNum = link.play ? Number(link.code) * 1000 + link.play : null;
+    function open() {
+      openReplayAtPlay(link.code, link.session, playNum, null);
+    }
+    if (link.season === season.current) {
+      open();
+    } else if (archiveSeasonsList.indexOf(link.season) !== -1) {
+      setActiveSeason(link.season).then(open).catch(function () {
+        toast("Could not load that game's season.");
+      });
+    } else {
+      toast("That game's season isn't available.");
+    }
+  }
+
   function boot() {
     wireControls();
     Promise.all([
@@ -7469,7 +7707,11 @@
       data.moments = res[0];
       data.players = res[1];
       data.meta = res[2];
+      season.current = data.meta.season;
+      season.active = season.current;
+      archiveSeasonsList = (data.meta.archive_seasons || []).slice();
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
+      populateSeasonSelect();
       populateSessionSelect(false);
       renderScoreboard();
       populateTeamSelect();
@@ -7487,6 +7729,7 @@
         data.catchUpGroups = groups;
         renderCatchUpBanner();
       });
+      handleDeepLink();
     }).catch(function (err) {
       $("built-at").textContent = "";
       $("empty-state").hidden = false;

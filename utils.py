@@ -8393,21 +8393,37 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
             "end_time":            end_time,
             "division":            division,
             "link":                link,
+            "type":                _str(row.get("Type")),
         })
     return games
 
 
-def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
+def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None = None) -> list[dict]:
     """Read a plays tab from an MLN sheet. Archive uses 'Plays'; current season uses 'Plays (Raw)'.
 
     Away/Home contain Team IDs (e.g. T1009); Pitcher/Batter/Catcher/Runner contain
     MLN player IDs. Caller resolves these to names via get_mln_teams/players_for_lookup().
+
+    `gid` (the tab's numeric sheet id, visible in the browser URL as
+    `#gid=...` when that tab is selected) routes the fetch through the plain
+    CSV export endpoint instead of the gviz query endpoint. This matters for
+    the archive's `Pos*` column specifically: gviz infers ONE type per
+    column from the data it scans, and since the earliest rows (seasons 1-4)
+    store the literal text "0" there, gviz locks the whole column to
+    "number" and silently returns null for every later row whose real value
+    is a text position code ("SS", "6-4-3", ...) - confirmed directly
+    against the sheet's own gviz column-type metadata. The plain export
+    endpoint does no such inference; it round-trips the exact cell text, at
+    the cost of needing this one caller-supplied gid instead of a tab name.
     """
     import urllib.parse
-    url = (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
-    )
+    if gid:
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    else:
+        url = (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+            f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
+        )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
     plays = []
@@ -8443,7 +8459,11 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays") -> list[dict]:
             "season_type": _str(row.get("Season.1")),
             "game_code":   game_code,
             "play_num":    play_num,
-            "timestamp":   _str(row.get("Timestamp")),
+            # Archive column is named "Timestamp*" (current season: plain
+            # "Timestamp") - same raw "M/D/YYYY H:MM[:SS]" shape either way,
+            # left as-is here; key_moments_build.py's _parse_timestamp does
+            # the actual ISO conversion downstream for both.
+            "timestamp":   _str(row.get("Timestamp") or row.get("Timestamp*")),
             "umpire":      _str(row.get("Umpire")),
             "away":        _str(row.get("Away")),    # Team ID e.g. T1009
             "home":        _str(row.get("Home")),    # Team ID e.g. T1003

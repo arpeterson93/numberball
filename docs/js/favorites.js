@@ -276,6 +276,10 @@
   }
 
   window.KMFavorites = {
+    // Season switch: same favorite ids (global human ids - Part 0 finding
+    // 9), new roster to search/list against. Not a re-init - name/ids/
+    // onChange and the wired panel all stay put.
+    setPlayers: function (players) { state.players = players || []; },
     init: function (players, onChange) {
       state.players = players || [];
       state.onChange = onChange || null;
