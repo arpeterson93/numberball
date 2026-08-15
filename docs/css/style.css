@@ -725,6 +725,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    strips every .ball* animation (including ballAppear below) via
    animation:none!important, which falls straight back to this bare rule. */
 .ball{transform:translate(var(--tx),var(--ty));opacity:1;}
+/* Ground-projected shadow under the flight ball (Alex's ask) - same
+   translate/opacity fallback pattern as .ball above, plus a scale factor
+   (app.js's shadowScaleAt: bigger near the ground, smaller near the apex).
+   rx/ry are the SVG element's own base size (unscaled ellipse, foreshortened
+   like a real ground shadow under this field's angled camera); transform
+   scale grows/shrinks that same shape uniformly per keyframe. */
+.ball-shadow{transform:translate(var(--stx),var(--sty)) scale(var(--sscale,1));opacity:0.32;fill:#000;}
 /* Alex's ask: the flight ball is now a real baseball (wheelBallIconSvg,
    seams included) rather than a plain circle, wrapped in a <g> - the fill/
    stroke that used to live directly on .ball's own <circle> now targets this
@@ -1593,7 +1600,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      is the same story now too - its own position animation moved from a
      shared class rule to this same per-token inline generation (Alex's
      report, that class rule's own comment). */
-  .ball, .ball.clear, .ball-trail,
+  .ball, .ball.clear, .ball-trail, .ball-shadow, .ball-shadow.clear,
   .rn.out-to-first, .rn.out-to-base, .rn.out-retreat, .rn.stranded-to-dugout{animation:none!important;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
@@ -1620,7 +1627,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      scene, same reasoning as the pitch ball just above. Two classes beats
      one, so these win over .ball's own opacity:1 base rule and
      .throw-ball-inner's own animation:none fallback without !important. */
-  .ball.handoff{opacity:0;}
+  .ball.handoff, .ball-shadow.handoff{opacity:0;}
   .throw-ball.fades .throw-ball-inner{opacity:0;}
   /* Same "already arrived" end state as the pitch ball above - a
      reduced-motion viewer sees every throw already at its target base,

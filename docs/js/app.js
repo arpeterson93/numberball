@@ -1349,6 +1349,14 @@
   // Token/marker sizes, scaled down from the old hand-placed diamond to match
   // the now-correctly-scaled (and visually smaller) real-90ft infield.
   var RUNNER_R = 6, BASE_R = 4.5, BALL_R = 3, FIELDER_R = 4;
+  // Ground-projected shadow under a flight ball (Alex's ask): a first pass,
+  // not perspective-correct per screen position - just a flattened ellipse
+  // (foreshortened like a real ground shadow under this field's angled
+  // camera) uniformly scaled by how close to the ground the ball currently
+  // is. Scale 1 at ground level (SHADOW_SCALE_MAX), shrinking toward apex
+  // (SHADOW_SCALE_MIN) - tunable, no real-world unit behind these two.
+  var SHADOW_RX = 2, SHADOW_RY = 1.1;
+  var SHADOW_SCALE_MIN = 0.55, SHADOW_SCALE_MAX = 1.6;
 
   // A real bag sits entirely in fair territory - its outer corner touches the
   // foul line, not its centre (Alex's correction). These are the exact 90ft
@@ -3126,21 +3134,39 @@
   // OUT instead of merely dimming (ballSettle), so the very next thing the
   // throw's own ball appears doing isn't overlapping a second, still-visible
   // ball sitting at the same spot.
+  // Ground-level height for a sample - flightSampleSeries samples carry a
+  // real z (feet above the field); interpolated linearly from
+  // SHADOW_SCALE_MAX at z=0 down to SHADOW_SCALE_MIN at the flight's own
+  // apex, so a grounder (near-zero apexFt throughout) stays large and
+  // constant while a fly ball's shadow visibly shrinks toward its peak.
+  function shadowScaleAt(zFt, apexFt) {
+    if (!apexFt || apexFt <= 0) return SHADOW_SCALE_MAX;
+    var frac = clamp(zFt / apexFt, 0, 1);
+    return SHADOW_SCALE_MAX - frac * (SHADOW_SCALE_MAX - SHADOW_SCALE_MIN);
+  }
+
   function ballArcHtml(m, flight, handoffMs) {
     var series = flightSampleSeries(flight);
     var totalS = series.totalS > 0 ? series.totalS : 1e-6;
     var projected = series.samples.map(function (s) { return projectFt(s.x, s.y, s.z); });
+    // Same samples' real (x,y), ground-projected (z forced to 0, ftToSvg's
+    // own definition) - the shadow's own path along the ground, separate
+    // from the ball's own arced-through-the-air one above.
+    var shadowPts = series.samples.map(function (s) { return ftToSvg(s.x, s.y); });
+    var apexFt = flight.apexFt || 0;
     var cumLen = [0];
     for (var i = 1; i < projected.length; i++) {
       cumLen.push(cumLen[i - 1] + Math.hypot(projected[i].x - projected[i - 1].x, projected[i].y - projected[i - 1].y));
     }
     var len = cumLen[cumLen.length - 1] || 1;
-    var stops = "", trailStops = "";
+    var stops = "", trailStops = "", shadowStops = "";
     var lastOff = 0;
     series.samples.forEach(function (s, i) {
       lastOff = clamp(s.t / totalS, 0, 1) * 100;
       stops += lastOff.toFixed(3) + "% { transform: translate(" + projected[i].x.toFixed(1) + "px," + projected[i].y.toFixed(1) + "px); } ";
       trailStops += lastOff.toFixed(3) + "% { stroke-dashoffset: " + (len - cumLen[i]).toFixed(1) + "px; } ";
+      var scale = shadowScaleAt(s.z, apexFt);
+      shadowStops += lastOff.toFixed(3) + "% { transform: translate(" + shadowPts[i].x.toFixed(1) + "px," + shadowPts[i].y.toFixed(1) + "px) scale(" + scale.toFixed(2) + "); } ";
     });
     // A cleared-fence HR's samples are cut short at the wall (fenceTruncated
     // Samples), well before totalS (still the real, un-truncated hang time) -
@@ -3154,6 +3180,9 @@
       var lastP = projected[projected.length - 1];
       stops += "100.000% { transform: translate(" + lastP.x.toFixed(1) + "px," + lastP.y.toFixed(1) + "px); } ";
       trailStops += "100.000% { stroke-dashoffset: 0px; } ";
+      var lastShadowP = shadowPts[shadowPts.length - 1];
+      var lastScale = shadowScaleAt(series.samples[series.samples.length - 1].z, apexFt);
+      shadowStops += "100.000% { transform: translate(" + lastShadowP.x.toFixed(1) + "px," + lastShadowP.y.toFixed(1) + "px) scale(" + lastScale.toFixed(2) + "); } ";
     }
     var name = kmArcId(m);
     // Mirrors style.css's own .ball.air/.ball.clear composite rule exactly
@@ -3206,14 +3235,20 @@
     // this fade every time, no matter what --handoff said (caught by
     // testing, not by reasoning about it up front).
     var hasHandoff = handoffMs != null;
-    var settleRule = "animation: " + name + " calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both, " +
-      (hasHandoff ? "" : "ballSettle calc(350ms / var(--play-speed,1)) ease calc((var(--fdelay,0s) + var(--dur)) / var(--play-speed,1)) forwards, ") +
-      "ballAppear calc(120ms / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both" +
-      (hasHandoff
-        ? ", ballHandoffFade calc(120ms / var(--play-speed,1)) linear calc(var(--handoff,0s) / var(--play-speed,1)) both;"
-        : ";");
+    // Shared by the ball and its shadow - same appear/settle/handoff-fade
+    // lifecycle for both (the shadow should never be visible a beat before
+    // or after the ball itself is), only the movement keyframes differ.
+    function movementRule(kfName) {
+      return "animation: " + kfName + " calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both, " +
+        (hasHandoff ? "" : "ballSettle calc(350ms / var(--play-speed,1)) ease calc((var(--fdelay,0s) + var(--dur)) / var(--play-speed,1)) forwards, ") +
+        "ballAppear calc(120ms / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) both" +
+        (hasHandoff
+          ? ", ballHandoffFade calc(120ms / var(--play-speed,1)) linear calc(var(--handoff,0s) / var(--play-speed,1)) both;"
+          : ";");
+    }
     var style = "<style>" +
-      "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + settleRule + " }" +
+      "@keyframes " + name + " { " + stops + "} .ball." + name + " { " + movementRule(name) + " }" +
+      "@keyframes " + name + "-shadow { " + shadowStops + "} .ball-shadow." + name + " { " + movementRule(name + "-shadow") + " }" +
       "@keyframes " + name + "-trail { " + trailStops + "} " +
       ".ball-trail." + name + " { animation: " + name + "-trail calc(var(--dur) / var(--play-speed,1)) linear calc(var(--fdelay,0s) / var(--play-speed,1)) forwards; }" +
       "</style>";
@@ -3222,7 +3257,12 @@
     // for pitchBallHtml to hand off to pixel-exactly instead of guessing
     // flat home plate - a batted ball's contact height projects a little
     // differently than ground-level home does.
-    return { style: style, name: name, pathD: pathD, len: len, endPt: projected[projected.length - 1], startPt: projected[0] };
+    return {
+      style: style, name: name, pathD: pathD, len: len,
+      endPt: projected[projected.length - 1], startPt: projected[0],
+      shadowEndPt: shadowPts[shadowPts.length - 1],
+      shadowEndScale: shadowScaleAt(series.samples[series.samples.length - 1].z, apexFt),
+    };
   }
 
   // True when fielderNameLabelsHtml (below) will stack the same short/
@@ -3278,8 +3318,10 @@
     var handoffMs = throwSched.length ? Math.min.apply(null, throwSched.map(function (t) { return t.startMs; })) : null;
     var arc = ballArcHtml(m, flight, handoffMs);
     var fdelay = seqDelay || 0;
-    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms" +
-      (handoffMs != null ? ";--handoff:" + (handoffMs + fdelay) + "ms" : "");
+    var handoffVar = handoffMs != null ? ";--handoff:" + (handoffMs + fdelay) + "ms" : "";
+    var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms" + handoffVar;
+    var shadowVars = "--stx:" + arc.shadowEndPt.x.toFixed(1) + "px;--sty:" + arc.shadowEndPt.y.toFixed(1) +
+      "px;--sscale:" + arc.shadowEndScale.toFixed(2) + ";--dur:" + dur + "ms;--fdelay:" + fdelay + "ms" + handoffVar;
     var trailVars = "--len:" + arc.len.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms";
     // C1: red for an out, green for a hit - a play can be both (a sac fly),
     // and the ball itself having been caught wins that tie. Except a ground
@@ -3302,7 +3344,12 @@
     // deeper than before (the outer .ball<name> element still owns every
     // existing position/opacity animation untouched - a <g> takes CSS
     // transform/opacity animations exactly like the <circle> it replaces).
+    // Shadow first (Alex's ask: a ground-projected marker under the ball,
+    // sized proportional to height - lower means bigger), so it paints
+    // beneath the trail and the ball itself in document order.
     return arc.style +
+      '<ellipse class="ball-shadow' + cls + " " + arc.name + '" rx="' + SHADOW_RX + '" ry="' + SHADOW_RY +
+        '" style="' + shadowVars + '"></ellipse>' +
       '<path class="ball-trail' + cls + " " + arc.name + '" d="' + arc.pathD + '" style="' + trailVars + '"></path>' +
       '<g class="ball' + cls + " " + arc.name + '" style="' + moveVars + '">' +
         wheelBallIconSvg(BALL_R, "ball-body") +
