@@ -84,7 +84,7 @@ button{font-family:inherit;cursor:pointer;}
 
 /* ---- Title row ---- */
 /* Sticky (Alex's ask): stays reachable while scrolling through a long plays
-   list - the session selector and Key Moments/Favorites/Refresh/Settings
+   list - the season+session selector and Key Moments/Favorites/Settings
    controls are the things you'd actually want mid-scroll, not just the
    title text. An opaque background is required, not decorative - without
    one, scrolled-past content would show straight through once this is
@@ -97,7 +97,7 @@ button{font-family:inherit;cursor:pointer;}
 }
 .title-row h1{font-size:24px;margin:0;letter-spacing:normal;}
 .title-logo{width:36px;height:36px;border-radius:7px;flex:none;}
-.season-select,.session-select{
+.session-select{
   width:auto;min-width:132px;padding:6px 10px;font-size:14px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;
 }
@@ -107,11 +107,11 @@ button{font-family:inherit;cursor:pointer;}
    selector splitting off with the title the way it used to. */
 .title-actions{margin-left:auto;display:flex;align-items:center;gap:10px;}
 
-/* Icon-only, borderless, muted buttons - Refresh now matches the theme
-   toggle's treatment instead of looking like a separate bordered button, so
-   the two read as one family of small header controls. Both icons in
-   .theme-toggle ship in the markup; CSS picks whichever matches the theme so
-   there is no JS icon swap to keep in sync. */
+/* Icon-only, borderless, muted buttons - Refresh (now inside the Settings
+   panel) matches the theme toggle's treatment instead of looking like a
+   separate bordered button, so the settings-row controls read as one
+   family. Both icons in .theme-toggle ship in the markup; CSS picks
+   whichever matches the theme so there is no JS icon swap to keep in sync. */
 .icon-btn{
   display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
   width:28px;height:28px;padding:0;border:none;background:none;border-radius:6px;
@@ -136,9 +136,11 @@ button{font-family:inherit;cursor:pointer;}
 #header-fav-toggle.active svg{fill:currentColor;}
 
 /* Reserves no space at all when empty (the common case) - only takes a line
-   once app.js actually puts a message in it. */
-.refresh-status{font-size:12px;color:var(--muted);text-align:right;}
-.refresh-status:not(:empty){margin-bottom:10px;}
+   once app.js actually puts a message in it. Lives in the Settings panel's
+   modal-body now, left-aligned like the rest of that column rather than the
+   right-aligned treatment it needed back when it sat under the header. */
+.refresh-status{font-size:12px;color:var(--muted);}
+.refresh-status:not(:empty){margin-top:-4px;}
 
 /* ---- Scoreboard ---- */
 /* Sits above #scoreboard so "Updated X min ago" always has somewhere to
@@ -1678,13 +1680,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .sb-score{font-size:13px;}
   .sb-lev{font-size:9px;padding:2px 6px;}
 
-  /* Title + session selector + all four icon buttons (Key Moments,
-     Favorites, Refresh, Dark mode) share one line - title-actions keeps the
-     base rule's margin-left:auto (no longer overridden to a forced
-     full-width second line), which is what pushes the selector/icons to the
-     right end of the same row the heading is on. Shrinking the heading, the
-     selector, the icon buttons themselves, and the gaps between them is
-     what leaves enough room now that there are four icons instead of two. */
+  /* Title + the merged season+session selector + the three icon buttons
+     (Key Moments, Favorites, Settings) share one line - title-actions keeps
+     the base rule's margin-left:auto (no longer overridden to a forced
+     full-width second line), which is what pushes the selector/icons to
+     the right end of the same row the heading is on. Shrinking the heading,
+     the selector, the icon buttons themselves, and the gaps between them is
+     what leaves enough room. */
   .title-row{gap:6px;flex-wrap:nowrap;}
   .title-logo{width:26px;height:26px;}
   .title-row h1{font-size:16px;letter-spacing:normal;white-space:nowrap;}
@@ -1692,7 +1694,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .icon-btn{width:24px;height:24px;}
   .icon-btn svg{width:13px;height:13px;}
   .header-toggle-btn{display:inline-flex;}
-  .season-select,.session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
+  .session-select{min-width:0;width:auto;padding:4px 5px;font-size:11px;}
 
   /* 10c: collapsed filters bar and the sort chips share one line - same
      7px vertical padding as .sort-chip-row .chip below, so the two match

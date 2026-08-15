@@ -28,10 +28,13 @@
     <img class="title-logo" src="favicon.png" alt="" width="36" height="36">
     <h1 id="page-title">MLN GAMEDAY</h1>
     <div class="title-actions">
-      <!-- Hidden by app.js's populateSeasonSelect until at least one archive
-           season is committed to docs/data/sNN/. -->
-      <select id="season-select" class="season-select" aria-label="Season" hidden></select>
-      <select id="session-select" class="session-select" aria-label="Session"></select>
+      <!-- Merged season+session picker (app.js's populateSessionSelect) -
+           optgroups per season, "S13 · Session 17" style options. Archive
+           seasons only show up here once at least one is committed to
+           docs/data/sNN/; until then this behaves like a plain session
+           select scoped to the live season, same as before archive seasons
+           existed. -->
+      <select id="session-select" class="session-select" aria-label="Season and session"></select>
       <!-- Phone-only shortcuts mirroring #toggle-chips's keymoments/favorites
            buttons (hidden above 600px via .header-toggle-btn's CSS) - kept in
            sync with those chips in both directions by app.js. Key Moments
@@ -48,19 +51,11 @@
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
         </svg>
       </button>
-      <!-- Icon-only, borderless, muted - matches .settings-btn's treatment so
-           the two controls read as one family. -->
-      <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="23 4 23 10 17 10"></polyline>
-          <polyline points="1 20 1 14 7 14"></polyline>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-        </svg>
-      </button>
-      <!-- Opens the Settings panel - Manage Favorites, Dark/Light Mode and
-           Slideshow speed all live there now instead of as separate header
-           controls (theme-toggle keeps its id so theme.js's own wiring, which
-           looks it up directly, still finds it wherever it lives in the DOM). -->
+      <!-- Opens the Settings panel - Manage Favorites, Dark/Light Mode,
+           Refresh and Slideshow speed all live there now instead of as
+           separate header controls (theme-toggle keeps its id so theme.js's
+           own wiring, which looks it up directly, still finds it wherever
+           it lives in the DOM). -->
       <button type="button" class="icon-btn settings-btn" id="settings-btn" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"></circle>
@@ -69,7 +64,6 @@
       </button>
     </div>
   </div>
-  <div id="refresh-status" class="refresh-status"></div>
 
   <!-- Catch Me Up entry point. A banner rather than a 5th header icon: the
        title row's icon cluster is already tight on phone. app.js shows this
@@ -249,6 +243,21 @@
            slideshow's own control bar (Alex's ask) - one live control next to
            the thing it affects, instead of a setting buried in a separate
            panel. -->
+      <!-- Moved out of the sticky header (Alex's ask, for now) to leave room
+           there for the new season/session selector pair. Hidden entirely
+           while browsing a historical season (app.js's activateSeasonData) -
+           a finished season has nothing new to refresh. -->
+      <div class="settings-row">
+        <span>Data</span>
+        <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+      </div>
+      <div id="refresh-status" class="refresh-status"></div>
     </div>
   </div>
 </div>

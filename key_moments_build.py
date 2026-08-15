@@ -1420,20 +1420,30 @@ def _prune_stale_session_files(sessions: list[int], out_dir: str = OUT_DIR) -> N
             os.remove(os.path.join(out_dir, name))
 
 
-def _archive_seasons_on_disk() -> list[int]:
-    """Season numbers of already-committed docs/data/sNN/ archive dirs - how
-    the live build's meta.json tells the client what to offer (Part 2:
-    'discovered by scanning docs/data/s*/ in the checkout') without an extra
-    request.
+def _archive_seasons_on_disk() -> list[dict]:
+    """Already-committed docs/data/sNN/ archive dirs, each as {"season":
+    N, "sessions": [...]} - how the live build's meta.json tells the client
+    what to offer (Part 2: 'discovered by scanning docs/data/s*/ in the
+    checkout') without an extra request. Each archive season's own sessions
+    list rides along (read straight off that season's already-built
+    meta.json) so the client can build its season+session picker for every
+    season without fetching each one's data up front.
     """
     if not os.path.isdir(OUT_DIR):
         return []
     seasons = []
-    for name in os.listdir(OUT_DIR):
+    for name in sorted(os.listdir(OUT_DIR)):
         m = re.fullmatch(r"s(\d{2})", name)
-        if m and os.path.isdir(os.path.join(OUT_DIR, name)):
-            seasons.append(int(m.group(1)))
-    return sorted(seasons)
+        if not m or not os.path.isdir(os.path.join(OUT_DIR, name)):
+            continue
+        sessions = []
+        try:
+            with open(os.path.join(OUT_DIR, name, "meta.json"), encoding="utf-8") as fh:
+                sessions = json.load(fh).get("sessions", [])
+        except (OSError, ValueError):
+            pass
+        seasons.append({"season": int(m.group(1)), "sessions": sessions})
+    return sorted(seasons, key=lambda s: s["season"])
 
 
 def _fetch_archive_raw(sheet_id: str) -> dict:

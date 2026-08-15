@@ -16,7 +16,10 @@
 (function () {
   "use strict";
 
+  // /live/ is only for the current season's in-progress/just-finished games -
+  // mln-reference moves a game to /game/ once its season is no longer live.
   var GAME_LINK_BASE = "https://www.mln-reference.com/live/";
+  var GAME_LINK_BASE_ARCHIVE = "https://www.mln-reference.com/game/";
   var PLAYER_LINK_BASE = "https://www.mln-reference.com/player/";
 
   var data = {
@@ -56,7 +59,16 @@
   // costs no re-fetch. Historical season dirs are immutable once committed,
   // so nothing here needs invalidating.
   var season = { current: null, active: null, cache: {} };
-  var archiveSeasonsList = []; // from the live season's meta.archive_seasons, captured once at boot
+  // [{season, sessions}, ...] for every committed archive season - from the
+  // live season's meta.archive_seasons, captured once at boot (immutable
+  // once committed, so no need to refresh except when reloadData() re-reads
+  // the live meta in case a new archive season landed while the tab's open).
+  var archiveSeasonsMeta = [];
+  // The LIVE season's own session list, cached separately from data.meta -
+  // once a historical season is active, data.meta.sessions belongs to THAT
+  // season, but the merged season+session picker still needs to list the
+  // live season's own sessions as one of its groups.
+  var liveSeasonSessions = [];
 
   // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -551,8 +563,16 @@
         '<a class="counterpart-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.counterpart_id) +
         '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.counterpart_name) + "</a></span>"
       : "";
+    // Historical (not the live season currently being played) games moved to
+    // mln-reference's /game/ path - every card currently on screen belongs
+    // to whichever season is active, so this one check covers all of them.
+    var gameLinkBase = season.active !== season.current ? GAME_LINK_BASE_ARCHIVE : GAME_LINK_BASE;
+    // mln-reference's own game ids drop the season digit's leading zero
+    // (season 1-9) - game_code stays zero-padded everywhere else in this
+    // file (session/game lookups depend on the fixed 6-digit shape), so
+    // this strip is local to the outbound link only.
     var gameLink = m.game_code
-      ? '<a class="game-link" href="' + GAME_LINK_BASE + encodeURIComponent(m.game_code) +
+      ? '<a class="game-link" href="' + gameLinkBase + encodeURIComponent(String(Number(m.game_code))) +
         '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
         'aria-label="View this game on MLN Reference">↗︎</a>'
       : "";
@@ -6921,45 +6941,67 @@
 
   // ── controls ────────────────────────────────────────────────────────────────
 
-  function populateSessionSelect(keepSelection) {
-    var sel = $("session-select");
-    var sessions = data.meta.sessions || [];
-    // Plain integer - never "Session 03". meta.post_sessions (archive
-    // seasons only) flags which of these are playoffs, but that's not
-    // called out in the label - it ate too much width in the header.
-    sel.innerHTML = '<option value="">Full season</option>' +
-      sessions.map(function (s) {
-        return '<option value="' + s + '">Session ' + parseInt(s, 10) + "</option>";
-      }).join("");
-    if (keepSelection && (filters.session === null || sessions.indexOf(filters.session) !== -1)) {
-      sel.value = filters.session === null ? "" : String(filters.session);
-    } else if (sessions.length) {
-      filters.session = sessions[0];
-      sel.value = String(sessions[0]);
-    }
+  // One merged control for both season and session (Alex's ask - two
+  // selects side by side didn't save meaningful width over this, since the
+  // combined label repeats the season prefix on every option, but a single
+  // control is still one fewer border/padding/gap in the tight header row).
+  // Each option's value is "season|session" ("season|" for that season's
+  // "All" entry) so one change event carries both. Grouped by
+  // season via <optgroup> - archive seasons plus the live one, newest
+  // first - built from archiveSeasonsMeta/liveSeasonSessions rather than
+  // the active season's own data.meta, so every season's entries are always
+  // present regardless of which one is currently active.
+  function seasonSessionGroups() {
+    return archiveSeasonsMeta
+      .concat([{ season: season.current, sessions: liveSeasonSessions }])
+      .sort(function (a, b) { return b.season - a.season; });
   }
 
-  // Hidden entirely until at least one archive season is committed
-  // (archiveSeasonsList empty) - the site behaves exactly as it does today
-  // until then. Rebuilt only from archiveSeasonsList/season.current, never
-  // from the active season's own meta (historical meta.json files don't
-  // carry archive_seasons - only the live one does).
-  function populateSeasonSelect() {
-    var sel = $("season-select");
-    if (!sel) return;
-    if (!archiveSeasonsList.length) {
-      sel.hidden = true;
-      sel.innerHTML = "";
-      return;
+  // keepSelection: re-select whatever (season.active, filters.session) is
+  // right now - used on plain re-renders (e.g. reloadData) where neither
+  // has changed. forceSession (may be null for "Full season", or undefined
+  // to fall back to the active season's latest session) - used right after
+  // a season switch, to land on a specific session instead of always
+  // defaulting to the newest.
+  function populateSessionSelect(keepSelection, forceSession) {
+    var sel = $("session-select");
+    var groups = seasonSessionGroups();
+    // No archive seasons committed yet: behaves exactly like the old plain
+    // session select (no "S13 ·" prefix, no optgroup) - the merged picker
+    // only earns its keep once there's more than one season to pick from.
+    if (groups.length <= 1) {
+      var onlySessions = (groups[0] && groups[0].sessions || []).slice().sort(function (a, b) { return b - a; });
+      sel.innerHTML = ['<option value="' + season.current + '|">All</option>'].concat(
+        onlySessions.map(function (s) {
+          return '<option value="' + season.current + '|' + s + '">Session ' + parseInt(s, 10) + "</option>";
+        })
+      ).join("");
+    } else {
+      sel.innerHTML = groups.map(function (g) {
+        var label = "S" + g.season;
+        var sessions = (g.sessions || []).slice().sort(function (a, b) { return b - a; });
+        var opts = ['<option value="' + g.season + '|">' + label + " · All</option>"].concat(
+          sessions.map(function (s) {
+            return '<option value="' + g.season + '|' + s + '">' + label + " · Session " + parseInt(s, 10) + "</option>";
+          })
+        );
+        return '<optgroup label="' + label + '">' + opts.join("") + "</optgroup>";
+      }).join("");
     }
-    var seasons = archiveSeasonsList.slice().sort(function (a, b) { return b - a; });
-    var options = ['<option value="' + season.current + '">S' + season.current + "</option>"];
-    seasons.forEach(function (s) {
-      options.push('<option value="' + s + '">S' + s + "</option>");
-    });
-    sel.innerHTML = options.join("");
-    sel.value = String(season.active);
-    sel.hidden = false;
+
+    var activeGroup = groups.filter(function (g) { return g.season === season.active; })[0];
+    var activeSessions = (activeGroup && activeGroup.sessions) || [];
+
+    var target;
+    if (forceSession !== undefined) {
+      target = forceSession;
+    } else if (keepSelection && (filters.session === null || activeSessions.indexOf(filters.session) !== -1)) {
+      target = filters.session;
+    } else {
+      target = activeSessions.length ? activeSessions[0] : null;
+    }
+    filters.session = target;
+    sel.value = season.active + "|" + (target === null ? "" : target);
   }
 
   // Everything reloadData()/boot() already re-render after a fresh data
@@ -6968,7 +7010,7 @@
   // populateSessionSelect below) always; team, since abbreviations differ
   // across seasons. playerId is a global human id (Part 0 finding 9) and
   // survives untouched.
-  function activateSeasonData() {
+  function activateSeasonData(targetSession) {
     rookieIds = null; // rebuild from the newly-active season's roster
     filters.selectedGame = null;
     filters.team = "";
@@ -6977,8 +7019,7 @@
     $("built-at").textContent = historical
       ? "Season " + season.active + " archive"
       : formatBuiltAt(data.meta.built_at);
-    populateSeasonSelect();
-    populateSessionSelect(false);
+    populateSessionSelect(false, targetSession);
     renderScoreboard();
     populateTeamSelect();
     populateTagChips();
@@ -6998,7 +7039,8 @@
     // to fetch) and Catch Me Up (meaningless for a season that's over, and
     // its cursor must not advance just from browsing history).
     var refreshBtn = $("refresh-btn");
-    if (refreshBtn) refreshBtn.hidden = historical;
+    var refreshRow = refreshBtn && refreshBtn.closest(".settings-row");
+    if (refreshRow) refreshRow.hidden = historical;
     if (historical) {
       var status = $("refresh-status");
       if (status) status.textContent = "";
@@ -7035,7 +7077,7 @@
   // is never served from cache - it keeps changing under a long-running
   // tab, so returning to it always re-fetches fresh (bust() + no-store,
   // same as boot/reloadData).
-  function setActiveSeason(n) {
+  function setActiveSeason(n, targetSession) {
     if (n === season.active) return Promise.resolve();
     season.cache[season.active] = snapshotSeasonData();
 
@@ -7047,14 +7089,14 @@
       ]).then(function (res) {
         applySeasonData({ moments: res[0], players: res[1], meta: res[2], playsBySession: {}, catchUpGroups: null });
         season.active = n;
-        activateSeasonData();
+        activateSeasonData(targetSession);
       });
     }
 
     if (season.cache[n]) {
       applySeasonData(season.cache[n]);
       season.active = n;
-      activateSeasonData();
+      activateSeasonData(targetSession);
       return Promise.resolve();
     }
 
@@ -7066,7 +7108,7 @@
     ]).then(function (res) {
       applySeasonData({ moments: res[0], players: res[1], meta: res[2], playsBySession: {}, catchUpGroups: null });
       season.active = n;
-      activateSeasonData();
+      activateSeasonData(targetSession);
     });
   }
 
@@ -7213,28 +7255,32 @@
       this.querySelector(".caret").textContent = collapsed ? "▾" : "▴";
     });
 
+    // One merged season+session control - value is "season|session" (empty
+    // session part = "All"). Switching within the active season is a plain
+    // filter change; switching season goes through setActiveSeason, landing
+    // directly on the picked session via its targetSession param instead of
+    // defaulting to the season's latest and re-rendering twice.
     $("session-select").addEventListener("change", function (e) {
-      filters.session = e.target.value === "" ? null : Number(e.target.value);
-      deselectScoreboardTile();
-      renderScoreboard();
-      renderMaybeLoading();
-    });
-
-    var seasonSel = $("season-select");
-    if (seasonSel) {
-      seasonSel.addEventListener("change", function (e) {
-        var n = Number(e.target.value);
-        var prev = season.active;
-        seasonSel.disabled = true;
-        setActiveSeason(n).then(function () {
-          seasonSel.disabled = false;
-        }).catch(function () {
-          seasonSel.disabled = false;
-          seasonSel.value = String(prev);
-          toast("Could not load that season.");
-        });
+      var sessSel = e.target;
+      var parts = sessSel.value.split("|");
+      var n = Number(parts[0]);
+      var sess = parts[1] === "" ? null : Number(parts[1]);
+      if (n === season.active) {
+        filters.session = sess;
+        deselectScoreboardTile();
+        renderScoreboard();
+        renderMaybeLoading();
+        return;
+      }
+      sessSel.disabled = true;
+      setActiveSeason(n, sess).then(function () {
+        sessSel.disabled = false;
+      }).catch(function () {
+        sessSel.disabled = false;
+        populateSessionSelect(true);
+        toast("Could not load that season.");
       });
-    }
+    });
 
     window.addEventListener("resize", scheduleScoreboardResize);
 
@@ -7566,9 +7612,9 @@
       data.moments = res[0];
       data.meta = res[1];
       data.playsBySession = {};   // stale once the feed moves
-      archiveSeasonsList = (data.meta.archive_seasons || []).slice();
+      archiveSeasonsMeta = (data.meta.archive_seasons || []).slice();
+      liveSeasonSessions = (data.meta.sessions || []).slice();
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      populateSeasonSelect();
       populateSessionSelect(true);
       renderScoreboard();
       populateTeamSelect();
@@ -7688,7 +7734,7 @@
     }
     if (link.season === season.current) {
       open();
-    } else if (archiveSeasonsList.indexOf(link.season) !== -1) {
+    } else if (archiveSeasonsMeta.some(function (s) { return s.season === link.season; })) {
       setActiveSeason(link.season).then(open).catch(function () {
         toast("Could not load that game's season.");
       });
@@ -7709,9 +7755,9 @@
       data.meta = res[2];
       season.current = data.meta.season;
       season.active = season.current;
-      archiveSeasonsList = (data.meta.archive_seasons || []).slice();
+      archiveSeasonsMeta = (data.meta.archive_seasons || []).slice();
+      liveSeasonSessions = (data.meta.sessions || []).slice();
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      populateSeasonSelect();
       populateSessionSelect(false);
       renderScoreboard();
       populateTeamSelect();
