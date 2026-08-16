@@ -13,6 +13,15 @@ table has exactly one row per result code.
 Run from the project root:
     python compute_result_diff_bands.py
     python compute_result_diff_bands.py --season-start 10
+
+Historical seasons 1-4 play differently enough from the modern game (Part 0
+finding of historical-seasons-implementation-plan.md) that they get their own
+band set rather than being pooled into the same one as 5+ - same method, a
+separate MLN diff sample. Statcast itself doesn't change between pools
+(compute_flight_ranges.py has no season dimension at all), so --flight-source
+always pulls the la/ev/depth columns forward from the canonical file, even
+when writing a brand-new --out that doesn't have them yet itself:
+    python compute_result_diff_bands.py --season-start 1 --season-end 4 --out result_diff_bands_s1_4.csv
 """
 from __future__ import annotations
 
@@ -90,7 +99,12 @@ def _season_of(row: dict) -> int | None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--season-start", type=int, default=5, help="lowest season to include (default 5)")
+    ap.add_argument("--season-end", type=int, default=None, help="highest season to include (default: no cap)")
     ap.add_argument("--out", default=OUT_CSV, help=f"output CSV path (default {OUT_CSV})")
+    ap.add_argument("--flight-source", default=OUT_CSV,
+                     help=f"CSV to pull the existing Statcast la/ev/depth columns forward from "
+                          f"(default {OUT_CSV} - the canonical file every pool shares, since "
+                          f"Statcast itself has no season dimension)")
     args = ap.parse_args()
 
     print(f"Fetching {LEAGUE} plays from Supabase...")
@@ -112,7 +126,7 @@ def main() -> None:
         if season is None:
             dropped_season += 1
             continue
-        if season < args.season_start:
+        if season < args.season_start or (args.season_end is not None and season > args.season_end):
             dropped_old += 1
             continue
         if str(row.get("play_type") or "") != "Swing":
@@ -136,7 +150,8 @@ def main() -> None:
         kept.append((result, diff))
 
     print(f"Dropped {dropped_season:,} plays with a missing/unparseable season")
-    print(f"Dropped {dropped_old:,} plays before season {args.season_start}")
+    season_range = f"season {args.season_start}" + ("" if args.season_end is None else f"-{args.season_end}") + " range"
+    print(f"Dropped {dropped_old:,} plays outside the {season_range}")
     print(f"Dropped {dropped_type:,} non-Swing plays")
     print(f"Dropped {dropped_pitch_swing:,} Swing plays missing pitch/swing")
     if unmapped:
@@ -180,14 +195,20 @@ def main() -> None:
     out = pd.DataFrame(rows).sort_values(["archetype", "result"])
 
     # Preserve the Statcast-derived flight columns (laMin/laIdeal/laMax/
-    # evMin/evMax/depthMin/depthMax/flight_source) already sitting in the
-    # existing output file - this script only ever recomputes band_lo/
-    # band_hi/n/source from MLN's own diff history, so a plain overwrite
-    # would silently wipe those out from underneath it. Rows this script
-    # adds/drops (a new/retired result code) just carry blank flight columns
-    # until someone reruns the separate Statcast pull for them.
+    # evMin/evMax/depthMin/depthMax/flight_source) already sitting in
+    # --flight-source (default: this same --out file, so a normal rerun works
+    # exactly as before) - this script only ever recomputes band_lo/band_hi/
+    # n/source from MLN's own diff history, so a plain overwrite would
+    # silently wipe those out from underneath it. Pointing --flight-source at
+    # the canonical result_diff_bands.csv when writing a brand-new --out (a
+    # second season pool, say) seeds it with the same Statcast numbers
+    # instead of leaving them blank on first generation - Statcast itself has
+    # no season dimension, so every pool shares one set of la/ev/depth
+    # columns. Rows this script adds/drops (a new/retired result code) just
+    # carry blank flight columns until someone reruns the separate Statcast
+    # pull for them.
     try:
-        prev = pd.read_csv(args.out)
+        prev = pd.read_csv(args.flight_source)
         flight_cols = [c for c in prev.columns if c not in out.columns]
         if flight_cols:
             out = out.merge(prev[["result"] + flight_cols], on="result", how="left")

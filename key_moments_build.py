@@ -1171,7 +1171,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted({m["result"] for m in rows if m["result"] is not None})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
-        "flight": _flight_meta(),
+        "flight": _flight_meta(archive_season),
         # One scoreboard per session, keyed by session number as a string
         # (JSON object keys are always strings) - the page shows whichever
         # one matches its session selector and hides the section entirely
@@ -1187,11 +1187,18 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
     return rows, roster, meta
 
 
-def _flight_meta() -> dict:
-    """meta.flight: the ball-flight staging table, read through utils._DIFF_BANDS
-    the same way every other precomputed CSV reaches this build, plus the
-    exclusion list as data so app.js has one definition of in-scope-for-flight
-    rather than a second hardcoded copy of FLIGHT_EXCLUDED.
+def _flight_meta(archive_season: int | None = None) -> dict:
+    """meta.flight: the ball-flight staging table, read through
+    utils.get_diff_bands(archive_season) the same way every other
+    precomputed CSV reaches this build, plus the exclusion list as data so
+    app.js has one definition of in-scope-for-flight rather than a second
+    hardcoded copy of FLIGHT_EXCLUDED.
+
+    Historical seasons 1-4 get their own band_lo/band_hi per result (Alex's
+    ask - compute_result_diff_bands.py --season-start 1 --season-end 4),
+    selected here by archive_season; every other season (5-12, and the live
+    current one) keeps the existing pooled bands. la/ev/depth/stations are
+    identical between pools either way - Statcast has no season dimension.
 
     Each band now carries its own laMin/laIdeal/laMax/evMin/evMax/depthMin/
     depthMax directly (real, per-MLN-result Statcast-derived numbers) instead
@@ -1239,7 +1246,7 @@ def _flight_meta() -> dict:
                 for st in utils._FLIGHT_STATIONS.get(result, [])
             ],
         }
-        for result, row in utils._DIFF_BANDS.items()
+        for result, row in utils.get_diff_bands(archive_season).items()
     }
     no_pa = sorted(STEAL_SUCCESS_CODES | CAUGHT_STEALING_CODES | {"Balk"})
     return {"bands": bands, "excluded": FLIGHT_EXCLUDED, "no_pa": no_pa}

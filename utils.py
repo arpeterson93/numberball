@@ -480,6 +480,18 @@ def remaining_half_innings(inning: int, half: str, innings: int = _WP_INNINGS) -
     return int(reg) if reg > 0 else (2 if half == "top" else 1)
 
 
+def _wp_or(x: float | None, default: float = 0.5) -> float:
+    """`x if x is not None else default` - every caller below used to write
+    `x or default`, which is wrong here: a legitimate win probability can be
+    exactly 0.0 (a state that's already decided), and 0.0 is falsy in Python,
+    so `or` silently replaced a real "this team has essentially no chance"
+    answer with a coin-flip 0.5. That fallback was only ever meant to catch
+    a genuinely missing table entry (None) - found via a real leverage bug
+    report (a leverage of 2.3+ in a top-4th, 1-out, down-by-10 state, where
+    a double/triple's own real post-play win probability is 0.0, not 0.5)."""
+    return default if x is None else x
+
+
 def get_win_probability_interpolated(
     remaining_half_innings_: int,
     outs: int,
@@ -596,6 +608,14 @@ def _load_state_frequencies() -> None:
 # result -> {archetype, band_lo, band_hi, source}, from result_diff_bands.csv
 # (compute_result_diff_bands.py).
 _DIFF_BANDS: dict[str, dict] = {}
+# Historical seasons 1-4 get their own band set (Alex's ask) - same method
+# (compute_result_diff_bands.py --season-start 1 --season-end 4), a separate
+# MLN diff sample. Statcast itself has no season dimension (compute_flight_
+# ranges.py pulls one real-MLB season, independent of MLN), so la/ev/depth
+# are identical between this and _DIFF_BANDS - only band_lo/band_hi/n/source
+# (MLN's own diff history) actually differ. get_diff_bands(season) is the one
+# place that decides which pool a given season's plays use.
+_DIFF_BANDS_S1_4: dict[str, dict] = {}
 # result_diff_bands.csv is now the single source for everything ball-flight
 # needs per result - the old separate ball_flight_archetypes.csv (la_min/
 # la_max/ev_min/ev_max/depth_min/depth_max shared by archetype) is retired:
@@ -613,24 +633,41 @@ _DIFF_BANDS: dict[str, dict] = {}
 # `archetype` is kept as a plain category
 # label - app.js's CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES
 # still branch on it - not as a lookup key into a second numeric table.
-def _load_result_diff_bands() -> None:
-    global _DIFF_BANDS
+def _read_diff_bands_csv(path: str) -> dict[str, dict]:
     try:
-        _bdf = pd.read_csv("result_diff_bands.csv")
-        _DIFF_BANDS = {
-            str(r["result"]): {
-                "archetype": str(r["archetype"]),
-                "band_lo": int(r["band_lo"]),
-                "band_hi": int(r["band_hi"]),
-                "source": str(r["source"]),
-                "la_min": float(r["la_min"]), "la_ideal": float(r["la_ideal"]), "la_max": float(r["la_max"]),
-                "ev_min": float(r["ev_min"]), "ev_max": float(r["ev_max"]),
-                "depth_min": float(r["depth_min"]), "depth_max": float(r["depth_max"]),
-            }
-            for _, r in _bdf.iterrows()
-        }
+        _bdf = pd.read_csv(path)
     except FileNotFoundError:
-        pass
+        return {}
+    return {
+        str(r["result"]): {
+            "archetype": str(r["archetype"]),
+            "band_lo": int(r["band_lo"]),
+            "band_hi": int(r["band_hi"]),
+            "source": str(r["source"]),
+            "la_min": float(r["la_min"]), "la_ideal": float(r["la_ideal"]), "la_max": float(r["la_max"]),
+            "ev_min": float(r["ev_min"]), "ev_max": float(r["ev_max"]),
+            "depth_min": float(r["depth_min"]), "depth_max": float(r["depth_max"]),
+        }
+        for _, r in _bdf.iterrows()
+    }
+
+
+def _load_result_diff_bands() -> None:
+    global _DIFF_BANDS, _DIFF_BANDS_S1_4
+    _DIFF_BANDS = _read_diff_bands_csv("result_diff_bands.csv")
+    _DIFF_BANDS_S1_4 = _read_diff_bands_csv("result_diff_bands_s1_4.csv")
+
+
+def get_diff_bands(season: int | None) -> dict[str, dict]:
+    """The diff-band table for a given season - _DIFF_BANDS_S1_4 for seasons
+    1-4, the regular (5+, and the live current season) _DIFF_BANDS otherwise.
+    Falls back to _DIFF_BANDS whenever the 1-4 pool hasn't been generated yet
+    (file missing) so an archive build for those seasons still works, just
+    without the split.
+    """
+    if season is not None and season <= 4 and _DIFF_BANDS_S1_4:
+        return _DIFF_BANDS_S1_4
+    return _DIFF_BANDS
 
 
 # result -> [station, ...] (sorted by station_idx), from flight_stations.csv
@@ -685,7 +722,18 @@ def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead
     entry = _BRC_RUN_LOOKUP.get((result, obc, outs))
     if entry is not None:
         runs_f, new_obc, eouts = entry
-        new_outs = outs + eouts
+        # import_BRC.csv's eOuts is already the ABSOLUTE ending out count for
+        # this situation (verified against the sheet: "1_0_1B" - 1 out
+        # before, a single, which adds none - has eOuts=1, not 0; "0_0_GO"
+        # has eOuts=1, "1_0_GO" has eOuts=2), not a delta to add to `outs`.
+        # Adding them double-counted the outs already reflected in eOuts -
+        # e.g. a bug report: an ordinary single with the bases empty and 1
+        # out was computing new_outs=2, tipping win probability/leverage
+        # into nonsense (wp_post_play falling through to a 3-outs branch, or
+        # landing on a state get_win_probability_interpolated has thin/zero
+        # coverage for, whose legitimate 0.0 then got swallowed by the `or
+        # 0.5` fallback below - both read as wildly wrong leverage).
+        new_outs = eouts
     else:
         new_obc, runs_int = advance_runners(result, obc, outs)
         runs_f   = float(runs_int)
@@ -693,7 +741,7 @@ def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead
     new_outs = min(new_outs, 3)
     new_bl   = batting_lead + int(round(runs_f))
     if new_outs < 3:
-        return get_win_probability_interpolated(remaining, new_outs, new_obc, new_bl) or 0.5
+        return _wp_or(get_win_probability_interpolated(remaining, new_outs, new_obc, new_bl))
     if remaining > 1:
         # Handing the bat to the other team for remaining-1. If that next half
         # is the bottom of the last inning and they are already ahead, the game
@@ -708,7 +756,7 @@ def _wp_post_play(result: str, remaining: int, outs: int, obc: str, batting_lead
         # a badly wrong number.
         if remaining - 1 == 1 and -new_bl > 0:
             return 0.0
-        return 1.0 - (get_win_probability_interpolated(remaining - 1, 0, "000", -new_bl) or 0.5)
+        return 1.0 - _wp_or(get_win_probability_interpolated(remaining - 1, 0, "000", -new_bl))
     return 1.0 if new_bl > 0 else (0.5 if new_bl == 0 else 0.0)
 
 
@@ -740,7 +788,7 @@ def _compute_avg_wp_swing() -> None:
         ranges = _RE24_RANGES.get((outs, obc_s))
         if not ranges:
             continue
-        wp_cur = get_win_probability_interpolated(rem, outs, obc_s, 0) or 0.5
+        wp_cur = _wp_or(get_win_probability_interpolated(rem, outs, obc_s, 0))
         swing  = sum(
             min((hi - lo + 1) * 2 / 1000, 1.0) * abs(_wp_post_play(res, rem, outs, obc_s, 0) - wp_cur)
             for res, lo, hi in ranges
@@ -838,7 +886,7 @@ def compute_game_wp_series(
 
     # "Start" point: WP before any play (top of 1st, 0-0)
     rem0 = remaining_half_innings(1, "top", innings)
-    wp0  = get_win_probability_interpolated(rem0, 0, "000", 0) or 0.5
+    wp0  = _wp_or(get_win_probability_interpolated(rem0, 0, "000", 0))
     rows.append({
         "play_idx":   0,
         "inn_label":  "Start",
@@ -908,7 +956,7 @@ def compute_game_wp_series(
             bat_score   = home_score if is_home_nxt else away_score
             fld_score   = away_score if is_home_nxt else home_score
             rem         = remaining_half_innings(nxt_inning, nxt_half, innings)
-            wp_bat      = get_win_probability_interpolated(rem, nxt_outs, nxt_obc, bat_score - fld_score) or 0.5
+            wp_bat      = _wp_or(get_win_probability_interpolated(rem, nxt_outs, nxt_obc, bat_score - fld_score))
             home_wp     = wp_bat if is_home_nxt else 1.0 - wp_bat
         else:
             # Last play with no detected game-end - approximate from post-play state.
@@ -922,13 +970,13 @@ def compute_game_wp_series(
             if new_outs >= 3:
                 nxt_rem = remaining_half_innings(inning, half, innings) - 1
                 if nxt_rem >= 1:
-                    opp_wp  = get_win_probability_interpolated(nxt_rem, 0, "000", -(bat_score - fld_score)) or 0.5
+                    opp_wp  = _wp_or(get_win_probability_interpolated(nxt_rem, 0, "000", -(bat_score - fld_score)))
                     home_wp = (1.0 - opp_wp) if is_home else opp_wp
                 else:
                     home_wp = 1.0 if (home_score > away_score) else (0.5 if home_score == away_score else 0.0)
             else:
                 rem     = remaining_half_innings(inning, half, innings)
-                wp_bat  = get_win_probability_interpolated(rem, new_outs, new_obc_s, bat_score - fld_score) or 0.5
+                wp_bat  = _wp_or(get_win_probability_interpolated(rem, new_outs, new_obc_s, bat_score - fld_score))
                 home_wp = wp_bat if is_home else 1.0 - wp_bat
 
         inn_lbl   = inning_label(inning, half)
