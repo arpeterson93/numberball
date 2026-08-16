@@ -18,6 +18,7 @@
     players: [],
     loaded: false,
     onChange: null,
+    onNameReady: null,
     saveTimer: null,
     lastSeenIso: null,   // Catch Me Up cursor, naive Central - see centralNowIso()
   };
@@ -182,7 +183,16 @@
     try {
       window.localStorage.setItem(NAME_KEY, state.name);
     } catch (e) { /* ignore */ }
-    return load();
+    // onNameReady (distinct from onChange, which also fires on every plain
+    // star toggle): fires once, specifically when a name becomes known -
+    // whether from a stored name at init or typed fresh mid-session - so a
+    // caller can recompute anything that depends on "do we have a name yet"
+    // (app.js's Catch Me Up banner/count) without re-running on every
+    // unrelated favorites mutation. load()'s own promise always resolves
+    // (its .catch swallows the network failure), so this fires either way.
+    return load().then(function () {
+      if (state.onNameReady) state.onNameReady();
+    });
   }
 
   function renderList(filter) {
@@ -280,9 +290,10 @@
     // 9), new roster to search/list against. Not a re-init - name/ids/
     // onChange and the wired panel all stay put.
     setPlayers: function (players) { state.players = players || []; },
-    init: function (players, onChange) {
+    init: function (players, onChange, onNameReady) {
       state.players = players || [];
       state.onChange = onChange || null;
+      state.onNameReady = onNameReady || null;
       state.ids = new Set(readLocalIds().map(Number));
       wirePanel();
       var stored = null;

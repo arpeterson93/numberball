@@ -348,6 +348,16 @@
       <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 3 3 3 3 8"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="3 16 3 21 8 21"></polyline><polyline points="21 16 21 21 16 21"></polyline></svg>
       <svg class="icon-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 8 8 8 8 3"></polyline><polyline points="21 8 16 8 16 3"></polyline><polyline points="8 21 8 16 3 16"></polyline><polyline points="16 21 16 16 21 16"></polyline></svg>
     </button>
+    <!-- Just left of the close button (Alex's ask) - opens the Methodology
+         panel, a plain-language writeup of how a play's pitch/swing gets
+         turned into the ball flight/defense shown here. -->
+    <button type="button" class="catchup-info" id="replay-info" title="How this works" aria-label="How this works">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="11" x2="12" y2="16.5"></line>
+        <circle cx="12" cy="7.8" r="1.15" fill="currentColor" stroke="none"></circle>
+      </svg>
+    </button>
     <button type="button" class="catchup-close" id="replay-close" aria-label="Close">&times;</button>
     <div class="catchup-progress" id="replay-progress"></div>
     <div class="catchup-slide" id="replay-slide"></div>
@@ -358,6 +368,60 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
     </button>
     <div class="catchup-pause-hint" id="replay-pause-hint" hidden>Paused - tap to resume</div>
+  </div>
+  <!-- Methodology panel - opened by the (i) button above. A child of
+       #replay-modal itself (the element that actually goes fullscreen -
+       wireFullscreenToggle("replay-modal", ...)), not a sibling, so it's
+       still visible/clickable when the replay is fullscreened - the real
+       Fullscreen API only renders the fullscreened element's own subtree.
+       Plain modal-card treatment, same as Settings/Favorites. Content is a
+       first draft (Alex's call) - expect revisions. -->
+  <div class="modal" id="methodology-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>How this works</strong>
+        <button type="button" class="link-btn" id="methodology-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <p class="methodology-text">
+          Every play in MLN's log carries two encoded numbers - the pitch and the swing - and
+          the result they produced (single, flyout, home run, etc). We don't decide what
+          happened; that's already locked in by MLN's own calculator. What we add is
+          <em>how it looked</em>.
+        </p>
+        <p class="methodology-text">
+          First, we measure how well-timed the swing was against the pitch (their circular
+          distance) and use that to place this specific play somewhere within the real range
+          of contact quality that historically produces its result - a clean, centered read on
+          the ball vs. a barely-there mishit that still sneaks out for a double, say. That
+          score picks one specific real launch angle / exit velocity / distance combination
+          from actual MLB Statcast data logged for that outcome - never two independently
+          guessed numbers that might not physically go together. Which side of the pitch the
+          swing landed on decides pull vs. opposite-field direction, mirrored for the batter's
+          handedness.
+        </p>
+        <p class="methodology-text">
+          That real (speed, angle, direction) triple then runs through an actual physics
+          simulation - drag and lift, not a canned animation - to produce the real arc: hang
+          time, height, landing spot, and for grounders, the roll. Because re-running a real
+          Statcast pair through our own physics can land a hair off from that pair's own
+          recorded distance, we rescale the visual landing point to match the real distance
+          while keeping the true shape and timing of the flight.
+        </p>
+        <p class="methodology-text">
+          Finally, since the result is already fixed, the simulated flight has to agree with
+          it. If the physics would send a grounder or fly ball toward a fielder that
+          contradicts what MLN's log says actually happened, we nudge the direction just far
+          enough to land it in the right fielder's zone - grounders get raced against every
+          plausible infielder's real starting depth and speed to see who'd actually reach it
+          first (sometimes a different fielder than first guessed), and fly balls get clamped
+          into the real fielder's outfield third rather than teleported to a fixed spot.
+          Either way, the real exit velocity, launch angle, and distance for that play never
+          change - only the direction, just enough to make the picture agree with the outcome
+          that already happened.
+        </p>
+      </div>
+    </div>
   </div>
 </div>
 

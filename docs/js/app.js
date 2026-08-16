@@ -1000,34 +1000,78 @@
       .sort(function (a, b) { return a.play_num - b.play_num; });
   }
 
+  // The on-deck "Now Batting" placeholder isn't a real new play - it just
+  // inherits its game's last real play's own timestamp (key_moments_build.
+  // py's _next_batter_moment never overrides that field), so it rides along
+  // into `groups` whenever that real play itself is new. Excluded from the
+  // headline count (Alex's ask) but left in buildCatchUpSlides's own reel -
+  // still worth showing as "who's up next" context to close out a game.
   function catchUpPlayCount(groups) {
-    return (groups || []).reduce(function (n, g) { return n + g.plays.length; }, 0);
+    return (groups || []).reduce(function (n, g) {
+      return n + g.plays.filter(function (p) { return !p.is_on_deck; }).length;
+    }, 0);
   }
+
+  // Auto-fade timer for the "You're All Caught Up" state below - tracked so
+  // a fresh render (another computeCatchUp run, say) always cancels
+  // whatever fade was previously scheduled rather than stacking timers that
+  // could hide a LATER, different banner state out from under the viewer.
+  var catchUpCaughtUpTimer = null;
+  var CATCH_UP_CAUGHT_UP_MS = 30000;
 
   /* Banner states, in the order they are checked:
        no name        - quiet prompt, opens the Favorites modal (that modal
                         already leads with the name input, so there is no
                         second name-prompt UI to build)
-       nothing new    - hidden entirely, rather than a standing "all caught up"
-                        line that would just be noise on every visit
+       computing      - a name is known but computeCatchUp hasn't resolved
+                        yet (data.catchUpGroups still null - loadAllSessions
+                        takes a real moment) - a spinner placeholder instead
+                        of the banner just staying absent for however long
+                        that takes (Alex's ask).
+       nothing new    - same prominent format as "something new" below, just
+                        saying "You're All Caught Up" - fades out on its own
+                        after CATCH_UP_CAUGHT_UP_MS rather than standing
+                        forever (Alex's ask: confirm the check actually ran,
+                        without becoming permanent noise on every visit).
        something new  - prominent, with the count */
   function renderCatchUpBanner() {
     var el = $("catchup-banner");
     if (!el) return;
+    window.clearTimeout(catchUpCaughtUpTimer);
+    el.classList.remove("fading");
     var fav = window.KMFavorites;
     if (fav && !fav.hasName()) {
       el.hidden = false;
       el.classList.add("quiet");
+      el.classList.remove("loading", "caught-up");
       el.textContent = "Catch Me Up - add your name to track what's new";
       return;
     }
+    if (data.catchUpGroups === null) {
+      el.hidden = false;
+      el.classList.remove("quiet", "caught-up");
+      el.classList.add("loading");
+      el.innerHTML = '<span class="catchup-spinner" aria-hidden="true"></span>Checking for new plays...';
+      return;
+    }
+    el.classList.remove("loading");
     var count = catchUpPlayCount(data.catchUpGroups);
     if (!count) {
-      el.hidden = true;
+      el.hidden = false;
+      el.classList.remove("quiet");
+      el.classList.add("caught-up");
+      el.textContent = "You're All Caught Up";
+      catchUpCaughtUpTimer = window.setTimeout(function () {
+        el.classList.add("fading");
+        // Matches the CSS transition length (see .catchup-banner.fading) -
+        // hidden only once the fade has actually finished playing, so it
+        // doesn't just vanish mid-transition on a slow frame.
+        window.setTimeout(function () { el.hidden = true; }, 650);
+      }, CATCH_UP_CAUGHT_UP_MS);
       return;
     }
     el.hidden = false;
-    el.classList.remove("quiet");
+    el.classList.remove("quiet", "caught-up");
     // An SVG triangle, not a "▶" text glyph - iOS renders that glyph with its
     // own colored emoji presentation, which reads differently there than the
     // plain monochrome arrow desktop browsers show for the same character.
@@ -1201,7 +1245,10 @@
       gamePlays.forEach(function (p, i) { byNum[p.play_num] = i; });
       var ribbonFrom = g.plays.length ? (byNum[g.plays[0].play_num] || 0) : 0;
       g.plays.forEach(function (p) {
-        playNo += 1;
+        // Doesn't advance the counter for the on-deck placeholder (matches
+        // catchUpPlayCount's own exclusion) - it just repeats the last real
+        // play's number rather than pushing playNo past total.
+        if (!p.is_on_deck) playNo += 1;
         slides.push({
           kind: "play", play: p, group: g, playNo: playNo, total: total,
           gamePlays: gamePlays,
@@ -2569,10 +2616,29 @@
   // the race below prices that in for free without needing an explicit
   // exclusion), so there's no point racing them.
   var CHARGE_CANDIDATE_POSITIONS = ["P", "C", "1B", "2B", "3B", "SS"];
+  // Outfielders racing a single (resolveSinglePickup, below) - the same
+  // charge-in race, just the other three positions. Reuses
+  // FIELDER_CHARGE_FT_PER_S/CHARGE_REACTION_S unchanged (a fielder closing
+  // on a single to hold the batter is the same "controlled charge, glove
+  // down, come up ready to throw" action as an infielder's, not a flat-out
+  // sprint) - split into its own constant later if that assumption turns
+  // out wrong for the longer outfield closing distances.
+  var OF_CHARGE_CANDIDATE_POSITIONS = ["LF", "CF", "RF"];
+  // CHARGE_REACTION_S only applies once a fielder actually has to move
+  // (distFt>0) - a fielder whose own position sits exactly on the ball's
+  // path (the camped/naive candidate's own canonical depth, most commonly)
+  // doesn't need to "recognize and break" toward something arriving right
+  // at him; he's already there, glove down (Alex's ask). Without this, a
+  // hard-hit ball could scream past a fielder's own standing spot before
+  // his 0.15s reaction alone was up, sending the race chasing the ball's
+  // full, un-intercepted natural roll instead - real report: a synthetic
+  // 65mph "grounder" the camped 2B was standing right on top of still
+  // ended up "fielded" 130ft past his own depth, because the race never
+  // credited him with blocking it as it arrived.
   function chargeFielderArriveS(anchor, flight, alongFt) {
     var p = groundDirPoint(flight, alongFt);
     var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
-    return CHARGE_REACTION_S + distFt / FIELDER_CHARGE_FT_PER_S;
+    return (distFt > 0 ? CHARGE_REACTION_S : 0) + distFt / FIELDER_CHARGE_FT_PER_S;
   }
   // Earliest point along the ball's own roll (0..gp.restFt) where this one
   // fielder's own charge-in catches up to it, real seconds since contact for
@@ -2592,10 +2658,39 @@
   // for them - the fielder's own travel time to that dead-ball spot is what
   // actually gates the play at that point, not the ball's (already-elapsed)
   // arrival there.
-  function fielderInterceptS(anchor, flight, gp) {
-    var restFt = gp.restFt;
+  // maxAlongFt (optional): caps how far along the roll this race even looks,
+  // below the ball's own natural friction-decay rest point (gp.restFt) -
+  // used for bunt/infield_single (resolveGrounderInterception's own
+  // STAYS_IN_INFIELD_ARCHETYPES check), whose ball is never allowed to
+  // reach the outfield grass regardless of whether any fielder actually
+  // gets to it in time. Every other archetype passes null and races the
+  // ball's own real rest point unchanged.
+  // knownAlongFt (optional): the one along-distance we have an ANALYTIC
+  // reason to check directly, rather than trust the coarse grid below to
+  // land near - chargeInIntercept passes the camped candidate's own
+  // campedAlongFt here, since that's exactly where distFt (in
+  // chargeFielderArriveS) hits zero and h() can dip into a window narrower
+  // than the grid's own step size. Real bug report: a comebacker's camped
+  // pitcher crossed at 35.6ft (h(35.6)=-0.12) but the 40-step grid over a
+  // restFt of 225ft steps in ~5.6ft jumps - both samples straddling 35.6ft
+  // (33.7ft, 39.3ft) came back barely POSITIVE, so the scan never saw a
+  // crossing at all and fell through to "nobody intercepted," comparing
+  // every fielder's distance to the ball's full, un-intercepted ~225ft
+  // natural roll instead - a wildly wrong "who fields it" answer for what
+  // should have been an instant comebacker out.
+  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt) {
+    var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
     function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt) - gp.timeAt(alongFt); }
     if (h(0) <= 0) return { alongFt: 0, atS: gp.timeAt(0) };
+    if (knownAlongFt != null && knownAlongFt > 0 && knownAlongFt <= restFt && h(knownAlongFt) <= 0) {
+      var lo0 = 0, hi0 = knownAlongFt;
+      for (var k = 0; k < 20; k++) {
+        var mid0 = (lo0 + hi0) / 2;
+        if (h(mid0) > 0) lo0 = mid0; else hi0 = mid0;
+      }
+      var found0 = (lo0 + hi0) / 2;
+      return { alongFt: found0, atS: gp.timeAt(found0) };
+    }
     var STEPS = 40;
     var prevAlong = 0;
     for (var i = 1; i <= STEPS; i++) {
@@ -2648,14 +2743,20 @@
   // that depth climbs (FIELDER_CHARGE_FT_PER_S's own tuning already prices
   // this in - Alex's call, after checking real numbers, that this shrinking
   // margin is fine as-is rather than adding a separate minimum-gain gate).
-  function chargeInIntercept(flight, gp, campedPos, campedAlongFt) {
+  // candidates (optional): defaults to the infield roster
+  // (CHARGE_CANDIDATE_POSITIONS) - resolveSinglePickup passes
+  // OF_CHARGE_CANDIDATE_POSITIONS instead to race outfielders on a single.
+  function chargeInIntercept(flight, gp, campedPos, campedAlongFt, maxAlongFt, candidates) {
     var best = null;
-    CHARGE_CANDIDATE_POSITIONS.forEach(function (pos) {
-      var anchor = (pos === campedPos && campedAlongFt != null)
-        ? groundDirPoint(flight, campedAlongFt)
-        : FIELDER_ANCHORS_FT[pos];
+    (candidates || CHARGE_CANDIDATE_POSITIONS).forEach(function (pos) {
+      var isCamped = pos === campedPos && campedAlongFt != null;
+      var anchor = isCamped ? groundDirPoint(flight, campedAlongFt) : FIELDER_ANCHORS_FT[pos];
       if (!anchor) return;
-      var result = fielderInterceptS(anchor, flight, gp);
+      // fielderInterceptS's own knownAlongFt: only the camped candidate has
+      // one exact along-distance we already know to check directly
+      // (distFt=0 there) - every other candidate's real static anchor has
+      // no such analytically-known point, so it just races the coarse grid.
+      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, isCamped ? campedAlongFt : null);
       if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS };
     });
     return best;
@@ -2676,6 +2777,15 @@
     // (straight to the charge-in race) but readable as a deliberate case.
     var depth = INFIELDER_DEPTH_FT[pos];
     var alongFt = depth != null ? depth - flight.distance : null;
+    // A bunt/infield_single is never allowed to reach the outfield grass
+    // (Alex's ask: don't cluster IF1B at the dirt edge - let the fielder
+    // genuinely race it instead, same charge-in system as a grounder out,
+    // just capped so a ball nobody reaches in time still dies on the dirt
+    // rather than continuing to roll). Every other archetype races the
+    // ball's own real rest point uncapped, same as before this change.
+    var maxAlongFt = STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]
+      ? Math.max(0, dirtEdgeFt(flight.angle) - flight.distance)
+      : null;
     var fieldedFt, groundTimeS;
     if (alongFt != null && alongFt <= 0) {
       fieldedFt = 0; groundTimeS = 0;
@@ -2689,8 +2799,13 @@
       // through the one race. chargeInIntercept may still hand the play to
       // a different, faster-converging fielder than `pos` - correct, not
       // just for timing but for fieldingNotation's own scorecard credit
-      // too, which reads flight.fielder same as everything else here.
-      var intercept = chargeInIntercept(flight, gp, pos, alongFt);
+      // too, which reads flight.fielder same as everything else here. This
+      // is also now the ONLY path for a bunt/infield_single HIT (not just
+      // an out) - dispatch (playFieldingNotation/playSceneHtml) no longer
+      // gates on wasOut for a ground archetype, so an infield single races
+      // the same way a comparable groundout does; nobody winning the race
+      // in time before maxAlongFt is exactly what "safe" already means.
+      var intercept = chargeInIntercept(flight, gp, pos, alongFt, maxAlongFt);
       pos = intercept.pos;
       fieldedFt = intercept.alongFt;
       groundTimeS = intercept.atS;
@@ -2719,6 +2834,56 @@
     applyAngleOverride(flight, clamped, hand, flight.archetype === "home_run");
     flight.fielder = def;
     return true;
+  }
+
+  /* Outfielders charging a single (Alex's ask): the same charge-in race
+     resolveGrounderInterception runs for infielders, just raced against
+     OF_CHARGE_CANDIDATE_POSITIONS instead - so a single is fielded wherever
+     a real outfielder's own starting depth/speed actually gets them, not
+     left to roll toward the fence on pure physics the way resolveHitPickup
+     (still used for double/triple/HR) does. Deliberately scoped to archetype
+     "single" only, not every hit archetype: a double/triple/HR needs the
+     ball to genuinely get past the nearest fielder to make sense against
+     its own already-locked MLN result - racing those the same way would
+     read as "the outfielder cut it off" on a play that's supposed to go for
+     extra bases, which doesn't track with what actually happened. No
+     ceiling on the race the way resolveGrounderInterception's maxAlongFt
+     is for bunt/infield_single - nothing here needs to force the ball to
+     stay in any particular zone, so a fielder who's genuinely slow to it
+     just fields it wherever gp.restFt (or fielderInterceptS's own fallback
+     to that point) naturally is, same as an unraced hit always has.
+     BRC-exclusion override mirrors applyAirPositionOverride exactly (same
+     OF_ANGLE_THIRDS, same clamp) - checked against flight.fielder as
+     flightParams originally set it (nearest-anchor to the raw landing
+     point), not a separately recomputed nominal position. */
+  function resolveSinglePickup(m, flight, hand) {
+    if (brcExcludes(m, flight.fielder) && m.default_position) {
+      var third = OF_ANGLE_THIRDS[m.default_position];
+      if (third) applyAngleOverride(flight, clamp(flight.angle, third[0], third[1]), hand, false);
+    }
+    var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
+    var intercept = chargeInIntercept(flight, gp, null, null, null, OF_CHARGE_CANDIDATE_POSITIONS);
+    // intercept.atS already correctly times rawPickupFt in both of
+    // fielderInterceptS's own cases - either the ball's own gp.timeAt at the
+    // crossing point (the ball and the charging fielder arrive together by
+    // construction there), or the fielder's own later charge time to the
+    // ball's natural rest point when nobody catches up to it in time. Only
+    // recompute (via gp.timeAt, the ball's own natural time to the shorter
+    // point) when one of the two safety ceilings below actually shortens
+    // rawPickupFt - reusing intercept.atS for a capped, shorter point would
+    // understate how long fielding it actually took.
+    var rawPickupFt = intercept ? intercept.alongFt : 0;
+    var maxReachFt = fenceAt(flight.angle) - 2;
+    var pickupFt = Math.max(0, Math.min(rawPickupFt, maxReachFt - flight.distance));
+    pickupFt = capRollToBoundary(flight, pickupFt);
+    var groundTimeS = intercept ? intercept.atS : 0;
+    if (pickupFt !== rawPickupFt) {
+      groundTimeS = gp.timeAt(pickupFt) != null ? gp.timeAt(pickupFt) : groundTimeS;
+    }
+    flight.fielder = intercept ? intercept.pos : flight.fielder;
+    flight.fieldedDistFt = flight.distance + pickupFt;
+    flight.groundTimeS = groundTimeS;
+    flight.groundPath = gp;
   }
 
   // ── Ball flight rendering (ball-flight-plan.md Stage 4) ───────────────────
@@ -2898,7 +3063,14 @@
   // result's own depthMin/depthMax in result_diff_bands.csv stays well under
   // INFIELD_SKIN_DIRT_R_FT) at LANDING - but nothing capped their post-
   // bounce ROLL the same way, so a harder-EV roll could still carry one out
-  // past the dirt (see resolveHitPickup's else branch below).
+  // past the dirt. Read by resolveGrounderInterception (maxAlongFt) - both
+  // archetypes go through the charge-in race now (Alex's ask: don't cluster
+  // IF1B at the dirt edge, let the fielder genuinely race it), this is just
+  // the ceiling on how far that race is even allowed to look, so a ball
+  // nobody reaches in time still dies on the dirt rather than the outfield
+  // grass. Never reaches resolveHitPickup below at all any more - both are
+  // GROUND_ARCHETYPES, which now always dispatches to the race regardless
+  // of wasOut.
   var STAYS_IN_INFIELD_ARCHETYPES = { bunt: 1, infield_single: 1 };
   function dirtEdgeFt(angleDeg) {
     var offset = (angleDeg - 45) * Math.PI / 180;
@@ -2915,16 +3087,18 @@
      an outfielder actually closing on the ball, not a real quantity, and it
      had already twice needed hand-tuning to chase FIELDER_ANCHORS_FT's own
      starting-position depth around - simplest fix is not having a second
-     number to keep in sync with anything at all). Infield-archetype hits
-     (bunt, infield_single) skip this and just use rest too, capped the other
-     direction (see the else branch below) - they die on the dirt by
-     construction of their EV range, not a hand-tuned rollout constant. The
-     dirt-clearance floor is kept as a runtime floor on the pickup point for
-     non-infield hits (still cheap insurance against a squibber that
-     technically never left the dirt circle). Always capped at
-     fenceAt(angle)-2. Sets flight.fieldedDistFt/groundTimeS the same way the
-     grounder-out resolver does, so every consumer (labels, throwHtml on the
-     rare hit-then-throw case) reads one shape regardless of out vs. hit. */
+     number to keep in sync with anything at all). Never called for a
+     bunt/infield_single hit any more (STAYS_IN_INFIELD_ARCHETYPES, above) -
+     those race a real fielder via resolveGrounderInterception instead, same
+     as a comparable groundout, so there's only ever the one "stays on the
+     dirt" ceiling to maintain (maxAlongFt there) rather than two different
+     mechanisms for the same rule. The dirt-clearance floor here is a runtime
+     floor on the pickup point for ordinary (non-infield-archetype) hits
+     only (still cheap insurance against a squibber that technically never
+     left the dirt circle). Always capped at fenceAt(angle)-2. Sets flight.
+     fieldedDistFt/groundTimeS the same shape the grounder-out resolver
+     does, so every consumer (labels, throwHtml on the rare hit-then-throw
+     case) reads one shape regardless of out vs. hit. */
   // How far along the ball's real ground-contact direction (not necessarily
   // the nominal HZ angle - sidespin drift can point it elsewhere) a point
   // stays within boundaryRFt's own shape, home-centred - the roll-phase
@@ -2960,35 +3134,16 @@
     var maxReachFt = fenceAt(flight.angle) - 2;
     var pickupFt = gp.restFt, groundTimeS = gp.totalS;
 
-    if (!STAYS_IN_INFIELD_ARCHETYPES[flight.archetype]) {
-      // pickupFt/groundTimeS already default to gp.restFt/gp.totalS above -
-      // the ball's own real roll, full stop. Only remaining job here is the
-      // dirt-clearance floor: a shallow humpback that lands right at the
-      // infield dirt's edge with barely any roll of its own still needs to
-      // visibly clear it.
-      var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
-      if (need > pickupFt) { pickupFt = need; groundTimeS = gp.timeAt(need) != null ? gp.timeAt(need) : gp.totalS; }
-    } else {
-      // The opposite floor: a bunt/infield_single is supposed to die ON the
-      // dirt, but nothing was actually stopping its natural friction-based
-      // roll (gp.restFt) from carrying it well past the dirt's edge if the
-      // contact velocity happened to be on the harder end of that
-      // archetype's real EV range - Alex's report: an "Infield Single"
-      // rolling out into the grass. Ceiling, not floor: the ONLY constraint
-      // is that it doesn't roll past dirtEdgeFt - the same mound-centred
-      // circle the floor case above clears, just enforced the other
-      // direction, and with no added margin/buffer past that one rule
-      // (Alex's correction, twice over: neither the grass notch cut around
-      // each base for the wedge rendering, nor an arbitrary "stop a bit
-      // early" cushion, are part of what "stays in the infield" means. A
-      // roll that falls short of the edge on its own - a soft one-hopper -
-      // is left exactly where its own physics put it).
-      var ceiling = dirtEdgeFt(flight.angle) - flight.distance;
-      if (ceiling < pickupFt) {
-        pickupFt = Math.max(0, ceiling);
-        groundTimeS = gp.timeAt(pickupFt) != null ? gp.timeAt(pickupFt) : groundTimeS;
-      }
-    }
+    // pickupFt/groundTimeS already default to gp.restFt/gp.totalS above -
+    // the ball's own real roll, full stop. Only remaining job here is the
+    // dirt-clearance floor: a shallow humpback that lands right at the
+    // infield dirt's edge with barely any roll of its own still needs to
+    // visibly clear it. (STAYS_IN_INFIELD_ARCHETYPES's own ceiling case
+    // used to live here too - moved to resolveGrounderInterception's
+    // maxAlongFt, since bunt/infield_single now always resolve through the
+    // charge-in race instead of ever reaching this function.)
+    var need = dirtEdgeFt(flight.angle) + DIRT_CLEAR_MARGIN_FT - flight.distance;
+    if (need > pickupFt) { pickupFt = need; groundTimeS = gp.timeAt(need) != null ? gp.timeAt(need) : gp.totalS; }
 
     pickupFt = Math.max(0, Math.min(pickupFt, maxReachFt - flight.distance));
     pickupFt = capRollToBoundary(flight, pickupFt);
@@ -3535,9 +3690,16 @@
   //     overlapping labels. Anchor point depends on how they got the out:
   //     a caught fly/pop/line drive labels at the actual catch point (where
   //     the ball really was, same point ballFlightHtml's own label uses for
-  //     an air catch) - a ground ball out still labels at the fielder's own
-  //     fixed depth anchor, since "where it was fielded" is much less
-  //     precise for a rolling grounder.
+  //     an air catch); a ground ball out labels at fieldedPoint(flight) -
+  //     the real pickup spot after any roll/charge-in, same point
+  //     fielderTokensHtml's own convergence animation already targets -
+  //     rather than that position's fixed starting depth (Alex's ask: reads
+  //     as "here's where they actually made the play," not just "here's
+  //     roughly where a fielder in this position usually stands"). The
+  //     pairwise de-overlap sweep just below still applies regardless of
+  //     which anchor a label came from, so two labels landing close
+  //     together (a charge-in fielded well off their normal depth, say)
+  //     still get nudged apart the same as before.
   //   - A RECEIVING fielder (every later chain entry - someone taking a
   //     relay throw) labels at the BASE they're covering, not their nominal
   //     fielding position - a 2B fielder taking a throw at the bag is
@@ -3594,9 +3756,8 @@
         if (isCaughtOut) {
           pt = ftToSvg(flight.x, flight.y);
         } else {
-          var anchor = FIELDER_ANCHORS_FT[e.pos];
-          if (!anchor) return;
-          pt = ftToSvg(anchor.x, anchor.y);
+          var picked = fieldedPoint(flight);
+          pt = ftToSvg(picked.x, picked.y);
         }
         labels.push({ x: pt.x, y: pt.y, lines: [resultShort, nameEntry[1]] });
       } else {
@@ -4019,10 +4180,23 @@
     if (flight) {
       var hand = effectiveHand(m.batter_hand);
       var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
-      if (GROUND_ARCHETYPES[flight.archetype] && wasOut) {
+      // No wasOut gate on the ground-archetype branch (Alex's ask): a
+      // grounder-family archetype's real out codes (GO/DP/FC/...) always
+      // have wasOut=true already, so this is a no-op change for them, but a
+      // bunt/infield_single HIT (B1B, IF1B - wasOut=false by definition) now
+      // races the same charge-in system instead of falling to resolveHit
+      // Pickup's plain dirt-edge cap below - the fielder genuinely gets a
+      // shot at it and is just too late, rather than the ball only ever
+      // appearing already sitting dead at the fringe.
+      if (GROUND_ARCHETYPES[flight.archetype]) {
         resolveGrounderInterception(m, flight, hand);
       } else if (wasOut && CAUGHT_IN_AIR[flight.archetype]) {
         applyAirPositionOverride(m, flight, hand);
+      } else if (flight.archetype === "single") {
+        // Outfielders race a single too (Alex's ask), scoped to just this
+        // one archetype - a double/triple/HR needs to genuinely get past
+        // the nearest fielder to track with its own already-locked result.
+        resolveSinglePickup(m, flight, hand);
       } else if (!flight.clearedFence) {
         resolveHitPickup(flight);
       }
@@ -5279,8 +5453,25 @@
   }
 
   function sceneRibbonHtml(slide) {
-    var plays = slide.gamePlays || [];
+    var rawPlays = slide.gamePlays || [];
     var upto = slide.gameIdx;
+    // Drop the on-deck "Now Batting" placeholder from the ribbon entirely
+    // (Alex's report: reaching it visibly shifted the x-axis) - it isn't a
+    // real event, so it should never count toward a half-inning's own
+    // segment spacing (segs/xByIdx below) or add its own trailing point to
+    // the line. Remaps upto (an index into rawPlays) to the same play's
+    // index in the real-only array - or, when the current slide IS the
+    // on-deck placeholder itself, to the last real play before it, so that
+    // slide's ribbon renders pixel-identical to the last real play's own,
+    // exactly where the game actually left off.
+    var plays = [];
+    var realIdx = [];
+    rawPlays.forEach(function (p, i) {
+      if (p.is_on_deck) { realIdx[i] = plays.length - 1; return; }
+      realIdx[i] = plays.length;
+      plays.push(p);
+    });
+    upto = (upto != null && realIdx[upto] != null) ? realIdx[upto] : upto;
     // Alex's report: the ribbon was missing entirely on a game's first play.
     // This used to require >=2 plays before rendering anything at all - but
     // everything below it already handles a single point correctly (the
@@ -5858,8 +6049,12 @@
     // who's up (Alex's call: "Now Batting" over "At Bat", to avoid repeating
     // sceneDetailHtml's own "AT BAT" matchup-row label right below it).
     if (m.is_on_deck) {
+      // Same "offense" styling every real hitting result pill gets (Alex's
+      // ask) - the feed card's own on-deck pill already matched this
+      // (resultCat: "hitting" in card()); the slideshow's had its own
+      // separate on-deck treatment until now.
       return '<div class="scene-result-line">' +
-        '<span class="result-pill on-deck">Now Batting</span>' +
+        '<span class="result-pill offense">Now Batting</span>' +
       "</div>";
     }
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
@@ -6153,10 +6348,23 @@
     if (flight) {
       var hand = effectiveHand(m.batter_hand);
       var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
-      if (GROUND_ARCHETYPES[flight.archetype] && wasOut) {
+      // No wasOut gate on the ground-archetype branch (Alex's ask): a
+      // grounder-family archetype's real out codes (GO/DP/FC/...) always
+      // have wasOut=true already, so this is a no-op change for them, but a
+      // bunt/infield_single HIT (B1B, IF1B - wasOut=false by definition) now
+      // races the same charge-in system instead of falling to resolveHit
+      // Pickup's plain dirt-edge cap below - the fielder genuinely gets a
+      // shot at it and is just too late, rather than the ball only ever
+      // appearing already sitting dead at the fringe.
+      if (GROUND_ARCHETYPES[flight.archetype]) {
         resolveGrounderInterception(m, flight, hand);
       } else if (wasOut && CAUGHT_IN_AIR[flight.archetype]) {
         applyAirPositionOverride(m, flight, hand);
+      } else if (flight.archetype === "single") {
+        // Outfielders race a single too (Alex's ask), scoped to just this
+        // one archetype - a double/triple/HR needs to genuinely get past
+        // the nearest fielder to track with its own already-locked result.
+        resolveSinglePickup(m, flight, hand);
       } else if (!flight.clearedFence) {
         resolveHitPickup(flight);
       }
@@ -6271,8 +6479,12 @@
      For 656 plays that's another ~9 minutes on top of the 48-50 above -
      same kind of runtime tradeoff, surfaced the same way rather than folded
      silently into the base constants. */
+  // Key moments no longer get extra read time over a routine play (Alex's
+  // ask) - the real-animation-length estimate below already scales dwell up
+  // for whatever a specific play's own action actually needs, so a flat
+  // "key moments are just more important, give them more time" bonus on top
+  // of that was redundant with what the animation already communicates.
   var PLAY_DWELL_MS_ROUTINE = 3600;
-  var PLAY_DWELL_MS_KEY = 6000;
   // Extra beat on the play that opens a half-inning, so the break between
   // halves registers instead of the reel running straight through it.
   var HALF_INNING_BONUS_MS = 800;
@@ -6328,7 +6540,7 @@
     var speed = getPlaybackSpeed();
     if (slide.kind !== "play") return TITLE_DWELL_MS / speed;
     var play = slide.play;
-    var readBudget = play.is_key_moment ? PLAY_DWELL_MS_KEY : PLAY_DWELL_MS_ROUTINE;
+    var readBudget = PLAY_DWELL_MS_ROUTINE;
     var isHalfEnd = !!play.is_half_inning_final && !play.is_game_final;
     var flight = flightParams(play, data.meta.flight);
     // A relay's throws are now sequential, not overlapping (Alex's ask -
@@ -7063,9 +7275,10 @@
     filters.team = "";
     deselectScoreboardTile();
     var historical = season.active !== season.current;
-    $("built-at").textContent = historical
-      ? "Season " + season.active + " archive"
-      : formatBuiltAt(data.meta.built_at);
+    // No "Season N archive" label (Alex's ask) - the season+session picker
+    // already shows which season is selected, so this would just repeat it.
+    // A finished season has no live build timestamp to show in its place.
+    $("built-at").textContent = historical ? "" : formatBuiltAt(data.meta.built_at);
     populateSessionSelect(false, targetSession);
     renderScoreboard();
     populateTeamSelect();
@@ -7091,9 +7304,11 @@
     if (historical) {
       var status = $("refresh-status");
       if (status) status.textContent = "";
+      window.clearTimeout(catchUpCaughtUpTimer); // don't let a stale "caught up" fade fire while browsing history
       var banner = $("catchup-banner");
       if (banner) banner.hidden = true;
     } else {
+      renderCatchUpBanner(); // shows the loading spinner while data.catchUpGroups is still null
       computeCatchUp().then(function (groups) {
         data.catchUpGroups = groups;
         renderCatchUpBanner();
@@ -7628,6 +7843,7 @@
     wireCatchUp();
     wireReplay();
     wireSettings();
+    wireMethodology();
     syncSpeedButtons();
     syncLoopButtons();
   }
@@ -7647,6 +7863,21 @@
     // two panels don't end up stacked on top of each other.
     var favBtn = $("favorites-btn");
     if (favBtn) favBtn.addEventListener("click", closeSettings);
+  }
+
+  // (i) button in the replay modal - same simple open/close pattern as
+  // Settings/Favorites. Deliberately doesn't pause/close the replay behind
+  // it (Alex's spec: an overlay on top, not a mode switch) - the slideshow
+  // keeps advancing underneath while this is open, same as any other modal
+  // stacked over the page.
+  function wireMethodology() {
+    var modal = $("methodology-modal");
+    var openBtn = $("replay-info");
+    if (!modal || !openBtn) return;
+    function closeMethodology() { modal.hidden = true; }
+    openBtn.addEventListener("click", function () { modal.hidden = false; });
+    $("methodology-close").addEventListener("click", closeMethodology);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeMethodology(); });
   }
 
   // ── refresh ─────────────────────────────────────────────────────────────────
@@ -7814,12 +8045,23 @@
       window.KMFavorites.init(data.players, function () {
         renderMaybeLoading();
         window.KMFavorites.refreshList();
-      }).then(function () {
-        // After init resolves, so the cursor from the favorites GET is in hand.
+      }, function () {
+        // onNameReady (favorites.js): fires once a name is known, whether
+        // from localStorage at boot or typed fresh mid-session - so the
+        // "add your name" quiet prompt clears and the real count/reel
+        // populate right away instead of needing a page reload (Alex's
+        // report - it used to only ever recompute here at boot).
         renderCatchUpBanner();
-        return computeCatchUp();
-      }).then(function (groups) {
-        data.catchUpGroups = groups;
+        computeCatchUp().then(function (groups) {
+          data.catchUpGroups = groups;
+          renderCatchUpBanner();
+        });
+      }).then(function () {
+        // First paint either way - if a name was already known, onNameReady
+        // above already ran (load() resolves before init's own returned
+        // promise does), so this is just a harmless repaint of whatever's
+        // already current; if not, this is the only place the quiet
+        // "add your name" prompt gets its first render.
         renderCatchUpBanner();
       });
       handleDeepLink();
