@@ -1396,6 +1396,11 @@
   // Token/marker sizes, scaled down from the old hand-placed diamond to match
   // the now-correctly-scaled (and visually smaller) real-90ft infield.
   var RUNNER_R = 6, BASE_R = 4.5, BALL_R = 3, FIELDER_R = 4;
+  // The glove icon (#fielder-glove symbol, docs/index.html) reads smaller than
+  // a filled circle at the same bounding-box size - its silhouette is mostly
+  // negative space around the fingers/webbing - so its box is sized up from
+  // the old dot radius rather than matched to it 1:1. Tune by eye.
+  var FIELDER_ICON_SIZE = FIELDER_R * 2.6;
   // Ground-projected shadow under a flight ball (Alex's ask): a first pass,
   // not perspective-correct per screen position - just a flattened ellipse
   // (foreshortened like a real ground shadow under this field's angled
@@ -3012,11 +3017,12 @@
   // (Alex's ask): read as too close a race for a play that was never
   // actually contested - a bigger gap makes the runner's safety obvious.
   var TAG_THROW_MARGIN_MS = 400;
-  // Off for now (Item 15) - Alex found the converging dot in the outfield an
-  // unnecessary touch. The function, its CSS and its reduced-motion entry are
-  // all still correct; this is a one-word revert if it comes back, e.g. as a
-  // visible throw origin.
-  var SHOW_FIELDER_TOKENS = false;
+  // Was off (Item 15) - a single anonymous dot converging in the outfield
+  // read as an unnecessary touch. Back on now that fielderTokensHtml lays
+  // out all 9 defenders (dots today, glove SVGs to follow) instead of just
+  // the one who touches the ball - a full defensive alignment is a
+  // different, more legible thing than the old lone converging dot.
+  var SHOW_FIELDER_TOKENS = true;
 
   // How long the ball is airborne, in animation ms - the real physics hang
   // time, verbatim (ANIM_TIME_SCALE=1.0). No clamp: a real HR hang time (up
@@ -3210,37 +3216,74 @@
 
   // Ground-phase samples (Part 6.3 item 5: hops flatten into decaying bounces
   // then a straight roll, joining the same keyframe timeline as the flight)
-  // - sampled at even time steps from flight.groundPath (Part 3), along the
-  // ball's real ground-contact direction (Part 1), not the HZ launch bearing.
-  var GROUND_SAMPLE_STEPS = 10;
+  // - sampled from flight.groundPath (Part 3), along the ball's real
+  // ground-contact direction (Part 1), not the HZ launch bearing.
+  //
+  // Densely per hop, sparsely across the roll (Alex's report: grounders were
+  // reading as a near-straight line). The old version spread a flat
+  // GROUND_SAMPLE_STEPS=10 evenly across the WHOLE ground time - for a
+  // typical ball, 1-3 short hops (each well under a second) are followed by
+  // a much longer roll, so evenly-spaced samples spent most of their budget
+  // on the flat roll (where height is genuinely always 0 - correct) and left
+  // only one or two samples to trace each hop's actual parabola, often
+  // missing the apex entirely. trajectory.js's groundPath already computes
+  // each hop's real apexFt/duration (gp.hops) - sampling densely within each
+  // hop's own [t0, t0+tS] window traces the real bounce; the roll phase only
+  // needs a few points since it has no height to capture, just the
+  // deceleration curve.
+  var GROUND_HOP_SAMPLE_STEPS = 5;
+  var GROUND_ROLL_SAMPLE_STEPS = 5;
   function groundPhaseSamples(flight) {
     var gp = flight.groundPath;
     if (!gp || flight.groundTimeS == null) return [];
     var vx = flight.contactVel.vx, vy = flight.contactVel.vy;
     var sh = Math.hypot(vx, vy) || 1;
     var ux = vx / sh, uy = vy / sh;
+    // flight.groundTimeS is the REAL cutoff - when the ball was actually
+    // fielded/picked up, almost always earlier than gp.totalS (when it
+    // would naturally roll to a dead stop on its own). Bug (Alex's report:
+    // trail lines running out past the fielder, sometimes past the field
+    // itself): the previous version bounded the roll-phase samples by
+    // gp.totalS instead, so on any play fielded before its natural rest it
+    // sampled - and drew a trail line through - real ground past the actual
+    // play. Every sample here, hops included, must stay <= groundTimeS.
+    var groundTimeS = flight.groundTimeS;
+
+    var times = [];
+    var tCursor = 0;
+    (gp.hops || []).forEach(function (hop) {
+      if (tCursor >= groundTimeS) return;
+      var hopEnd = Math.min(tCursor + hop.tS, groundTimeS);
+      for (var i = 1; i <= GROUND_HOP_SAMPLE_STEPS; i++) {
+        times.push(tCursor + (hopEnd - tCursor) * i / GROUND_HOP_SAMPLE_STEPS);
+      }
+      tCursor += hop.tS;
+    });
+    if (tCursor < groundTimeS) {
+      for (var j = 1; j <= GROUND_ROLL_SAMPLE_STEPS; j++) {
+        times.push(tCursor + (groundTimeS - tCursor) * j / GROUND_ROLL_SAMPLE_STEPS);
+      }
+    }
+    if (!times.length) times.push(groundTimeS);
+
     // The last sample is the ball's rendered rest point, and throwHtml's
     // throw origin is fieldedPoint(flight) projected through ftToSvg, which
     // always assumes z=0 - a thrown ball is picked up off the ground, not
-    // mid-bounce. Routing this last sample through gp.distAt(gp.timeAt(
-    // fieldedFt))/gp.heightAt(t) instead of using fieldedFt and z=0 directly
-    // let the two drift apart (both in ground position AND in the z that
-    // projectFt folds into screen x/y) whenever that time/distance round
-    // trip didn't land back exactly on its own input, or landed a hair into
-    // a residual bounce (Alex's report: the throw visibly starting short of/
-    // beyond where the ball actually stopped). Snapping this one sample to
-    // the same fieldedFt + z=0 fieldedPoint/ftToSvg use keeps them pinned
-    // together exactly.
+    // mid-bounce. Routing this last sample through gp.distAt/gp.heightAt
+    // instead of using fieldedFt and z=0 directly let the two drift apart
+    // (both in ground position AND in the z that projectFt folds into screen
+    // x/y) whenever that time/distance round trip didn't land back exactly
+    // on its own input, or landed a hair into a residual bounce (Alex's
+    // report: the throw visibly starting short of/beyond where the ball
+    // actually stopped). Snapping this one sample to the same fieldedFt +
+    // z=0 fieldedPoint/ftToSvg use keeps them pinned together exactly.
     var fieldedFt = flight.fieldedDistFt != null ? flight.fieldedDistFt - flight.distance : null;
-    var pts = [];
-    for (var i = 1; i <= GROUND_SAMPLE_STEPS; i++) {
-      var isLast = i === GROUND_SAMPLE_STEPS && fieldedFt != null;
-      var t = flight.groundTimeS * i / GROUND_SAMPLE_STEPS;
+    return times.map(function (t, idx) {
+      var isLast = idx === times.length - 1 && fieldedFt != null;
       var d = isLast ? fieldedFt : gp.distAt(t);
       var z = isLast ? 0 : gp.heightAt(t);
-      pts.push({ t: t, x: flight.x + ux * d, y: flight.y + uy * d, z: z });
-    }
-    return pts;
+      return { t: t, x: flight.x + ux * d, y: flight.y + uy * d, z: z };
+    });
   }
 
   // Every sample from contact to the ball's final resting/fielded/fade
@@ -3648,19 +3691,205 @@
     return label + distLabel;
   }
 
-  function fielderTokensHtml(flight, seqDelay) {
-    // No fielder converge on a ball that left the park - that's the visible
-    // difference between an over-the-fence and an inside-the-park home run.
-    if (!flight || flight.clearedFence) return "";
-    var anchor = FIELDER_ANCHORS_FT[flight.fielder];
-    if (!anchor) return "";
+  // Every defender the whole time (Alex's ask), not just the one who
+  // touches the ball: the 8 not involved this play sit idle at their
+  // FIELDER_ANCHORS_FT spot, dimmed via .fielder-idle so they read as
+  // background alignment rather than something the ball should visibly
+  // collide with on a hit that passes near one - idle tokens also paint
+  // UNDER the ball/trail in document order, so a flyover already reads as
+  // "over," not "through." Whoever IS involved (today: on a hit that isn't
+  // converted to an out, just flight.fielder; on an out, every touch in
+  // fieldingChainDetail) is full-opacity and visible from frame one - no
+  // fade-in, only their position animates (movingFielderTokenHtml).
+  // Glove icon markup shared by both idle and moving tokens - x/y/width/
+  // height center the #fielder-glove symbol (docs/index.html) on the <g>'s
+  // own local origin, the same point a bare <circle r="..."> used to sit at,
+  // so the surrounding --fx/--fy/--tx/--ty transform keeps working unchanged.
+  var FIELDER_GLOVE_USE = '<use href="#fielder-glove" x="' + (-FIELDER_ICON_SIZE / 2).toFixed(1) +
+    '" y="' + (-FIELDER_ICON_SIZE / 2).toFixed(1) + '" width="' + FIELDER_ICON_SIZE.toFixed(1) +
+    '" height="' + FIELDER_ICON_SIZE.toFixed(1) + '"></use>';
+
+  function idleFielderTokenHtml(pos) {
+    var anchor = FIELDER_ANCHORS_FT[pos];
+    var pt = ftToSvg(anchor.x, anchor.y);
+    return '<g class="fielder-idle" style="--tx:' + pt.x.toFixed(1) + 'px;--ty:' + pt.y.toFixed(1) +
+      'px;">' + FIELDER_GLOVE_USE + '</g>';
+  }
+
+  // Real outfielders read the ball off the bat before they break, and (per
+  // Alex's report) don't cover the ground at a flat-out baserunner sprint
+  // either - both of those are simplified here into one flat reaction beat
+  // plus one flat pace slowdown, rather than a fully separate model, since
+  // the ask was to keep this simple for now. Infielders get neither - the
+  // ball's on them too fast for either to read as anything but late.
+  var OUTFIELD_POSITIONS = { LF: 1, CF: 1, RF: 1 };
+  var OUTFIELDER_REACT_MS = 400;
+  var OUTFIELDER_PACE_SCALE = 1.6;
+  function fielderStartDelay(pos, baseDelay) {
+    return baseDelay + (OUTFIELD_POSITIONS[pos] ? OUTFIELDER_REACT_MS : 0);
+  }
+  function fielderLegMs(pos, distFt) {
+    var ms = runnerDrawMsForFt(distFt);
+    return OUTFIELD_POSITIONS[pos] ? Math.round(ms * OUTFIELDER_PACE_SCALE) : ms;
+  }
+
+  var fielderArcCounter = 0;
+  function fielderArcId(m, pos) {
+    var raw = (m && m.moment_id != null ? m.moment_id : "n" + (fielderArcCounter++)) + "-" + pos;
+    return "fArc-" + String(raw).replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  // legs: ordered [{toSvg, distFt}, ...] waypoints from the fielder's own
+  // anchor - distFt is real feet, used only to pace each leg (fielderLegMs).
+  // One leg is the common case (a plain fielding run, a steal cover, a relay
+  // receiver) and reuses the cheap shared .fielder/fielderIn CSS animation.
+  // Two+ legs (Alex's report: an unassisted fielder was running straight to
+  // the bag instead of fielding the ball first) need a real waypoint stop
+  // mid-animation - CSS keyframe percentages can't be driven by custom
+  // properties, so this generates a small per-token <style> block with its
+  // own named keyframe, the same "per-play custom @keyframes" pattern
+  // ballArcHtml already uses for the ball's own multi-point path (stacking
+  // two separately-delayed animations on one element was tried first and
+  // doesn't give a clean handoff - each one's own fill-mode:both `from`
+  // state bleeds into the other's active window). Visible the whole time in
+  // both cases - no fade-in, only position animates; a fielder who reaches
+  // a spot before the ball does just stands there already, which is exactly
+  // right for a fly ball someone camps under.
+  function movingFielderTokenHtml(m, pos, legs, startDelay) {
+    var anchor = FIELDER_ANCHORS_FT[pos];
+    if (!anchor || !legs.length) return "";
     var from = ftToSvg(anchor.x, anchor.y);
-    var fieldedFt = fieldedPoint(flight);
-    var to = ftToSvg(fieldedFt.x, fieldedFt.y);
-    var vars = "--fx:" + from.x.toFixed(1) + "px;--fy:" + from.y.toFixed(1) + "px;" +
-               "--tx:" + to.x.toFixed(1) + "px;--ty:" + to.y.toFixed(1) + "px;" +
-               "--delay:" + (fieldedMs(flight) + (seqDelay || 0)) + "ms";
-    return '<g class="fielder" style="' + vars + '"><circle r="' + FIELDER_R + '"></circle></g>';
+    var delayMs = fielderStartDelay(pos, startDelay);
+    var durs = legs.map(function (leg) { return fielderLegMs(pos, leg.distFt); });
+    var totalMs = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
+
+    if (legs.length === 1) {
+      var vars = "--fx:" + from.x.toFixed(1) + "px;--fy:" + from.y.toFixed(1) + "px;" +
+                 "--tx:" + legs[0].toSvg.x.toFixed(1) + "px;--ty:" + legs[0].toSvg.y.toFixed(1) + "px;" +
+                 "--delay:" + delayMs + "ms;--dur:" + totalMs + "ms";
+      return '<g class="fielder" style="' + vars + '">' + FIELDER_GLOVE_USE + '</g>';
+    }
+
+    var pts = [from].concat(legs.map(function (l) { return l.toSvg; }));
+    var name = fielderArcId(m, pos);
+    var cum = 0, stops = "";
+    pts.forEach(function (p, i) {
+      var pct = 0;
+      if (i > 0) { cum += durs[i - 1]; pct = clamp(cum / totalMs, 0, 1) * 100; }
+      stops += pct.toFixed(3) + "% { transform: translate(" + p.x.toFixed(1) + "px," + p.y.toFixed(1) + "px); } ";
+    });
+    var lastPt = pts[pts.length - 1];
+    var style = "<style>@keyframes " + name + " { " + stops + "} .fielder." + name +
+      " { animation: " + name + " calc(" + totalMs + "ms / var(--play-speed,1)) linear calc(" + delayMs + "ms / var(--play-speed,1)) both; }</style>";
+    return style + '<g class="fielder ' + name + '" style="--tx:' + lastPt.x.toFixed(1) + 'px;--ty:' + lastPt.y.toFixed(1) + 'px;">' + FIELDER_GLOVE_USE + '</g>';
+  }
+
+  // Which fielder covers a steal's target base (Alex's ask) - SS for 2B,
+  // 3B for 3B. HOME deliberately excluded: the catcher is thrower or
+  // already standing there (stealThrowHtml's own carve-out for a steal of
+  // home off the pitcher), nobody needs to run anywhere for that one.
+  var STEAL_COVER_POSITION = { "2B": "SS", "3B": "3B" };
+
+  function fielderTokensHtml(m, flight, moves, seqDelay) {
+    var allPositions = Object.keys(FIELDER_ANCHORS_FT);
+    // Every mover starts together at contact (seqDelay - whenever this play's
+    // own slide begins - not fieldedMs/ballTravelMs) - see movingFielderTokenHtml's
+    // own comment above.
+    var startDelay = seqDelay || 0;
+
+    if (!flight) {
+      // No batted ball - the only fielder movement worth showing is a steal
+      // attempt's covering fielder heading to the bag.
+      var steal = stealThrowTarget(m, moves);
+      var stealPos = steal && STEAL_COVER_POSITION[steal.base];
+      var stealAnchor = stealPos && FIELDER_ANCHORS_FT[stealPos];
+      var stealDestFt = stealPos && BASE_POS_FT[steal.base];
+      var stealDestSvg = stealPos && (steal.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[steal.base]);
+      if (stealAnchor && stealDestFt && stealDestSvg) {
+        var stealDistFt = Math.hypot(stealDestFt.x - stealAnchor.x, stealDestFt.y - stealAnchor.y);
+        return allPositions.filter(function (pos) { return pos !== stealPos; }).map(idleFielderTokenHtml).join("") +
+          movingFielderTokenHtml(m, stealPos, [{ toSvg: stealDestSvg, distFt: stealDistFt }], startDelay);
+      }
+      return allPositions.map(idleFielderTokenHtml).join("");
+    }
+
+    var moving = {};
+    var moversHtml = "";
+    if (!flight.clearedFence) {
+      var archetype = flight.archetype;
+      var isNewOut = (m.outs_after || 0) > (m.outs_before || 0);
+      var isGroundOrAir = flight.fielder && (GROUND_ARCHETYPES[archetype] || CAUGHT_IN_AIR[archetype]);
+      if (isNewOut && isGroundOrAir) {
+        // Same chain fieldingChainDetail builds (same inputs, same
+        // coveringPosition rule) - but collapsed differently. That function
+        // drops a later touch by the SAME fielder entirely (an unassisted
+        // force reads as one combined result+name label, not two) - token
+        // movement needs the opposite: the real final destination, so an
+        // unassisted fielder visibly continues to the bag they touch rather
+        // than stopping at the fielding point (Alex's ask). Merging (keep
+        // the LAST base seen per position) rather than dropping gets that
+        // without changing fieldingChainDetail's own label-facing contract.
+        var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
+        var rawChain = [{ pos: flight.fielder, base: null }];
+        relayBases.forEach(function (base) {
+          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder), base: base });
+        });
+        var merged = [];
+        rawChain.forEach(function (entry) {
+          var prev = merged[merged.length - 1];
+          if (prev && prev.pos === entry.pos) prev.base = entry.base;
+          else merged.push({ pos: entry.pos, base: entry.base });
+        });
+
+        var pickupFt = fieldedPoint(flight);
+        var pickupSvg = ftToSvg(pickupFt.x, pickupFt.y);
+        merged.forEach(function (e) {
+          if (moving[e.pos]) return;
+          var anchor = FIELDER_ANCHORS_FT[e.pos];
+          if (!anchor) return;
+          // Unassisted (this fielder both touched the ball AND covers the
+          // next base themselves, e.base non-null on the SAME entry the
+          // primary toucher merged into): two real legs, field it then run
+          // the bag - not a straight line from anchor to the base skipping
+          // the ball entirely (Alex's report - this was the actual bug).
+          // Every other entry (base===null - just fielding; or base!==null
+          // but a different fielder receiving a relay, never touched the
+          // ball) is one leg, unchanged.
+          var unassisted = e.pos === flight.fielder && e.base !== null;
+          var legs;
+          if (unassisted) {
+            var baseFt = BASE_POS_FT[e.base];
+            var baseSvg = e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base];
+            if (!baseFt || !baseSvg) return;
+            legs = [
+              { toSvg: pickupSvg, distFt: Math.hypot(pickupFt.x - anchor.x, pickupFt.y - anchor.y) },
+              { toSvg: baseSvg, distFt: Math.hypot(baseFt.x - pickupFt.x, baseFt.y - pickupFt.y) },
+            ];
+          } else {
+            var destFt = e.base === null ? pickupFt : BASE_POS_FT[e.base];
+            var destSvg = e.base === null ? pickupSvg : (e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base]);
+            if (!destFt || !destSvg) return;
+            legs = [{ toSvg: destSvg, distFt: Math.hypot(destFt.x - anchor.x, destFt.y - anchor.y) }];
+          }
+          moving[e.pos] = 1;
+          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay);
+        });
+      } else if (flight.fielder) {
+        // Not converted to an out: no chain, just the one fielder who
+        // ends up with the ball (unchanged from the original single-mover
+        // behaviour, before the idle 8 were added).
+        var soloAnchor = FIELDER_ANCHORS_FT[flight.fielder];
+        var fieldedFt = fieldedPoint(flight);
+        if (soloAnchor) {
+          moving[flight.fielder] = 1;
+          var soloDistFt = Math.hypot(fieldedFt.x - soloAnchor.x, fieldedFt.y - soloAnchor.y);
+          moversHtml += movingFielderTokenHtml(m, flight.fielder,
+            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay);
+        }
+      }
+    }
+    var idleHtml = allPositions.filter(function (pos) { return !moving[pos]; }).map(idleFielderTokenHtml).join("");
+    return idleHtml + moversHtml;
   }
 
   // Field name labels (Decisions 5-6): only the fielder(s) involved in THIS
@@ -5331,7 +5560,7 @@
         '<path class="dm-foul-line" d="' + foulLineD(90) + '"></path>' +
         plates +
         '<path class="dm-plate" d="' + platePath + '"></path>' +
-        (SHOW_FIELDER_TOKENS ? fielderTokensHtml(flight, seqDelay) : "") +
+        (SHOW_FIELDER_TOKENS ? fielderTokensHtml(m, flight, moves, seqDelay) : "") +
         pitchBallHtml(m, flight, wheelFinishMs) +
         ballFlightHtml(m, flight, moves, seqDelay) +
         throwHtml(m, flight, moves, seqDelay) +
@@ -6021,6 +6250,121 @@
       "neutral", true, mirrored);
   }
 
+  // Illustrative DIFF/SPRAY wheels for the methodology panel (Alex's ask) -
+  // all made-up but internally consistent plays, run through the real
+  // sceneWheelDiffHtml/sceneWheelHzHtml (and, where a real LA is needed,
+  // flightParams) pipeline rather than static screenshots, so they always
+  // match the live wheel styling/theme and never go stale if that styling
+  // changes. Four sets, one per methodology-panel spot that needs one -
+  // wireMethodology renders each into its own placeholder div, lazily, the
+  // first time the panel opens.
+  //
+  // sceneWheelDiffHtml never actually reads its own `flight` argument (DIFF
+  // is pure pitch/swing/diff/result) - null is fine wherever a real one
+  // isn't already at hand. sceneWheelHzHtml does need a real flight.angle,
+  // so the spray/topped/combined sets run flightParams first.
+
+  // Same result (1B) for all three, band lo/hi = 49/157 (meta.json) - diff
+  // alone moves across it: 150 sits past hi (weak, q clamps toward 0), 103
+  // sits near the midpoint (average), 40 sits under lo (strong, q clamps to
+  // 1). pitch held at 100 throughout so swing alone is doing the work.
+  var METHODOLOGY_CONTACT_EXAMPLES = [
+    { label: "Weak", m: { result: "1B", pitch: 100, swing: 250, diff: 150 } },
+    { label: "Average", m: { result: "1B", pitch: 100, swing: 203, diff: 103 } },
+    { label: "Strong", m: { result: "1B", pitch: 100, swing: 140, diff: 40 } },
+  ];
+  function methodologyContactWheelsHtml() {
+    return METHODOLOGY_CONTACT_EXAMPLES.map(function (ex) {
+      return '<div class="methodology-wheel-example">' +
+        '<div class="methodology-wheel-pair">' + sceneWheelDiffHtml(ex.m, null) + "</div>" +
+        '<div class="methodology-wheel-caption">' + escapeHtml(ex.label) + "</div>" +
+      "</div>";
+    }).join("");
+  }
+
+  // Same |diff| (114), opposite sign of the pitch->swing circular delta -
+  // swing=314 (pitch+114, onTop=true) vs swing=86 (pitch-114, onTop=false) -
+  // isolates the topped/uppercut split from contact quality. diff=114 on
+  // the 1B band (lo 49/hi 157) lands q~0.40, NOT the ~0.99 the first version
+  // used - Alex's report: near q=1 (excellent contact) the 1B band's own
+  // stations converge laTopped/laUppercut to the same value (both 16° at
+  // q=0.99/1.0 in meta.json), which defeated the example's whole point.
+  // q~0.40's station (7°/12°, meta.json) keeps a real, visible gap. Caption
+  // pulls the real resulting LA out of flightParams rather than a hand-typed
+  // number, so it can't drift out of sync with the actual station lookup.
+  var METHODOLOGY_TOPPED_EXAMPLES = [
+    { label: "Above - Topped", m: { result: "1B", pitch: 200, swing: 314, diff: 114, batter_hand: "R" } },
+    { label: "Below - Uppercut", m: { result: "1B", pitch: 200, swing: 86, diff: 114, batter_hand: "R" } },
+  ];
+  function methodologyToppedWheelsHtml() {
+    if (!data.meta || !data.meta.flight) return "";
+    return METHODOLOGY_TOPPED_EXAMPLES.map(function (ex) {
+      var flight = flightParams(ex.m, data.meta.flight);
+      var caption = ex.label + (flight ? " (LA " + flight.la.toFixed(0) + "°)" : "");
+      return '<div class="methodology-wheel-example">' +
+        '<div class="methodology-wheel-pair">' + sceneWheelDiffHtml(ex.m, flight) + "</div>" +
+        '<div class="methodology-wheel-caption">' + escapeHtml(caption) + "</div>" +
+      "</div>";
+    }).join("");
+  }
+
+  // pitch held at 105 throughout, only swing's LAST digit changes (1/5/9) -
+  // isolates spray direction the same way the contact set isolates diff.
+  // Overall diff stays in the high-80s/low-90s for all three (same rough
+  // contact quality) so LA/EV don't also swing with it.
+  var METHODOLOGY_SPRAY_EXAMPLES = [
+    { label: "Pulled", m: { result: "1B", pitch: 105, swing: 191, diff: 86, batter_hand: "R" } },
+    { label: "Middle", m: { result: "1B", pitch: 105, swing: 195, diff: 90, batter_hand: "R" } },
+    { label: "Opposite Field", m: { result: "1B", pitch: 105, swing: 199, diff: 94, batter_hand: "R" } },
+  ];
+  function methodologySprayWheelsHtml() {
+    if (!data.meta || !data.meta.flight) return "";
+    return METHODOLOGY_SPRAY_EXAMPLES.map(function (ex) {
+      var flight = flightParams(ex.m, data.meta.flight);
+      if (!flight) return "";
+      return '<div class="methodology-wheel-example">' +
+        '<div class="methodology-wheel-pair">' + sceneWheelHzHtml(ex.m, flight) + "</div>" +
+        '<div class="methodology-wheel-caption">' + escapeHtml(ex.label) + "</div>" +
+      "</div>";
+    }).join("");
+  }
+
+  // Two full plays, DIFF+SPRAY together, pushed toward the strong/weak ends
+  // of contact quality (q) while keeping diff INSIDE the real band range for
+  // that result (Alex's report: a diff outside the band's own lo/hi doesn't
+  // correspond to any real historical play for that result, which is more
+  // confusing than illustrative even if it exaggerates the point). A pulled
+  // single with diff 53, just above the 1B band's lo of 49 (q~0.96, about as
+  // clean as real contact for a single gets) and an opposite-field flyout
+  // with diff 274, just under the FO band's hi of 277 (q~0.03, about as late
+  // as real contact for a flyout gets). Captions lead with contact quality,
+  // then direction, matching the wheels' own left-to-right DIFF-then-SPRAY
+  // order.
+  var METHODOLOGY_COMBINED_EXAMPLES = [
+    { label: "Excellent contact, pulled single",
+      m: { result: "1B", pitch: 130, swing: 77, diff: 53, batter_hand: "R", outs_before: 0, outs_after: 0 } },
+    // pitch 863/swing 137 (not 212/486 - same diff 274, same opposite-field
+    // spray) - Alex's report: 212/486 put its two wheel-val labels at deg1
+    // 76deg/deg2 175deg (wheelAngleOf/wheelPt, WHEEL top=0deg, clockwise),
+    // the second one landing right at the bottom of the ring, the one
+    // example Alex flagged as being in the way of a tighter wheel-to-caption
+    // gap. 863/137 places them symmetrically at 311deg/49deg instead - both
+    // in the upper half, same distance (49deg) either side of top.
+    { label: "Weak contact, opposite-field flyout",
+      m: { result: "FO", pitch: 863, swing: 137, diff: 274, batter_hand: "R", outs_before: 0, outs_after: 1 } },
+  ];
+  function methodologyCombinedWheelsHtml() {
+    if (!data.meta || !data.meta.flight) return "";
+    return METHODOLOGY_COMBINED_EXAMPLES.map(function (ex) {
+      var flight = flightParams(ex.m, data.meta.flight);
+      if (!flight) return "";
+      return '<div class="methodology-wheel-example">' +
+        '<div class="methodology-wheel-pair">' + sceneWheelDiffHtml(ex.m, flight) + sceneWheelHzHtml(ex.m, flight) + "</div>" +
+        '<div class="methodology-wheel-caption">' + escapeHtml(ex.label) + "</div>" +
+      "</div>";
+    }).join("");
+  }
+
   /* Compact "telemetry" readout beside the result pill (ball-flight-plan.md
      Stage 5): launch angle to 1dp, exit velocity to the nearest mph, matching
      how Statcast broadcasts read. Only rendered when there's a batted ball to
@@ -6404,6 +6748,10 @@
   function catchUpSlideHtml(slide) {
     if (slide.kind === "title") {
       var g = slide.group;
+      // Same on-deck exclusion as catchUpPlayCount's headline number (Alex's
+      // ask) - the "Now Batting" placeholder rides along in g.plays for
+      // end-of-game context but was never a real new play.
+      var gNewPlayCount = g.plays.filter(function (p) { return !p.is_on_deck; }).length;
       return '<div class="catchup-title">' +
         '<div class="catchup-title-teams">' +
           '<span class="catchup-title-team">' +
@@ -6417,7 +6765,7 @@
           "</span>" +
         "</div>" +
         '<div class="catchup-title-sub">Session ' + escapeHtml(String(g.session_number)) +
-          " · " + g.plays.length + (g.plays.length === 1 ? " new play" : " new plays") + "</div>" +
+          " · " + gNewPlayCount + (gNewPlayCount === 1 ? " new play" : " new plays") + "</div>" +
       "</div>";
     }
     if (slide.kind === "done") {
@@ -7865,17 +8213,71 @@
     if (favBtn) favBtn.addEventListener("click", closeSettings);
   }
 
-  // (i) button in the replay modal - same simple open/close pattern as
-  // Settings/Favorites. Deliberately doesn't pause/close the replay behind
-  // it (Alex's spec: an overlay on top, not a mode switch) - the slideshow
-  // keeps advancing underneath while this is open, same as any other modal
-  // stacked over the page.
+  // (i) button - reachable from two places, same simple open/close pattern
+  // as Settings/Favorites: the replay modal's own control bar (Deliberately
+  // doesn't pause/close the replay behind it - Alex's spec: an overlay on
+  // top, not a mode switch, the slideshow keeps advancing underneath) and,
+  // since Settings is reachable any time rather than only mid-replay,
+  // Settings' own bottom row too (Alex's ask).
   function wireMethodology() {
     var modal = $("methodology-modal");
-    var openBtn = $("replay-info");
-    if (!modal || !openBtn) return;
+    if (!modal) return;
+    // Originally nested inside #replay-modal (not a top-level sibling like
+    // every other modal) specifically so it stays visible when the replay
+    // is fullscreened - the Fullscreen API only renders the fullscreened
+    // element's own subtree, so anything outside it is invisible no matter
+    // its own hidden state or z-index. That same nesting is exactly why
+    // opening it from Settings did nothing visible (Alex's report):
+    // #replay-modal itself carries `hidden` whenever no replay is open, and
+    // `hidden`/display:none on an ancestor hides every descendant
+    // regardless of the descendant's own hidden attribute - toggling
+    // methodology-modal.hidden had no effect while its parent was display:
+    // none. Fix: reparent to wherever is actually correct for the CURRENT
+    // context right before each open - back inside #replay-modal (its
+    // original spot, captured here before any reparenting happens) only
+    // while a replay is genuinely fullscreened, document.body (a normal
+    // top-level modal, same as Settings/Favorites) otherwise - which is
+    // every open from Settings, since #replay-modal is always hidden there.
+    var replayHome = modal.parentNode;
     function closeMethodology() { modal.hidden = true; }
-    openBtn.addEventListener("click", function () { modal.hidden = false; });
+    // Four wheel-example spots, each filled by its own generator - keyed by
+    // element id so adding/removing a spot later is a one-line change here.
+    var WHEEL_SECTIONS = {
+      "methodology-wheels-contact": methodologyContactWheelsHtml,
+      "methodology-wheels-topped": methodologyToppedWheelsHtml,
+      "methodology-wheels-spray": methodologySprayWheelsHtml,
+      "methodology-wheels-combined": methodologyCombinedWheelsHtml,
+    };
+    function openMethodology() {
+      var replayModal = $("replay-modal");
+      var replayIsFullscreen = !!replayModal &&
+        (document.fullscreenElement === replayModal || document.webkitFullscreenElement === replayModal);
+      var targetParent = replayIsFullscreen ? replayHome : document.body;
+      if (modal.parentNode !== targetParent) targetParent.appendChild(modal);
+      // Rendered lazily on first open, not at boot - by the time either
+      // trigger button is reachable at all, data.meta.flight is guaranteed
+      // loaded (the replay one only shows mid-replay; the Settings one only
+      // shows once the app has booted). childNodes check per section makes
+      // this a one-time fill, not a re-render on every open.
+      Object.keys(WHEEL_SECTIONS).forEach(function (id) {
+        var el = $(id);
+        if (el && !el.childNodes.length) el.innerHTML = WHEEL_SECTIONS[id]();
+      });
+      modal.hidden = false;
+    }
+    var replayBtn = $("replay-info");
+    if (replayBtn) replayBtn.addEventListener("click", openMethodology);
+    var settingsBtn = $("settings-info");
+    if (settingsBtn) {
+      settingsBtn.addEventListener("click", function () {
+        // Same "close the panel underneath before opening this one" courtesy
+        // wireSettings' own favBtn handler does for Favorites - avoids two
+        // modals stacked on top of each other.
+        var settingsModal = $("settings-modal");
+        if (settingsModal) settingsModal.hidden = true;
+        openMethodology();
+      });
+    }
     $("methodology-close").addEventListener("click", closeMethodology);
     modal.addEventListener("click", function (e) { if (e.target === modal) closeMethodology(); });
   }

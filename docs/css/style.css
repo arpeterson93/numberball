@@ -458,6 +458,48 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    aside .modal-note is meant for (that modal's whole body is this). */
 .methodology-text{margin:0;font-size:13.5px;color:var(--text);line-height:1.6;}
 .methodology-text em{color:var(--muted);font-style:italic;}
+/* Live example DIFF/SPRAY wheels (Alex's ask) - real .wheel/.wheel-svg
+   markup (app.js's methodologyExampleWheelsHtml), just outside the diamond
+   scene .wheel normally lives absolutely-positioned inside - .wheel/
+   .wheel-svg's own base rules (width:100% of parent, height:auto) still do
+   all the real sizing, this just gives that parent a width to be 100% of. */
+.methodology-wheels{display:flex;flex-wrap:wrap;justify-content:center;gap:20px;margin-top:2px;}
+.methodology-wheel-example{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.methodology-wheel-pair{display:flex;gap:12px;}
+.methodology-wheel-pair .wheel{width:150px;margin-bottom:-22px;}
+/* Pulls the caption up into the wheel's own dead space (Alex's ask) - the
+   wheel's 150x150 viewBox has a big built-in empty margin below the ring
+   (WHEEL_CY 75, WHEEL_RING_R 30 -> ring bottom edge at y=105 of 150, before
+   even considering labels), reserved so a value label can land anywhere
+   around the ring. Checked every methodology example's actual worst-case
+   extent (deg1/deg2/wheelLabelRadius math, not just the one Alex flagged):
+   all but the SPRAY wheel's pull/opposite examples stop exactly at y=105;
+   those two extend furthest, to y~114. -22px leaves the caption starting
+   around y~130 - a real ~16px buffer past that worst case, not a
+   hairline-close fit. Re-verify this number if any example's pitch/swing
+   values change. */
+.methodology-wheel-caption{font-size:11.5px;color:var(--muted);text-align:center;max-width:230px;line-height:1.4;}
+/* Contact/topped/spray rows (Alex's ask): 3 examples across, guaranteed one
+   row rather than wrapping. flex-wrap:nowrap here specifically (the default
+   .methodology-wheels above still wraps, still used by the 2-example
+   combined row at the bottom which has more room per item). Caption
+   max-width matches the wheel's own width so long captions wrap under their
+   own column instead of stretching it.
+   min-width:0 at every nested flex level (Alex's report: still wrapping on
+   phones even at the previous, smaller size) - flex items default to
+   min-width:auto, which floors shrinking at the item's own intrinsic
+   content size regardless of an explicit width; without overriding that at
+   EVERY level (.methodology-wheels-compact itself, each .methodology-
+   wheel-example, each .methodology-wheel-pair), the innermost .wheel's
+   explicit 56px could still be ignored on a narrow viewport. 3 x 56px +
+   2 x 4px gap = 176px total, comfortably inside even a ~300px-wide phone's
+   modal content area (.modal's 20px + .modal-body's 18px padding on each
+   side already eats ~76px of any given viewport width). */
+.methodology-wheels-compact{flex-wrap:nowrap;gap:4px;min-width:0;}
+.methodology-wheels-compact .methodology-wheel-example{min-width:0;}
+.methodology-wheels-compact .methodology-wheel-pair{min-width:0;}
+.methodology-wheels-compact .methodology-wheel-pair .wheel{width:150px;min-width:0;flex-shrink:0;}
+.methodology-wheels-compact .methodology-wheel-caption{font-size:11.5px;max-width:56px;line-height:1.25;}
 .name-row{display:flex;gap:8px;}
 .name-row input{flex:1;}
 .settings-row{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;}
@@ -898,17 +940,30 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   animation:trailDraw calc(var(--rdur) / var(--play-speed,1)) ease-out calc(var(--rdelay) / var(--play-speed,1)) forwards;}
 
 /* Fielder convergence (Stage 4e) - sits at the landing point by default (the
-   reduced-motion/finished end state), animates in from its fixed anchor after
-   the ball's travel time. No fielder on a ball that cleared the fence -
-   app.js's fielderTokensHtml already omits the element in that case. */
+   reduced-motion/finished end state), runs there from its fixed anchor at a
+   baserunner's pace (--dur, runnerDrawMsForFt) starting at contact (--delay
+   is just the play's own seqDelay, not timed to the ball's landing/catch -
+   Alex's ask: a fielder already camped under a fly ball, not one that pops
+   in right as it drops). No fielder on a ball that cleared the fence -
+   app.js's fielderTokensHtml already omits the element in that case. Inner
+   content is a <use href="#fielder-glove"> (the sprite defined once in
+   docs/index.html, Alex's glove artwork) - its own paths carry their real
+   fill colors directly, nothing to style here. Visible from frame one -
+   opacity never animates, only position (Alex's ask: an involved fielder
+   shouldn't start hidden and fade in). */
 .fielder{transform:translate(var(--tx),var(--ty));opacity:1;}
-.fielder circle{fill:var(--muted);stroke:var(--card);stroke-width:1.5;}
-.fielder{animation:fielderIn calc(350ms / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;}
+.fielder{animation:fielderIn calc(var(--dur) / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;}
 @keyframes fielderIn{
-  from{transform:translate(var(--fx),var(--fy));opacity:0;}
-  20%{opacity:1;}
-  to{transform:translate(var(--tx),var(--ty));opacity:1;}
+  from{transform:translate(var(--fx),var(--fy));}
+  to{transform:translate(var(--tx),var(--ty));}
 }
+
+/* The other 8, standing at their spot the whole play (Stage 4e follow-up) -
+   present from frame one, no fielderIn pop-in (nothing to converge on).
+   Full opacity, same as .fielder (Alex's ask - no dimming) - idle tokens
+   still paint UNDER the ball/trail in document order, so a flyover reads as
+   "over," not "through," without needing a dimmer look to sell it. */
+.fielder-idle{transform:translate(var(--tx),var(--ty));}
 
 /* Throws (Stage 4e/A2-A5) - drawn in after the ball is fielded, same
    dashoffset technique as the ball trail. A multi-throw play (a double play)
@@ -1621,7 +1676,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   .rb-new, .rb-marker, .scene-flash,
   .scene-recap, .scene-scorebug-state.new-half, .play-scene .result-pill,
   .dm-base.on, .dm-base.steal-safe, .dm-base.steal-out,
-  .fielder, .fielder-name, .throw-line, .throw-clip-rect,
+  .fielder-name, .throw-line, .throw-clip-rect,
   .ball-label, .ball-dist, .ball-rollout, .ball-rollout-trail,
   .wheel-arc, .wheel-dot-1, .wheel-dot-2, .wheel-val-1, .wheel-val-2,
   .wheel-center-big, .wheel-center-small,
@@ -1642,8 +1697,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      no matching !important needed on the inline side. .rn.stranded-to-dugout
      is the same story now too - its own position animation moved from a
      shared class rule to this same per-token inline generation (Alex's
-     report, that class rule's own comment). */
+     report, that class rule's own comment). .fielder joined this list once
+     an unassisted fielder's ball-then-bag run started generating its own
+     per-token .fielder.fArc-<id> rule (movingFielderTokenHtml) - same
+     2-class-specificity problem as .ball.kmArc-<id>, same fix. */
   .ball, .ball.clear, .ball-trail, .ball-shadow, .ball-shadow.clear,
+  .fielder,
   .rn.out-to-first, .rn.out-to-base, .rn.out-retreat, .rn.stranded-to-dugout{animation:none!important;}
   /* End states: the out is recorded and the score is final, just without the
      pop or the count-up. */
