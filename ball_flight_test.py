@@ -817,7 +817,15 @@ def main() -> None:
                       var m = {outs_before: 0, outs_after: 1};
                       KMFlight.resolveGrounderInterception(m, flight, hand);
                       var hzPos = KMFlight.HZ_FIELDER_BY_ANGLE[Math.round(angle)];
-                      if (flight.fielder !== hzPos) bad.push("angle=" + angle + " hand=" + hand + ": fielder " + flight.fielder + " != HZ answer " + hzPos);
+                      // Pitcher-EV-threshold (Alex's ask): above the cutoff, a
+                      // dead-middle (45deg) grounder is no longer the HZ
+                      // answer's own "P" - it's divvied to 2B (RHH)/SS (LHH)
+                      // instead, a deliberate exception to this invariant.
+                      var expectedPos = hzPos;
+                      if (hzPos === "P" && ev > KMFlight.PITCHER_MIDDLE_EV_MAX_MPH) {
+                        expectedPos = hand === "L" ? "SS" : "2B";
+                      }
+                      if (flight.fielder !== expectedPos) bad.push("angle=" + angle + " hand=" + hand + " ev=" + ev + ": fielder " + flight.fielder + " != expected " + expectedPos);
                       var alongFt = flight.fieldedDistFt - flight.distance;
                       if (alongFt < -1e-6) bad.push("angle=" + angle + " hand=" + hand + ": fieldedDistFt before landing point");
                       var depth = KMFlight.INFIELDER_DEPTH_FT[flight.fielder];
@@ -833,6 +841,47 @@ def main() -> None:
             tables,
         )
         check("resolver: fielder always matches the HZ answer, fielded point never beyond assigned depth", len(resolver_sweep), 0)
+
+        print("\nPitcher-EV-threshold candidate exclusion (real bug report: a 99mph, -6deg")
+        print("comebacker with a short 17ft first-bounce distance still resolved to P -")
+        print("reassigning the nominal HZ answer away from P isn't enough on its own if P")
+        print("is still in the charge-in race and just closer to a short, shallow ball on")
+        print("pure geometry; this needs P pulled out of the candidate pool entirely):")
+        hot_comebacker = page.evaluate(
+            """(a) => {
+                var out = {};
+                ["R", "L"].forEach(function (hand) {
+                  var sim = KMTraj.simulateFlight(99.24, -6, 0, hand);
+                  var flight = {
+                    la: -6, ev: 99.24, distance: sim.distance, angle: 45,
+                    x: sim.landing.x, y: sim.landing.y, contactVel: sim.contactVel,
+                    archetype: "grounder",
+                  };
+                  var m = {outs_before: 0, outs_after: 1};
+                  KMFlight.resolveGrounderInterception(m, flight, hand);
+                  out[hand] = {fielder: flight.fielder, distance: sim.distance};
+                });
+                return out;
+            }"""
+        )
+        print(f"  distance={hot_comebacker['R']['distance']:.1f}ft")
+        check("hot comebacker (RHH, EV>threshold): fielder is 2B, not P", hot_comebacker["R"]["fielder"], "2B")
+        check("hot comebacker (LHH, EV>threshold): fielder is SS, not P", hot_comebacker["L"]["fielder"], "SS")
+
+        print("\nOutfield pre-shift direction (real bug report: a Calvin Huff double")
+        print("landed at flight.angle exactly 45 - a lattice tie - even though the real")
+        print("simulated x/y clearly wasn't a tie, so the tie-break picked the wrong")
+        print("shift direction; must use the true simulated bearing, not the lattice):")
+        shift_case = page.evaluate(
+            """() => {
+                var flight = {archetype: "double", angle: 45, fielder: "CF", x: 19.92, y: 243.34};
+                var cf = KMFlight.fielderStartAnchorFt("CF", flight, {});
+                var base = KMFlight.FIELDER_ANCHORS_FT.CF;
+                return {cfX: cf.x, baseX: base.x};
+            }"""
+        )
+        check("CF shifts away (left, negative x) from a ball landing right of center",
+              shift_case["cfX"] < shift_case["baseX"], True)
 
         print("\nResolver BRC override (F1/F3): a DP31-shaped synthetic config (excludes")
         print("SS/2B/1B/P, default 3B) on a shallow-landing grounder still triggers,")

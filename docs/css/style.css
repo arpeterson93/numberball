@@ -952,7 +952,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    opacity never animates, only position (Alex's ask: an involved fielder
    shouldn't start hidden and fade in). */
 .fielder{transform:translate(var(--tx),var(--ty));opacity:1;}
-.fielder{animation:fielderIn calc(var(--dur) / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;}
+/* linear, not ease (Alex's report - was reading as decelerating into the
+   catch): --dur is now a real accelerating-run duration computed in JS
+   (app.js's accelTimeS/fielderLegDurationsMs), the same math the multi-leg
+   keyframe variant already uses at "linear" - CSS easing on top of that
+   would layer an unwanted slow-start-slow-end shape over a duration that's
+   already correct, undercutting exactly the run it's supposed to represent
+   (a fielder closing on a ball doesn't ease off approaching it). */
+.fielder{animation:fielderIn calc(var(--dur) / var(--play-speed,1)) linear calc(var(--delay) / var(--play-speed,1)) both;}
 @keyframes fielderIn{
   from{transform:translate(var(--fx),var(--fy));}
   to{transform:translate(var(--tx),var(--ty));}

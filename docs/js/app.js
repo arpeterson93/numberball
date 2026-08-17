@@ -2610,7 +2610,46 @@
   // roller (session 2, BBEG@POR, Trotter's comebacker) keeps the bulk of its
   // own real fix (1.11s of the original 1.28s) - see chargeInIntercept's own
   // comment for why the fast-ball tail can never reach exactly zero.
+  // Per-player speed (Alex's ask): a 1-5 scouted SPD rating (MLN Calculator
+  // convention, 3 = average), straight off the Players/Rosters sheet via
+  // key_moments_build.py's defense/batter_spd/runners_on_base fields.
+  // Scales a flat speed constant by a percentage per point above/below
+  // average - SPD_PCT_PER_POINT is a placeholder (Alex is grounding real
+  // ranges in Statcast data separately); a SPD-3 (or unresolved) player
+  // reproduces today's existing flat constant exactly, so nothing changes
+  // until that real value replaces the placeholder.
+  var SPD_AVERAGE = 3;
+  var SPD_PCT_PER_POINT = 0.12;
+  function spdPaceScale(spd) {
+    var v = (spd == null) ? SPD_AVERAGE : spd;
+    return 1 + (v - SPD_AVERAGE) * SPD_PCT_PER_POINT;
+  }
+  // The specific fielder standing at `pos` for this play, from m.defense
+  // (key_moments_build.py's per-position [name, last, spd]). Pitcher is a
+  // deliberate exception (Alex's ask): fielding pace always uses the
+  // average rating regardless of their own real SPD, since that attribute
+  // is scouted for baserunning, not pitcher fielding quickness.
+  function fielderSpd(m, pos) {
+    if (pos === "P") return SPD_AVERAGE;
+    var entry = m && m.defense && m.defense[pos];
+    var spd = entry && entry[2];
+    return (spd == null) ? SPD_AVERAGE : spd;
+  }
+
   var FIELDER_CHARGE_FT_PER_S = 16;
+  // Split out from FIELDER_CHARGE_FT_PER_S (Alex's ask, following through on
+  // OF_CHARGE_CANDIDATE_POSITIONS's own long-standing "split into its own
+  // constant later if wrong" flag below): closing on a base hit from a real
+  // outfield distance is a genuine run, not the same delicate short-range
+  // "barehand a comebacker" scoop the 16ft/s infield number was tuned for.
+  // Real report that surfaced it: a routine single (76mph EV, 18deg LA,
+  // landing 207ft out) took 5.6 real seconds of ground time after landing
+  // before the assigned RF ever caught up to it at 16ft/s - the ball's own
+  // roll was simply outrunning that pace for almost its entire remaining
+  // distance, so the race fell through to "wait for it to nearly stop"
+  // instead of a real fielder-closing chase. Set close to a real sprint
+  // (RUNNER_SPRINT_FT_PER_S) rather than reusing the infield number.
+  var OF_CHARGE_FT_PER_S = 24;
   // Recognize-it's-a-roller-and-break beat, same flavor as every other
   // "notice, then react" constant here (OUT_BEAT_MS, THROW_DELAY_MS) - just
   // its own value since a charge decision is a different kind of read than
@@ -2640,10 +2679,10 @@
   // 65mph "grounder" the camped 2B was standing right on top of still
   // ended up "fielded" 130ft past his own depth, because the race never
   // credited him with blocking it as it arrived.
-  function chargeFielderArriveS(anchor, flight, alongFt) {
+  function chargeFielderArriveS(anchor, flight, alongFt, ftPerS) {
     var p = groundDirPoint(flight, alongFt);
     var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
-    return (distFt > 0 ? CHARGE_REACTION_S : 0) + distFt / FIELDER_CHARGE_FT_PER_S;
+    return (distFt > 0 ? CHARGE_REACTION_S : 0) + distFt / (ftPerS || FIELDER_CHARGE_FT_PER_S);
   }
   // Earliest point along the ball's own roll (0..gp.restFt) where this one
   // fielder's own charge-in catches up to it, real seconds since contact for
@@ -2683,9 +2722,9 @@
   // every fielder's distance to the ball's full, un-intercepted ~225ft
   // natural roll instead - a wildly wrong "who fields it" answer for what
   // should have been an instant comebacker out.
-  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt) {
+  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt, ftPerS) {
     var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
-    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt) - gp.timeAt(alongFt); }
+    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt, ftPerS) - gp.timeAt(alongFt); }
     if (h(0) <= 0) return { alongFt: 0, atS: gp.timeAt(0) };
     if (knownAlongFt != null && knownAlongFt > 0 && knownAlongFt <= restFt && h(knownAlongFt) <= 0) {
       var lo0 = 0, hi0 = knownAlongFt;
@@ -2711,7 +2750,7 @@
       }
       prevAlong = along;
     }
-    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt) };
+    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt, ftPerS) };
   }
   // Races every plausible infielder's own charge-in (above) and returns
   // whichever actually gets there first - "who fields it" and "how long does
@@ -2751,24 +2790,58 @@
   // candidates (optional): defaults to the infield roster
   // (CHARGE_CANDIDATE_POSITIONS) - resolveSinglePickup passes
   // OF_CHARGE_CANDIDATE_POSITIONS instead to race outfielders on a single.
-  function chargeInIntercept(flight, gp, campedPos, campedAlongFt, maxAlongFt, candidates) {
+  function chargeInIntercept(flight, gp, campedPos, campedAlongFt, maxAlongFt, candidates, m) {
     var best = null;
     (candidates || CHARGE_CANDIDATE_POSITIONS).forEach(function (pos) {
       var isCamped = pos === campedPos && campedAlongFt != null;
       var anchor = isCamped ? groundDirPoint(flight, campedAlongFt) : FIELDER_ANCHORS_FT[pos];
       if (!anchor) return;
+      // Real per-player charge speed (Alex's ask) - each candidate races at
+      // their own scouted pace, not one flat number for the whole infield -
+      // off the position-appropriate base pace (OF_CHARGE_FT_PER_S for the
+      // three outfield candidates racing a single, FIELDER_CHARGE_FT_PER_S
+      // for everyone else).
+      var basePace = OUTFIELD_POSITIONS[pos] ? OF_CHARGE_FT_PER_S : FIELDER_CHARGE_FT_PER_S;
+      var ftPerS = basePace * spdPaceScale(fielderSpd(m, pos));
       // fielderInterceptS's own knownAlongFt: only the camped candidate has
       // one exact along-distance we already know to check directly
       // (distFt=0 there) - every other candidate's real static anchor has
       // no such analytically-known point, so it just races the coarse grid.
-      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, isCamped ? campedAlongFt : null);
+      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, isCamped ? campedAlongFt : null, ftPerS);
       if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS };
     });
     return best;
   }
 
+  // Pitcher only fields the dead-middle bucket (angle 45) up through a
+  // controlled-pace comebacker - a genuinely hard-hit ball up the middle is
+  // out of a pitcher's real reaction window (Alex's ask, 80mph EV cutoff),
+  // so above it the ball is divvied up between the middle infielders
+  // instead. Handedness decides which one: a RHH's natural tail carries a
+  // hard grounder up the middle toward the 2B side, a LHH's toward the SS
+  // side. Checked before the BRC-exclusion override below so an explicit
+  // import_BRC.csv default_position still wins either way.
+  var PITCHER_MIDDLE_EV_MAX_MPH = 80;
+  // Every other infield candidate (including P) still races from their own
+  // real anchor below (chargeInIntercept/CHARGE_CANDIDATE_POSITIONS) - the
+  // pitcher's real anchor sits closest to home of anyone, so on a short,
+  // shallow ball P can still win that race on pure geometry even after
+  // being reassigned away from the nominal HZ answer above (a real bug
+  // report: a 99mph comebacker with a 17ft first-bounce distance still
+  // resolved to P, because nothing had actually removed them from the
+  // race). This isn't a "who's standing closest" question in real baseball
+  // once a ball's moving this hard up the middle - it's genuinely too fast
+  // for the pitcher to get a glove up safely, full stop - so the EV
+  // reassignment has to also pull P out of the candidate pool entirely,
+  // not just out of the nominal/camped slot.
+  var CHARGE_CANDIDATES_NO_PITCHER = CHARGE_CANDIDATE_POSITIONS.filter(function (p) { return p !== "P"; });
   function resolveGrounderInterception(m, flight, hand) {
     var hzPos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
+    var pitcherExcludedByEv = false;
+    if (hzPos === "P" && flight.ev > PITCHER_MIDDLE_EV_MAX_MPH) {
+      hzPos = hand === "L" ? "SS" : "2B";
+      pitcherExcludedByEv = true;
+    }
     var pos = hzPos;
     if (brcExcludes(m, hzPos) && m.default_position) {
       pos = m.default_position;
@@ -2810,7 +2883,8 @@
       // gates on wasOut for a ground archetype, so an infield single races
       // the same way a comparable groundout does; nobody winning the race
       // in time before maxAlongFt is exactly what "safe" already means.
-      var intercept = chargeInIntercept(flight, gp, pos, alongFt, maxAlongFt);
+      var candidates = pitcherExcludedByEv ? CHARGE_CANDIDATES_NO_PITCHER : null;
+      var intercept = chargeInIntercept(flight, gp, pos, alongFt, maxAlongFt, candidates, m);
       pos = intercept.pos;
       fieldedFt = intercept.alongFt;
       groundTimeS = intercept.atS;
@@ -2867,7 +2941,7 @@
       if (third) applyAngleOverride(flight, clamp(flight.angle, third[0], third[1]), hand, false);
     }
     var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
-    var intercept = chargeInIntercept(flight, gp, null, null, null, OF_CHARGE_CANDIDATE_POSITIONS);
+    var intercept = chargeInIntercept(flight, gp, null, null, null, OF_CHARGE_CANDIDATE_POSITIONS, m);
     // intercept.atS already correctly times rawPickupFt in both of
     // fielderInterceptS's own cases - either the ball's own gp.timeAt at the
     // crossing point (the ball and the charging fielder arrive together by
@@ -2985,7 +3059,7 @@
     if (!flight.fielder) return targets.map(function () { return false; });
     var prevPos = flight.fielder;
     return targets.map(function (b) {
-      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder);
+      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length);
       var unassisted = pos === prevPos;
       prevPos = pos;
       return unassisted;
@@ -3709,11 +3783,62 @@
     '" y="' + (-FIELDER_ICON_SIZE / 2).toFixed(1) + '" width="' + FIELDER_ICON_SIZE.toFixed(1) +
     '" height="' + FIELDER_ICON_SIZE.toFixed(1) + '"></use>';
 
-  function idleFielderTokenHtml(pos) {
-    var anchor = FIELDER_ANCHORS_FT[pos];
+  function idleFielderTokenHtml(pos, anchorOverride) {
+    var anchor = anchorOverride || FIELDER_ANCHORS_FT[pos];
     var pt = ftToSvg(anchor.x, anchor.y);
     return '<g class="fielder-idle" style="--tx:' + pt.x.toFixed(1) + 'px;--ty:' + pt.y.toFixed(1) +
       'px;">' + FIELDER_GLOVE_USE + '</g>';
+  }
+
+  // Fielders not involved in the play still lean toward a batted ball
+  // (Alex's ask) - a small creep, not a real break toward the action.
+  // Catcher and pitcher excluded: neither is part of any batted-ball race
+  // in this model - creeping off the plate reads wrong for a catcher turned
+  // around behind it, and a pitcher still settling out of their own
+  // delivery isn't in a ready fielding stance to lean anywhere (Alex's
+  // question, answered: no). If either one IS the one who fields the ball,
+  // that's the unrelated "moving" path above, untouched by this.
+  //
+  // Two refinements on the original flat-10ft version (Alex's report: it
+  // read as too uniform/sudden):
+  // (1) Proximity decay - a fielder genuinely near the eventual play leans
+  //     close to the full cap; anyone farther falls off fast (exponential
+  //     in distance, IDLE_DRIFT_DECAY_FT), not a flat distance regardless
+  //     of how far away they actually are.
+  // (2) Real accelerating pace, capped by the play's own clock - instead of
+  //     a fixed distance, they get however far a real accelerating run
+  //     (accelDistForTimeS, the same physics fielderLegDurationsMs's own
+  //     accelTimeS uses, just inverted: time -> distance) would cover in
+  //     the time actually available before the ball's real fielder gets to
+  //     it (fieldedMs) - so they stop leaning once the play's already
+  //     decided, rather than continuing to visibly creep after the real
+  //     fielder has already touched the ball.
+  var IDLE_DRIFT_MAX_FT = 10;
+  var IDLE_DRIFT_DECAY_FT = 40;
+  var IDLE_DRIFT_MIN_FT = 0.5;
+  var IDLE_DRIFT_EXCLUDED_POSITIONS = { C: 1, P: 1 };
+  function accelDistForTimeS(timeS, topSpeedFtPerS) {
+    if (timeS <= 0) return 0;
+    var accelTimeToTopS = topSpeedFtPerS / FIELDER_ACCEL_FT_S2;
+    if (timeS <= accelTimeToTopS) return 0.5 * FIELDER_ACCEL_FT_S2 * timeS * timeS;
+    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * FIELDER_ACCEL_FT_S2);
+    return accelDistFt + topSpeedFtPerS * (timeS - accelTimeToTopS);
+  }
+  function idleDriftLeg(pos, targetFt, anchorOverride, m, flight) {
+    var anchor = anchorOverride || FIELDER_ANCHORS_FT[pos];
+    if (!anchor) return null;
+    var dx = targetFt.x - anchor.x, dy = targetFt.y - anchor.y;
+    var dist = Math.hypot(dx, dy);
+    if (dist <= 0) return null;
+    var cap = IDLE_DRIFT_MAX_FT * Math.exp(-dist / IDLE_DRIFT_DECAY_FT);
+    if (cap < IDLE_DRIFT_MIN_FT) return null;
+    var topSpeed = RUNNER_SPRINT_FT_PER_S * spdPaceScale(fielderSpd(m, pos));
+    var availableS = flight ? fieldedMs(flight) / 1000 : Infinity;
+    var timeCapFt = accelDistForTimeS(availableS, topSpeed);
+    var step = Math.min(cap, dist, timeCapFt);
+    if (step < IDLE_DRIFT_MIN_FT) return null;
+    var pt = { x: anchor.x + (dx / dist) * step, y: anchor.y + (dy / dist) * step };
+    return { toSvg: ftToSvg(pt.x, pt.y), distFt: step };
   }
 
   // Real outfielders read the ball off the bat before they break, and (per
@@ -3723,14 +3848,149 @@
   // the ask was to keep this simple for now. Infielders get neither - the
   // ball's on them too fast for either to read as anything but late.
   var OUTFIELD_POSITIONS = { LF: 1, CF: 1, RF: 1 };
+
+  // Outfield pre-shift prototype (Alex's ask, outfield-only for now): a
+  // double or triple needs the ball to get past the nearest outfielder,
+  // which in real baseball means the defense wasn't perfectly camped on its
+  // exact eventual landing spot. Shade all three outfielders a small amount
+  // away from the ball's actual angle before the play starts, so whoever
+  // ends up chasing it down genuinely has ground to make up rather than
+  // starting right on top of the result. This only changes where they're
+  // DRAWN starting from (fielderTokensHtml) - the actual fielder assignment
+  // (flightParams/resolveHitPickup) already ran on the real, unshifted
+  // anchors upstream, so which player ends up credited never changes.
+  // Clamped well inside the [0,90] fair-territory range so the shift can
+  // never push a corner outfielder onto or past a foul line.
+  var OF_SHIFT_ARCHETYPES = { double: 1, triple: 1 };
+  // 1B/1BWH/1BWH2 all share the plain "single" archetype (result_diff_bands.csv)
+  // - archetype alone can't tell a routine bloop (1B, 41-247ft, often still
+  // an infield-adjacent play) from a well-hit single that's genuinely an
+  // outfield defensive situation (1BWH/1BWH2, 200-360ft), so this checks the
+  // real result code instead (Alex's ask - extend the shift to those two).
+  var OF_SHIFT_WH_SINGLE_RESULTS = { "1BWH": 1, "1BWH2": 1 };
+  var OF_SHIFT_DEG = 5;
+  var OF_SHIFT_ANGLE_MIN = 3, OF_SHIFT_ANGLE_MAX = 87;
+  // Direction is relative to the fielder who actually ends up credited
+  // (flight.fielder), not the whole field's own dead-center (45) - a real
+  // bug report caught this: a double left of RF (e.g. angle 60, left of
+  // RF's own 72) needs RF shaded further right/deeper into the corner
+  // (away from 60, toward 77+) so RF has farther to close, not shaded left
+  // toward the hit, which was the old (angle<=45?) global-half comparison's
+  // actual effect whenever the hit fell on the near side of a corner
+  // fielder's own zone but still past the whole-field's own center. Same
+  // fix resolves the mirrored CF report (ball right of CF's own 45 needs to
+  // shade CF left, away from it, not right toward it).
+  //
+  // Direction compares against the ball's own TRUE simulated bearing
+  // (atan2 off its real x/y), not flight.angle - a second real bug report
+  // caught this: flight.angle is the coarse 11-point HZ lattice (used for
+  // infielder assignment, 8deg apart), which a real play can land exactly
+  // ON a tie (a Calvin Huff double: pitch/swing's last digits both landed
+  // on the same bucket, so flight.angle read exactly 45, dead center) even
+  // though the real simulated landing point (x=19.9ft, meaningfully right
+  // of center) clearly wasn't a tie at all - the tie-break then defaulted
+  // to "shift right," which was visibly wrong for a ball that really did
+  // land right of CF. The true bearing has no such lattice-quantization
+  // gap.
+  // 1B starts deeper than usual on the PFP play (angle 77 - the same
+  // condition coveringPosition uses for pitcher-covers-first) - Alex's ask:
+  // otherwise there's no visible reason on screen the pitcher would ever
+  // need to cover, since a 1B starting at their normal ~111ft depth would
+  // just jog back to the bag himself. Shifted further out along his own
+  // real canonical bearing (not sideways) so the eventual run from anchor
+  // to the fielded point visibly can't make it back to the bag in time.
+  // Gated on flight.fielder/angle alone, not relayCount, unlike
+  // coveringPosition's own stricter 3-1-only gate - a harmless, still
+  // plausible deeper starting spot even on the rare longer relay chain
+  // this doesn't end up covering.
+  var IF1B_DEPTH_SHIFT_FT = 20;
+  function fielderStartAnchorFt(pos, flight, m) {
+    if (pos === "1B" && flight && flight.fielder === "1B" && flight.angle === 77 &&
+        flight.archetype === "grounder") {
+      return landingPoint(INFIELDER_DEPTH_FT["1B"] + IF1B_DEPTH_SHIFT_FT, CANONICAL_ANGLE["1B"]);
+    }
+    var applies = flight && (OF_SHIFT_ARCHETYPES[flight.archetype] ||
+      (flight.archetype === "single" && m && OF_SHIFT_WH_SINGLE_RESULTS[m.result]));
+    if (!OUTFIELD_POSITIONS[pos] || !applies || !OUTFIELD_POSITIONS[flight.fielder]) {
+      return FIELDER_ANCHORS_FT[pos];
+    }
+    var refAngle = OF_CANONICAL_ANGLE[flight.fielder];
+    var trueAngle = 45 + Math.atan2(flight.x, flight.y) * 180 / Math.PI;
+    var direction = trueAngle <= refAngle ? 1 : -1;
+    var shiftedDeg = clamp(OF_CANONICAL_ANGLE[pos] + direction * OF_SHIFT_DEG,
+      OF_SHIFT_ANGLE_MIN, OF_SHIFT_ANGLE_MAX);
+    return landingPoint(OUTFIELDER_DEPTH_FT[pos], shiftedDeg);
+  }
+
   var OUTFIELDER_REACT_MS = 400;
-  var OUTFIELDER_PACE_SCALE = 1.6;
+  // Retired (Alex's report): this used to be a flat 1.6x slowdown standing
+  // in for "outfielders don't cover ground at a flat-out sprint," back when
+  // the duration model was pure flat distance/speed with no ramp-up at all.
+  // Real acceleration (FIELDER_ACCEL_FT_S2 below) now models exactly that
+  // trait organically - stacking this flat multiplier ON TOP of a real
+  // accelerating run double-counted it, and for a genuinely long run (a
+  // fly ball down the line) compounded into an absurd ~1.6x-longer total
+  // that was arriving well after a real outfielder ever would (measured:
+  // a 232ft corner fly took ~15s to cover with both effects stacked, vs.
+  // ~9s with acceleration alone - a real sprinter's actual ballpark for
+  // that distance). OUTFIELDER_REACT_MS (the pre-break read) is the only
+  // OF-specific trait left, and it's a genuinely different thing - a delay
+  // before moving, not a slower pace once moving.
+  var OUTFIELDER_PACE_SCALE = 1;
   function fielderStartDelay(pos, baseDelay) {
     return baseDelay + (OUTFIELD_POSITIONS[pos] ? OUTFIELDER_REACT_MS : 0);
   }
-  function fielderLegMs(pos, distFt) {
-    var ms = runnerDrawMsForFt(distFt);
-    return OUTFIELD_POSITIONS[pos] ? Math.round(ms * OUTFIELDER_PACE_SCALE) : ms;
+  // Real fielders build up to their top pace rather than moving at a flat
+  // rate from frame one (Alex's ask, two related reports pointing at the
+  // same missing piece: the idle-drift lean read as an instant snap over
+  // its own short ~10ft creep, and outfielders were visibly beating a
+  // double/triple's own ball flight to the fence - a dead sprint chasing
+  // something already past them shouldn't win that race early). Constant-
+  // acceleration kinematics up to the existing top-speed constant: a short
+  // hop (well under the distance needed to reach top speed) now genuinely
+  // takes longer per foot than the old flat distance/speed model ever
+  // charged it, and a long run spends real time still ramping up too -
+  // both read as more natural without retuning the top-speed constants
+  // (RUNNER_SPRINT_FT_PER_S etc.) other systems already lean on. Ballpark
+  // value (Alex: tune to taste) - reaches RUNNER_SPRINT_FT_PER_S (27ft/s)
+  // in a bit over a second, same rough feel as a real infielder's controlled
+  // first few steps.
+  var FIELDER_ACCEL_FT_S2 = 25;
+  function accelTimeS(distFt, topSpeedFtPerS) {
+    if (distFt <= 0) return 0;
+    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * FIELDER_ACCEL_FT_S2);
+    if (distFt <= accelDistFt) return Math.sqrt(2 * distFt / FIELDER_ACCEL_FT_S2);
+    var accelTimeToTopS = topSpeedFtPerS / FIELDER_ACCEL_FT_S2;
+    return accelTimeToTopS + (distFt - accelDistFt) / topSpeedFtPerS;
+  }
+  // Real per-player speed (Alex's ask, spdPaceScale/fielderSpd above) scales
+  // every fielder's own top speed, not just the flat outfielder slowdown
+  // layered on top of it (OUTFIELD_POSITIONS-only, unchanged - a separate
+  // "reads it off the bat, doesn't sprint flat-out" behavioral trait, not a
+  // raw speed difference).
+  //
+  // legs: ordered [{distFt}, ...] - momentum carries through every waypoint
+  // rather than each leg re-accelerating from a dead stop (a real bug this
+  // surfaced: pitcherCover1BLegs's 4-leg curve was computing accelTimeS from
+  // zero speed at the start of EACH leg, inflating a real ~68ft path into
+  // four independent short sprints worth of ramp-up). Each leg's own
+  // duration is the DELTA between accelTimeS at its own cumulative distance
+  // and the previous waypoint's - one continuous accelerating run over the
+  // summed distance, split back into per-leg deltas only because the
+  // multi-leg keyframe renderer (movingFielderTokenHtml) needs per-leg
+  // stops. A single leg is the degenerate case (cumDistFt === its own
+  // distFt, prevTimeS starts at 0) and returns exactly the old single-value
+  // formula unchanged.
+  function fielderLegDurationsMs(m, pos, legs) {
+    var topSpeed = RUNNER_SPRINT_FT_PER_S * spdPaceScale(fielderSpd(m, pos));
+    var cumDistFt = 0, prevTimeS = 0;
+    return legs.map(function (leg) {
+      cumDistFt += leg.distFt;
+      var timeS = accelTimeS(cumDistFt, topSpeed);
+      var ms = (timeS - prevTimeS) * 1000;
+      prevTimeS = timeS;
+      return Math.round(OUTFIELD_POSITIONS[pos] ? ms * OUTFIELDER_PACE_SCALE : ms);
+    });
   }
 
   var fielderArcCounter = 0;
@@ -3755,13 +4015,33 @@
   // both cases - no fade-in, only position animates; a fielder who reaches
   // a spot before the ball does just stands there already, which is exactly
   // right for a fly ball someone camps under.
-  function movingFielderTokenHtml(m, pos, legs, startDelay) {
-    var anchor = FIELDER_ANCHORS_FT[pos];
+  // deadlineMs (optional, absolute - same startDelay-inclusive space as
+  // delayMs below): a caught-in-air out's own real catch moment (Alex's
+  // ask, no exceptions - a fielder must never visibly arrive after a ball
+  // the recorded result already says they caught). The ball's hang time is
+  // fixed physics, independent of the fielder's own accelerating travel
+  // time, so when the natural pace doesn't get them there in time (real
+  // report: a deep fly down the line, genuine ground to cover) this
+  // compresses the run to land exactly on the deadline instead. Only ever
+  // shortens, never extends - a fielder who's naturally early keeps their
+  // own natural pace, no artificial slow-down to "wait" for the ball.
+  function movingFielderTokenHtml(m, pos, legs, startDelay, anchorOverride, deadlineMs) {
+    var anchor = anchorOverride || FIELDER_ANCHORS_FT[pos];
     if (!anchor || !legs.length) return "";
     var from = ftToSvg(anchor.x, anchor.y);
     var delayMs = fielderStartDelay(pos, startDelay);
-    var durs = legs.map(function (leg) { return fielderLegMs(pos, leg.distFt); });
+    var durs = fielderLegDurationsMs(m, pos, legs);
     var totalMs = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
+    if (deadlineMs != null) {
+      var budgetMs = deadlineMs - delayMs;
+      if (budgetMs < totalMs) {
+        var newTotalMs = Math.max(durs.length, Math.min(totalMs, budgetMs));
+        var scale = newTotalMs / totalMs;
+        durs = durs.map(function (d) { return Math.max(1, Math.round(d * scale)); });
+        totalMs = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
+        delayMs = Math.max(0, deadlineMs - totalMs);
+      }
+    }
 
     if (legs.length === 1) {
       var vars = "--fx:" + from.x.toFixed(1) + "px;--fy:" + from.y.toFixed(1) + "px;" +
@@ -3782,6 +4062,56 @@
     var style = "<style>@keyframes " + name + " { " + stops + "} .fielder." + name +
       " { animation: " + name + " calc(" + totalMs + "ms / var(--play-speed,1)) linear calc(" + delayMs + "ms / var(--play-speed,1)) both; }</style>";
     return style + '<g class="fielder ' + name + '" style="--tx:' + lastPt.x.toFixed(1) + 'px;--ty:' + lastPt.y.toFixed(1) + 'px;">' + FIELDER_GLOVE_USE + '</g>';
+  }
+
+  // Pitcher covering first doesn't run a straight diagonal from the mound
+  // (Alex's ask) - real footwork angles out toward the foul line first,
+  // then flattens out to approach the bag on a path roughly parallel to it.
+  // Modeled as a handful of straight waypoints (movingFielderTokenHtml's
+  // existing multi-leg mechanism, same one the fielder-then-throw case
+  // above already uses) whose perpendicular distance off the home-to-1B
+  // line decays exponentially with progress along it - an "asymptotic"
+  // converge onto the line, then up it - with the final waypoint always
+  // forced exactly onto the bag regardless of how close the decay curve
+  // alone would land, so the token still lands precisely on base.
+  var PITCHER_COVER_1B_LEGS = 4;
+  var PITCHER_COVER_1B_CONVERGE_RATE = 3.5;
+  function pitcherCover1BLegs(anchorFt, baseFt, baseSvg) {
+    var lineLen = Math.hypot(baseFt.x, baseFt.y) || 1;
+    var dirX = baseFt.x / lineLen, dirY = baseFt.y / lineLen;
+    var perpX = -dirY, perpY = dirX;
+    var forward0 = anchorFt.x * dirX + anchorFt.y * dirY;
+    var perp0 = anchorFt.x * perpX + anchorFt.y * perpY;
+    var legs = [];
+    var prevFt = anchorFt;
+    for (var i = 1; i <= PITCHER_COVER_1B_LEGS; i++) {
+      var isLast = i === PITCHER_COVER_1B_LEGS;
+      var ptFt, ptSvg;
+      if (isLast) {
+        ptFt = baseFt; ptSvg = baseSvg;
+      } else {
+        var t = i / PITCHER_COVER_1B_LEGS;
+        var forward = forward0 + t * (lineLen - forward0);
+        var perp = perp0 * Math.exp(-PITCHER_COVER_1B_CONVERGE_RATE * t);
+        ptFt = { x: dirX * forward + perpX * perp, y: dirY * forward + perpY * perp };
+        ptSvg = ftToSvg(ptFt.x, ptFt.y);
+      }
+      legs.push({ toSvg: ptSvg, distFt: Math.hypot(ptFt.x - prevFt.x, ptFt.y - prevFt.y) });
+      prevFt = ptFt;
+    }
+    return legs;
+  }
+
+  // Real total travel time (ms since contact) for the pitcher's own curved
+  // run to cover first (pitcherCover1BLegs) - throwSchedule's own clamp
+  // needs this to keep a 3-1 putout's throw from visibly beating the
+  // pitcher there (see there for the full rationale). Same anchor/base/leg
+  // math the token render itself uses, same per-leg pacing (fielderLegMs,
+  // acceleration included) - not a separate estimate that could drift out
+  // of sync with what's actually drawn.
+  function pitcherCover1BArrivalMs(m) {
+    var legs = pitcherCover1BLegs(FIELDER_ANCHORS_FT.P, BASE_POS_FT["1B"], SCENE_BASES["1B"]);
+    return fielderLegDurationsMs(m, "P", legs).reduce(function (a, b) { return a + b; }, 0);
   }
 
   // Which fielder covers a steal's target base (Alex's ask) - SS for 2B,
@@ -3807,18 +4137,20 @@
       var stealDestSvg = stealPos && (steal.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[steal.base]);
       if (stealAnchor && stealDestFt && stealDestSvg) {
         var stealDistFt = Math.hypot(stealDestFt.x - stealAnchor.x, stealDestFt.y - stealAnchor.y);
-        return allPositions.filter(function (pos) { return pos !== stealPos; }).map(idleFielderTokenHtml).join("") +
+        return allPositions.filter(function (pos) { return pos !== stealPos; })
+          .map(function (pos) { return idleFielderTokenHtml(pos); }).join("") +
           movingFielderTokenHtml(m, stealPos, [{ toSvg: stealDestSvg, distFt: stealDistFt }], startDelay);
       }
-      return allPositions.map(idleFielderTokenHtml).join("");
+      return allPositions.map(function (pos) { return idleFielderTokenHtml(pos); }).join("");
     }
 
     var moving = {};
     var moversHtml = "";
     if (!flight.clearedFence) {
       var archetype = flight.archetype;
+      var isAir = !!CAUGHT_IN_AIR[archetype];
       var isNewOut = (m.outs_after || 0) > (m.outs_before || 0);
-      var isGroundOrAir = flight.fielder && (GROUND_ARCHETYPES[archetype] || CAUGHT_IN_AIR[archetype]);
+      var isGroundOrAir = flight.fielder && (GROUND_ARCHETYPES[archetype] || isAir);
       if (isNewOut && isGroundOrAir) {
         // Same chain fieldingChainDetail builds (same inputs, same
         // coveringPosition rule) - but collapsed differently. That function
@@ -3832,7 +4164,7 @@
         var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
         var rawChain = [{ pos: flight.fielder, base: null }];
         relayBases.forEach(function (base) {
-          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder), base: base });
+          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length), base: base });
         });
         var merged = [];
         rawChain.forEach(function (entry) {
@@ -3845,7 +4177,7 @@
         var pickupSvg = ftToSvg(pickupFt.x, pickupFt.y);
         merged.forEach(function (e) {
           if (moving[e.pos]) return;
-          var anchor = FIELDER_ANCHORS_FT[e.pos];
+          var anchor = fielderStartAnchorFt(e.pos, flight, m);
           if (!anchor) return;
           // Unassisted (this fielder both touched the ball AND covers the
           // next base themselves, e.base non-null on the SAME entry the
@@ -3869,26 +4201,34 @@
             var destFt = e.base === null ? pickupFt : BASE_POS_FT[e.base];
             var destSvg = e.base === null ? pickupSvg : (e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base]);
             if (!destFt || !destSvg) return;
-            legs = [{ toSvg: destSvg, distFt: Math.hypot(destFt.x - anchor.x, destFt.y - anchor.y) }];
+            legs = (e.pos === "P" && e.base === "1B")
+              ? pitcherCover1BLegs(anchor, destFt, destSvg)
+              : [{ toSvg: destSvg, distFt: Math.hypot(destFt.x - anchor.x, destFt.y - anchor.y) }];
           }
           moving[e.pos] = 1;
-          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay);
+          var deadlineMs = (isAir && e.base === null) ? startDelay + ballTravelMs(flight) : null;
+          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay, anchor, deadlineMs);
         });
       } else if (flight.fielder) {
         // Not converted to an out: no chain, just the one fielder who
         // ends up with the ball (unchanged from the original single-mover
         // behaviour, before the idle 8 were added).
-        var soloAnchor = FIELDER_ANCHORS_FT[flight.fielder];
+        var soloAnchor = fielderStartAnchorFt(flight.fielder, flight, m);
         var fieldedFt = fieldedPoint(flight);
         if (soloAnchor) {
           moving[flight.fielder] = 1;
           var soloDistFt = Math.hypot(fieldedFt.x - soloAnchor.x, fieldedFt.y - soloAnchor.y);
           moversHtml += movingFielderTokenHtml(m, flight.fielder,
-            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay);
+            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay, soloAnchor);
         }
       }
     }
-    var idleHtml = allPositions.filter(function (pos) { return !moving[pos]; }).map(idleFielderTokenHtml).join("");
+    var driftTargetFt = (flight && !flight.clearedFence) ? fieldedPoint(flight) : null;
+    var idleHtml = allPositions.filter(function (pos) { return !moving[pos]; }).map(function (pos) {
+      var startFt = fielderStartAnchorFt(pos, flight, m);
+      var leg = (driftTargetFt && !IDLE_DRIFT_EXCLUDED_POSITIONS[pos]) ? idleDriftLeg(pos, driftTargetFt, startFt, m, flight) : null;
+      return leg ? movingFielderTokenHtml(m, pos, [leg], startDelay, startFt) : idleFielderTokenHtml(pos, startFt);
+    }).join("");
     return idleHtml + moversHtml;
   }
 
@@ -4044,10 +4384,10 @@
   // a static base to sit above - same .fielder-name treatment (font/halo)
   // as a real play's fielder labels, single-line, no result line stacked
   // (there's no result yet). on_base_runners (key_moments_build.py's own
-  // _trace_base_occupants) is [full_name, last_name] per occupied base,
-  // same shape the defense dict already uses, omitted entirely rather than
-  // an empty object when nobody's on - no batter label here, Alex's call,
-  // this is base occupants only. delay:0 - nothing else on this slide
+  // _trace_base_occupants) is [full_name, last_name, spd] per occupied
+  // base, same shape the defense dict already uses, omitted entirely rather
+  // than an empty object when nobody's on - no batter label here, Alex's
+  // call, this is base occupants only. delay:0 - nothing else on this slide
   // animates in on a stagger for these to match.
   function onDeckRunnerLabelsHtml(m) {
     var runners = m.on_base_runners;
@@ -4250,10 +4590,16 @@
          (charging in pulls him off the bag) - then SS covers.
        - 1B is the first baseman, UNLESS he's the one who fielded a BUNT (2B
          covers instead), or he fielded a grounder at the 77deg lattice angle
-         specifically (the PFP play - hit deep enough into the 1B/2B hole
-         that he can't get back to the bag himself, so the pitcher breaks
-         over to cover it; the other 1B angle, 85deg, sits close enough to
-         the bag/line that he beats the runner back there himself).
+         specifically AND this is the only relay leg on the play (a genuine
+         3-1, the PFP play - hit deep enough into the 1B/2B hole that he
+         can't get back to the bag himself, so the pitcher breaks over to
+         cover it; the other 1B angle, 85deg, sits close enough to the bag/
+         line that he beats the runner back there himself). Scoped to a
+         single-leg play on purpose (Alex's ask, after a bogus 3-6-1 report):
+         on a 3-6-3 double play the pitcher never covers first on the RETURN
+         throw - the first baseman has had the full time of the SS relay to
+         jog back to his own bag, so relayCount>1 always falls through to
+         "1B" covers himself instead.
        - 2B is decided by which side of the infield the ball was hit to, NOT
          by who actually fielded it (so a slow roller fielded by the pitcher
          or a charging outfielder still gets a sensible coverer): angle<45
@@ -4264,12 +4610,12 @@
      fieldingNotation collapses a fielder covering their own next base right
      back down to a single (unassisted) touch - see there for why that's the
      general unassisted rule rather than a separate angle check. */
-  function coveringPosition(base, archetype, angle, fielderPos) {
+  function coveringPosition(base, archetype, angle, fielderPos, relayCount) {
     if (base === "HOME") return "C";
     if (base === "3B") return (archetype === "bunt" && fielderPos === "3B") ? "SS" : "3B";
     if (base === "1B") {
       if (archetype === "bunt" && fielderPos === "1B") return "2B";
-      if (fielderPos === "1B" && angle === 77) return "P";
+      if (fielderPos === "1B" && angle === 77 && relayCount === 1) return "P";
       return "1B";
     }
     if (base === "2B") return angle < 45 ? "2B" : "SS";
@@ -4324,7 +4670,7 @@
 
     var chain = [{ pos: flight.fielder, base: null }];
     relayBases.forEach(function (base) {
-      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder), base: base });
+      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length), base: base });
     });
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
@@ -4515,16 +4861,47 @@
     // everywhere before this.
     var origin0 = fieldedPoint(flight);
     // A leg the same fielder covers themselves (relayLegIsUnassisted, Alex's
-    // ask) draws at a runner's jog, not a 90mph throw - a 3B stepping on
-    // third himself before relaying to first (a 5-3 DP) shouldn't cross that
-    // ground any faster than a runner would.
+    // ask) draws at that fielder's own running pace, not a 90mph throw - a
+    // 3B stepping on third himself before relaying to first (a 5-3 DP)
+    // shouldn't cross that ground any faster than he'd actually run it.
+    // Uses fielderLegDurationsMs - the exact same accelerating-run formula
+    // (and real SPD) the fielder's own glove token draws with
+    // (movingFielderTokenHtml) - not the flat, unaccelerated
+    // runnerDrawMsForFt (Alex's report: after the acceleration model
+    // landed, this line marker kept its old flat pace and started visibly
+    // beating the glove token that's supposedly the one carrying it).
     var unassisted = relayLegIsUnassisted(targets, flight);
-    return sequentialThrowSchedule(targets, base, realCount, function (i, b) {
+    var schedule = sequentialThrowSchedule(targets, base, realCount, function (i, b) {
       var fromPt = i === 0 ? origin0 : BASE_POS_FT[targets[i - 1]];
       var dist = throwDistFt(fromPt, b);
       if (dist == null) return THROW_DRAW_MS;
-      return unassisted[i] ? runnerDrawMsForFt(dist) : throwDrawMsForFt(dist);
+      if (!unassisted[i]) return throwDrawMsForFt(dist);
+      var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length);
+      return fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0];
     });
+    // A genuine 3-1 (single relay leg straight to 1B, pitcher covering per
+    // coveringPosition's own relayCount===1 gate) must not have the ball
+    // visibly beat the pitcher there (Alex's bug report - it was arriving
+    // while the pitcher's own token was still partway down the baseline).
+    // Both timelines share the same t=0 (contact - fielderStartDelay's own
+    // comment, and this function's own "seqDelay added only at the final
+    // write" convention), so this holds the release back until the
+    // pitcher's own real travel time for that exact curved path
+    // (pitcherCover1BArrivalMs) - both startMs/endMs shift together, same
+    // total draw time, modeling the first baseman holding the ball an extra
+    // beat rather than the throw itself taking longer to cross the same
+    // real distance.
+    if (targets.length === 1 && targets[0] === "1B" && flight.fielder === "1B" &&
+        coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length) === "P") {
+      var pitcherMs = pitcherCover1BArrivalMs(m);
+      var leg0 = schedule[0];
+      if (pitcherMs > leg0.endMs) {
+        var shift = pitcherMs - leg0.endMs;
+        leg0.startMs += shift;
+        leg0.endMs += shift;
+      }
+    }
+    return schedule;
   }
 
   /* When each throw-corroborated out actually happens - the moment its own
@@ -4637,6 +5014,37 @@
     return clip + line + ball;
   }
 
+  // Infield singles get a real "tried to throw him out, just missed" throw
+  // (Alex's ask) - outThrowTargets/throwSchedule are built around real
+  // outs (their own realOutThrowCount cap, THROW_LEAD_MS's "must beat the
+  // runner" direction), so this is a separate, small function rather than
+  // forcing a throw that's SUPPOSED to lose the race through machinery
+  // built to guarantee a throw wins it. Timed backwards from the batter's
+  // own known arrival at first (batterFirstArrivalMs, the same flat
+  // reference the real out-throw race already uses) instead of forward
+  // from when the ball's fielded - "back into a reasonable start time"
+  // (Alex's own framing): the throw's end is fixed just past the runner's
+  // arrival, its draw time is the real distance at real throw speed, so
+  // the start time is whatever's left over, clamped to never start before
+  // the ball's actually fielded. Scoped to infield_single only - a routine
+  // "1B" landing beyond the infield has no real close-play-at-first moment
+  // to draw.
+  var IF1B_THROW_MARGIN_MS = 150;
+  function infieldSingleThrowHtml(m, flight, seqDelay) {
+    if (!flight || flight.archetype !== "infield_single" || !flight.fielder || flight.clearedFence) return "";
+    var originFt = fieldedPoint(flight);
+    var baseFt = BASE_POS_FT["1B"];
+    var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
+    var drawMs = throwDrawMsForFt(distFt);
+    var earliestStartMs = fieldedMs(flight) + THROW_DELAY_MS;
+    var idealEndMs = batterFirstArrivalMs() + IF1B_THROW_MARGIN_MS;
+    var startMs = Math.max(earliestStartMs, idealEndMs - drawMs);
+    var from = ftToSvg(originFt.x, originFt.y);
+    var to = SCENE_BASES["1B"];
+    if (!to) return "";
+    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", startMs + (seqDelay || 0), drawMs);
+  }
+
   function throwHtml(m, flight, moves, seqDelay) {
     var schedule = throwSchedule(m, moves, flight);
     if (!schedule.length) return "";
@@ -4700,7 +5108,12 @@
   // near-even diff, opening up toward a comfortably decisive one the further
   // apart the roll. CS keeps arriving early by this amount, SB late by it -
   // same convention as before, just no longer a constant.
-  var STEAL_THROW_MARGIN_MIN_MS = 80;
+  // Min bumped 80->150 (Alex's report: a bang-bang steal sometimes read as
+  // out on screen when the result was safe - 80ms wasn't a clearly visible
+  // gap once THROW_DRAW_MS's own real draw time is on screen too). Applies
+  // both directions per the comment above - a caught-stealing throw now
+  // also arrives a bit more decisively early, not just a safe steal later.
+  var STEAL_THROW_MARGIN_MIN_MS = 150;
   var STEAL_THROW_MARGIN_MAX_MS = 450;
   function stealThrowMarginMs(diff) {
     return STEAL_THROW_MARGIN_MIN_MS + (STEAL_THROW_MARGIN_MAX_MS - STEAL_THROW_MARGIN_MIN_MS) * (diff / 500);
@@ -4842,7 +5255,8 @@
     GROUND_ARCHETYPES: GROUND_ARCHETYPES,
     parseThrowOrder: parseThrowOrder,
     brcExcludes: brcExcludes,
-    resolveGrounderInterception: resolveGrounderInterception,
+    resolveGrounderInterception: resolveGrounderInterception, resolveSinglePickup: resolveSinglePickup,
+    infieldSingleThrowHtml: infieldSingleThrowHtml, IF1B_THROW_MARGIN_MS: IF1B_THROW_MARGIN_MS,
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
     FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
     CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
@@ -4864,7 +5278,13 @@
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
     INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
     OUTFIELDER_DEPTH_FT: OUTFIELDER_DEPTH_FT, OF_CANONICAL_ANGLE: OF_CANONICAL_ANGLE,
-    HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE,
+    HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE, PITCHER_MIDDLE_EV_MAX_MPH: PITCHER_MIDDLE_EV_MAX_MPH,
+    fielderSpd: fielderSpd, spdPaceScale: spdPaceScale,
+    accelTimeS: accelTimeS, FIELDER_ACCEL_FT_S2: FIELDER_ACCEL_FT_S2,
+    accelDistForTimeS: accelDistForTimeS, idleDriftLeg: idleDriftLeg,
+    pitcherCover1BArrivalMs: pitcherCover1BArrivalMs, pitcherCover1BLegs: pitcherCover1BLegs,
+    fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
+    fielderStartAnchorFt: fielderStartAnchorFt,
     TAG_UP_MS: TAG_UP_MS, TAG_THROW_MARGIN_MS: TAG_THROW_MARGIN_MS,
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
     ballTravelMs: ballTravelMs, fieldedMs: fieldedMs,
@@ -5564,6 +5984,7 @@
         pitchBallHtml(m, flight, wheelFinishMs) +
         ballFlightHtml(m, flight, moves, seqDelay) +
         throwHtml(m, flight, moves, seqDelay) +
+        infieldSingleThrowHtml(m, flight, seqDelay) +
         stealThrowHtml(m, moves, runDelay, outDelay, runnerSeqDelay) +
         fielderNameLabelsHtml(m, flight, seqDelay) +
         onDeckRunnerLabelsHtml(m) +

@@ -384,12 +384,12 @@ def _team_view(ref: dict, key: str | None) -> dict:
 
 def _player_view(ref: dict, player_id: int | None) -> dict:
     if not player_id:
-        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": "", "hand": ""}
+        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": "", "hand": "", "spd": None}
     p = ref["player_by_id"].get(player_id)
     if not p:
         # Traded, released, or otherwise off the current roster tab.
         return {"id": player_id, "name": f"Player {player_id}", "last_name": f"Player {player_id}",
-                "rookie": False, "team": "", "hand": ""}
+                "rookie": False, "team": "", "hand": "", "spd": None}
     return {
         "id": player_id,
         "name": p.get("name") or f"Player {player_id}",
@@ -397,22 +397,31 @@ def _player_view(ref: dict, player_id: int | None) -> dict:
         "rookie": bool(p.get("is_rookie")),
         "team": p.get("team") or "",
         "hand": p.get("hand") or "",
+        # 1-5 scouted speed rating (MLN Calculator convention, 3 = average) -
+        # straight off the Players/Rosters tab, same column both current-
+        # season and archive reads already parse. None when unresolved (no
+        # player_id, or off the roster tab) - the client's own speed-to-ft/s
+        # mapping falls back to the average (3) rating in that case, same as
+        # every other "traded/released, no real data" gap in this pipeline.
+        "spd": p.get("spd"),
     }
 
 
-def _defense_entry(ref: dict, player_id: int | None, fallback_name: str | None = None) -> list[str] | None:
-    """[full_name, last_name] for one resolved defensive position, or None
-    when there's nothing to show. Both names come from _player_view (never
-    split client-side - see build_moment's defense docstring) except when a
-    Lineups-tab name has no matching player_id (traded/released player off
-    the current roster tab) - there, fall back to the raw sheet name for
-    both slots rather than dropping the label entirely.
+def _defense_entry(ref: dict, player_id: int | None, fallback_name: str | None = None) -> list | None:
+    """[full_name, last_name, spd] for one resolved defensive position (or
+    on-base runner - see _trace_base_occupants/runners_on_base), or None
+    when there's nothing to show. Names and spd come from _player_view
+    (never split/re-derived client-side - see build_moment's defense
+    docstring) except when a Lineups-tab name has no matching player_id
+    (traded/released player off the current roster tab) - there, fall back
+    to the raw sheet name for both name slots and a null spd rather than
+    dropping the label entirely.
     """
     if player_id:
         v = _player_view(ref, player_id)
-        return [v["name"], v["last_name"]]
+        return [v["name"], v["last_name"], v["spd"]]
     if fallback_name:
-        return [fallback_name, fallback_name]
+        return [fallback_name, fallback_name, None]
     return None
 
 
@@ -663,7 +672,8 @@ def _featured(ref: dict, state: dict, off: dict, deff: dict) -> dict:
 
 
 def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
-                  defense: dict[str, list[str]] | None = None) -> dict:
+                  defense: dict[str, list[str]] | None = None,
+                  runners_on_base: dict[str, list] | None = None) -> dict:
     play = state["play"]
     result = play.get("result") or ""
     game_code = play["game_code"]
@@ -787,16 +797,33 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "is_half_inning_final": state["outs_after"] == 3,
         "is_game_final": state["game_ended"],
 
-        # Who's playing each defensive position, as {"SS": [full, last], ...} -
+        # Who's playing each defensive position, as {"SS": [full, last, spd], ...} -
         # in-progress games from a live Lineups-tab read (as of this build),
         # completed games reconstructed from plays.pos (fielding-position-
         # implementation-plan.md). Field labels want last names; the single-
-        # fielder text-line template wants the full name - both come from
-        # _player_view, never split client-side. Omitted entirely (not an
-        # empty dict) when nothing resolved, so the client's existing
-        # missing-data handling (generic anchor + position code, no line)
-        # needs no special casing.
+        # fielder text-line template wants the full name; spd (1-5, None if
+        # unresolved) feeds the client's per-fielder charge/range speed - all
+        # three come from _player_view, never split/re-derived client-side.
+        # Omitted entirely (not an empty dict) when nothing resolved, so the
+        # client's existing missing-data handling (generic anchor + position
+        # code, average fielding speed) needs no special casing.
         **({"defense": defense} if defense else {}),
+
+        # Real per-player speed for the two identities every play already
+        # names outright - batter (about to become a runner) and pitcher
+        # (fielding pace, unless overridden - see docs/js/app.js's own flat
+        # pitcher-in-field convention). 1-5, None when unresolved.
+        "batter_spd": feat["batter"]["spd"],
+        "pitcher_spd": feat["pitcher"]["spd"],
+
+        # Who's standing on each base BEFORE this play resolves, same
+        # [full, last, spd] shape as defense (_trace_base_occupants tracked
+        # incrementally across the half-inning, build() below) - lets the
+        # client give an existing baserunner their own real speed on this
+        # play's advance animation, not just the batter becoming a new one.
+        # Omitted entirely when nobody's on, same missing-data convention as
+        # defense.
+        **({"runners_on_base": runners_on_base} if runners_on_base else {}),
     }
 
 
@@ -829,33 +856,44 @@ def _trace_base_occupants(half_moments: list[dict]) -> dict[str, dict]:
     """
     occupants: dict[str, dict] = {}
     for m in half_moments:
-        moves = m.get("runner_moves")
-        before_obc = str(m.get("obc_before") or "000")
-        after_obc = str(m.get("obc_after") or "000")
-        if moves is None:
-            for idx, base in enumerate(_OBC_BASE_ORDER):
-                if before_obc[idx] != after_obc[idx]:
-                    occupants.pop(base, None)
-            continue
-        next_occ = dict(occupants)
-        for mv in moves:
-            frm = mv.get("from")
-            if frm in next_occ:
-                del next_occ[frm]
-        for mv in moves:
-            frm, to = mv.get("from"), mv.get("to")
-            if to not in ("1B", "2B", "3B"):
-                continue
-            if frm == "BATTER":
-                next_occ[to] = {"id": m.get("batter_id"), "name": m.get("batter_name")}
-            else:
-                ident = occupants.get(frm)
-                if ident is not None:
-                    next_occ[to] = ident
-                else:
-                    next_occ.pop(to, None)
-        occupants = next_occ
+        occupants = _advance_base_occupants(occupants, m)
     return occupants
+
+
+def _advance_base_occupants(occupants: dict[str, dict], m: dict) -> dict[str, dict]:
+    """One replay step of _trace_base_occupants's own algorithm (see there
+    for the full rationale) - split out so build()'s main play loop can
+    thread this incrementally, play by play, to label a REAL play's own
+    on-base runners (runners_on_base) with the same identity tracking that
+    already existed only for the synthetic on-deck placeholder.
+    """
+    moves = m.get("runner_moves")
+    before_obc = str(m.get("obc_before") or "000")
+    after_obc = str(m.get("obc_after") or "000")
+    if moves is None:
+        next_occ = dict(occupants)
+        for idx, base in enumerate(_OBC_BASE_ORDER):
+            if before_obc[idx] != after_obc[idx]:
+                next_occ.pop(base, None)
+        return next_occ
+    next_occ = dict(occupants)
+    for mv in moves:
+        frm = mv.get("from")
+        if frm in next_occ:
+            del next_occ[frm]
+    for mv in moves:
+        frm, to = mv.get("from"), mv.get("to")
+        if to not in ("1B", "2B", "3B"):
+            continue
+        if frm == "BATTER":
+            next_occ[to] = {"id": m.get("batter_id"), "name": m.get("batter_name")}
+        else:
+            ident = occupants.get(frm)
+            if ident is not None:
+                next_occ[to] = ident
+            else:
+                next_occ.pop(to, None)
+    return next_occ
 
 
 def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
@@ -1085,13 +1123,35 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
 
         last_state = None
         game_rows_start = len(rows)
+        # Same incremental base-occupant tracking _trace_base_occupants
+        # already does for the on-deck placeholder (_advance_base_occupants,
+        # its own extracted single-step helper), just threaded live through
+        # every REAL play instead of replayed once at the end - so a normal
+        # play's runner-advance animation can use an existing baserunner's
+        # own real spd, not just the batter becoming a new one. Reset at
+        # every half-inning boundary (obc always starts empty there, same
+        # reasoning _next_batter_moment's own half-inning filter already
+        # relies on).
+        occ_half_key = None
+        occupants: dict[str, dict] = {}
         for state in replay_game(game_plays, game):
             last_state = state
             play = state["play"]
             defense = _defense_alignment_for_play(
                 ref, play, state["half"], is_final, home_timeline, away_timeline, game_lineup_rows,
             )
-            rows.append(build_moment(ref, state, game, moment_tags(state), defense))
+            half_key = (state["inning"], state["half"])
+            if half_key != occ_half_key:
+                occupants = {}
+                occ_half_key = half_key
+            runners_on_base: dict[str, list] = {}
+            for base, ident in occupants.items():
+                entry = _defense_entry(ref, ident.get("id"), ident.get("name"))
+                if entry:
+                    runners_on_base[base] = entry
+            moment = build_moment(ref, state, game, moment_tags(state), defense, runners_on_base)
+            rows.append(moment)
+            occupants = _advance_base_occupants(occupants, moment)
 
         # On-deck placeholder for an in-progress game's live edge (Alex's
         # ask, ideas-and-opinions conversation) - never for a completed game
