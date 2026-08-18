@@ -737,8 +737,13 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .dm-warning-track{fill:#c7a580;stroke:none;}
 /* Uniform-depth fence (Alex's addition to the plan: one distance in every
    direction, for simplicity) - sampled as a polyline under perspective, see
-   fencePathD in app.js. */
-.dm-fence{fill:none;stroke:#265530;stroke-width:3;stroke-linecap:round;}
+   fencePathD in app.js. Butt cap, not round (Alex's report): FENCE_VISUAL_PAD_DEG
+   is 0 - the polyline's own endpoints already land exactly on the foul lines,
+   by design ("no rounded cap") - so a round linecap just adds its own bump
+   back at each corner, poking past the point the foul line/grass/warning-track
+   all converge on. Only visible zoomed in (1-game spotlight), not the
+   slideshow's smaller field canvas. */
+.dm-fence{fill:none;stroke:#265530;stroke-width:3;stroke-linecap:butt;}
 /* The fence drawn as a short wall (fenceWallPathD, physics-redesign plan
    Part 6.1/OQ-8) - the ground-level arc duplicated at z=8ft and filled
    between, so an over-the-fence home run visibly clears it. Drawn under the

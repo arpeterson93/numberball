@@ -1914,24 +1914,46 @@
      rendering (grassPathD, warningTrackPathD) read the boundary from -
      smoothing lives here, at the source, so a caught/rolled ball is always
      capped against the exact same curve that gets drawn, never a jagged
-     physics boundary under a smooth visual one (or vice versa). */
-  var BOUNDARY_SMOOTH_KERNEL = [1, 6, 15, 20, 15, 6, 1];  // binomial, ~9deg half-width at the 3deg sample step
-  function edgeSmooth(values, weights, protectBelowIndex) {
+     physics boundary under a smooth visual one (or vice versa).
+
+     The pin alone wasn't enough (Alex's report): the table's steepest run
+     is right there at the wall (270->355->400ft over just a few degrees at
+     the 45-50 stretch), so the full 9deg window - built for the gentle
+     curves everywhere else, which read fine - was reaching out into that
+     taper and pulling near-wall samples noticeably off the raw input. Fix:
+     ramp the window's half-width up from 0 at the pin to the full half-
+     width a few samples out (binomialKernel), instead of applying one
+     fixed-size window to every protected sample. A 0-width window is just
+     the raw sample, so the curve hugs the authored JSON right at the wall
+     and eases into the same smoothing everyone else already had by the
+     time it's a few samples away - no hard edge where the taper ends,
+     since window size grows one sample at a time rather than snapping. */
+  var BOUNDARY_SMOOTH_HALF = 3;  // ~9deg half-width at the 3deg sample step, once fully tapered in
+  function binomialKernel(half) {
+    var n = 2 * half;
+    var row = [1];
+    for (var k = 1; k <= n; k++) row.push(row[k - 1] * (n - k + 1) / k);
+    return row;
+  }
+  var BOUNDARY_SMOOTH_KERNELS = [];
+  for (var h = 0; h <= BOUNDARY_SMOOTH_HALF; h++) BOUNDARY_SMOOTH_KERNELS.push(binomialKernel(h));
+  function edgeSmooth(values, protectBelowIndex) {
     // values is a plain 0..180deg sweep (offsetDegAbs), not a closed ring -
     // no wraparound, since BOUNDARY_TABLE is itself only ever read via
     // Math.abs(offsetDeg). Indices below protectBelowIndex are copied
-    // through untouched; the window for indices at/above it clamps at that
-    // same edge instead of reaching below it.
-    var half = (weights.length - 1) / 2;
-    var wsum = 0;
-    for (var w = 0; w < weights.length; w++) wsum += weights[w];
+    // through untouched; the window for indices at/above it tapers up from
+    // 0-width at protectBelowIndex, so it never reaches below that edge
+    // (no replication padding needed, unlike the old fixed-window clamp).
     var n = values.length;
     var out = values.slice();
     for (var i = protectBelowIndex; i < n; i++) {
+      var half = Math.min(BOUNDARY_SMOOTH_HALF, i - protectBelowIndex);
+      var weights = BOUNDARY_SMOOTH_KERNELS[half];
+      var wsum = 0;
+      for (var w = 0; w < weights.length; w++) wsum += weights[w];
       var acc = 0;
       for (var k = -half; k <= half; k++) {
         var idx = i + k;
-        if (idx < protectBelowIndex) idx = protectBelowIndex;
         if (idx > n - 1) idx = n - 1;
         acc += values[idx] * weights[k + half];
       }
@@ -1956,7 +1978,7 @@
     // never pulls the corner itself off the fence.
     var pinDeg = fenceFloorDeg != null ? fenceFloorDeg : table[0].angle;
     var protectBelowIndex = Math.floor(pinDeg / BOUNDARY_SAMPLE_STEP_DEG) + 1;
-    return edgeSmooth(raw, BOUNDARY_SMOOTH_KERNEL, protectBelowIndex);
+    return edgeSmooth(raw, protectBelowIndex);
   }
   // offsetDeg -> linear interpolation between the two nearest smoothed
   // samples (3deg apart, over offsetDegAbs 0..180) - a continuous curve for
