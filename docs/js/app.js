@@ -819,8 +819,20 @@
     applyScoreboardColumns();
     // Widescreen-only (style.css hides it below 900px regardless) - shown
     // here whenever there's at least one game to look in on, same gate the
-    // scoreboard row itself uses.
+    // scoreboard row itself uses. "LIVE" overpromised for a historical
+    // session with nothing actually live (Alex's report) - the label now
+    // names the shape of what opens instead: the exact-count grids get
+    // their own name, anything else in between is a Multiview, and a
+    // single game (which doesn't even open a grid - openLiveGrid falls
+    // back to the plain single-game replay) gets Spotlight.
+    // Only the label span's text changes, not the button's own innerHTML -
+    // the icon svg is a permanent sibling, not something to recreate (or
+    // accidentally wipe with a textContent write) on every render.
     $("live-grid-btn").hidden = false;
+    $("live-grid-btn-label").textContent = games.length === 1 ? "Spotlight"
+      : games.length === 4 ? "Quad-Box"
+      : games.length === 8 ? "Octo-Box"
+      : "Multiview";
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -7355,8 +7367,18 @@
     return prev.play.game_code === next.play.game_code;
   }
 
-  function mountSlide(slideEl, slide, prev) {
-    slideEl.innerHTML = catchUpSlideHtml(slide);
+  // eagerImages (live grid only - see mountLiveSlideInto) has to strip
+  // loading="lazy" out of the HTML STRING before it's ever parsed into the
+  // DOM, not flip the .loading property on the resulting <img> elements
+  // afterward - a browser commits to lazy-loading (queues the image for
+  // intersection-based deferral) the moment it parses that attribute while
+  // building the element, and mutating the property post-insertion doesn't
+  // reliably undo that decision (Alex's report: mutating it after the fact
+  // wasn't actually fixing the slow sequential loading).
+  function mountSlide(slideEl, slide, prev, eagerImages) {
+    var html = catchUpSlideHtml(slide);
+    if (eagerImages) html = html.replace(/ loading="lazy"/g, "");
+    slideEl.innerHTML = html;
     if (isSameGameAdvance(prev, slide)) {
       slideEl.classList.add("in");
       return;
@@ -7922,7 +7944,15 @@
   //    finished game gets its own pane too, it just cycles a different
   //    sequence (see buildLiveGridSequence). ────────────────────────────────
 
-  var liveGrid = { open: false, panes: [] };
+  // introQueue/introActivePane stagger multiple games' intros (Alex's ask) -
+  // at most one pane runs its own "new data" intro at a time, in the order
+  // they were found this refresh cycle (== the panes' own grid order, since
+  // that's already leverage-sorted from data.meta.games at open time - see
+  // liveGridActivateNextIntro).
+  var liveGrid = {
+    open: false, panes: [], session: null, refreshTimer: null,
+    introQueue: [], introActivePane: null,
+  };
 
   /* Every play this pane will show, in cycling order.
      - Live (no is_game_final on the last real play): key moments, the most
@@ -7937,13 +7967,25 @@
      empty - each slide's own `pass` ("key" or "other") is what
      mountLivePane's key-icon indicator reads, not is_key_moment directly, so
      a play that happens to be a key moment doesn't light the icon back up
-     during the all-plays leg. */
+     during the all-plays leg.
+
+     Returns {sequence, resumeIndex}, not a bare array - resumeIndex is where
+     the pane should land right after a "Live Look-In" cut card (Alex's ask:
+     refreshLiveGridData rebuilds a pane's sequence when its game gets new
+     plays, and the cut card should lead straight into that new play, not
+     back to the top of the key-moments loop). It points at the "most
+     recent real play" slide on a live sequence, or the game's actual last
+     play on a finished one - both are "here's what's new" in their own
+     branch. */
   function buildLiveGridSequence(game, plays) {
-    if (!plays.length) return [];
+    if (!plays.length) return { sequence: [], resumeIndex: 0 };
     var last = plays[plays.length - 1];
     var onDeck = last.is_on_deck ? last : null;
     var real = onDeck ? plays.slice(0, -1) : plays;
-    if (!real.length) return onDeck ? [liveGridSlide(onDeck, plays.length - 1, plays, game, "other")] : [];
+    if (!real.length) {
+      var only = onDeck ? [liveGridSlide(onDeck, plays.length - 1, plays, game, "other")] : [];
+      return { sequence: only, resumeIndex: 0 };
+    }
 
     var keySlides = [];
     plays.forEach(function (p, i) {
@@ -7956,13 +7998,15 @@
     var allSlides = real.map(function (p, i) { return liveGridSlide(p, i, plays, game, "other"); });
     var isFinal = !!real[real.length - 1].is_game_final;
     if (isFinal) {
-      return keySlides.concat(allSlides);
+      var finalSeq = keySlides.concat(allSlides);
+      return { sequence: finalSeq, resumeIndex: finalSeq.length - 1 };
     }
 
     var mostRecent = liveGridSlide(real[real.length - 1], real.length - 1, plays, game, "other");
     var seq = keySlides.concat([mostRecent]);
+    var resumeIndex = seq.length - 1;   // the mostRecent slide just pushed
     if (onDeck) seq.push(liveGridSlide(onDeck, plays.length - 1, plays, game, "other"));
-    return seq.concat(allSlides);
+    return { sequence: seq.concat(allSlides), resumeIndex: resumeIndex };
   }
 
   // Same slide shape buildGameReplaySlides uses per play - reused so
@@ -8068,8 +8112,73 @@
      right under the real logo in the scorebug) and no star-favorite button
      (Alex's ask - not enough room at this size to make it worth the tap
      target), just "AB: Name"/"P: Name". */
+  // Last name only, not the full name (Alex's ask, dropping the whole
+  // measure-and-justify approach in favor of just keeping the source text
+  // short) - real last names in this data cap out at 18 characters, so
+  // anything up to that shows in full; only the one real outlier past 18
+  // gets cut, to 15 characters plus an ellipsis.
+  var LIVE_GRID_MU_NAME_FULL_MAX = 18;
+  var LIVE_GRID_MU_NAME_TRUNCATE_AT = 15;
+
+  function liveGridLastName(name) {
+    if (!name) return "-";
+    var parts = name.trim().split(/\s+/);
+    var last = parts[parts.length - 1];
+    return last.length > LIVE_GRID_MU_NAME_FULL_MAX
+      ? last.slice(0, LIVE_GRID_MU_NAME_TRUNCATE_AT) + "…"
+      : last;
+  }
+
   function liveGridMatchupLineHtml(prefix, name) {
-    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(name || "-") + "</div>";
+    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(liveGridLastName(name)) + "</div>";
+  }
+
+  /* logo/abbr/score have to move together as one unit (Alex's report: an
+     earlier flex-wrap-based approach let them wrap apart from EACH OTHER
+     too whenever a 4-letter team abbreviation made that row too wide for
+     the column, dropping the score to its own line) - grouping them into
+     their own row is what the team column's own flex-direction:column
+     (style.css) depends on: exactly two children, this row and the matchup
+     line, so only the matchup line can ever land on a second line. Run once
+     per mount, right before the matchup line is inserted - mountSlide just
+     rebuilt these three elements fresh, so there's nothing to guard against
+     re-wrapping an already-wrapped row. */
+  function liveGridWrapTeamRow(teamEl) {
+    var row = document.createElement("div");
+    row.className = "live-grid-team-row";
+    while (teamEl.firstChild) row.appendChild(teamEl.firstChild);
+    teamEl.appendChild(row);
+  }
+
+  // 10s modal-wide announcement, then 10s more on the specific pane itself
+  // (Alex's ask - 20s total, split into a "something happened" beat over
+  // the whole grid before narrowing to which game). The Replay flash ahead
+  // of the slow-motion rerun is much shorter - the viewer's already looking
+  // right at this pane by then.
+  var LIVE_GRID_OVERLAY_MS = 10000;
+  var LIVE_GRID_PANE_LOOKIN_MS = 10000;
+  var LIVE_GRID_REPLAY_CUT_DWELL_MS = 2200;
+
+  /* A transition card - MLN logo + a short label - for the two interstitials
+     in a pane's "new data" intro (see refreshLiveGridData/advanceLivePane):
+     "Live Look-In" (pulsing, holds a while, meant to actually be noticed) and
+     "Replay" (a quick static flash ahead of the slow-motion rerun). Bypasses
+     mountSlide/catchUpSlideHtml entirely since this isn't a real slide object
+     with a .play, but reuses the same fade-in mechanic (remove "in", force
+     reflow, re-add "in") every other slide here uses so it still reads as
+     one consistent transition style rather than a one-off. */
+  function mountLiveGridCutSlide(pane, text, pulsing) {
+    pane.el.classList.remove("in");
+    pane.el.innerHTML =
+      '<div class="live-grid-cut">' +
+        (pulsing ? '<span class="live-grid-cut-dot"></span>' : "") +
+        '<img src="favicon.png" alt="" class="live-grid-cut-logo' + (pulsing ? " pulsing" : "") + '">' +
+        '<div class="live-grid-cut-text">' + escapeHtml(text) + "</div>" +
+      "</div>";
+    void pane.el.offsetWidth;
+    pane.el.classList.add("in");
+    if (pane.keyIconEl) pane.keyIconEl.hidden = true;
+    pane.prev = null;   // next real slide after this always gets a full fade in
   }
 
   // Same key glyph as #header-key-toggle (index.html) - a real <svg>, not a
@@ -8094,6 +8203,11 @@
       '<div class="live-grid-key-icon" data-role="key-icon" hidden title="Key moment">' +
         liveGridKeyIconSvg() +
       "</div>" +
+      // Same corner as the key icon, mutually exclusive with it (Alex's ask
+      // - the #live-grid-btn treatment, reused here rather than a fresh
+      // style) - shown for the whole of a pane's own intro (mountLiveGrid
+      // IntroStep/advanceLivePane), not just the cut cards.
+      '<div class="live-grid-live-pill" data-role="live-pill" hidden>LIVE</div>' +
     "</div>";
   }
 
@@ -8107,9 +8221,22 @@
       if (pane.keyIconEl) pane.keyIconEl.hidden = true;
       return;
     }
-    var slide = pane.sequence[pane.index];
-    var prevSlide = pane.prev;
-    mountSlide(pane.el, slide, prevSlide);
+    mountLiveSlideInto(pane, pane.sequence[pane.index], false);
+  }
+
+  /* The actual per-slide mount work (mountSlide plus the wp-bar/matchup/
+     scoring extras every live-grid slide gets) - factored out of
+     mountLivePane so a "new data" intro step (advanceLivePane) can mount an
+     arbitrary one-off slide (the new play at normal speed, then the same
+     play again for the slow-motion replay) the same way normal cycling
+     does, without going through pane.sequence/pane.index at all.
+     forceFreshFade skips pane.prev for the isSameGameAdvance check - every
+     intro step gets a full fade regardless of game_code, since showing the
+     same play twice in a row is not a "same game advance" the way stepping
+     to the next real play is. */
+  function mountLiveSlideInto(pane, slide, forceFreshFade) {
+    var prevSlide = forceFreshFade ? null : pane.prev;
+    mountSlide(pane.el, slide, prevSlide, true);
     pane.prev = slide;
     if (pane.keyIconEl) pane.keyIconEl.hidden = slide.pass !== "key";
     var scorebug = pane.el.querySelector(".scene-scorebug");
@@ -8151,6 +8278,8 @@
     var awayEl = pane.el.querySelector(".scene-scorebug-team:not(.home)");
     var homeEl = pane.el.querySelector(".scene-scorebug-team.home");
     if (awayEl && homeEl && m) {
+      liveGridWrapTeamRow(awayEl);
+      liveGridWrapTeamRow(homeEl);
       var awayBatting = !m.batting_is_home;
       awayEl.insertAdjacentHTML("beforeend", awayBatting
         ? liveGridMatchupLineHtml("AB", m.batter_name)
@@ -8176,6 +8305,71 @@
     }
   }
 
+  /* Mounts one step of a pane's "new data" intro (see refreshLiveGridData,
+     which builds pane.introSteps) - either a cut card or a one-off slide
+     (the new play at normal speed, then the same play again in slow motion).
+     --play-speed is normally only ever set on the root (applyPlaybackSpeedVar
+     - one global value every slideshow reads), but a CSS custom property set
+     on a descendant overrides what it inherited for that subtree only - so
+     overriding it on just this pane's own element is what makes ONE pane's
+     replay run at half speed while every other pane (and every other
+     slideshow) keeps running at the shared global speed. Cleared again once
+     a step doesn't need it, so it never leaks into that pane's own normal
+     cycling afterward. */
+  function mountLiveGridIntroStep(pane, step) {
+    // LIVE pill instead of the key icon for the whole intro, not just the
+    // cut cards (Alex's ask) - mountLiveSlideInto's own key-icon toggle
+    // still runs underneath this for the "slide" steps, but every intro
+    // slide's pass is "other" (never "key"), so it always resolves to
+    // hidden there anyway; this is the one place turning the pill on.
+    if (pane.liveIconEl) pane.liveIconEl.hidden = false;
+    if (step.kind === "cut") {
+      pane.el.style.removeProperty("--play-speed");
+      mountLiveGridCutSlide(pane, step.text, step.pulsing);
+      return;
+    }
+    if (step.speedMult === 1) {
+      pane.el.style.removeProperty("--play-speed");
+    } else {
+      pane.el.style.setProperty("--play-speed", String(getPlaybackSpeed() * step.speedMult));
+    }
+    mountLiveSlideInto(pane, step.slide, true);
+  }
+
+  /* What happens when a pane's timer fires. Normal cycling just steps to the
+     next slide - but a pane with pane.introSteps set (refreshLiveGridData/
+     liveGridActivateNextIntro) works through that queue instead, one step
+     per tick, before swapping in the refreshed sequence, resuming normal
+     cycling from the top (key moments again - Alex's spec), and handing off
+     to whichever pane is next in liveGrid.introQueue (Alex's ask: only one
+     pane's intro plays at a time, in scoreboard order, not all of them at
+     once if a refresh finds several games with new plays). */
+  function advanceLivePane(pane) {
+    if (pane.introSteps) {
+      pane.introIndex++;
+      if (pane.introIndex >= pane.introSteps.length) {
+        pane.el.style.removeProperty("--play-speed");
+        pane.sequence = pane.introSequence;
+        pane.index = 0;
+        pane.introSteps = null;
+        pane.introSequence = null;
+        pane.prev = null;
+        if (pane.liveIconEl) pane.liveIconEl.hidden = true;
+        if (liveGrid.introActivePane === pane) liveGrid.introActivePane = null;
+        mountLivePane(pane);
+        scheduleLivePane(pane);
+        liveGridActivateNextIntro();
+        return;
+      }
+      mountLiveGridIntroStep(pane, pane.introSteps[pane.introIndex]);
+      scheduleLivePane(pane);
+      return;
+    }
+    pane.index = (pane.index + 1) % pane.sequence.length;
+    mountLivePane(pane);
+    scheduleLivePane(pane);
+  }
+
   /* Each pane runs on its own clock - a groundout in one game must not yank
      a still-unfolding double play in another over to its next play early.
      Reuses slideDwell exactly as the single-game replay does (real animation
@@ -8185,26 +8379,67 @@
      one shared speed multiplier, not one shared clock tick. */
   function scheduleLivePane(pane) {
     clearLivePaneTimer(pane);
-    if (pane.sequence.length < 2) return;   // nothing to advance to
+    var inIntro = !!pane.introSteps;
+    // Still schedules through a 1-slide (or empty) sequence while an intro
+    // is in flight - those need their own tick to resolve even though
+    // there's nothing to "advance" to yet in the normal sense.
+    if (pane.sequence.length < 2 && !inIntro) return;
+    var dwellMs;
+    if (inIntro) {
+      // introIndex still -1 means nothing's mounted yet (refreshLiveGridData
+      // just queued this pane and kicked its timer) - fire almost
+      // immediately so advanceLivePane can mount step 0 rather than reading
+      // a step that doesn't exist yet.
+      var cur = pane.introIndex >= 0 ? pane.introSteps[pane.introIndex] : null;
+      dwellMs = cur ? cur.dwell : 0;
+    } else {
+      dwellMs = pane.sequence[pane.index] ? slideDwell(pane.sequence[pane.index]) : 0;
+    }
     pane.timer = window.setTimeout(function () {
       pane.timer = null;
-      pane.index = (pane.index + 1) % pane.sequence.length;
-      mountLivePane(pane);
-      scheduleLivePane(pane);
-    }, slideDwell(pane.sequence[pane.index]));
+      advanceLivePane(pane);
+    }, dwellMs);
   }
 
   function clearLivePaneTimer(pane) {
     if (pane.timer) { window.clearTimeout(pane.timer); pane.timer = null; }
   }
 
-  // n<=2: one row (a 2-game session reads better side-by-side than stacked).
-  // n>=3: two rows, columns wide enough to fit - reproduces Alex's 4->2x2 and
-  // 8->2x4 examples exactly, and reflows a mid-count playoff session (5, 6,
-  // 7 games) the same way rather than needing its own special case.
+  /* landscape (the common case, and the only one this was originally tuned
+     for): n<=2 is one row (a 2-game session reads better side-by-side than
+     stacked); n>=3 caps at two rows, columns wide enough to fit - reproduces
+     Alex's 4->2x2 and 8->2x4 examples exactly, and reflows a mid-count
+     playoff session (5, 6, 7 games) the same way rather than needing its
+     own special case.
+     portrait flips which dimension gets capped at 2, so a tall-narrow
+     viewport gets a tall-narrow grid instead of the same wide-short shape
+     squeezed into it - the min-width:900px gate is about available WIDTH,
+     not orientation, so something like an iPad Pro held in portrait
+     (1024px wide) already clears it today and got a landscape-shaped grid
+     regardless (Alex's report). */
   function liveGridLayout(n) {
-    var rows = n <= 2 ? 1 : 2;
-    return { rows: rows, cols: Math.ceil(n / rows) };
+    var portrait = window.innerHeight > window.innerWidth;
+    var capped = n <= 2 ? 1 : 2;
+    return portrait
+      ? { rows: Math.ceil(n / capped), cols: capped }
+      : { rows: capped, cols: Math.ceil(n / capped) };
+  }
+
+  function applyLiveGridLayout() {
+    if (!liveGrid.open || !liveGrid.panes.length) return;
+    var layout = liveGridLayout(liveGrid.panes.length);
+    var grid = $("live-grid");
+    grid.style.gridTemplateColumns = "repeat(" + layout.cols + ", 1fr)";
+    grid.style.gridTemplateRows = "repeat(" + layout.rows + ", 1fr)";
+  }
+
+  // Same debounce-on-resize pattern as the scoreboard row's own
+  // scheduleScoreboardResize - a rotation firing several resize events in
+  // quick succession should only reflow the grid once.
+  var liveGridResizeTimer;
+  function scheduleLiveGridResize() {
+    window.clearTimeout(liveGridResizeTimer);
+    liveGridResizeTimer = window.setTimeout(applyLiveGridLayout, 150);
   }
 
   /* One game in the session: the grid would add nothing over the existing
@@ -8227,12 +8462,15 @@
       var paneEls = grid.querySelectorAll(".live-grid-pane");
       liveGrid.panes = games.map(function (g, i) {
         var plays = gamePlaysFor(session, g.game_code);
+        var built = buildLiveGridSequence(g, plays);
         return {
-          gameCode: g.game_code,
+          gameCode: g.game_code, game: g,
           el: paneEls[i].querySelector('[data-role="slide"]'),
           keyIconEl: paneEls[i].querySelector('[data-role="key-icon"]'),
-          sequence: buildLiveGridSequence(g, plays),
+          liveIconEl: paneEls[i].querySelector('[data-role="live-pill"]'),
+          sequence: built.sequence,
           index: 0, prev: null, timer: null,
+          introSteps: null, introIndex: -1, introSequence: null,
         };
       });
       liveGrid.panes.forEach(function (pane) {
@@ -8240,7 +8478,15 @@
         scheduleLivePane(pane);
       });
       liveGrid.open = true;
+      liveGrid.session = session;
       $("live-grid-modal").hidden = false;
+      // Only the active season's own files are ever fetched cache-busted
+      // (fetchSeasonJSON/getJSON vs getJSONCached) - a historical season's
+      // plays file is immutable, so polling it would just be wasted fetches.
+      if (season.active === season.current) {
+        clearLiveGridRefreshTimer();
+        liveGrid.refreshTimer = window.setInterval(refreshLiveGridData, LIVE_GRID_REFRESH_MS);
+      }
     }).catch(function () {
       btn.classList.remove("loading");
       toast("Could not load this session's plays.");
@@ -8249,11 +8495,150 @@
 
   function closeLiveGrid() {
     liveGrid.panes.forEach(clearLivePaneTimer);
+    clearLiveGridRefreshTimer();
+    hideLiveGridOverlay();
     liveGrid.open = false;
     liveGrid.panes = [];
+    liveGrid.introQueue = [];
+    liveGrid.introActivePane = null;
     $("live-grid-modal").hidden = true;
     $("live-grid").innerHTML = "";
   }
+
+  var LIVE_GRID_REFRESH_MS = 5 * 60 * 1000;   // matches the cron's own cadence
+
+  function clearLiveGridRefreshTimer() {
+    if (liveGrid.refreshTimer) { window.clearInterval(liveGrid.refreshTimer); liveGrid.refreshTimer = null; }
+  }
+
+  function showLiveGridOverlay() {
+    var el = $("live-grid-overlay");
+    if (!el) return;
+    el.hidden = false;
+    void el.offsetWidth;
+    el.classList.add("in");
+  }
+
+  function hideLiveGridOverlay() {
+    var el = $("live-grid-overlay");
+    if (!el) return;
+    el.classList.remove("in");
+    el.hidden = true;
+  }
+
+  /* Live Look-In (long, pulsing) -> the new play at normal speed -> Replay
+     (short flash) -> the same play again at half speed -> Now Batting if
+     there is one - then advanceLivePane swaps in built.sequence and resumes
+     normal cycling from the top (Alex's spec). Split out of
+     refreshLiveGridData so liveGridActivateNextIntro can build a queued
+     pane's steps at the moment its turn actually comes up, not upfront when
+     the refresh first found it. */
+  function liveGridBuildIntroSteps(built) {
+    var newestSlide = built.sequence[built.resumeIndex];
+    // The on-deck slide always immediately follows "most recent" on a live
+    // sequence (buildLiveGridSequence pushes it right after mostRecent) -
+    // nothing to check on a sequence that just went final, there's no
+    // on-deck to find.
+    var afterNewest = built.sequence[built.resumeIndex + 1];
+    var onDeckSlide = (afterNewest && afterNewest.play && afterNewest.play.is_on_deck) ? afterNewest : null;
+    var normalDwell = slideDwell(newestSlide);
+    var steps = [
+      { kind: "cut", text: "Live Look-In", pulsing: true, dwell: LIVE_GRID_PANE_LOOKIN_MS },
+      { kind: "slide", slide: newestSlide, speedMult: 1, dwell: normalDwell },
+      { kind: "cut", text: "Replay", pulsing: false, dwell: LIVE_GRID_REPLAY_CUT_DWELL_MS },
+      { kind: "slide", slide: newestSlide, speedMult: 0.5, dwell: normalDwell * 2 },
+    ];
+    if (onDeckSlide) {
+      steps.push({ kind: "slide", slide: onDeckSlide, speedMult: 1, dwell: slideDwell(onDeckSlide) });
+    }
+    return steps;
+  }
+
+  /* Pops the next {pane, built} off liveGrid.introQueue and starts its
+     intro - the only place that ever sets pane.introSteps, so at most one
+     pane is ever mid-intro at once (Alex's ask: stagger multiple games'
+     look-ins rather than run them all at once, in the order they were
+     queued - see refreshLiveGridData). Called once the modal-wide overlay's
+     10s is up, and again every time a pane's own intro finishes
+     (advanceLivePane's "intro complete" branch), which is what actually
+     drains the queue one pane at a time. */
+  function liveGridActivateNextIntro() {
+    if (!liveGrid.open || !liveGrid.introQueue.length) {
+      liveGrid.introActivePane = null;
+      return;
+    }
+    var item = liveGrid.introQueue.shift();
+    var pane = item.pane;
+    liveGrid.introActivePane = pane;
+    pane.introSteps = liveGridBuildIntroSteps(item.built);
+    pane.introIndex = -1;
+    pane.introSequence = item.built.sequence;
+    // Let an already-running timer fire on its own schedule (so a play
+    // mid-animation isn't cut short) - only kick a pane that had nothing
+    // scheduled at all (an empty "No plays yet" pane, the one case
+    // scheduleLivePane declines to start a timer for on its own).
+    if (!pane.timer) scheduleLivePane(pane);
+  }
+
+  /* Polls for new plays ONLY while the grid is open (Alex's ask), and is
+     deliberately its own narrow path rather than reloadData()/requestRefresh
+     - those call computeCatchUp(), which reads Catch Me Up's cursor, marks
+     it seen up to now, and only then computes what's "new". Running that
+     here would silently clear the backlog for anyone who's had the page open
+     in a background tab, which is exactly the case Alex wants preserved -
+     Catch Me Up should still find everything once they come back and open it
+     themselves. So this only ever touches data.playsBySession for the one
+     session in view and each pane's own sequence - nothing Catch Me Up or
+     any other feature reads.
+
+     Panes don't reorder by leverage on refresh (Alex's call) - this doesn't
+     even refetch meta.json, so there's no fresh leverage number to reorder
+     by, and a pane jumping to a new grid slot while someone's watching it
+     would be its own can of worms regardless. */
+  function refreshLiveGridData() {
+    if (!liveGrid.open) return;
+    var session = liveGrid.session;
+    if (session == null) return;
+    var oldRows = data.playsBySession[session] || [];
+    fetchSeasonJSON("plays_" + pad2(session) + ".json").then(function (freshRows) {
+      if (!liveGrid.open || liveGrid.session !== session) return;   // closed/changed mid-fetch
+      data.playsBySession[session] = freshRows;
+      var newlyAffected = [];
+      liveGrid.panes.forEach(function (pane) {
+        var oldReal = oldRows.filter(function (p) {
+          return p.game_code === pane.gameCode && !p.is_on_deck;
+        }).length;
+        var newForGame = gamePlaysFor(session, pane.gameCode);
+        var newReal = newForGame.filter(function (p) { return !p.is_on_deck; }).length;
+        if (newReal <= oldReal) return;   // nothing new for this game this cycle
+        newlyAffected.push({ pane: pane, built: buildLiveGridSequence(pane.game, newForGame) });
+      });
+      if (!newlyAffected.length) return;
+      // Nothing already in flight - this is a fresh batch, so it gets its
+      // own 10s modal-wide announcement before the queue starts draining.
+      // A refresh landing mid-stagger (introQueue still has items, or a
+      // pane is actively mid-intro) just appends instead - the overlay
+      // already ran for this "session" of new arrivals.
+      var alreadyRunning = liveGrid.introActivePane || liveGrid.introQueue.length;
+      liveGrid.introQueue = liveGrid.introQueue.concat(newlyAffected);
+      if (!alreadyRunning) {
+        showLiveGridOverlay();
+        window.setTimeout(function () {
+          hideLiveGridOverlay();
+          liveGridActivateNextIntro();
+        }, LIVE_GRID_OVERLAY_MS);
+      }
+    }).catch(function () {});   // offline/stumble this cycle - try again next interval
+  }
+
+  // Exposed for manual testing only (same convention as
+  // window.KMFlight.filteredPlaysOrdered above) - there's no local cron
+  // appending real plays, so from DevTools: edit docs/data/plays_XX.json to
+  // add a play (bump play_num past the current max for a game already in
+  // the open session, keep is_on_deck off it), then call
+  // KMLiveGrid.refreshNow() to check for it immediately instead of waiting
+  // out the real 5-minute interval.
+  window.KMLiveGrid = { refreshNow: refreshLiveGridData };
 
   function wireLiveGrid() {
     var modal = $("live-grid-modal");
@@ -8265,6 +8650,12 @@
       if (modal.hidden) return;
       if (e.key === "Escape") closeLiveGrid();
     });
+    // orientationchange fires more reliably than resize around an actual
+    // rotation on some mobile/tablet browsers - both funnel through the
+    // same debounced reflow, and applyLiveGridLayout itself no-ops whenever
+    // the grid isn't open, so this is harmless the rest of the time.
+    window.addEventListener("resize", scheduleLiveGridResize);
+    window.addEventListener("orientationchange", scheduleLiveGridResize);
   }
 
   function wireReplay() {

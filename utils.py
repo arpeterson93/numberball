@@ -8071,6 +8071,38 @@ def read_plays_from_sheet(sheet_id: str, tab: str = "Plays (Raw)") -> list[dict]
     return plays
 
 
+_LOGO_MANIFEST_CACHE: dict[str, str] | None = None
+
+
+def _local_logo_url(raw_url: str) -> str:
+    """Swap a sheet-provided logo URL for the locally-committed copy, if one
+    has already been downloaded (docs/img/logos/manifest.json, built by a
+    one-off fetch - see the "download team logos into the repo" work). Falls
+    back to the raw external URL untouched for a logo that manifest doesn't
+    know about yet (a brand-new team/rebrand), so a new logo still renders
+    - it just won't get the same-origin benefit until the manifest is
+    refreshed by re-running that fetch.
+
+    Same-origin matters here because every one of these renders on the live
+    grid at once (up to 16 logos for an 8-game session) - a third-party host
+    caps concurrent connections per origin, which was serializing that
+    burst into a visibly sequential load; GitHub Pages serves over HTTP/2,
+    which has no such cap. """
+    global _LOGO_MANIFEST_CACHE
+    if not raw_url:
+        return raw_url
+    if _LOGO_MANIFEST_CACHE is None:
+        import json
+        import os
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "img", "logos", "manifest.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _LOGO_MANIFEST_CACHE = json.load(f)
+        except (OSError, ValueError):
+            _LOGO_MANIFEST_CACHE = {}
+    return _LOGO_MANIFEST_CACHE.get(raw_url, raw_url)
+
+
 def read_teams_from_sheet(sheet_id: str) -> list[dict]:
     """Read the 'Teams' tab and return a list of team dicts."""
     import urllib.parse
@@ -8096,7 +8128,7 @@ def read_teams_from_sheet(sheet_id: str) -> list[dict]:
             "hype_id":   _str(row.get("Hype ID")),
             "league":    _str(row.get("League")),
             "division":  _str(row.get("Division")),
-            "logo_url":  _str(row.get("Logo URL")),
+            "logo_url":  _local_logo_url(_str(row.get("Logo URL"))),
             "name":      _str(row.get("Full Team")) or abbrev,
             "stadium":   _str(row.get("Stadium")),
             "primary_hex":  _str(row.get("Primary Hex")),
@@ -8216,7 +8248,7 @@ def read_mln_teams_from_sheet(sheet_id: str) -> list[dict]:
             "name":                _str(row.get("Full Team")),
             "stadium":             _str(row.get("Stadium")),
             "primary_hex":         _str(row.get("Primary Hex")),
-            "logo_url":            _str(row.get("Postimg Logo")) or _str(row.get("Logo URL")),
+            "logo_url":            _local_logo_url(_str(row.get("Postimg Logo")) or _str(row.get("Logo URL"))),
             "role_id":             _str(row.get("Role ID")),
             "hype_id":             _str(row.get("Hype ID")),
             "wins":                _safe_int(row.get("W")),

@@ -1939,12 +1939,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* ---- Live grid: up to 8 games, each cycling its own field animation ---- */
 /* Widescreen-only (Alex's call - this is not a phone/tablet feature), same
    >=900px cutoff the slideshow's own widescreen sizing already uses. */
+/* Sized/weighted as a real feature entry point, not a status pill (Alex's
+   ask - this is one of the site's largest features now and the old 10.5px
+   flat-color text was reading as the latter) - a grid icon so the "several
+   games at once" concept lands before anyone reads the (session-dependent)
+   label text, plus a lift-on-hover and a real shadow for button depth. */
 .live-grid-btn{
-  border:1px solid var(--tint-red-border);border-radius:5px;background:var(--tint-red);
-  color:var(--red-dark);font-size:10.5px;font-weight:800;letter-spacing:0.6px;
-  padding:2px 8px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;
+  border:1px solid var(--tint-red-border);border-radius:7px;background:var(--tint-red);
+  color:var(--red-dark);font-size:13px;font-weight:800;letter-spacing:0.3px;
+  padding:6px 14px;cursor:pointer;box-shadow:0 1px 3px var(--shadow);
+  transition:transform 120ms ease,box-shadow 120ms ease,background 120ms ease;
 }
-.live-grid-btn:hover{background:var(--tint-red-border);}
+.live-grid-btn-icon{width:15px;height:15px;flex-shrink:0;}
+.live-grid-btn:hover{
+  background:var(--tint-red-border);transform:translateY(-1px);box-shadow:0 4px 10px var(--shadow);
+}
 .live-grid-btn.loading{opacity:0.4;pointer-events:none;}
 @media (max-width:899px){ .live-grid-btn{display:none;} }
 
@@ -1983,6 +1993,18 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .live-grid-key-icon[hidden]{display:block;opacity:0;}
 .live-grid-key-icon svg{width:100%;height:100%;display:block;}
 
+/* Same corner as the key icon, same #live-grid-btn colour treatment (Alex's
+   ask: "the LIVE text next to the SCOREBOARD text") - shown instead of it
+   for the whole of a pane's own intro (mountLiveGridIntroStep), not just
+   the cut cards. */
+.live-grid-live-pill{
+  position:absolute;right:6px;bottom:4px;
+  border:1px solid var(--tint-red-border);border-radius:5px;background:var(--tint-red);
+  color:var(--red-dark);font-size:9px;font-weight:800;letter-spacing:0.5px;
+  padding:2px 6px;pointer-events:none;opacity:0.95;transition:opacity 200ms ease;
+}
+.live-grid-live-pill[hidden]{display:block;opacity:0;}
+
 /* Reuses .catchup-slide's own fade-in transition (mountSlide toggles the same
    "in" class here as it does in the two other slideshows) - only the sizing
    changes for the grid context. */
@@ -2009,19 +2031,42 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    back a notch from the first pass (Alex's report: the diff/HZ wheels' own
    bottom label was getting clipped at the larger size). */
 .live-grid-pane .scene-scorebug{max-width:440px;margin:0 auto;gap:8px;}
-.live-grid-pane .scene-scorebug-team{font-size:20px;gap:6px;}
+.live-grid-pane .scene-scorebug-team{font-size:20px;}
 .live-grid-pane .scene-scorebug-logo{width:28px;height:28px;}
 .live-grid-pane .scene-scorebug-mid{gap:0;}
 .live-grid-pane .scene-scorebug-state .inning-num{font-size:20px;}
 
-/* The matchup line (app.js mountLivePane, .live-grid-mu) lands as a 4th
-   child of the team column, after logo/abbr/score - flex-wrap plus a 100%
-   flex-basis on the line itself is what pushes it onto its own row directly
-   under the logo instead of running on inline next to the score. */
-.live-grid-pane .scene-scorebug-team{flex-wrap:wrap;justify-content:center;}
+/* The matchup line (app.js mountLiveSlideInto, .live-grid-mu) lands as a 2nd
+   child of the team column, after logo/abbr/score - but flex-wrap on the
+   team column itself (an earlier attempt) let logo/abbr/score wrap apart
+   from EACH OTHER too whenever a 4-letter abbreviation made that row too
+   wide for the column, breaking the scorebug's own layout (Alex's report:
+   the score dropping to its own line). Grouping logo/abbr/score into their
+   own row (app.js liveGridWrapTeamRow, run once per mount before the
+   matchup line is inserted) fixes that at the root: the team column becomes
+   a column flex of exactly two items - the row, and the matchup line -
+   so only the matchup line can ever land on a second line, the row itself
+   can never fragment. */
+.live-grid-pane .scene-scorebug-team{flex-direction:column;gap:2px;}
+/* Base style.css reverses the row itself for home (score/abbr/logo visual
+   order) - that reversal now belongs on the inner row, not this outer
+   column, or it would swap [row, matchup-line] instead of the intended
+   [logo, abbr, score]. */
+.live-grid-pane .scene-scorebug-team.home{flex-direction:column;}
+.live-grid-team-row{display:flex;align-items:center;gap:6px;}
+.live-grid-pane .scene-scorebug-team.home .live-grid-team-row{flex-direction:row-reverse;}
+
+/* Centered (Alex's ask: "I like the matchup text centered..."). Dropped the
+   whole measure-and-switch-justification approach - it wasn't reliably
+   taking effect - in favor of just keeping the source text short: last name
+   only (liveGridLastName in app.js), capped at LIVE_GRID_MU_NAME_CAP
+   characters plus an ellipsis for the one real outlier past that. Real
+   last names in this data cap out well inside the column's own width, so
+   overflow:hidden here is only a static backstop, never expected to
+   actually clip anything now. */
 .live-grid-mu{
-  flex:0 0 100%;text-align:center;font-size:11px;font-weight:700;color:var(--muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  align-self:stretch;text-align:center;font-size:11px;font-weight:700;color:var(--muted);
+  white-space:nowrap;overflow:hidden;
 }
 
 /* Redundant now that the matchup line sits directly under the real team
@@ -2067,4 +2112,54 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .live-grid-empty{
   flex:1;display:flex;align-items:center;justify-content:center;
   color:var(--muted);font-size:12px;font-weight:600;
+}
+
+/* Transition cards in a pane's "new data" intro (app.js mountLiveGridCutSlide
+   /LIVE_GRID_LOOKIN_DWELL_MS/LIVE_GRID_REPLAY_CUT_DWELL_MS) - "Live Look-In"
+   holds for 20s with an ongoing pulse (Alex's ask - long enough that it
+   needs something moving to actually hold attention, not just sit static),
+   "Replay" is the same markup without the .pulsing/dot classes, a quick
+   static flash ahead of the slow-motion rerun. */
+.live-grid-cut{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;height:100%;
+}
+.live-grid-cut-logo{width:44px;height:44px;object-fit:contain;opacity:0.9;}
+.live-grid-cut-logo.pulsing{animation:liveGridLogoPulse 1.6s ease-in-out infinite;}
+@keyframes liveGridLogoPulse{
+  0%,100%{transform:scale(1);opacity:0.85;}
+  50%{transform:scale(1.1);opacity:1;}
+}
+/* A small "on air" dot, same red as the leverage gauge's own hot end -
+   pulses independently of the logo so the card reads as visibly alive even
+   at a glance from across the grid. */
+.live-grid-cut-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--red-dark);
+  animation:liveGridDotPulse 1.3s ease-in-out infinite;
+}
+@keyframes liveGridDotPulse{
+  0%,100%{opacity:1;transform:scale(1);}
+  50%{opacity:0.3;transform:scale(0.65);}
+}
+.live-grid-cut-text{
+  font-size:12.5px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--muted);
+}
+
+/* Modal-wide announcement (app.js showLiveGridOverlay/LIVE_GRID_OVERLAY_MS) -
+   sits over the whole card for 10s before any pane's own look-in starts.
+   Same visual language as .live-grid-cut, scaled up for the full card and
+   reusing .live-grid-cut-dot as-is (its sizing isn't scoped to that class). */
+.live-grid-overlay{
+  position:absolute;inset:0;z-index:5;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  background:var(--card);opacity:0;pointer-events:none;transition:opacity 300ms ease;
+}
+.live-grid-overlay.in{opacity:1;}
+.live-grid-overlay-logo{
+  width:72px;height:72px;object-fit:contain;
+  animation:liveGridLogoPulse 1.6s ease-in-out infinite;
+}
+.live-grid-overlay-text{
+  font-size:19px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text);
 }
