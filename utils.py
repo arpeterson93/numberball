@@ -633,6 +633,20 @@ _DIFF_BANDS_S1_4: dict[str, dict] = {}
 # `archetype` is kept as a plain category
 # label - app.js's CAUGHT_IN_AIR/GROUND_ARCHETYPES/TAG_THROW_ARCHETYPES
 # still branch on it - not as a lookup key into a second numeric table.
+def _nan_to_none(v) -> float | None:
+    """A result too rare to compute a real band for (e.g. DP32/FCLead in the
+    S1-4 pool - too few real plays in those seasons) lands here as NaN, valid
+    in a pandas float column but not valid JSON by spec once serialized -
+    Python's json module happily emits a bare NaN token by default
+    (allow_nan=True), which then fails browsers' strict JSON.parse() outright
+    and takes the WHOLE file down with it (Alex's report: season 1-4
+    wouldn't load at all, "Unexpected token 'N'... is not valid JSON").
+    None -> JSON null is the safe, exact "no data" representation - these
+    seven fields are audit-only per _flight_meta's own docstring, nothing at
+    runtime reads them, so there's no behavior riding on the value itself."""
+    return None if pd.isna(v) else float(v)
+
+
 def _read_diff_bands_csv(path: str) -> dict[str, dict]:
     try:
         _bdf = pd.read_csv(path)
@@ -644,9 +658,10 @@ def _read_diff_bands_csv(path: str) -> dict[str, dict]:
             "band_lo": int(r["band_lo"]),
             "band_hi": int(r["band_hi"]),
             "source": str(r["source"]),
-            "la_min": float(r["la_min"]), "la_ideal": float(r["la_ideal"]), "la_max": float(r["la_max"]),
-            "ev_min": float(r["ev_min"]), "ev_max": float(r["ev_max"]),
-            "depth_min": float(r["depth_min"]), "depth_max": float(r["depth_max"]),
+            "la_min": _nan_to_none(r["la_min"]), "la_ideal": _nan_to_none(r["la_ideal"]),
+            "la_max": _nan_to_none(r["la_max"]),
+            "ev_min": _nan_to_none(r["ev_min"]), "ev_max": _nan_to_none(r["ev_max"]),
+            "depth_min": _nan_to_none(r["depth_min"]), "depth_max": _nan_to_none(r["depth_max"]),
         }
         for _, r in _bdf.iterrows()
     }

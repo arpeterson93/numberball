@@ -1976,7 +1976,18 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .live-grid{
   display:grid;gap:6px;width:100%;height:100%;padding:10px;box-sizing:border-box;
 }
+/* container-type:size (not the more common inline-size) is what makes cqh
+   - not just cqw - resolve against THIS element below, rather than being
+   invalid/0 - needed because a pane's shape varies enormously by game count
+   (a 2x2 grid's pane is much wider but no taller than an 8-game pane's,
+   since rows stay capped at 2 either way - liveGridLayout in app.js) and
+   fixed-px content sizing tuned for one shape clipped at the bottom on
+   every other one (Alex's report). Valid here specifically because CSS
+   Grid already gives every pane a definite height via grid-template-rows -
+   container-type:size needs that from an ancestor, it can't establish its
+   own size from content the way inline-size can. */
 .live-grid-pane{
+  container-type:size;container-name:live-pane;
   position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden;
   display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);
 }
@@ -2030,11 +2041,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    the card's width, so the untouched scorebug would run edge to edge. Dialed
    back a notch from the first pass (Alex's report: the diff/HZ wheels' own
    bottom label was getting clipped at the larger size). */
-.live-grid-pane .scene-scorebug{max-width:440px;margin:0 auto;gap:8px;}
-.live-grid-pane .scene-scorebug-team{font-size:20px;}
-.live-grid-pane .scene-scorebug-logo{width:28px;height:28px;}
+/* clamp(min, cqw-scaled, max) rather than a flat px value, same reasoning as
+   the diamond above - a Spotlight pane (one game filling the whole modal)
+   is dramatically bigger than an Octo-Box pane, and a fixed 20px/28px would
+   look lost in the former and be the right size only by coincidence in the
+   latter. The min/max ends are just there so it never goes illegibly small
+   or comically large at the extremes. */
+/* 92cqw, not 70 - matches the diamond's own width cap just below, so the
+   scorebug spans as wide as the field does (Alex's report, comparing
+   against the old 8-game view: team blocks sat much closer to the pane's
+   own left/right edges - the old fixed 440px against a ~465px pane was
+   already ~95% of its width, not the ~70% this had shrunk to). */
+.live-grid-pane .scene-scorebug{max-width:min(94cqw,900px);margin:0 auto;gap:8px;}
+.live-grid-pane .scene-scorebug-team{font-size:clamp(16px,4.8cqw,28px);}
+.live-grid-pane .scene-scorebug-logo{width:clamp(22px,6.5cqw,42px);height:clamp(22px,6.5cqw,42px);}
 .live-grid-pane .scene-scorebug-mid{gap:0;}
-.live-grid-pane .scene-scorebug-state .inning-num{font-size:20px;}
+.live-grid-pane .scene-scorebug-state .inning-num{font-size:clamp(14px,4.2cqw,26px);}
 
 /* The matchup line (app.js mountLiveSlideInto, .live-grid-mu) lands as a 2nd
    child of the team column, after logo/abbr/score - but flex-wrap on the
@@ -2094,10 +2116,39 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .live-grid-pane .scene-meter-val{font-size:11px;top:30%;}
 
 /* The diamond's own cap (.scene-diamond-wrap, style.css base rule) is tuned
-   for a full-width single-game slide - a grid pane can be that wide or wider
-   once the session has fewer than 8 games, so it gets its own larger cap
-   here rather than inheriting the base rule's 340px ceiling. */
-.live-grid-pane .scene-diamond-wrap{width:min(90%,600px);}
+   for a full-width single-game slide, not a pane whose shape varies by game
+   count - it gets its own here, bounded by BOTH the pane's width and its
+   height, not just width.
+   Two things eat into the height budget once the diamond is done growing:
+   a flat ~130px reserve for the scorebug/wp-bar/result-pill/defense-line
+   stack above it and the diff/flight readout line below it (roughly
+   constant regardless of pane size, since that content's own fonts cap out
+   via clamp()), and the DIFF/SPRAY wheels - NOT flat, since they're
+   positioned as a percentage of the diamond wrap itself (position:absolute;
+   bottom:-16%; width:40% - .scene-diamond-wrap .wheel below), so they grow
+   right along with the diamond and need proportionally more clearance on
+   every pane where the diamond gets to grow bigger (Alex's report: Quad-Box,
+   the 6-game grid, and Spotlight all clipped the wheels' own labels, despite
+   the 8-game grid - unaffected, since its diamond was width-bound rather
+   than height-bound - looking right).
+   Folding the wheel's own protrusion (~11.65% of diamond height, from that
+   -16% offset) into the aspect-ratio conversion algebraically - solve
+   diamond_height*(1 + 0.1165) + 130px <= pane_height for diamond_width -
+   gives width <= (100cqh - 130px) * 1.373/1.1165 ≈ (100cqh - 130px) * 1.20.
+   That's scale-invariant (a ratio, not a flat addition), which a fixed px
+   wheel-reserve wouldn't have been - Spotlight's pane is roughly 2x taller
+   than a grid pane's, so a flat addition sized for the grid case would
+   still have been way short there. For the roughly-square 8-game pane this
+   still comes out bigger than 92cqw, so width stays the binding constraint
+   there (unchanged from before - same diamond size as when this looked
+   right); every wider or taller pane is where the height-derived cap
+   actually does something.
+   1.20 was a deliberately rounded-down version of the exact breakeven
+   (1.373/1.1165 ≈ 1.2297, i.e. zero margin against the wheels re-clipping) -
+   Alex's ask to push sizing more aggressively moved it to 1.22, closer to
+   that exact value with a little cushion left rather than none, and 92cqw
+   to 94cqw alongside it. */
+.live-grid-pane .scene-diamond-wrap{width:min(94cqw,calc((100cqh - 130px) * 1.22));}
 .live-grid-pane .scene-top{margin-top:-2px;}
 
 /* The bar's own layout (fixed width, centred, bordered) is now inline in

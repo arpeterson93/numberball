@@ -8442,13 +8442,16 @@
     liveGridResizeTimer = window.setTimeout(applyLiveGridLayout, 150);
   }
 
-  /* One game in the session: the grid would add nothing over the existing
-     single-game replay, so it just opens that instead (Alex's call). */
   function openLiveGrid() {
     var games = filters.session === null ? [] : ((data.meta.games || {})[String(filters.session)] || []);
     if (!games.length) { toast("No games in this session yet."); return; }
     var session = filters.session;
-    if (games.length === 1) { openGameReplay(games[0].game_code, session, null); return; }
+    // One game (Spotlight) is a real 1-pane grid now, not a fallback to the
+    // plain single-game replay (Alex's ask) - it needs the exact same
+    // machinery as any other pane to get the Live Look-In intro/background
+    // refresh treatment, and liveGridLayout(1) already resolves to a single
+    // full-size pane (rows=1,cols=1 either orientation) with no special
+    // case needed there.
 
     var btn = $("live-grid-btn");
     btn.classList.add("loading");
@@ -9064,7 +9067,13 @@
       sessSel.disabled = true;
       setActiveSeason(n, sess).then(function () {
         sessSel.disabled = false;
-      }).catch(function () {
+      }).catch(function (err) {
+        // Was silently swallowed - a season fails here just as easily from
+        // a rendering exception AFTER the files fetch fine (activateSeasonData/
+        // render, both of which run inside setActiveSeason's own .then) as
+        // from an actual network failure, and only logging it gives any way
+        // to tell those apart (Alex's report: "nothing in console pops up").
+        console.error("setActiveSeason failed:", err);
         sessSel.disabled = false;
         populateSessionSelect(true);
         toast("Could not load that season.");
