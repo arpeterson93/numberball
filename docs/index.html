@@ -108,6 +108,7 @@
        and standing alone, right-justified, when it's not. -->
   <div class="section-head" id="scoreboard-head-row">
     <span id="scoreboard-label" class="scoreboard-head"></span>
+    <button type="button" class="live-grid-btn" id="live-grid-btn" hidden>LIVE</button>
     <span id="built-at" class="built-at">Loading</span>
   </div>
   <div id="scoreboard" class="scoreboard" hidden></div>
@@ -451,6 +452,18 @@
         <div id="methodology-wheels-combined" class="methodology-wheels"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Live grid: up to 8 games from the current session, each cycling its own
+     field-of-play animation on a shared clock. Widescreen-only (Alex's call -
+     not attempted on phone/tablet widths, see style.css's live-grid rules).
+     Prototype scope: no per-pane speed/loop/fullscreen controls yet, just a
+     close button - those can follow once the layout itself is settled. -->
+<div class="modal live-grid-modal" id="live-grid-modal" hidden>
+  <div class="live-grid-card" id="live-grid-card">
+    <button type="button" class="catchup-close" id="live-grid-close" aria-label="Close">&times;</button>
+    <div class="live-grid" id="live-grid"></div>
   </div>
 </div>
 

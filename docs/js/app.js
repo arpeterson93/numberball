@@ -810,12 +810,17 @@
       el.hidden = true;
       el.innerHTML = "";
       label.textContent = "";
+      $("live-grid-btn").hidden = true;
       return;
     }
     el.hidden = false;
     label.textContent = "Scoreboard";
     el.innerHTML = '<div class="scoreboard-row">' + games.map(scoreboardCard).join("") + "</div>";
     applyScoreboardColumns();
+    // Widescreen-only (style.css hides it below 900px regardless) - shown
+    // here whenever there's at least one game to look in on, same gate the
+    // scoreboard row itself uses.
+    $("live-grid-btn").hidden = false;
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -7618,14 +7623,16 @@
 
   /* Same lazy-fetch-and-cache shape as loadAllSessions()/ensurePlaysLoaded(),
      scoped to the one session the game belongs to. */
+  function ensureSessionPlaysLoaded(session) {
+    if (data.playsBySession[session]) return Promise.resolve(data.playsBySession[session]);
+    return fetchSeasonJSON("plays_" + pad2(session) + ".json").then(function (rows) {
+      data.playsBySession[session] = rows;
+      return rows;
+    });
+  }
+
   function loadGameReplay(gameCode, session) {
-    var fetchPromise = data.playsBySession[session]
-      ? Promise.resolve(data.playsBySession[session])
-      : fetchSeasonJSON("plays_" + pad2(session) + ".json").then(function (rows) {
-          data.playsBySession[session] = rows;
-          return rows;
-        });
-    return fetchPromise.then(function () {
+    return ensureSessionPlaysLoaded(session).then(function () {
       return gamePlaysFor(session, gameCode);
     });
   }
@@ -7821,19 +7828,17 @@
 
   /* A live game's replay is a snapshot taken when it opens - it plays to the
      last recorded play and stops, rather than chasing a game still in progress.
-     Same "don't chase a moving target" rule as Catch Me Up's cursor read. */
-  function openGameReplayFor(btn) {
-    var gameCode = btn.getAttribute("data-replay");
-    var tile = btn.closest(".scoreboard-tile");
-    var raw = tile && tile.getAttribute("data-session");
-    var session = raw ? Number(raw) : filters.session;
+     Same "don't chase a moving target" rule as Catch Me Up's cursor read.
+     btn is optional - the live grid's single-game fallback (openLiveGrid)
+     has no button of its own to spin a loading state on. */
+  function openGameReplay(gameCode, session, btn) {
     if (session == null || isNaN(session)) {
       toast("Pick a session to replay a game.");
       return;
     }
-    btn.classList.add("loading");
+    if (btn) btn.classList.add("loading");
     loadGameReplay(gameCode, session).then(function (plays) {
-      btn.classList.remove("loading");
+      if (btn) btn.classList.remove("loading");
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
       replay.slides = buildGameReplaySlides(plays);
       replay.index = -1;   // no previous slide, so slide 0 gets the full fade in
@@ -7843,9 +7848,17 @@
       $("replay-modal").hidden = false;
       showReplaySlide(0);
     }).catch(function () {
-      btn.classList.remove("loading");
+      if (btn) btn.classList.remove("loading");
       toast("Could not load that game's plays.");
     });
+  }
+
+  function openGameReplayFor(btn) {
+    var gameCode = btn.getAttribute("data-replay");
+    var tile = btn.closest(".scoreboard-tile");
+    var raw = tile && tile.getAttribute("data-session");
+    var session = raw ? Number(raw) : filters.session;
+    openGameReplay(gameCode, session, btn);
   }
 
   // Tune-after-watching, like every other timing constant in this scene.
@@ -7898,6 +7911,360 @@
     exitFullscreenIfActive();
     $("replay-modal").hidden = true;
     $("replay-slide").innerHTML = "";
+  }
+
+  // ── Live grid: up to 8 games from the current session, each pane cycling
+  //    its own field animation independently (Alex's spec - a "TV wall" of
+  //    every game in the session rather than one game at a time; a play
+  //    finishing in one game must never yank another pane forward early, so
+  //    each pane keeps its own timer off its own slideDwell - see
+  //    scheduleLivePane). Session-scoped, not a live/final filter - a
+  //    finished game gets its own pane too, it just cycles a different
+  //    sequence (see buildLiveGridSequence). ────────────────────────────────
+
+  var liveGrid = { open: false, panes: [] };
+
+  /* Every play this pane will show, in cycling order.
+     - Live (no is_game_final on the last real play): key moments, the most
+       recent real play, the on-deck "Now Batting" placeholder that already
+       rides along as gamePlaysFor's own last entry (_next_batter_moment),
+       then every play in order - then loops back to key moments (Alex's
+       spec).
+     - Finished: key moments, then every play, then loops back to key moments
+       ("the next time through the loop they show all plays").
+     A game with no key moments yet falls back to every play for that first
+     leg too, so the pane always has something to cycle rather than sitting
+     empty - each slide's own `pass` ("key" or "other") is what
+     mountLivePane's key-icon indicator reads, not is_key_moment directly, so
+     a play that happens to be a key moment doesn't light the icon back up
+     during the all-plays leg. */
+  function buildLiveGridSequence(game, plays) {
+    if (!plays.length) return [];
+    var last = plays[plays.length - 1];
+    var onDeck = last.is_on_deck ? last : null;
+    var real = onDeck ? plays.slice(0, -1) : plays;
+    if (!real.length) return onDeck ? [liveGridSlide(onDeck, plays.length - 1, plays, game, "other")] : [];
+
+    var keySlides = [];
+    plays.forEach(function (p, i) {
+      if (p.is_key_moment && !p.is_on_deck) keySlides.push(liveGridSlide(p, i, plays, game, "key"));
+    });
+    if (!keySlides.length) {
+      keySlides = real.map(function (p, i) { return liveGridSlide(p, i, plays, game, "key"); });
+    }
+
+    var allSlides = real.map(function (p, i) { return liveGridSlide(p, i, plays, game, "other"); });
+    var isFinal = !!real[real.length - 1].is_game_final;
+    if (isFinal) {
+      return keySlides.concat(allSlides);
+    }
+
+    var mostRecent = liveGridSlide(real[real.length - 1], real.length - 1, plays, game, "other");
+    var seq = keySlides.concat([mostRecent]);
+    if (onDeck) seq.push(liveGridSlide(onDeck, plays.length - 1, plays, game, "other"));
+    return seq.concat(allSlides);
+  }
+
+  // Same slide shape buildGameReplaySlides uses per play - reused so
+  // mountSlide/catchUpSlideHtml/sceneRibbonHtml (which reads gamePlays/
+  // gameIdx to draw the win-probability line before it's hidden below) all
+  // work unmodified. pass ("key"/"other") is the one addition, read by
+  // mountLivePane to drive the key-icon indicator.
+  function liveGridSlide(p, idx, gamePlays, game, pass) {
+    return {
+      kind: "play", play: p, playNo: idx + 1, total: gamePlays.length,
+      gamePlays: gamePlays, gameIdx: idx, ribbonFrom: 0,
+      homeAbbr: game.home_team_abbr, awayAbbr: game.away_team_abbr,
+      pass: pass,
+    };
+  }
+
+  /* The scoreboard tile's own wp-bar (sb-foot .wp-bar/.wp-seg, scoreboardCard)
+     reused as-is (Alex's ask: "the same bar like on the landing page
+     scoreboard view") rather than the ribbon's chart-plus-badge - away% and
+     home% flank it, and whichever side this play just helped gets a +WPA
+     badge next to its own percentage. Built from win_prob_after/
+     win_prob_before/batting_is_home, same raw-play fields sceneRibbonHtml's
+     own marker used - wpFragment doesn't apply here, see the note that used
+     to sit on this function for why. */
+  /* startAwayPct/startHomePct (both null on a pane's first mount) are where
+     the away overlay should render BEFORE animating to this play's own
+     split - see mountLivePane, which passes the previous slide's split and
+     then nudges the overlay to its real scaleX a frame later so the change
+     from old to new actually transitions instead of just appearing.
+     durationMs is that transition's length - mountLivePane passes the same
+     slideDwell this play is actually on screen for (Alex's ask: "time it up
+     to last the duration of the entire play"), so the bar finishes settling
+     right around when the play itself is done rather than snapping early.
+     Returns null (not a string) when there's no win-prob to show, so the
+     caller can skip both insertion and the animation step cleanly. */
+  function liveGridWpBarHtml(p, homeAbbr, awayAbbr, startAwayPct, startHomePct, durationMs) {
+    var hw = homeWpOf(p);
+    if (hw == null) return null;
+    var homePct = Math.round(hw * 100);
+    var awayPct = 100 - homePct;
+    var initAway = startAwayPct == null ? awayPct : startAwayPct;
+    var initHome = startHomePct == null ? homePct : startHomePct;
+    var colors = gameTeamColors(homeAbbr, awayAbbr);
+    var awayHex = colors.away || "#9aa4b2";
+    var homeHex = colors.home || "#c7ccd3";
+
+    var wpBefore = p.win_prob_before == null ? null
+      : (p.batting_is_home ? p.win_prob_before : 1 - p.win_prob_before);
+    var homeDelta = wpBefore == null ? null : (hw - wpBefore);
+    var gain = homeDelta == null ? null : Math.abs(homeDelta) * 100;
+    var awayWpa = (gain != null && homeDelta < 0)
+      ? '<span class="live-grid-wpa wpa-pos">+' + gain.toFixed(1) + "</span>" : "";
+    var homeWpa = (gain != null && homeDelta >= 0)
+      ? '<span class="live-grid-wpa wpa-pos">+' + gain.toFixed(1) + "</span>" : "";
+
+    // WPA rides on the outside of its own side's percentage (Alex's ask) -
+    // away's badge left of "NN%", home's right of it - so it never sits
+    // between a label and the bar it belongs next to.
+    //
+    // Every dimension on the bar itself is inline, not class-driven - the
+    // stylesheet-only attempts before this weren't showing up for Alex, and
+    // inline styles can't be lost to a cascade/specificity/caching issue the
+    // way a class rule can.
+    //
+    // Fixed width, and the bar's own centre pinned to the row's true centre
+    // (Alex's ask) - centring the label+bar+label GROUP as a unit (the
+    // previous pass) let a WPA badge on only one side push that whole
+    // group's centre off-true, dragging the bar sideways with it whenever
+    // the two sides' content wasn't the same width. A grid with two equal
+    // 1fr side tracks fixes that: both side columns are forced to the same
+    // width by the grid algorithm regardless of what's in them, so the
+    // middle (auto-width, the bar) column never moves - each label just
+    // grows outward from its own side, away from the bar, however long it
+    // needs to be. justify-self on each label keeps it hugging the bar's
+    // edge rather than drifting to its own column's outer edge.
+    // One animated overlay, not two - and it animates transform:scaleX, not
+    // width (Alex's report: the width version read as choppy). Width is a
+    // layout property; changing it forces a reflow on every frame, and with
+    // up to 8 panes animating at once that's 8 reflows/frame competing for
+    // the main thread. transform is compositor-only - the browser can run it
+    // straight on the GPU without ever touching layout, which is the
+    // standard fix for a janky width/left/top animation. The home side needs
+    // no element of its own: it's just the bar's own background colour,
+    // showing through wherever the away overlay (scaleX from the left edge)
+    // doesn't cover.
+    var awayFrac = initAway / 100;
+    return {
+      awayPct: awayPct, homePct: homePct,
+      html: '<div class="live-grid-wp" style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;width:100%;margin-top:2px;">' +
+        '<span class="live-grid-wp-pct" style="justify-self:end;">' + awayWpa + awayPct + "%</span>" +
+        '<div style="position:relative;width:150px;height:8px;border-radius:4px;overflow:hidden;' +
+          'border:1px solid var(--border);background:' + escapeHtml(homeHex) + ';">' +
+          '<div class="live-grid-wp-seg" style="position:absolute;left:0;top:0;width:100%;height:100%;' +
+            'transform-origin:left;transform:scaleX(' + awayFrac + ');' +
+            'transition:transform ' + (durationMs || 550) + 'ms ease;background:' + escapeHtml(awayHex) + ';"></div>' +
+        "</div>" +
+        '<span class="live-grid-wp-pct" style="justify-self:start;">' + homePct + "%" + homeWpa + "</span>" +
+      "</div>",
+    };
+  }
+
+  /* A trimmed sceneRoleHtml (6330) - no team logo (redundant once this sits
+     right under the real logo in the scorebug) and no star-favorite button
+     (Alex's ask - not enough room at this size to make it worth the tap
+     target), just "AB: Name"/"P: Name". */
+  function liveGridMatchupLineHtml(prefix, name) {
+    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(name || "-") + "</div>";
+  }
+
+  // Same key glyph as #header-key-toggle (index.html) - a real <svg>, not a
+  // fresh icon, so "cycling through key moments right now" reads as the same
+  // concept as the Key Moments toggle elsewhere in the app. Lives as a
+  // sibling of the slide container, not inside it - mountSlide replaces the
+  // slide container's innerHTML on every mount, so anything meant to persist
+  // and just toggle visibility (this icon, unlike the wp-bar/matchup lines,
+  // which are cheap to rebuild each time) has to sit outside that subtree.
+  function liveGridKeyIconSvg() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="7.5" cy="15.5" r="5.5"></circle>' +
+      '<path d="M21 2l-9.6 9.6"></path>' +
+      '<path d="M15.5 7.5l3 3L22 7l-3-3"></path>' +
+    "</svg>";
+  }
+
+  function liveGridPaneHtml(game) {
+    return '<div class="live-grid-pane" data-game="' + escapeHtml(game.game_code) + '">' +
+      '<div class="catchup-slide" data-role="slide"></div>' +
+      '<div class="live-grid-key-icon" data-role="key-icon" hidden title="Key moment">' +
+        liveGridKeyIconSvg() +
+      "</div>" +
+    "</div>";
+  }
+
+  /* The win-probability ribbon is hidden in a grid pane (style.css) - this
+     mounts its replacement, a wp-bar row right under the scorebug (see
+     liveGridWpBarHtml above), since that markup isn't part of playSceneHtml's
+     own output and has to be inserted after every mount. */
+  function mountLivePane(pane) {
+    if (!pane.sequence.length) {
+      pane.el.innerHTML = '<div class="live-grid-empty">No plays yet</div>';
+      if (pane.keyIconEl) pane.keyIconEl.hidden = true;
+      return;
+    }
+    var slide = pane.sequence[pane.index];
+    var prevSlide = pane.prev;
+    mountSlide(pane.el, slide, prevSlide);
+    pane.prev = slide;
+    if (pane.keyIconEl) pane.keyIconEl.hidden = slide.pass !== "key";
+    var scorebug = pane.el.querySelector(".scene-scorebug");
+    if (scorebug) {
+      // Animate from the previous play's split to this one's (Alex's ask) -
+      // start the bar rendering at the old split, then nudge it to the real
+      // one a couple frames later so the browser has actually painted the
+      // "before" state before the transition has something to animate from.
+      // One rAF alone can still land in the same paint the element was
+      // created in on some browsers; two is the reliable version of this
+      // trick.
+      var prevHw = prevSlide && prevSlide.play ? homeWpOf(prevSlide.play) : null;
+      var startHome = prevHw == null ? null : Math.round(prevHw * 100);
+      var startAway = startHome == null ? null : 100 - startHome;
+      // Same dwell this play is actually on screen for (scheduleLivePane
+      // times the pane's own next advance off the identical call) - Alex's
+      // ask was to have the bar settle around when the play itself finishes,
+      // not on a fixed clock of its own.
+      var wp = liveGridWpBarHtml(slide.play, slide.homeAbbr, slide.awayAbbr, startAway, startHome, slideDwell(slide));
+      if (wp) {
+        scorebug.insertAdjacentHTML("afterend", wp.html);
+        if (startHome != null) {
+          var wpEl = scorebug.nextElementSibling;
+          var seg = wpEl.querySelector(".live-grid-wp-seg");
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(function () {
+              if (seg) seg.style.transform = "scaleX(" + (wp.awayPct / 100) + ")";
+            });
+          });
+        }
+      }
+    }
+    // Matchup moves up under each team's own logo (Alex's ask) rather than
+    // sitting in its own row below the field - whichever side is batting
+    // gets the batter, the other gets the pitcher, so it flips with
+    // batting_is_home exactly like the scorebug's own "batting" highlight
+    // already does.
+    var m = slide.play;
+    var awayEl = pane.el.querySelector(".scene-scorebug-team:not(.home)");
+    var homeEl = pane.el.querySelector(".scene-scorebug-team.home");
+    if (awayEl && homeEl && m) {
+      var awayBatting = !m.batting_is_home;
+      awayEl.insertAdjacentHTML("beforeend", awayBatting
+        ? liveGridMatchupLineHtml("AB", m.batter_name)
+        : liveGridMatchupLineHtml("P", m.pitcher_name));
+      homeEl.insertAdjacentHTML("beforeend", awayBatting
+        ? liveGridMatchupLineHtml("P", m.pitcher_name)
+        : liveGridMatchupLineHtml("AB", m.batter_name));
+    }
+
+    // Player-scores follows the fielding description on the same line
+    // (Alex's ask) rather than its own row below it - sceneDefenseLineHtml
+    // and scoringLine are two separate sibling divs in playSceneHtml with no
+    // shared wrapper, and both are flex items of .play-scene, which forces
+    // each onto its own row regardless of their own display value - so this
+    // folds scoringLine's text into the end of the defense line's own
+    // element instead, and scoring-line's row is hidden in CSS.
+    var defEl = pane.el.querySelector(".scene-defense");
+    var scoreEl = pane.el.querySelector(".scoring-line");
+    if (defEl && scoreEl && scoreEl.textContent.trim()) {
+      var sep = defEl.textContent.trim() ? " · " : "";
+      defEl.insertAdjacentHTML("beforeend",
+        sep + '<span class="live-grid-score-inline">' + escapeHtml(scoreEl.textContent) + "</span>");
+    }
+  }
+
+  /* Each pane runs on its own clock - a groundout in one game must not yank
+     a still-unfolding double play in another over to its next play early.
+     Reuses slideDwell exactly as the single-game replay does (real animation
+     length plus reading time, scaled by the same speed setting every
+     slideshow here shares), just scheduled per pane instead of once for a
+     single active slide. That's the whole "global timing stays global" call -
+     one shared speed multiplier, not one shared clock tick. */
+  function scheduleLivePane(pane) {
+    clearLivePaneTimer(pane);
+    if (pane.sequence.length < 2) return;   // nothing to advance to
+    pane.timer = window.setTimeout(function () {
+      pane.timer = null;
+      pane.index = (pane.index + 1) % pane.sequence.length;
+      mountLivePane(pane);
+      scheduleLivePane(pane);
+    }, slideDwell(pane.sequence[pane.index]));
+  }
+
+  function clearLivePaneTimer(pane) {
+    if (pane.timer) { window.clearTimeout(pane.timer); pane.timer = null; }
+  }
+
+  // n<=2: one row (a 2-game session reads better side-by-side than stacked).
+  // n>=3: two rows, columns wide enough to fit - reproduces Alex's 4->2x2 and
+  // 8->2x4 examples exactly, and reflows a mid-count playoff session (5, 6,
+  // 7 games) the same way rather than needing its own special case.
+  function liveGridLayout(n) {
+    var rows = n <= 2 ? 1 : 2;
+    return { rows: rows, cols: Math.ceil(n / rows) };
+  }
+
+  /* One game in the session: the grid would add nothing over the existing
+     single-game replay, so it just opens that instead (Alex's call). */
+  function openLiveGrid() {
+    var games = filters.session === null ? [] : ((data.meta.games || {})[String(filters.session)] || []);
+    if (!games.length) { toast("No games in this session yet."); return; }
+    var session = filters.session;
+    if (games.length === 1) { openGameReplay(games[0].game_code, session, null); return; }
+
+    var btn = $("live-grid-btn");
+    btn.classList.add("loading");
+    ensureSessionPlaysLoaded(session).then(function () {
+      btn.classList.remove("loading");
+      var layout = liveGridLayout(games.length);
+      var grid = $("live-grid");
+      grid.style.gridTemplateColumns = "repeat(" + layout.cols + ", 1fr)";
+      grid.style.gridTemplateRows = "repeat(" + layout.rows + ", 1fr)";
+      grid.innerHTML = games.map(liveGridPaneHtml).join("");
+      var paneEls = grid.querySelectorAll(".live-grid-pane");
+      liveGrid.panes = games.map(function (g, i) {
+        var plays = gamePlaysFor(session, g.game_code);
+        return {
+          gameCode: g.game_code,
+          el: paneEls[i].querySelector('[data-role="slide"]'),
+          keyIconEl: paneEls[i].querySelector('[data-role="key-icon"]'),
+          sequence: buildLiveGridSequence(g, plays),
+          index: 0, prev: null, timer: null,
+        };
+      });
+      liveGrid.panes.forEach(function (pane) {
+        mountLivePane(pane);
+        scheduleLivePane(pane);
+      });
+      liveGrid.open = true;
+      $("live-grid-modal").hidden = false;
+    }).catch(function () {
+      btn.classList.remove("loading");
+      toast("Could not load this session's plays.");
+    });
+  }
+
+  function closeLiveGrid() {
+    liveGrid.panes.forEach(clearLivePaneTimer);
+    liveGrid.open = false;
+    liveGrid.panes = [];
+    $("live-grid-modal").hidden = true;
+    $("live-grid").innerHTML = "";
+  }
+
+  function wireLiveGrid() {
+    var modal = $("live-grid-modal");
+    if (!modal) return;
+    $("live-grid-btn").addEventListener("click", openLiveGrid);
+    $("live-grid-close").addEventListener("click", closeLiveGrid);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeLiveGrid(); });
+    document.addEventListener("keydown", function (e) {
+      if (modal.hidden) return;
+      if (e.key === "Escape") closeLiveGrid();
+    });
   }
 
   function wireReplay() {
@@ -8611,6 +8978,7 @@
 
     wireCatchUp();
     wireReplay();
+    wireLiveGrid();
     wireSettings();
     wireMethodology();
     syncSpeedButtons();

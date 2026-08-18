@@ -1935,3 +1935,136 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .catchup-modal:-webkit-full-screen .catchup-card{
   max-width:min(96vw,1500px);height:96vh;border-radius:0;
 }
+
+/* ---- Live grid: up to 8 games, each cycling its own field animation ---- */
+/* Widescreen-only (Alex's call - this is not a phone/tablet feature), same
+   >=900px cutoff the slideshow's own widescreen sizing already uses. */
+.live-grid-btn{
+  border:1px solid var(--tint-red-border);border-radius:5px;background:var(--tint-red);
+  color:var(--red-dark);font-size:10.5px;font-weight:800;letter-spacing:0.6px;
+  padding:2px 8px;cursor:pointer;
+}
+.live-grid-btn:hover{background:var(--tint-red-border);}
+.live-grid-btn.loading{opacity:0.4;pointer-events:none;}
+@media (max-width:899px){ .live-grid-btn{display:none;} }
+
+/* A little tighter than the other modals' padding (Alex's ask - "use any
+   screen real estate we can get" for a grid that's already fighting for
+   vertical room per pane) - and the card itself claims nearly the whole
+   viewport rather than leaving a visible margin top/bottom. */
+.live-grid-modal{padding:6px;}
+.live-grid-card{
+  background:var(--card);border-radius:12px;width:100%;height:min(98vh,1120px);
+  max-width:min(98vw,1980px);position:relative;overflow:hidden;
+  box-shadow:0 10px 40px var(--shadow);
+}
+:root[data-theme="dark"] .live-grid-card{border:1px solid var(--border);}
+
+/* Column/row counts are set inline per-open (app.js openLiveGrid) - the game
+   count varies by session (fewer in playoffs), so this can't be a fixed
+   grid-template. */
+.live-grid{
+  display:grid;gap:6px;width:100%;height:100%;padding:10px;box-sizing:border-box;
+}
+.live-grid-pane{
+  position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden;
+  display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);
+}
+
+/* Same key glyph as #header-key-toggle - lower right corner (Alex's ask),
+   shown only while the pane is cycling its key-moments leg (mountLivePane
+   toggles `hidden` off .pass; not "gone", so its 0.2s fade actually plays
+   both ways instead of popping in the instant a key-moment play mounts). */
+.live-grid-key-icon{
+  position:absolute;right:6px;bottom:5px;width:16px;height:16px;
+  color:var(--muted);opacity:0.8;pointer-events:none;
+  transition:opacity 200ms ease;
+}
+.live-grid-key-icon[hidden]{display:block;opacity:0;}
+.live-grid-key-icon svg{width:100%;height:100%;display:block;}
+
+/* Reuses .catchup-slide's own fade-in transition (mountSlide toggles the same
+   "in" class here as it does in the two other slideshows) - only the sizing
+   changes for the grid context. */
+.live-grid-pane .catchup-slide{
+  flex:1 1 auto;padding:4px 6px;cursor:default;overflow:hidden;
+}
+/* Hugs the top rather than centring (Alex's ask - centring left dead space
+   above the scorebug that the restored rows below now need instead). */
+.live-grid-pane .play-scene{gap:1px;height:100%;justify-content:flex-start;}
+
+/* Field-of-play focus (Alex's spec), pared back after a first look: the
+   recap banner and the win-probability ribbon are still dropped (the ribbon
+   is replaced by .live-grid-wp, a compact bar mounted right after the
+   scorebug - see mountLivePane in app.js) - everything else Alex asked to
+   see again (result pill, defense line, scoring line, the matchup/diff
+   readout, the leverage gauge minus its own "LEVERAGE" caption) stays. */
+.live-grid-pane .scene-recap,
+.live-grid-pane .scene-ribbon{display:none;}
+.live-grid-pane .scene-meter-lbl{display:none;}
+
+/* Squished toward centre (Alex's ask) rather than the full-width equal-thirds
+   layout the normal slideshow scorebug uses - a pane is roughly a quarter of
+   the card's width, so the untouched scorebug would run edge to edge. Dialed
+   back a notch from the first pass (Alex's report: the diff/HZ wheels' own
+   bottom label was getting clipped at the larger size). */
+.live-grid-pane .scene-scorebug{max-width:440px;margin:0 auto;gap:8px;}
+.live-grid-pane .scene-scorebug-team{font-size:20px;gap:6px;}
+.live-grid-pane .scene-scorebug-logo{width:28px;height:28px;}
+.live-grid-pane .scene-scorebug-mid{gap:0;}
+.live-grid-pane .scene-scorebug-state .inning-num{font-size:20px;}
+
+/* The matchup line (app.js mountLivePane, .live-grid-mu) lands as a 4th
+   child of the team column, after logo/abbr/score - flex-wrap plus a 100%
+   flex-basis on the line itself is what pushes it onto its own row directly
+   under the logo instead of running on inline next to the score. */
+.live-grid-pane .scene-scorebug-team{flex-wrap:wrap;justify-content:center;}
+.live-grid-mu{
+  flex:0 0 100%;text-align:center;font-size:11px;font-weight:700;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* Redundant now that the matchup line sits directly under the real team
+   logo above (Alex's ask) - the old below-the-field row (sceneDetailHtml)
+   only needed its matchup half dropped; the diff-pill/flight-readout half
+   above it stays put. */
+.live-grid-pane .scene-matchup{display:none;}
+
+/* Player-scores rides on the end of the fielding-description line instead of
+   its own row below it (Alex's ask - mountLivePane in app.js folds
+   scoring-line's text into scene-defense's own element on every mount), so
+   the standalone row is hidden here; .live-grid-score-inline keeps its
+   original green/bold treatment on the folded-in copy. */
+.live-grid-pane .play-scene .scoring-line{display:none;}
+.live-grid-score-inline{color:var(--green);font-weight:700;}
+
+/* The gauge's own aspect ratio (viewBox 120x72, ~0.6) means its height rides
+   on this width - at the base 100px it was ~60px tall, well past what the
+   scorebug's other two columns need, which was quietly forcing the whole
+   header row (and everything below it) taller than it had to be. Scaled down
+   hard (Alex's ask - "scale down the leverage meter... I'm hoping it'll help
+   with the margin above the field") rather than trimmed with margin, since
+   the gauge's own footprint was the actual cause. */
+.live-grid-pane .scene-meter{width:46px;}
+.live-grid-pane .scene-meter-val{font-size:11px;top:30%;}
+
+/* The diamond's own cap (.scene-diamond-wrap, style.css base rule) is tuned
+   for a full-width single-game slide - a grid pane can be that wide or wider
+   once the session has fewer than 8 games, so it gets its own larger cap
+   here rather than inheriting the base rule's 340px ceiling. */
+.live-grid-pane .scene-diamond-wrap{width:min(90%,600px);}
+.live-grid-pane .scene-top{margin-top:-2px;}
+
+/* The bar's own layout (fixed width, centred, bordered) is now inline in
+   liveGridWpBarHtml - app.js - not class-driven (see that function's own
+   comment for why). Only the percentage-label text styling lives here. */
+.live-grid-wp-pct{
+  display:flex;align-items:center;gap:5px;font-size:13px;font-weight:800;
+  color:var(--muted);white-space:nowrap;
+}
+.live-grid-wpa{font-size:11px;}
+
+.live-grid-empty{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:12px;font-weight:600;
+}
