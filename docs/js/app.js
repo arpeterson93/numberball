@@ -4089,70 +4089,109 @@
   // ball's on them too fast for either to read as anything but late.
   var OUTFIELD_POSITIONS = { LF: 1, CF: 1, RF: 1 };
 
-  // Outfield pre-shift prototype (Alex's ask, outfield-only for now): a
-  // double or triple needs the ball to get past the nearest outfielder,
-  // which in real baseball means the defense wasn't perfectly camped on its
-  // exact eventual landing spot. Shade all three outfielders a small amount
-  // away from the ball's actual angle before the play starts, so whoever
-  // ends up chasing it down genuinely has ground to make up rather than
-  // starting right on top of the result. This only changes where they're
-  // DRAWN starting from (fielderTokensHtml) - the actual fielder assignment
-  // (flightParams/resolveHitPickup) already ran on the real, unshifted
-  // anchors upstream, so which player ends up credited never changes.
-  // Clamped well inside the [0,90] fair-territory range so the shift can
-  // never push a corner outfielder onto or past a foul line.
-  var OF_SHIFT_ARCHETYPES = { double: 1, triple: 1 };
-  // 1B/1BWH/1BWH2 all share the plain "single" archetype (result_diff_bands.csv)
-  // - archetype alone can't tell a routine bloop (1B, 41-247ft, often still
-  // an infield-adjacent play) from a well-hit single that's genuinely an
-  // outfield defensive situation (1BWH/1BWH2, 200-360ft), so this checks the
-  // real result code instead (Alex's ask - extend the shift to those two).
-  var OF_SHIFT_WH_SINGLE_RESULTS = { "1BWH": 1, "1BWH2": 1 };
-  var OF_SHIFT_DEG = 5;
-  var OF_SHIFT_ANGLE_MIN = 3, OF_SHIFT_ANGLE_MAX = 87;
-  // Direction is relative to the fielder who actually ends up credited
+  // Honest outfield pursuit + a reaction-time sink (gameday reconciliation
+  // plan 5b), replacing the flat OF_SHIFT_DEG pre-shift prototype. A double/
+  // triple, or a well-hit single genuinely past the infield (1BWH/1BWH2 -
+  // archetype alone can't tell those from a routine infield-adjacent bloop,
+  // so this checks the real result code the same way the old shift did),
+  // needs the ball to visibly get past the credited outfielder - in real
+  // baseball because the defense wasn't standing right on top of the
+  // eventual landing spot. The honest question is a race, not a fixed
+  // degree: does this fielder's own real pursuit (true anchor, real
+  // accel+SPD, OUTFIELDER_REACT_MS) actually beat the ball to where it
+  // ends up? Measured against the real physics before landing this (per
+  // the plan's own "verify how often this already suffices" ask): out of
+  // 100 sampled double-shaped hits, only 3 - all shallow, borderline
+  // ~150ft flies - ever had the honest pursuit winning at all, and by at
+  // most ~1.1s; a deep double or triple passes through this completely
+  // untouched, no correction needed. applies()/qualifies below is the same
+  // archetype/result membership the old OF_SHIFT_ARCHETYPES/
+  // OF_SHIFT_WH_SINGLE_RESULTS tables named, just not a separate constant
+  // anymore.
+  function ofPursuitApplies(m, flight) {
+    return !!(flight && OUTFIELD_POSITIONS[flight.fielder] &&
+      ((flight.archetype === "double" || flight.archetype === "triple") ||
+       (flight.archetype === "single" && m && (m.result === "1BWH" || m.result === "1BWH2"))));
+  }
+  // Bounded "late break" (Task 5b point 3) - a real, if unlucky, defensive
+  // read; visibly hesitates, breaks late, arrives just after the ball. 0
+  // when the honest pursuit already loses the race on its own (the common
+  // case, confirmed above).
+  var OF_READ_DELAY_MAX_MS = 1500;
+  // Positive: the fielder's own honest pursuit would beat the ball to the
+  // fielded point by this many ms (visually wrong - needs correction, the
+  // exact ms a knob below must close). Zero or negative: the ball already
+  // beats (or ties) him there on its own - no correction needed.
+  function ofPursuitDeficitMs(m, flight, anchorFt) {
+    var fieldedFt = fieldedPoint(flight);
+    var distFt = Math.hypot(fieldedFt.x - anchorFt.x, fieldedFt.y - anchorFt.y);
+    var pursuitMs = fielderLegDurationsMs(m, flight.fielder, [{ distFt: distFt }])[0];
+    var honestArrivalMs = OUTFIELDER_REACT_MS + pursuitMs;
+    return fieldedMs(flight) - honestArrivalMs;
+  }
+  // anchorFt: whichever anchor the fielder is actually being rendered from
+  // (their real one, or the rare ofDerivedShadeAnchorFt fallback below) -
+  // the read delay is always sized against the SAME anchor the token
+  // actually starts at, not recomputed against a different one.
+  function ofReadDelayMs(m, flight, anchorFt) {
+    if (!ofPursuitApplies(m, flight)) return 0;
+    var deficit = ofPursuitDeficitMs(m, flight, anchorFt);
+    return deficit > 0 ? Math.min(deficit, OF_READ_DELAY_MAX_MS) : 0;
+  }
+  // Fallback (Task 5b point 4) - only reached when even the full read-delay
+  // bound can't honestly close the gap: a derived positional shade, same
+  // direction the old flat shift used (away from the ball's own TRUE
+  // simulated bearing, relative to the credited fielder's own canonical
+  // angle - not flight.angle's coarse lattice, which can land exactly on a
+  // tie a real bearing never does), sized to the SMALLEST offset that
+  // actually closes it for THIS play's own real geometry/pace, not a fixed
+  // 5deg for every play regardless of need. Bisects out to a 45deg cap - a
+  // pre-pitch defensive shade, which is what this actually represents once
+  // physics forces it, not a magic per-play number.
+  // Direction relative to the fielder who actually ends up credited
   // (flight.fielder), not the whole field's own dead-center (45) - a real
-  // bug report caught this: a double left of RF (e.g. angle 60, left of
-  // RF's own 72) needs RF shaded further right/deeper into the corner
-  // (away from 60, toward 77+) so RF has farther to close, not shaded left
-  // toward the hit, which was the old (angle<=45?) global-half comparison's
-  // actual effect whenever the hit fell on the near side of a corner
-  // fielder's own zone but still past the whole-field's own center. Same
-  // fix resolves the mirrored CF report (ball right of CF's own 45 needs to
-  // shade CF left, away from it, not right toward it).
-  //
-  // Direction compares against the ball's own TRUE simulated bearing
-  // (atan2 off its real x/y), not flight.angle - a second real bug report
-  // caught this: flight.angle is the coarse 11-point HZ lattice (used for
-  // infielder assignment, 8deg apart), which a real play can land exactly
+  // bug report caught this originally: a double left of RF (e.g. angle 60,
+  // left of RF's own 72) needs RF shaded further right/deeper into the
+  // corner (away from 60, toward 77+) so RF has farther to close, not
+  // shaded left toward the hit. Compares against the ball's own TRUE
+  // simulated bearing (atan2 off its real x/y), not flight.angle - a
+  // second real bug report caught this: flight.angle is the coarse
+  // 11-point HZ lattice (8deg apart), which a real play can land exactly
   // ON a tie (a Calvin Huff double: pitch/swing's last digits both landed
-  // on the same bucket, so flight.angle read exactly 45, dead center) even
-  // though the real simulated landing point (x=19.9ft, meaningfully right
-  // of center) clearly wasn't a tie at all - the tie-break then defaulted
-  // to "shift right," which was visibly wrong for a ball that really did
-  // land right of CF. The true bearing has no such lattice-quantization
-  // gap.
-  // 1B's PFP render-only depth fudge is gone (gameday reconciliation plan
-  // 5a) - firstBaseCoverage now decides "pitcher covers" off a real race
-  // (fielded point honestly far from the bag), not a lattice angle, so
-  // there's no more need to fake a deeper starting anchor to make that
-  // decision look plausible on screen: on the rare hard-roller play that
-  // genuinely strands him, the real fielded point (the charge race's own
-  // honest output) is already visibly far from the bag - the true geometry
-  // now carries the story instead of a render-only shift standing in for
-  // it. 1B starts at his real anchor unconditionally.
-  function fielderStartAnchorFt(pos, flight, m) {
-    var applies = flight && (OF_SHIFT_ARCHETYPES[flight.archetype] ||
-      (flight.archetype === "single" && m && OF_SHIFT_WH_SINGLE_RESULTS[m.result]));
-    if (!OUTFIELD_POSITIONS[pos] || !applies || !OUTFIELD_POSITIONS[flight.fielder]) {
-      return FIELDER_ANCHORS_FT[pos];
-    }
+  // on the same bucket, so flight.angle read exactly 45) even though the
+  // real simulated landing point clearly wasn't a tie at all. The true
+  // bearing has no such lattice-quantization gap.
+  function ofShadeDirection(flight) {
     var refAngle = OF_CANONICAL_ANGLE[flight.fielder];
     var trueAngle = 45 + Math.atan2(flight.x, flight.y) * 180 / Math.PI;
-    var direction = trueAngle <= refAngle ? 1 : -1;
-    var shiftedDeg = clamp(OF_CANONICAL_ANGLE[pos] + direction * OF_SHIFT_DEG,
-      OF_SHIFT_ANGLE_MIN, OF_SHIFT_ANGLE_MAX);
-    return landingPoint(OUTFIELDER_DEPTH_FT[pos], shiftedDeg);
+    return trueAngle <= refAngle ? 1 : -1;
+  }
+  function ofDerivedShadeAnchorFt(m, flight, pos) {
+    var direction = ofShadeDirection(flight);
+    function anchorAtDeg(deg) {
+      return landingPoint(OUTFIELDER_DEPTH_FT[pos], clamp(OF_CANONICAL_ANGLE[pos] + direction * deg, 3, 87));
+    }
+    // "Closes" once the remaining deficit at this shade no longer exceeds
+    // what the full read-delay bound can still cover on top of it.
+    function closesAtDeg(deg) { return ofPursuitDeficitMs(m, flight, anchorAtDeg(deg)) <= OF_READ_DELAY_MAX_MS; }
+    if (!closesAtDeg(45)) return anchorAtDeg(45); // even the full cap can't close it - shade as far as this model allows
+    var lo = 0, hi = 45; // lo: not yet confirmed to close; hi: confirmed to close (45, checked above)
+    for (var i = 0; i < 20; i++) {
+      var mid = (lo + hi) / 2;
+      if (closesAtDeg(mid)) hi = mid; else lo = mid;
+    }
+    return anchorAtDeg(hi);
+  }
+  // The anchor a fielder is actually DRAWN starting from - real anchor
+  // unconditionally now (1B's own PFP depth fudge is gone too, per 5a:
+  // firstBaseCoverage decides that off a real race, not a render trick),
+  // except the rare ofDerivedShadeAnchorFt fallback above.
+  function fielderStartAnchorFt(pos, flight, m) {
+    if (!ofPursuitApplies(m, flight) || pos !== flight.fielder) return FIELDER_ANCHORS_FT[pos];
+    if (ofPursuitDeficitMs(m, flight, FIELDER_ANCHORS_FT[pos]) <= OF_READ_DELAY_MAX_MS) {
+      return FIELDER_ANCHORS_FT[pos]; // the read delay alone already covers it - no shade needed
+    }
+    return ofDerivedShadeAnchorFt(m, flight, pos);
   }
 
   var OUTFIELDER_REACT_MS = 400;
@@ -4573,8 +4612,14 @@
         if (soloAnchor) {
           moving[flight.fielder] = 1;
           var soloDistFt = Math.hypot(fieldedFt.x - soloAnchor.x, fieldedFt.y - soloAnchor.y);
+          // The honest pursuit's own read-delay knob (Task 5b point 3) - a
+          // bounded late break, applied on top of the play's own shared
+          // startDelay, only when the honest race (from wherever this
+          // fielder actually starts, real or shaded) would otherwise beat
+          // the ball. 0 for every out-of-the-outfield/non-qualifying play.
+          var readDelayMs = ofReadDelayMs(m, flight, soloAnchor);
           moversHtml += movingFielderTokenHtml(m, flight.fielder,
-            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay, soloAnchor);
+            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay + readDelayMs, soloAnchor);
         }
       }
     }
@@ -5758,6 +5803,10 @@
     firstBaseCoverage: firstBaseCoverage,
     fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
     fielderStartAnchorFt: fielderStartAnchorFt,
+    ofPursuitApplies: ofPursuitApplies, ofPursuitDeficitMs: ofPursuitDeficitMs,
+    ofReadDelayMs: ofReadDelayMs, ofDerivedShadeAnchorFt: ofDerivedShadeAnchorFt,
+    ofShadeDirection: ofShadeDirection,
+    OF_READ_DELAY_MAX_MS: OF_READ_DELAY_MAX_MS,
     TAG_UP_MS: TAG_UP_MS,
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
     ballTravelMs: ballTravelMs, fieldedMs: fieldedMs,

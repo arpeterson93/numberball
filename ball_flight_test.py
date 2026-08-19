@@ -881,20 +881,21 @@ def main() -> None:
         check("hot comebacker (RHH, EV>threshold): fielder is 2B, not P", hot_comebacker["R"]["fielder"], "2B")
         check("hot comebacker (LHH, EV>threshold): fielder is SS, not P", hot_comebacker["L"]["fielder"], "SS")
 
-        print("\nOutfield pre-shift direction (real bug report: a Calvin Huff double")
+        print("\nOutfield shade direction (real bug report: a Calvin Huff double")
         print("landed at flight.angle exactly 45 - a lattice tie - even though the real")
         print("simulated x/y clearly wasn't a tie, so the tie-break picked the wrong")
-        print("shift direction; must use the true simulated bearing, not the lattice):")
+        print("shift direction; must use the true simulated bearing, not the lattice).")
+        print("Task 5b folded the old flat shift into ofDerivedShadeAnchorFt's own")
+        print("fallback - this now tests ofShadeDirection directly, the piece that")
+        print("carries the original bug fix forward:")
         shift_case = page.evaluate(
             """() => {
                 var flight = {archetype: "double", angle: 45, fielder: "CF", x: 19.92, y: 243.34};
-                var cf = KMFlight.fielderStartAnchorFt("CF", flight, {});
-                var base = KMFlight.FIELDER_ANCHORS_FT.CF;
-                return {cfX: cf.x, baseX: base.x};
+                return { direction: KMFlight.ofShadeDirection(flight) };
             }"""
         )
-        check("CF shifts away (left, negative x) from a ball landing right of center",
-              shift_case["cfX"] < shift_case["baseX"], True)
+        check("CF shades away (negative direction) from a ball landing right of center",
+              shift_case["direction"], -1)
 
         print("\nResolver BRC override (F1/F3): a DP31-shaped synthetic config (excludes")
         print("SS/2B/1B/P, default 3B) on a shallow-landing grounder still triggers,")
@@ -1142,6 +1143,62 @@ def main() -> None:
         check("hard-hit 77deg roller is still fielded by 1B", pfp["hardFielder"], "1B")
         check("hard-hit 77deg roller: pitcher covers (1B honestly can't get back)", pfp["hardCoverage"], "P")
         check("hard-hit 77deg roller reads 3-1", pfp["hardNotation"], "3-1")
+
+        print("\nOF honest pursuit + read-delay sink (Task 5b):")
+        ofpursuit = page.evaluate(
+            """() => {
+                var m = {result: 'double'};
+                function resolved(ev, la, phi, archetype, result) {
+                  var sim = KMTraj.simulateFlight(ev, la, phi, 'R');
+                  var flight = {
+                    ev: ev, la: la, distance: sim.distance,
+                    x: sim.landing.x, y: sim.landing.y,
+                    contactVel: sim.contactVel, archetype: archetype, clearedFence: false,
+                  };
+                  KMFlight.resolveHitPickup(flight);
+                  return flight;
+                }
+                // A deep double - honest pursuit already loses on its own,
+                // confirmed by the plan's own probe sweep (97/100 sampled
+                // cases needed no correction at all).
+                var deep = resolved(100, 25, 10, 'double', 'double');
+                var deepAnchor = KMFlight.fielderStartAnchorFt(deep.fielder, deep, {result: 'double'});
+                var deepTrueAnchor = KMFlight.FIELDER_ANCHORS_FT[deep.fielder];
+                // A shallow, borderline double - the one shape the sweep
+                // found the honest pursuit actually winning (by ~1.1s, well
+                // inside the 1500ms read-delay bound).
+                var shallow = resolved(80, 15, 15, 'double', 'double');
+                var shallowM = {result: 'double'};
+                var shallowDeficitBefore = KMFlight.ofPursuitDeficitMs(shallowM, shallow, KMFlight.FIELDER_ANCHORS_FT[shallow.fielder]);
+                var shallowReadDelay = KMFlight.ofReadDelayMs(shallowM, shallow, KMFlight.FIELDER_ANCHORS_FT[shallow.fielder]);
+                var shallowAnchor = KMFlight.fielderStartAnchorFt(shallow.fielder, shallow, shallowM);
+                // Grounder/infield_single archetypes never qualify - this is
+                // an outfield-only mechanic.
+                var grounder = resolved(85, -8, 5, 'grounder', 'GO');
+                return {
+                  deepFielder: deep.fielder,
+                  deepAnchorIsTrue: deepAnchor.x === deepTrueAnchor.x && deepAnchor.y === deepTrueAnchor.y,
+                  deepReadDelay: KMFlight.ofReadDelayMs({result:'double'}, deep, deepTrueAnchor),
+                  shallowFielder: shallow.fielder,
+                  shallowDeficitBefore: Math.round(shallowDeficitBefore),
+                  shallowReadDelay: Math.round(shallowReadDelay),
+                  shallowApplies: KMFlight.ofPursuitApplies(shallowM, shallow),
+                  grounderApplies: KMFlight.ofPursuitApplies({result:'GO'}, grounder),
+                  READ_DELAY_MAX: KMFlight.OF_READ_DELAY_MAX_MS,
+                };
+            }"""
+        )
+        check("a deep double's honest pursuit needs no correction (true anchor, no read delay)",
+              ofpursuit["deepAnchorIsTrue"] and ofpursuit["deepReadDelay"] == 0, True)
+        check("a qualifying single/double/triple in the outfield is recognized", ofpursuit["shallowApplies"], True)
+        check("a grounder never qualifies for the OF pursuit mechanic", ofpursuit["grounderApplies"], False)
+        print(f"  shallow double: honest deficit {ofpursuit['shallowDeficitBefore']}ms (positive = fielder would beat the ball), "
+              f"read delay applied {ofpursuit['shallowReadDelay']}ms")
+        check("a shallow double's honest pursuit would beat the ball before correction",
+              ofpursuit["shallowDeficitBefore"] > 0, True)
+        check("the read delay closes the gap exactly (no more, no less than the deficit)",
+              ofpursuit["shallowReadDelay"], ofpursuit["shallowDeficitBefore"], tol=1)
+        check("the read delay stays within its own bound", ofpursuit["shallowReadDelay"] <= ofpursuit["READ_DELAY_MAX"], True)
 
         print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
         prim = page.evaluate(
