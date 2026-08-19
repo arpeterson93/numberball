@@ -2674,6 +2674,22 @@
     var spd = entry && entry[2];
     return (spd == null) ? SPD_AVERAGE : spd;
   }
+  // The specific runner's own SPD rating (gameday reconciliation plan,
+  // Task 3.2) - same [name, last, spd] shape/fallback convention as
+  // fielderSpd, just off m.batter_spd (a bare number, not an entry) for the
+  // batter-runner and m.runners_on_base[who][2] for anyone already on base.
+  // Historical archives built before the spd fields existed (or a runner
+  // key key_moments_build.py never resolved) fall back to SPD_AVERAGE,
+  // reproducing today's flat league-average timing exactly.
+  function runnerSpd(m, who) {
+    if (who === "BATTER") {
+      var bs = m && m.batter_spd;
+      return (bs == null) ? SPD_AVERAGE : bs;
+    }
+    var entry = m && m.runners_on_base && m.runners_on_base[who];
+    var spd = entry && entry[2];
+    return (spd == null) ? SPD_AVERAGE : spd;
+  }
 
   var FIELDER_CHARGE_FT_PER_S = 16;
   // Split out from FIELDER_CHARGE_FT_PER_S (Alex's ask, following through on
@@ -4071,6 +4087,29 @@
       reactionS: kind === "run" ? 0 : CHARGE_REACTION_S
     };
   }
+  // Runner motion profile (Task 3.2) - real per-runner pace, same
+  // accelerating kinematics a fielder's own "run" profile uses. who:
+  // "BATTER" | "1B" | "2B" | "3B" -> runnerSpd, above.
+  function runnerProfile(m, who) {
+    return {
+      topSpeedFtPerS: RUNNER_SPRINT_FT_PER_S * spdPaceScale(runnerSpd(m, who)),
+      accelFtPerS2: FIELDER_ACCEL_FT_S2,
+      reactionS: 0
+    };
+  }
+  // Per-runner accelerating leg time, folding RUN_LEG_MS (Task 3.2). legs is
+  // RUN_LEG_MS's own index convention - an integer count of 90ft bases, not
+  // a per-waypoint array; a runner's basepath is always a straight multiple
+  // of BASE_DIST_FT for this purpose. Deliberate behavior change alongside
+  // the per-player speed wiring (Alex's call, plan 3.2, taken now rather
+  // than deferred): runners accelerate from a standing start instead of
+  // covering every leg at flat top speed - a spd-3 runner's 90ft leg goes
+  // from RUN_LEG_MS[1]'s old flat ~3333ms to ~3873ms. RUN_LEG_MS itself
+  // survives unconverted as the explicit league-average fallback table
+  // (spd null, or historical archives built before the spd fields existed).
+  function runnerLegMs(m, who, legs) {
+    return Math.round(arrivalTimeS(legs * BASE_DIST_FT, runnerProfile(m, who)) * 1000);
+  }
   // Throw motion profile. throwClass is an extensibility hook (Task 3.3) -
   // "full" is the only implemented class this pass (THROW_SPEED_MPH, no
   // data-grounded arm-strength rating exists to vary it by fielder); "toss"
@@ -4940,7 +4979,7 @@
         var endOrd = mv.scored ? 4 : BASE_ORDINAL[mv.to];
         if (startOrd == null || endOrd == null || endOrd <= startOrd) return;
         var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
-        runnerArrival = Math.max(runnerArrival, catchMs + TAG_UP_MS + (RUN_LEG_MS[legs] || 0));
+        runnerArrival = Math.max(runnerArrival, catchMs + TAG_UP_MS + runnerLegMs(m, mv.from, legs));
       });
       var tagStart = Math.max(0, runnerArrival + TAG_THROW_MARGIN_MS - THROW_DRAW_MS);
       // The first throw keeps the flat THROW_DRAW_MS here (tagStart's own
@@ -5043,7 +5082,7 @@
     var outDelay = OUT_BEAT_MS;
     var delayedStartMs = outDelay + TAG_UP_MS;
     var stealOutDelay = stealOut.delay ? delayedStartMs : outDelay;
-    return stealRunnerArrivalMs(true, 0, stealOutDelay) + TAG_UP_MS;
+    return stealRunnerArrivalMs(m, stealOut.from, true, 0, stealOutDelay) + TAG_UP_MS;
   }
 
   // The .out-to-first keyframe's own "reaches first" checkpoint (style.css:
@@ -5056,8 +5095,8 @@
   // stays correct automatically whenever RUN_LEG_MS changes instead of
   // silently drifting out of sync with a CSS percentage computed by hand
   // from a different constant.
-  function batterFirstArrivalMs() {
-    return RUNNER_LEAD_MS + RUN_LEG_MS[1];
+  function batterFirstArrivalMs(m) {
+    return RUNNER_LEAD_MS + runnerLegMs(m, "BATTER", 1);
   }
 
   // A dashed <line>'s own geometry attributes (x1/y1/x2/y2) aren't CSS-
@@ -5147,7 +5186,7 @@
     var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
     var drawMs = throwDrawMsForFt(distFt);
     var earliestStartMs = fieldedMs(flight) + THROW_DELAY_MS;
-    var idealEndMs = batterFirstArrivalMs() + IF1B_THROW_MARGIN_MS;
+    var idealEndMs = batterFirstArrivalMs(m) + IF1B_THROW_MARGIN_MS;
     var startMs = Math.max(earliestStartMs, idealEndMs - drawMs);
     var from = ftToSvg(originFt.x, originFt.y);
     var to = SCENE_BASES["1B"];
@@ -5205,12 +5244,17 @@
   // so the animated leg is only the remaining 78ft (sceneFieldHtml's own
   // token rendering, and the arrival math right below, both key off this).
   var STEAL_LEADOFF_FT = 12;
-  // Real sprint speed over the shortened leg (mirrors RUN_LEG_MS[1]'s own
-  // runnerDrawMsForFt(BASE_DIST_FT) formula, just BASE_DIST_FT-STEAL_LEADOFF_FT
-  // instead of the full 90ft) - the runner covers less ground in less real
-  // time, not the same RUN_LEG_MS[1] duration over a shorter distance (which
-  // would just be a slower-looking sprint for no reason).
+  // Real per-runner accelerating sprint over the shortened leg (Task 3.2,
+  // folded onto the shared primitive) - the runner covers less ground in
+  // less real time, not the same full-leg duration over a shorter distance
+  // (which would just be a slower-looking sprint for no reason).
+  // STEAL_LEG_DUR_MS survives as the league-average fallback value only
+  // (spd null, or a historical archive built before the spd fields
+  // existed) - stealLegMs(m, who) is what every real call site uses now.
   var STEAL_LEG_DUR_MS = runnerDrawMsForFt(BASE_DIST_FT - STEAL_LEADOFF_FT);
+  function stealLegMs(m, who) {
+    return Math.round(arrivalTimeS(BASE_DIST_FT - STEAL_LEADOFF_FT, runnerProfile(m, who)) * 1000);
+  }
   // Alex's ask: instead of a single flat gap, the throw's own margin off the
   // runner's arrival now scales with how decisive the underlying
   // steal_num/throw_num roll was (500-diff, same input stealWheelPace reads -
@@ -5234,13 +5278,13 @@
   // floor on when the throw may start.
   var CATCHER_POP_MS = 250;
 
-  // The runner token's own "reaches the base" moment - STEAL_LEG_DUR_MS (the
-  // shortened, leadoff-adjusted leg, above) is both a plain legs1 advance's
-  // full duration AND (per batterFirstArrivalMs's own sibling note) the
-  // out-to-base keyframe's first-leg checkpoint, so one formula covers both a
-  // safe steal and a caught one.
-  function stealRunnerArrivalMs(isCaught, runDelay, outDelay) {
-    return (isCaught ? outDelay : runDelay) + STEAL_LEG_DUR_MS;
+  // The runner token's own "reaches the base" moment - stealLegMs(m, who)
+  // (the shortened, leadoff-adjusted leg, above) is both a plain legs1
+  // advance's full duration AND (per batterFirstArrivalMs's own sibling
+  // note) the out-to-base keyframe's first-leg checkpoint, so one formula
+  // covers both a safe steal and a caught one.
+  function stealRunnerArrivalMs(m, who, isCaught, runDelay, outDelay) {
+    return (isCaught ? outDelay : runDelay) + stealLegMs(m, who);
   }
 
   function stealThrowTarget(m, moves) {
@@ -5258,7 +5302,7 @@
     // next bag. Falls back to the old guess only when a row hasn't been
     // given an explicit assist yet.
     var base = caught ? (mv.assist || NEXT_BASE[mv.from] || mv.from) : mv.to;
-    return { base: base, caught: caught, delay: !!mv.delay };
+    return { base: base, caught: caught, delay: !!mv.delay, from: mv.from };
   }
 
   // The catcher, unless import_BRC.csv's ExcludedPositions/DefaultPosition
@@ -5299,7 +5343,7 @@
     // runner already waits after a catch (TAG_UP_MS) - see delayedStartMs's
     // sibling logic in sceneFieldHtml.
     var effOutDelay = target.delay ? outDelay + TAG_UP_MS : outDelay;
-    var arrival = stealRunnerArrivalMs(target.caught, runDelay, effOutDelay);
+    var arrival = stealRunnerArrivalMs(m, target.from, target.caught, runDelay, effOutDelay);
     // Alex's ask: variable margin instead of a flat gap - a diff near 0 (the
     // steal_num/throw_num roll was nearly even) reads as a real bang-bang
     // play, a diff near 500 (a decisive roll either way) reads as an easy
@@ -5349,6 +5393,8 @@
     stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
     stealThrowOrigin: stealThrowOrigin, stealThrowHtml: stealThrowHtml, stealOutAtMs: stealOutAtMs,
     stealThrowMarginMs: stealThrowMarginMs, STEAL_LEG_DUR_MS: STEAL_LEG_DUR_MS,
+    stealLegMs: stealLegMs, runnerSpd: runnerSpd, runnerProfile: runnerProfile,
+    runnerLegMs: runnerLegMs,
     STEAL_LEADOFF_FT: STEAL_LEADOFF_FT, CATCHER_POP_MS: CATCHER_POP_MS,
     STEAL_THROW_MARGIN_MIN_MS: STEAL_THROW_MARGIN_MIN_MS, STEAL_THROW_MARGIN_MAX_MS: STEAL_THROW_MARGIN_MAX_MS,
     pitchBallHtml: pitchBallHtml, PITCH_TRAVEL_MS: PITCH_TRAVEL_MS, PITCH_SPEED_MPH: PITCH_SPEED_MPH,
@@ -5577,7 +5623,7 @@
     // runner who WAS caught is actually tagged, not on the same beat.
     var stealOutDelay = stealOut && stealOut.delay ? delayedStartMs : outDelay;
     var stealOutResolveMs = stealOut && stealOut.caught
-      ? stealRunnerArrivalMs(true, runDelay, stealOutDelay) + TAG_UP_MS
+      ? stealRunnerArrivalMs(m, stealOut.from, true, runDelay, stealOutDelay) + TAG_UP_MS
       : 0;
     // I7: the slowest arriving safe/scoring runner - the base plates' gold
     // "post-play occupancy" fill is delayed until this moment, so a base
@@ -5723,7 +5769,7 @@
           y: from.y + (path[0].y - from.y) * leadoffFrac,
         };
       }
-      var legDurMs = isStealAdvance ? STEAL_LEG_DUR_MS : (RUN_LEG_MS[legs] || 0);
+      var legDurMs = isStealAdvance ? stealLegMs(m, mv.from) : runnerLegMs(m, mv.from, legs);
       // A genuinely forced runner (isForcedRunner, on one of the ground-ball
       // results where that applies) leaves on contact - same beat as a safe
       // runner on a hit - because they have no choice but to vacate the
@@ -5909,10 +5955,10 @@
         var fcVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--tx:" + fc1.x + "px;--ty:" + fc1.y + "px;" +
                      "--p1x:" + fc1.x + "px;--p1y:" + fc1.y + "px;" +
-                     "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + RUN_LEG_MS[1] + "ms";
+                     "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + runnerLegMs(m, "BATTER", 1) + "ms";
         tokens += '<g class="rn legs1 batter" style="' + fcVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
-        maxArrival = Math.max(maxArrival, runDelay + RUN_LEG_MS[1]);
+        maxArrival = Math.max(maxArrival, runDelay + runnerLegMs(m, "BATTER", 1));
       } else if (flight) {
         // 6b: runs to first on the normal basepath, cut short (or held
         // waiting at the bag) exactly at the real out moment, THEN turns
@@ -5927,7 +5973,7 @@
         var batterOutAtAbs = outAtMsFor("1B") + seqDelay;
         var batterOutAtRel = Math.max(0, outAtMsFor("1B") - runDelay);
         var batterMotion = runnerOutMotionHtml(batterBoxSvg.x, batterBoxSvg.y, [{ frac: 1, x: p1.x, y: p1.y }],
-          dugoutSvg.x, dugoutSvg.y, RUN_LEG_MS[1], batterOutAtRel, RN_OUT_WALK_MS);
+          dugoutSvg.x, dugoutSvg.y, runnerLegMs(m, "BATTER", 1), batterOutAtRel, RN_OUT_WALK_MS);
         var voVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--p1x:" + p1.x + "px;--p1y:" + p1.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
@@ -5988,7 +6034,7 @@
     // story, and it never gets a ball flight to hang a throw off otherwise.
     var stealTarget = stealThrowTarget(m, moves);
     var stealFlashDelay = stealTarget
-      ? stealRunnerArrivalMs(stealTarget.caught, runDelay, stealTarget.delay ? delayedStartMs : outDelay)
+      ? stealRunnerArrivalMs(m, stealTarget.from, stealTarget.caught, runDelay, stealTarget.delay ? delayedStartMs : outDelay)
       : 0;
 
     // Base plates show post-play occupancy so the field still reads
@@ -7009,7 +7055,7 @@
     moves.forEach(function (mv) {
       if (!mv.scored) return;
       var legs = basepathWaypoints(mv.from, mv.to, true).length;
-      var dur = stealOut ? STEAL_LEG_DUR_MS : (RUN_LEG_MS[Math.min(legs, RUN_LEG_MS.length - 1)] || 0);
+      var dur = stealOut ? stealLegMs(m, mv.from) : runnerLegMs(m, mv.from, Math.min(legs, RUN_LEG_MS.length - 1));
       var lead = catchMs ? catchMs + TAG_UP_MS : runDelay;
       times.push(lead + runnerSeqDelay + dur);
     });
@@ -7413,7 +7459,7 @@
       var endOrd = mv.scored ? 4 : BASE_ORDINAL[mv.to];
       if (endOrd == null) return;
       var legs = Math.min(Math.max(endOrd - startOrd, 0), RUN_LEG_MS.length - 1);
-      worst = Math.max(worst, RUN_LEG_MS[legs] || 0);
+      worst = Math.max(worst, runnerLegMs(play, mv.from, legs));
     });
     return worst;
   }

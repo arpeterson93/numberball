@@ -14,6 +14,7 @@ Run from the repo root:
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import sys
 
@@ -536,10 +537,10 @@ def main() -> None:
 
         print("\nstealThrowTarget (B3-c - catcher throw on steal attempts):")
         steal_cases = [
-            ("SB2", "001", "010", {"base": "2B", "caught": False, "delay": False}),
-            ("SB3", "010", "100", {"base": "3B", "caught": False, "delay": False}),
-            ("CS2", "001", "000", {"base": "2B", "caught": True, "delay": False}),
-            ("CS", "010", "000", {"base": "3B", "caught": True, "delay": False}),
+            ("SB2", "001", "010", {"base": "2B", "caught": False, "delay": False, "from": "1B"}),
+            ("SB3", "010", "100", {"base": "3B", "caught": False, "delay": False, "from": "2B"}),
+            ("CS2", "001", "000", {"base": "2B", "caught": True, "delay": False, "from": "1B"}),
+            ("CS", "010", "000", {"base": "3B", "caught": True, "delay": False, "from": "2B"}),
             ("GO", "000", "000", None),
         ]
         for result, before, after, want in steal_cases:
@@ -580,7 +581,7 @@ def main() -> None:
                     var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
                     var schedule = KMFlight.throwSchedule(a.m, moves, a.flight);
                     var lastEnd = Math.max.apply(null, schedule.map(t => t.endMs));
-                    return KMFlight.batterFirstArrivalMs() - (lastEnd + KMFlight.THROW_LEAD_MS);
+                    return KMFlight.batterFirstArrivalMs(a.m) - (lastEnd + KMFlight.THROW_LEAD_MS);
                 }""",
                 {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
             )
@@ -1094,6 +1095,71 @@ def main() -> None:
         for label, want, m, flight in notation_cases:
             got = page.evaluate("(a) => KMFlight.fieldingNotation(a.m, a.flight)", {"m": m, "flight": flight})
             check(label, got, want)
+
+        print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
+        prim = page.evaluate(
+            """() => {
+                var shortAccel = KMFlight.arrivalTimeS(5, {topSpeedFtPerS: 27, accelFtPerS2: 25, reactionS: 0});
+                var closedShort = Math.sqrt(2 * 5 / 25);
+                var longAccel = KMFlight.arrivalTimeS(200, {topSpeedFtPerS: 27, accelFtPerS2: 25, reactionS: 0});
+                var accelDistFt = (27 * 27) / (2 * 25);
+                var accelTimeToTopS = 27 / 25;
+                var closedLong = accelTimeToTopS + (200 - accelDistFt) / 27;
+                var flat = KMFlight.arrivalTimeS(90, {topSpeedFtPerS: 27, accelFtPerS2: Infinity, reactionS: 0});
+                var reaction = KMFlight.arrivalTimeS(2, {topSpeedFtPerS: 16, accelFtPerS2: 25, reactionS: 0.15});
+                var noMoveNoReaction = KMFlight.arrivalTimeS(0, {topSpeedFtPerS: 16, accelFtPerS2: 25, reactionS: 0.15});
+                // Multi-leg momentum carry: two 45ft legs back-to-back must sum to
+                // exactly the single 90ft run's own total time (no re-acceleration
+                // from a dead stop at the waypoint).
+                var legs = KMFlight.legDurationsMs([{distFt: 45}, {distFt: 45}], {topSpeedFtPerS: 27, accelFtPerS2: 25, reactionS: 0});
+                var single = KMFlight.legDurationsMs([{distFt: 90}], {topSpeedFtPerS: 27, accelFtPerS2: 25, reactionS: 0});
+                return {
+                  shortAccel: shortAccel, closedShort: closedShort,
+                  longAccel: longAccel, closedLong: closedLong,
+                  flat: flat, reaction: reaction, noMoveNoReaction: noMoveNoReaction,
+                  legsSum: legs[0] + legs[1], single: single[0],
+                };
+            }"""
+        )
+        check("arrivalTimeS short leg (inside accel phase) matches closed form", prim["shortAccel"], prim["closedShort"], tol=1e-6)
+        check("arrivalTimeS long leg (past accel phase) matches closed form", prim["longAccel"], prim["closedLong"], tol=1e-6)
+        check("arrivalTimeS with accelFtPerS2:Infinity degenerates to distance/speed", prim["flat"], 90 / 27, tol=1e-6)
+        check("arrivalTimeS charges a one-time reaction beat before moving", prim["reaction"], 0.15 + math.sqrt(2 * 2 / 25), tol=1e-6)
+        check("arrivalTimeS charges no reaction beat for zero distance", prim["noMoveNoReaction"], 0, tol=1e-6)
+        check("legDurationsMs multi-leg momentum carry equals single-run total", prim["legsSum"], prim["single"], tol=1)
+
+        print("\nPer-runner speed wiring (Task 3.2):")
+        spd = page.evaluate(
+            """() => {
+                var m5 = {batter_spd: 5, runners_on_base: {"1B": ["A", "A", 1], "2B": ["B", "B", 5]}};
+                var mNull = {batter_spd: null, runners_on_base: {}};
+                return {
+                  batterSpd5: KMFlight.runnerSpd(m5, "BATTER"),
+                  spd1On1B: KMFlight.runnerSpd(m5, "1B"),
+                  spd5On2B: KMFlight.runnerSpd(m5, "2B"),
+                  missingBatter: KMFlight.runnerSpd(mNull, "BATTER"),
+                  missingRunner: KMFlight.runnerSpd(mNull, "1B"),
+                  legMsSpd5: KMFlight.runnerLegMs(m5, "BATTER", 1),
+                  legMsSpd1: KMFlight.runnerLegMs({batter_spd: 1}, "BATTER", 1),
+                  legMsLeagueAvg: KMFlight.runnerLegMs(mNull, "BATTER", 1),
+                  legMsExplicitAvg: KMFlight.runnerLegMs({batter_spd: 3}, "BATTER", 1),
+                  legMsZero: KMFlight.runnerLegMs(mNull, "BATTER", 0),
+                  RUN_LEG_MS_1: KMFlight.RUN_LEG_MS[1],
+                };
+            }"""
+        )
+        check("runnerSpd resolves batter_spd for BATTER", spd["batterSpd5"], 5)
+        check("runnerSpd resolves runners_on_base[who][2]", spd["spd1On1B"], 1)
+        check("runnerSpd resolves a second runner independently", spd["spd5On2B"], 5)
+        check("runnerSpd falls back to SPD_AVERAGE for a missing batter_spd", spd["missingBatter"], 3)
+        check("runnerSpd falls back to SPD_AVERAGE for a missing runner entry", spd["missingRunner"], 3)
+        check("a spd-5 runner's leg is strictly faster than a spd-1 runner's", spd["legMsSpd5"] < spd["legMsSpd1"], True)
+        check("missing spd fields (historical archive) fall back to SPD_AVERAGE timing exactly",
+              spd["legMsLeagueAvg"], spd["legMsExplicitAvg"], tol=1)
+        print(f"  (RUN_LEG_MS[1] flat legacy value {spd['RUN_LEG_MS_1']}ms retained only as the old fallback "
+              f"constant - runnerLegMs's own SPD_AVERAGE timing is now {spd['legMsExplicitAvg']}ms, "
+              f"acceleration included, per the plan's 3.2 deliberate re-timing decision)")
+        check("runnerLegMs(..., 0) is 0 (no bases covered)", spd["legMsZero"], 0)
 
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(
