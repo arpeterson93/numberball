@@ -580,12 +580,24 @@ def main() -> None:
                 """(a) => {
                     var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
                     var schedule = KMFlight.throwSchedule(a.m, moves, a.flight);
-                    var lastEnd = Math.max.apply(null, schedule.map(t => t.endMs));
-                    return KMFlight.batterFirstArrivalMs(a.m) - (lastEnd + KMFlight.THROW_LEAD_MS);
+                    var lastLeg = schedule[schedule.length - 1];
+                    var runnerArrival = KMFlight.forcedOutRunnerArrivalMs(a.m, a.flight, moves, lastLeg.base);
+                    if (runnerArrival == null) return null;
+                    return (runnerArrival - lastLeg.endMs) - KMFlight.MARGIN_POLICY.forceOut.minMs;
                 }""",
                 {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
             )
-            check(f"throw beats runner by >=0ms ({result} {before}->{after})", margin >= 0, True)
+            if margin is None:
+                # FC family: the actual forced-out runner (2B/3B/HOME) is
+                # someone deriveRunnerMoves has no move object for at all -
+                # the batter reached first SAFELY on these, so there is no
+                # honest per-player arrival to reconcile against from this
+                # synthetic moves-only test fixture (plan's own flagged gap -
+                # FORCED_OUT_BASE's redirect targets a runner the data model
+                # doesn't track). Nothing to assert; not a regression.
+                print(f"  [skip] throw beats runner ({result} {before}->{after}): forced runner untracked (FC family)")
+                continue
+            check(f"throw beats runner by >=forceOut.minMs ({result} {before}->{after})", margin >= -0.5, True)
 
         print("\nTag-throw timing (no outfield-assist scenario exists yet, so a fly")
         print("ball/pop-up's throw - SacF's decorative 'throw home anyway' - must")
@@ -607,14 +619,14 @@ def main() -> None:
                         var endOrd = mv.scored ? 4 : KMFlight.BASE_ORDINAL[mv.to];
                         if (startOrd == null || endOrd == null || endOrd <= startOrd) return;
                         var legs = Math.min(endOrd - startOrd, KMFlight.RUN_LEG_MS.length - 1);
-                        runnerArrival = Math.max(runnerArrival, catchMs + KMFlight.TAG_UP_MS + (KMFlight.RUN_LEG_MS[legs] || 0));
+                        runnerArrival = Math.max(runnerArrival, catchMs + KMFlight.TAG_UP_MS + KMFlight.runnerLegMs(a.m, mv.from, legs));
                     });
                     var lastEnd = Math.max.apply(null, schedule.map(t => t.endMs));
-                    return lastEnd - (runnerArrival + KMFlight.TAG_THROW_MARGIN_MS);
+                    return (lastEnd - runnerArrival) - KMFlight.MARGIN_POLICY.uncontested.minMs;
                 }""",
                 {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
             )
-            check(f"runner beats throw by >=0ms ({result} {before}->{after})", margin >= 0, True)
+            check(f"runner beats throw by >=uncontested.minMs ({result} {before}->{after})", margin >= -0.5, True)
 
         print("\nThrow-target sweep (ground-truth invariant restated for throws):")
         meta_fp = pathlib.Path("docs/data/meta.json")
@@ -1160,6 +1172,69 @@ def main() -> None:
               f"constant - runnerLegMs's own SPD_AVERAGE timing is now {spd['legMsExplicitAvg']}ms, "
               f"acceleration included, per the plan's 3.2 deliberate re-timing decision)")
         check("runnerLegMs(..., 0) is 0 (no bases covered)", spd["legMsZero"], 0)
+
+        print("\nReconciler + margin policy (Task 4.3/4.4):")
+        recon = page.evaluate(
+            """() => {
+                var minAt0 = KMFlight.targetMarginMs("forceOut", 0);
+                var maxAt500 = KMFlight.targetMarginMs("forceOut", 500);
+                var midAt250 = KMFlight.targetMarginMs("forceOut", 250);
+                var uncontestedMin = KMFlight.targetMarginMs("uncontested", 0);
+
+                // Verdict direction, out class: an honest throw that lands
+                // just past the required margin, by a deficit small enough
+                // for quickRelease's own THROW_DELAY_MS-sized budget to close
+                // outright, must be pulled forward until it beats the runner
+                // by exactly the class's own required margin.
+                var lateSchedule = [{base: "1B", startMs: 750, endMs: 850, drawMs: 100, out: true}];
+                var lateRunnerArrival = 1100; // targetMarginMs(forceOut,250)=300 -> required=800; deficit=50ms
+                var lateResult = KMFlight.reconcileThrowSchedule(lateSchedule, lateRunnerArrival, "forceOut", 250, true);
+                var lateFinal = lateSchedule[lateSchedule.length - 1];
+
+                // Verdict direction, safe class: an honest throw that ARRIVES
+                // TOO EARLY (beats a runner who's supposed to be safe) must be
+                // held until it lands at least minMs after the runner.
+                var earlySchedule = [{base: "1B", startMs: 100, endMs: 300, drawMs: 200, out: false}];
+                var earlyRunnerArrival = 1000;
+                var earlyResult = KMFlight.reconcileThrowSchedule(earlySchedule, earlyRunnerArrival, "contestedSafe", 250, false);
+                var earlyFinal = earlySchedule[earlySchedule.length - 1];
+
+                // Bounded knobs: a deficit far beyond what quickRelease (a tiny
+                // THROW_DELAY_MS sliver) + the runner-side bounds could ever
+                // honestly close must surface as an "unresolved" adjustment,
+                // not silently vanish.
+                var hopelessSchedule = [{base: "2B", startMs: 5000, endMs: 5050, drawMs: 50, out: true}];
+                var hopelessResult = KMFlight.reconcileThrowSchedule(hopelessSchedule, 100, "forceOut", 250, true);
+                var knobs = hopelessResult.adjustments.map(a => a.knob);
+
+                // No-op: an honest schedule already sitting exactly at the
+                // required margin must not be touched at all.
+                var exactMargin = KMFlight.targetMarginMs("forceOut", 250);
+                var exactEnd = 1200 - exactMargin;
+                var exactSchedule = [{base: "1B", startMs: exactEnd - 200, endMs: exactEnd, drawMs: 200, out: true}];
+                var exactResult = KMFlight.reconcileThrowSchedule(exactSchedule, 1200, "forceOut", 250, true);
+
+                return {
+                  minAt0: minAt0, maxAt500: maxAt500, midAt250: midAt250, uncontestedMin: uncontestedMin,
+                  lateFinalEnd: lateFinal.endMs, lateAdjKnob: lateResult.adjustments[0] && lateResult.adjustments[0].knob,
+                  earlyFinalEnd: earlyFinal.endMs, earlyAdjKnob: earlyResult.adjustments[0] && earlyResult.adjustments[0].knob,
+                  hopelessKnobs: knobs, exactAdjCount: exactResult.adjustments.length,
+                };
+            }"""
+        )
+        check("targetMarginMs(forceOut, 0) equals the class's own minMs", recon["minAt0"], 150)
+        check("targetMarginMs(forceOut, 500) equals the class's own maxMs", recon["maxAt500"], 450)
+        check("targetMarginMs is monotone in |diff|", recon["midAt250"] > recon["minAt0"] and recon["midAt250"] < recon["maxAt500"], True)
+        check("uncontested's own minMs is looser than forceOut's", recon["uncontestedMin"] > recon["minAt0"], True)
+        check("forceOut reconciliation: quickRelease closed the deficit exactly (required=800)",
+              recon["lateFinalEnd"], 800, tol=1)
+        check("forceOut reconciliation used the quickRelease knob (throw needed to be earlier)", recon["lateAdjKnob"], "quickRelease")
+        check("contestedSafe reconciliation: throw loses to runner by >= contestedSafe.minMs",
+              (recon["earlyFinalEnd"] - 1000) >= 150 - 0.5, True)
+        check("contestedSafe reconciliation used the holdRelease knob (throw needed to be later)", recon["earlyAdjKnob"], "holdRelease")
+        check("an unclosable deficit surfaces as an explicit 'unresolved' adjustment, not silently absorbed",
+              "unresolved" in recon["hopelessKnobs"], True)
+        check("a schedule already exactly at its required margin is left untouched", recon["exactAdjCount"], 0)
 
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(

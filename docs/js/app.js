@@ -3035,7 +3035,7 @@
   // base-running, throws - now plays at its own true real-world duration
   // rather than a stylized "feel" compression. Pure reaction-time/margin
   // beats (RUNNER_LEAD_MS, TAG_UP_MS, OUT_BEAT_MS, THROW_DELAY_MS,
-  // THROW_STAGGER_MS, THROW_LEAD_MS, *_MARGIN_MS) are deliberately left
+  // THROW_STAGGER_MS, MARGIN_POLICY) are deliberately left
   // alone - there's no real-world "speed" to derive a tag-up reaction or a
   // safety margin from, only a real distance/speed pair. slideDwell is now
   // computed per-play from the real result (see its own comment) rather than
@@ -3140,7 +3140,6 @@
   // One id per rendered throw line's reveal clip-path (throwLineHtml) - just
   // needs to be unique within the DOM at any moment, not stable/meaningful.
   var THROW_CLIP_SEQ = 0;
-  var THROW_LEAD_MS = 200;          // required margin: every throw must land at least this early
   var TAG_UP_MS = 80;               // a tagging runner leaves this long after the catch (B5)
   // Stylized walk off the field after being put out, same "no real-world
   // distance to derive from" duration out-walk's own choreography already
@@ -3149,13 +3148,183 @@
   // the instant they're actually out (Alex's ask) and takes this long to
   // get there, regardless of which shape put them out.
   var RN_OUT_WALK_MS = 650;
-  // A caught-ball throw that isn't chasing a real out (SacF/DSacF/FO's "the
-  // drama of a sac fly" throw - see throwSchedule) is chasing a runner who's
-  // already safe, same convention as STEAL_THROW_MARGIN_MS: the runner beats
-  // the throw home by at least this much, instead of racing it. 200 -> 400
-  // (Alex's ask): read as too close a race for a play that was never
-  // actually contested - a bigger gap makes the runner's safety obvious.
-  var TAG_THROW_MARGIN_MS = 400;
+
+  // ── Verdict + margin policy (gameday reconciliation plan, Task 4.3) ───────
+  // "How close should this look" - one table replacing every scattered
+  // margin constant (the old flat THROW_LEAD_MS/TAG_THROW_MARGIN_MS/
+  // IF1B_THROW_MARGIN_MS/STEAL_THROW_MARGIN_MIN/MAX_MS). Four closeness
+  // classes, one per kind of contested event:
+  //   forceOut      - throw must beat runner        (GO, DP legs, FC family)
+  //   tagOut        - throw must beat runner        (CS family - caught
+  //                   stealing; a tag, not a force, but the same timing
+  //                   contract)
+  //   contestedSafe - throw must LOSE to runner      (infield single, safe
+  //                   steal)
+  //   uncontested   - throw is decorative, runner comfortably safe
+  //                   (SacF/DSacF/FO's "throw home anyway")
+  // minMs/maxMs values are the old constants' own values, carried straight
+  // through (TAG_THROW_MARGIN_MS's 200->400 history, STEAL_THROW_MARGIN_*) -
+  // only their scatter across five different constants dies, not the
+  // numbers themselves.
+  var MARGIN_POLICY = {
+    forceOut:      { minMs: 150, maxMs: 450 },
+    tagOut:        { minMs: 150, maxMs: 450 },
+    contestedSafe: { minMs: 150, maxMs: 450 },
+    uncontested:   { minMs: 400, maxMs: 600 },
+  };
+  // diff is the league's own decisiveness number for this play - m.diff
+  // (pitch/swing) for a batted play, the steal_num/throw_num diff for a
+  // steal - scaled linearly across the class's [minMs,maxMs] range exactly
+  // as stealThrowMarginMs already did (that function is this one,
+  // generalized by class). A decisive roll reads as a decisive play; a
+  // near-tie reads bang-bang. Acknowledged caveat (Alex, plan 4.3's own
+  // note): m.diff also drives EV/LA upstream, so it's a proxy for play
+  // closeness, not a measured bag margin - but it's the only league-native
+  // number with the right shape, and it beats a hand-authored per-result
+  // table on both consistency and provenance. Missing diff (a test/synthetic
+  // moment) falls back to the range's own midpoint diff (250) rather than
+  // either extreme.
+  function targetMarginMs(cls, diff) {
+    var p = MARGIN_POLICY[cls];
+    var d = diff == null ? 250 : diff;
+    return p.minMs + (p.maxMs - p.minMs) * (d / 500);
+  }
+  // Bounds for the reconciler's own "throw must land earlier" knob chain
+  // (Task 4.4) - how far each named adjustment may go before the next one
+  // in line has to engage.
+  // A held/double-clutched release is always plausible regardless of
+  // duration (unlike a runner's or fielder's own speed, holding a ball has
+  // no real physical bound) - a generous sanity ceiling only, not a real
+  // constraint. Must comfortably exceed the slowest legitimate uncontested
+  // wait (a runner circling the bases on a deep sac fly - up to ~13s real
+  // time elsewhere in this file's own worst-case estimate), which the old
+  // tagStart backward-solve this replaces never bounded at all.
+  var HOLD_RELEASE_MAX_MS = 20000;
+  var RUNNER_LATE_JUMP_MAX_MS = 400;   // a genuinely late read off contact is real baseball
+  var STRETCH_RUNNER_MAX_FRAC = 0.15;  // last resort - crosses goal (b), bounded to 15% slower
+
+  // holdRelease's own mechanism, standalone: shift a whole throw chain later
+  // so its final leg lands at/after requiredEndMs - every later leg already
+  // chains its own start off the one before it (sequentialThrowSchedule), so
+  // raising leg 0's start carries every leg with it. Never pulls a schedule
+  // earlier (returns null, no-op) - a pure floor. Shared by the reconciler's
+  // own "throw too early" direction and by throwSchedule's separate
+  // pitcher-cover-1B floor (never let the ball visibly beat the covering
+  // fielder's own token there) - two different REASONS to hold a release,
+  // one mechanism, both bounded/named the same way.
+  function holdChainTo(schedule, requiredEndMs, knob, reason) {
+    if (!schedule.length || requiredEndMs == null) return null;
+    var last = schedule[schedule.length - 1];
+    if (requiredEndMs <= last.endMs) return null;
+    var hold = Math.min(requiredEndMs - last.endMs, HOLD_RELEASE_MAX_MS);
+    if (hold < 1) return null;
+    schedule.forEach(function (t) { t.startMs += hold; t.endMs += hold; });
+    return { knob: knob, who: last.base, ms: Math.round(hold), reason: reason };
+  }
+
+  /* The reconciler (Task 4.4) - closes the gap between an honestly forward-
+     computed throw schedule and what the verdict requires, through a fixed,
+     ordered, bounded set of named knobs, never by changing WHO is out (that
+     is already decided upstream by outThrowTargets/deriveRunnerMoves). Reads
+     the FINAL leg's own landing (a relay's earlier legs are real, chained
+     transfers - only the last leg actually races the runner) against
+     requiredMs = runnerArrivalMs -/+ the class's own targetMarginMs. Mutates
+     and returns the same schedule array (every entry already owns real
+     start/end times from sequentialThrowSchedule; shifting them in place
+     keeps every leg's own real relative draw time intact).
+       schedule: sequentialThrowSchedule's own [{base,startMs,endMs,drawMs,out}]
+       isOut: true - runner must NOT beat the throw (forceOut/tagOut);
+              false - runner MUST beat the throw (contestedSafe/uncontested)
+     Every application is recorded in the returned adjustments[] - debug
+     ability is a feature, not an afterthought (plan 4.1's own framing). */
+  function reconcileThrowSchedule(schedule, runnerArrivalMs, cls, diff, isOut) {
+    var adjustments = [];
+    if (!schedule || !schedule.length || runnerArrivalMs == null) {
+      return { schedule: schedule, adjustments: adjustments };
+    }
+    var margin = targetMarginMs(cls, diff);
+    var required = isOut ? (runnerArrivalMs - margin) : (runnerArrivalMs + margin);
+    var last = schedule[schedule.length - 1];
+    var delta = required - last.endMs;
+    if (Math.abs(delta) < 1) return { schedule: schedule, adjustments: adjustments };
+
+    if (delta > 0) {
+      // Throw must land LATER - hold the release (generalizes today's ad-hoc
+      // pitcher-cover-1B clamp and the sac-fly tagStart backward-solve into
+      // the one shared knob).
+      var adj = holdChainTo(schedule, required, "holdRelease",
+        cls + " throw landed earlier than the required margin");
+      if (adj) adjustments.push(adj);
+      return { schedule: schedule, adjustments: adjustments };
+    }
+
+    // Throw must land EARLIER - the honest throw loses a race the verdict
+    // says it won (today's unenforced-at-runtime gap - fact 0.3). Walk the
+    // knob order; each closes as much of the remaining deficit as it
+    // honestly can before the next one engages.
+    var remaining = -delta;
+
+    // 1. quickRelease - shrink the transfer/stagger gaps already baked into
+    //    the schedule's own start times toward a floor of 0 (a clean
+    //    transfer, no double-clutch) - every leg after the first can give
+    //    back up to its own gap to the leg before it (THROW_STAGGER_MS);
+    //    the whole chain from that point on shifts earlier with it. Leg 0's
+    //    own start is NOT a discretionary gap the same way - most of it is
+    //    fieldedMs/catchMs, a hard physical floor (the ball genuinely
+    //    hasn't been fielded/caught yet) - only its own THROW_DELAY_MS
+    //    transfer sliver is real "quick release" room.
+    var quick = 0;
+    for (var i = 1; i < schedule.length && remaining > 0; i++) {
+      var gap = schedule[i].startMs - schedule[i - 1].endMs;
+      var give = Math.min(gap, remaining);
+      if (give > 0) {
+        for (var j = i; j < schedule.length; j++) { schedule[j].startMs -= give; schedule[j].endMs -= give; }
+        quick += give; remaining -= give;
+      }
+    }
+    if (remaining > 0 && THROW_DELAY_MS > 0) {
+      var give0 = Math.min(THROW_DELAY_MS, remaining);
+      schedule.forEach(function (t) { t.startMs -= give0; t.endMs -= give0; });
+      quick += give0; remaining -= give0;
+    }
+    if (quick > 0) {
+      adjustments.push({ knob: "quickRelease", who: last.base, ms: Math.round(quick),
+        reason: cls + " throw needed to land earlier to honestly beat the runner" });
+    }
+
+    // 2. runnerLateJump / 3. stretchRunner - the runner-side knobs (a late
+    // break; failing that, a bounded slower pace). Neither touches the
+    // throw's own schedule - a render-layer concern (the runner token's own
+    // start delay/pace), wired up when sceneFieldHtml becomes a reader of
+    // this plan (Stage 4). Recorded here so the deficit is never silently
+    // absorbed: if the throw alone (quickRelease) can't honestly close the
+    // gap, that residual is exactly what runnerLateJump/stretchRunner are
+    // for, bounded exactly as spec'd - and if even their combined bound
+    // can't cover it, the play's own inputs are wrong upstream, by
+    // definition, and this says so instead of hiding it.
+    if (remaining > 0) {
+      var jump = Math.min(remaining, RUNNER_LATE_JUMP_MAX_MS);
+      remaining -= jump;
+      adjustments.push({ knob: "runnerLateJump", who: "runner", ms: Math.round(jump),
+        reason: cls + " runner needed a later break to keep the throw honest" });
+    }
+    if (remaining > 0) {
+      var cap = runnerArrivalMs * STRETCH_RUNNER_MAX_FRAC;
+      var stretch = Math.min(remaining, cap);
+      remaining -= stretch;
+      adjustments.push({ knob: "stretchRunner", who: "runner", ms: Math.round(stretch),
+        reason: cls + " runner needed to slow down to keep the throw honest" });
+    }
+    if (remaining > 0) {
+      adjustments.push({ knob: "unresolved", who: last.base, ms: Math.round(remaining),
+        reason: "stretchRunner bound exceeded - upstream fielder/runner inputs are honestly too slow for this verdict" });
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[gameday reconciler] could not honestly close a " + cls +
+          " margin (" + Math.round(remaining) + "ms short) - upstream inputs need a look, not a bigger fudge");
+      }
+    }
+    return { schedule: schedule, adjustments: adjustments };
+  }
   // Was off (Item 15) - a single anonymous dot converging in the outfield
   // read as an unnecessary touch. Back on now that fielderTokensHtml lays
   // out all 9 defenders (dots today, glove SVGs to follow) instead of just
@@ -4950,10 +5119,54 @@
     });
   }
 
+  // Honest arrival of the specific runner a real out-throw target base
+  // corroborates - the exact mvDelay/legDurMs formula sceneFieldHtml's own
+  // per-move timing already uses (forcedOnContact leaves on contact; every
+  // other out-bound runner waits for fieldedMs/OUT_BEAT_MS), factored out so
+  // throwSchedule's reconciler and the renderer never compute two different
+  // answers to "when does this runner get there" for the same play. Finds
+  // the move via the exact same forced-base redirect outThrowTargets itself
+  // used to produce targetBase; falls back to the batter (untracked by
+  // deriveRunnerMoves) only in the one case outThrowTargets does the same -
+  // an unaccounted non-FC-family out at 1B. Returns null when no real runner
+  // resolves to this base (the rare caught-line-drive/decorative-HOME edge
+  // outThrowTargets itself flags in its own comment) - callers must treat
+  // that as "nothing honest to reconcile against," not "runner arrives at
+  // time zero."
+  function forcedOutRunnerArrivalMs(m, flight, moves, targetBase) {
+    var forced = FORCED_OUT_BASE[m.result];
+    var mv = null;
+    moves.forEach(function (x) {
+      if (x.to !== "OUT" || mv) return;
+      var candidate = forced === "OWN" ? x.from : (forced || NEXT_BASE[x.from] || x.from);
+      if (candidate === targetBase) mv = x;
+    });
+    if (!mv && targetBase === "1B" && !BATTER_REACHES_FIRST[m.result]) mv = { from: "BATTER" };
+    if (!mv) return null;
+    var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
+    var endOrd = targetBase === "HOME" ? 4 : BASE_ORDINAL[targetBase];
+    if (startOrd == null || endOrd == null || endOrd <= startOrd) return null;
+    var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
+    var runDelay = flight ? RUNNER_LEAD_MS : 0;
+    var outDelay = (flight ? ballTravelMs(flight) : 0) + OUT_BEAT_MS;
+    var before = String(m.obc_before || "000");
+    var forcedOnContact = FORCE_TIMING_RESULTS[m.result] && isForcedRunner(mv.from, before);
+    var mvDelay = forcedOnContact ? runDelay : outDelay;
+    return mvDelay + runnerLegMs(m, mv.from, legs);
+  }
+
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
      throw i+1 relays from throw i's target base. Kept separate from the
      rendering so the timing race against the runner can be asserted rather
-     than eyeballed - see ball_flight_test.py. */
+     than eyeballed - see ball_flight_test.py.
+
+     Gameday reconciliation plan (Task 4): every branch below now ends by
+     handing its forward-computed schedule to the shared reconciler
+     (reconcileThrowSchedule/holdChainTo) instead of a bespoke backward-solve
+     or (on the plain out-throw race) no reconciliation at all - goal (a) was
+     previously enforced only by the offline test sweep and
+     runnerOutMotionHtml's runtime hold-at-bag fallback, never at the
+     schedule level itself (plan fact 0.3). */
   function throwSchedule(m, moves, flight) {
     var targets = outThrowTargets(m, moves, flight);
     if (!targets.length) return [];
@@ -4967,9 +5180,10 @@
     // anyway" - outThrowTargets appends it, or an explicit ThrowOrder
     // describes the same throw) never beats anyone - see TAG_THROW_ARCHETYPES.
     // The ball-fielding-only schedule below has no idea the runner had to
-    // wait out the catch/tag-up before moving at all, so it drew the throw
-    // in a good 600ms+ before the runner had actually crossed the plate.
-    // Anchor this one on the slowest safe runner's own arrival instead.
+    // wait out the catch/tag-up before moving at all, so forward-computing
+    // it would draw the throw a good 600ms+ before the runner had actually
+    // crossed the plate - reconciled against the slowest safe runner's own
+    // arrival as an "uncontested" event (throw must land comfortably late).
     if (flight && TAG_THROW_ARCHETYPES[flight.archetype]) {
       var catchMs = ballTravelMs(flight);
       var runnerArrival = 0;
@@ -4981,16 +5195,19 @@
         var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
         runnerArrival = Math.max(runnerArrival, catchMs + TAG_UP_MS + runnerLegMs(m, mv.from, legs));
       });
-      var tagStart = Math.max(0, runnerArrival + TAG_THROW_MARGIN_MS - THROW_DRAW_MS);
-      // The first throw keeps the flat THROW_DRAW_MS here (tagStart's own
-      // math above is built on that assumption - it's already timed to land
-      // at runnerArrival+TAG_THROW_MARGIN_MS); only a relay leg past it gets
-      // its own real base-to-base distance.
-      return sequentialThrowSchedule(targets, tagStart, realCount, function (i, b) {
+      // Forward pass: draws at the flat THROW_DRAW_MS/BASE_DIAG_FT model
+      // (this decorative throw has no real fielded-point origin to draw
+      // real distance from), released after the same catch-to-transfer beat
+      // every other throw waits out - the reconciler's own holdRelease then
+      // does the rest of the "land comfortably past the runner" work,
+      // replacing the old direct backward-solve.
+      var tagSchedule = sequentialThrowSchedule(targets, catchMs + THROW_DELAY_MS, realCount, function (i, b) {
         if (i === 0) return THROW_DRAW_MS;
         var dist = throwDistFt(BASE_POS_FT[targets[i - 1]], b);
         return dist == null ? THROW_DRAW_MS : throwDrawMsForFt(dist);
       });
+      reconcileThrowSchedule(tagSchedule, runnerArrival, "uncontested", m.diff, false);
+      return tagSchedule;
     }
 
     // A rolling grounder isn't fielded until the resolver's own ground time
@@ -5028,27 +5245,39 @@
       var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length);
       return fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0];
     });
+
+    // The actual bug fix (plan fact 0.3): the honest forward race against
+    // the real runner corroborated by the FINAL leg's own target base - a
+    // relay's earlier legs are real chained transfers, only the last leg
+    // ever actually races anyone. A real out (schedule's own `out` flag)
+    // reconciles as forceOut (throw must beat the runner, today's
+    // previously-unenforced-at-runtime gap); a leg that fell outside
+    // realOutThrowCount's own cap (more throws than outs recorded, e.g. a DP
+    // whose back end never actually retired anyone) reconciles as
+    // contestedSafe instead (throw must honestly lose) - the same policy
+    // infieldSingleThrowHtml uses below, just reached through the main
+    // schedule instead of a parallel one.
+    var lastLeg = schedule[schedule.length - 1];
+    var finalRunnerArrival = forcedOutRunnerArrivalMs(m, flight, moves, lastLeg.base);
+    if (finalRunnerArrival != null) {
+      reconcileThrowSchedule(schedule, finalRunnerArrival,
+        lastLeg.out ? "forceOut" : "contestedSafe", m.diff, !!lastLeg.out);
+    }
+
     // A genuine 3-1 (single relay leg straight to 1B, pitcher covering per
     // coveringPosition's own relayCount===1 gate) must not have the ball
     // visibly beat the pitcher there (Alex's bug report - it was arriving
     // while the pitcher's own token was still partway down the baseline).
     // Both timelines share the same t=0 (contact - fielderStartDelay's own
     // comment, and this function's own "seqDelay added only at the final
-    // write" convention), so this holds the release back until the
-    // pitcher's own real travel time for that exact curved path
-    // (pitcherCover1BArrivalMs) - both startMs/endMs shift together, same
-    // total draw time, modeling the first baseman holding the ball an extra
-    // beat rather than the throw itself taking longer to cross the same
-    // real distance.
+    // write" convention) - a second, independent holdRelease floor (not a
+    // verdict margin - a "never render past a real token's own arrival"
+    // constraint) applied after the runner-margin reconciliation above, so
+    // whichever of the two actually requires more hold wins.
     if (targets.length === 1 && targets[0] === "1B" && flight.fielder === "1B" &&
         coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length) === "P") {
-      var pitcherMs = pitcherCover1BArrivalMs(m);
-      var leg0 = schedule[0];
-      if (pitcherMs > leg0.endMs) {
-        var shift = pitcherMs - leg0.endMs;
-        leg0.startMs += shift;
-        leg0.endMs += shift;
-      }
+      holdChainTo(schedule, pitcherCover1BArrivalMs(m), "holdRelease",
+        "the ball must not visibly beat the covering pitcher's own token to 1B");
     }
     return schedule;
   }
@@ -5164,34 +5393,33 @@
   }
 
   // Infield singles get a real "tried to throw him out, just missed" throw
-  // (Alex's ask) - outThrowTargets/throwSchedule are built around real
-  // outs (their own realOutThrowCount cap, THROW_LEAD_MS's "must beat the
-  // runner" direction), so this is a separate, small function rather than
+  // (Alex's ask) - outThrowTargets/throwSchedule are built around real outs
+  // (their own realOutThrowCount cap, forceOut's "must beat the runner"
+  // margin direction), so this is a separate, small function rather than
   // forcing a throw that's SUPPOSED to lose the race through machinery
-  // built to guarantee a throw wins it. Timed backwards from the batter's
-  // own known arrival at first (batterFirstArrivalMs, the same flat
-  // reference the real out-throw race already uses) instead of forward
-  // from when the ball's fielded - "back into a reasonable start time"
-  // (Alex's own framing): the throw's end is fixed just past the runner's
-  // arrival, its draw time is the real distance at real throw speed, so
-  // the start time is whatever's left over, clamped to never start before
-  // the ball's actually fielded. Scoped to infield_single only - a routine
-  // "1B" landing beyond the infield has no real close-play-at-first moment
-  // to draw.
-  var IF1B_THROW_MARGIN_MS = 150;
+  // built to guarantee a throw wins it. Forward-computed from when the
+  // ball's actually fielded (same real distance/speed every other throw
+  // uses), then reconciled as a contestedSafe event (Task 4.3/4.4) against
+  // the batter's own known arrival at first (batterFirstArrivalMs) -
+  // reproduces the old direct backward-solve's numbers through the one
+  // shared mechanism instead of a parallel one. Scoped to infield_single
+  // only - a routine "1B" landing beyond the infield has no real
+  // close-play-at-first moment to draw.
   function infieldSingleThrowHtml(m, flight, seqDelay) {
     if (!flight || flight.archetype !== "infield_single" || !flight.fielder || flight.clearedFence) return "";
     var originFt = fieldedPoint(flight);
     var baseFt = BASE_POS_FT["1B"];
     var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
-    var drawMs = throwDrawMsForFt(distFt);
     var earliestStartMs = fieldedMs(flight) + THROW_DELAY_MS;
-    var idealEndMs = batterFirstArrivalMs(m) + IF1B_THROW_MARGIN_MS;
-    var startMs = Math.max(earliestStartMs, idealEndMs - drawMs);
+    var schedule = sequentialThrowSchedule(["1B"], earliestStartMs, 0, function () {
+      return throwDrawMsForFt(distFt);
+    });
+    reconcileThrowSchedule(schedule, batterFirstArrivalMs(m), "contestedSafe", m.diff, false);
+    var leg = schedule[0];
     var from = ftToSvg(originFt.x, originFt.y);
     var to = SCENE_BASES["1B"];
     if (!to) return "";
-    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", startMs + (seqDelay || 0), drawMs);
+    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", leg.startMs + (seqDelay || 0), leg.drawMs);
   }
 
   function throwHtml(m, flight, moves, seqDelay) {
@@ -5267,10 +5495,11 @@
   // gap once THROW_DRAW_MS's own real draw time is on screen too). Applies
   // both directions per the comment above - a caught-stealing throw now
   // also arrives a bit more decisively early, not just a safe steal later.
-  var STEAL_THROW_MARGIN_MIN_MS = 150;
-  var STEAL_THROW_MARGIN_MAX_MS = 450;
+  // Folded into MARGIN_POLICY (Task 4.3) - tagOut and contestedSafe share
+  // these exact bounds, so either class name gives the identical numbers;
+  // tagOut is the CS-family's own class, so it reads truest here.
   function stealThrowMarginMs(diff) {
-    return STEAL_THROW_MARGIN_MIN_MS + (STEAL_THROW_MARGIN_MAX_MS - STEAL_THROW_MARGIN_MIN_MS) * (diff / 500);
+    return targetMarginMs("tagOut", diff);
   }
   // Alex's ask: the catcher can't release a throw before actually receiving
   // the pitch (now a real, synced arrival - pitchBallHtml/wheelFinishMs) plus
@@ -5365,7 +5594,7 @@
     // regardless of how slow the wheel/how tight the diff-based margin above
     // was. (A safe steal has no equivalent risk - arriving later than
     // idealArrive only ever reads as "even more clearly safe.")
-    if (target.caught) arrive = Math.min(arrive, arrival - STEAL_THROW_MARGIN_MIN_MS);
+    if (target.caught) arrive = Math.min(arrive, arrival - MARGIN_POLICY.tagOut.minMs);
     var start = Math.max(0, arrive - THROW_DRAW_MS);
     var cls = "throw-line steal-throw " + (target.caught ? "throw-out" : "throw-safe");
     return throwLineHtml(from.x, from.y, to.x, to.y, cls, start + (seqDelay || 0));
@@ -5396,14 +5625,16 @@
     stealLegMs: stealLegMs, runnerSpd: runnerSpd, runnerProfile: runnerProfile,
     runnerLegMs: runnerLegMs,
     STEAL_LEADOFF_FT: STEAL_LEADOFF_FT, CATCHER_POP_MS: CATCHER_POP_MS,
-    STEAL_THROW_MARGIN_MIN_MS: STEAL_THROW_MARGIN_MIN_MS, STEAL_THROW_MARGIN_MAX_MS: STEAL_THROW_MARGIN_MAX_MS,
     pitchBallHtml: pitchBallHtml, PITCH_TRAVEL_MS: PITCH_TRAVEL_MS, PITCH_SPEED_MPH: PITCH_SPEED_MPH,
     walkPitchTargetSvg: walkPitchTargetSvg, WALK_PITCH_OFFSET_FT: WALK_PITCH_OFFSET_FT,
     stealWheelPace: stealWheelPace, WHEEL_PACE_MIN: WHEEL_PACE_MIN, wheelHtml: wheelHtml,
     PITCHER_MOUND_FT: PITCHER_MOUND_FT, FIELD_SEQUENCE_DELAY_MS: FIELD_SEQUENCE_DELAY_MS,
     scorebugOutsHtml: scorebugOutsHtml, outAtMomentsMs: outAtMomentsMs,
     BALK_RESULTS: BALK_RESULTS,
-    THROW_LEAD_MS: THROW_LEAD_MS, THROW_DELAY_MS: THROW_DELAY_MS,
+    THROW_DELAY_MS: THROW_DELAY_MS,
+    MARGIN_POLICY: MARGIN_POLICY, targetMarginMs: targetMarginMs,
+    reconcileThrowSchedule: reconcileThrowSchedule, holdChainTo: holdChainTo,
+    forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     RUNNER_LEAD_MS: RUNNER_LEAD_MS,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
@@ -5412,7 +5643,7 @@
     parseThrowOrder: parseThrowOrder,
     brcExcludes: brcExcludes,
     resolveGrounderInterception: resolveGrounderInterception, resolveSinglePickup: resolveSinglePickup,
-    infieldSingleThrowHtml: infieldSingleThrowHtml, IF1B_THROW_MARGIN_MS: IF1B_THROW_MARGIN_MS,
+    infieldSingleThrowHtml: infieldSingleThrowHtml,
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
     FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
     CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
@@ -5444,7 +5675,7 @@
     pitcherCover1BArrivalMs: pitcherCover1BArrivalMs, pitcherCover1BLegs: pitcherCover1BLegs,
     fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
     fielderStartAnchorFt: fielderStartAnchorFt,
-    TAG_UP_MS: TAG_UP_MS, TAG_THROW_MARGIN_MS: TAG_THROW_MARGIN_MS,
+    TAG_UP_MS: TAG_UP_MS,
     RUN_LEG_MS: RUN_LEG_MS, BASE_ORDINAL: BASE_ORDINAL,
     ballTravelMs: ballTravelMs, fieldedMs: fieldedMs,
     ANIM_TIME_SCALE: ANIM_TIME_SCALE, GROUND_TIME_SCALE: GROUND_TIME_SCALE,
