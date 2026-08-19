@@ -3120,11 +3120,11 @@
   // it's a throw or a jog. Defaults every leg to "assisted" (a real throw)
   // if the fielder itself somehow isn't resolved - the same conservative
   // fallback throwDistFt's own null case already uses elsewhere.
-  function relayLegIsUnassisted(targets, flight) {
+  function relayLegIsUnassisted(m, targets, flight) {
     if (!flight.fielder) return targets.map(function () { return false; });
     var prevPos = flight.fielder;
     return targets.map(function (b) {
-      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length);
+      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
       var unassisted = pos === prevPos;
       prevPos = pos;
       return unassisted;
@@ -4132,23 +4132,16 @@
   // to "shift right," which was visibly wrong for a ball that really did
   // land right of CF. The true bearing has no such lattice-quantization
   // gap.
-  // 1B starts deeper than usual on the PFP play (angle 77 - the same
-  // condition coveringPosition uses for pitcher-covers-first) - Alex's ask:
-  // otherwise there's no visible reason on screen the pitcher would ever
-  // need to cover, since a 1B starting at their normal ~111ft depth would
-  // just jog back to the bag himself. Shifted further out along his own
-  // real canonical bearing (not sideways) so the eventual run from anchor
-  // to the fielded point visibly can't make it back to the bag in time.
-  // Gated on flight.fielder/angle alone, not relayCount, unlike
-  // coveringPosition's own stricter 3-1-only gate - a harmless, still
-  // plausible deeper starting spot even on the rare longer relay chain
-  // this doesn't end up covering.
-  var IF1B_DEPTH_SHIFT_FT = 20;
+  // 1B's PFP render-only depth fudge is gone (gameday reconciliation plan
+  // 5a) - firstBaseCoverage now decides "pitcher covers" off a real race
+  // (fielded point honestly far from the bag), not a lattice angle, so
+  // there's no more need to fake a deeper starting anchor to make that
+  // decision look plausible on screen: on the rare hard-roller play that
+  // genuinely strands him, the real fielded point (the charge race's own
+  // honest output) is already visibly far from the bag - the true geometry
+  // now carries the story instead of a render-only shift standing in for
+  // it. 1B starts at his real anchor unconditionally.
   function fielderStartAnchorFt(pos, flight, m) {
-    if (pos === "1B" && flight && flight.fielder === "1B" && flight.angle === 77 &&
-        flight.archetype === "grounder") {
-      return landingPoint(INFIELDER_DEPTH_FT["1B"] + IF1B_DEPTH_SHIFT_FT, CANONICAL_ANGLE["1B"]);
-    }
     var applies = flight && (OF_SHIFT_ARCHETYPES[flight.archetype] ||
       (flight.archetype === "single" && m && OF_SHIFT_WH_SINGLE_RESULTS[m.result]));
     if (!OUTFIELD_POSITIONS[pos] || !applies || !OUTFIELD_POSITIONS[flight.fielder]) {
@@ -4437,6 +4430,45 @@
     return fielderLegDurationsMs(m, "P", legs).reduce(function (a, b) { return a + b; }, 0);
   }
 
+  // Real race-based PFP coverage decision (gameday reconciliation plan
+  // 5a), replacing the old angle===77 magic-number gate. 1B's own honest
+  // jog back from where he actually fielded the ball (fieldedPoint - his
+  // real charge endpoint, not his static anchor; by the time this question
+  // matters he's already off the bag) to the 1B bag, raced against the
+  // batter's own real arrival at first, same forceOut margin every other
+  // out-throw race targets.
+  //
+  // Measured against the real physics before landing this (Alex's own
+  // 77deg case, per the plan's own flagged risk): the 77/85 lattice split
+  // turns out NOT to be the real signal - both buckets sit close enough to
+  // 1B's own anchor that a routine play always has him back with seconds
+  // to spare (~1.3-2.9s return vs. a ~4.0s batter). What DOES genuinely
+  // strand him is a hard-hit ball that keeps rolling (high EV, positive
+  // LA) well past his own depth before the charge race catches it - a
+  // real return of 60-157ft, 3-6+ real seconds, comfortably beyond the
+  // batter's own arrival. So the race itself, not the angle bucket, is
+  // the honest trigger - "3-1" now reads correctly rare (an actual hard
+  // roller) instead of appearing on every 77deg play regardless of how
+  // close it was fielded.
+  //
+  // Falls back to the old angle-77 heuristic only when the flight has no
+  // real fielded-point geometry to race with (a minimal/synthetic test
+  // fixture, not a real resolved play) - every real play reaches this with
+  // fieldedDistFt already set by resolveGrounderInterception.
+  function firstBaseCoverage(m, flight) {
+    if (!flight || flight.fielder !== "1B" || flight.archetype !== "grounder") return "1B";
+    if (!m) return flight.angle === 77 ? "P" : "1B";
+    var originFt = fieldedPoint(flight);
+    if (originFt.x == null || originFt.y == null || !isFinite(originFt.x) || !isFinite(originFt.y)) {
+      return flight.angle === 77 ? "P" : "1B";
+    }
+    var baseFt = BASE_POS_FT["1B"];
+    var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
+    var returnMs = arrivalTimeS(distFt, fielderProfile(m, "1B", "run")) * 1000;
+    var margin = targetMarginMs("forceOut", m.diff);
+    return (returnMs <= batterFirstArrivalMs(m) - margin) ? "1B" : "P";
+  }
+
   // Which fielder covers a steal's target base (Alex's ask) - SS for 2B,
   // 3B for 3B. HOME deliberately excluded: the catcher is thrower or
   // already standing there (stealThrowHtml's own carve-out for a steal of
@@ -4487,7 +4519,7 @@
         var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
         var rawChain = [{ pos: flight.fielder, base: null }];
         relayBases.forEach(function (base) {
-          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length), base: base });
+          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length, m, flight), base: base });
         });
         var merged = [];
         rawChain.forEach(function (entry) {
@@ -4912,12 +4944,15 @@
        - 3B is the third baseman, UNLESS he's the one who fielded a BUNT
          (charging in pulls him off the bag) - then SS covers.
        - 1B is the first baseman, UNLESS he's the one who fielded a BUNT (2B
-         covers instead), or he fielded a grounder at the 77deg lattice angle
-         specifically AND this is the only relay leg on the play (a genuine
-         3-1, the PFP play - hit deep enough into the 1B/2B hole that he
-         can't get back to the bag himself, so the pitcher breaks over to
-         cover it; the other 1B angle, 85deg, sits close enough to the bag/
-         line that he beats the runner back there himself). Scoped to a
+         covers instead), or this is the only relay leg on the play AND the
+         honest race (firstBaseCoverage, gameday reconciliation plan 5a) says
+         he genuinely can't get back to the bag in time - a real hard-hit
+         roller he had to range far for, not a fixed lattice angle (measured
+         against the real physics: the old 77-vs-85deg bucket split wasn't
+         actually the signal - both sit close enough to his own anchor that
+         a routine play always has him back with seconds to spare; what
+         actually stranded him was a ball that kept rolling well past his
+         own depth before the charge race caught it). Scoped to a
          single-leg play on purpose (Alex's ask, after a bogus 3-6-1 report):
          on a 3-6-3 double play the pitcher never covers first on the RETURN
          throw - the first baseman has had the full time of the SS relay to
@@ -4932,13 +4967,17 @@
          right side, per Alex's call.
      fieldingNotation collapses a fielder covering their own next base right
      back down to a single (unassisted) touch - see there for why that's the
-     general unassisted rule rather than a separate angle check. */
-  function coveringPosition(base, archetype, angle, fielderPos, relayCount) {
+     general unassisted rule rather than a separate angle check.
+     m/flight (optional): needed only for the 1B race above - every other
+     branch is a pure function of the scalar params, so a caller that can't
+     supply them (none currently) still gets a sane fallback via
+     firstBaseCoverage's own defensive angle-77 check. */
+  function coveringPosition(base, archetype, angle, fielderPos, relayCount, m, flight) {
     if (base === "HOME") return "C";
     if (base === "3B") return (archetype === "bunt" && fielderPos === "3B") ? "SS" : "3B";
     if (base === "1B") {
       if (archetype === "bunt" && fielderPos === "1B") return "2B";
-      if (fielderPos === "1B" && angle === 77 && relayCount === 1) return "P";
+      if (fielderPos === "1B" && relayCount === 1 && firstBaseCoverage(m, flight) === "P") return "P";
       return "1B";
     }
     if (base === "2B") return angle < 45 ? "2B" : "SS";
@@ -4993,7 +5032,7 @@
 
     var chain = [{ pos: flight.fielder, base: null }];
     relayBases.forEach(function (base) {
-      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length), base: base });
+      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length, m, flight), base: base });
     });
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
@@ -5248,13 +5287,13 @@
     // runnerDrawMsForFt (Alex's report: after the acceleration model
     // landed, this line marker kept its old flat pace and started visibly
     // beating the glove token that's supposedly the one carrying it).
-    var unassisted = relayLegIsUnassisted(targets, flight);
+    var unassisted = relayLegIsUnassisted(m, targets, flight);
     var schedule = sequentialThrowSchedule(targets, base, realCount, function (i, b) {
       var fromPt = i === 0 ? origin0 : BASE_POS_FT[targets[i - 1]];
       var dist = throwDistFt(fromPt, b);
       if (dist == null) return THROW_DRAW_MS;
       if (!unassisted[i]) return throwDrawMsForFt(dist);
-      var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length);
+      var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
       return fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0];
     });
 
@@ -5291,7 +5330,7 @@
     // constraint) applied after the runner-margin reconciliation above, so
     // whichever of the two actually requires more hold wins.
     if (targets.length === 1 && targets[0] === "1B" && flight.fielder === "1B" &&
-        coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length) === "P") {
+        coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length, m, flight) === "P") {
       var pitcherAdj = holdChainTo(schedule, pitcherCover1BArrivalMs(m), "holdRelease",
         "the ball must not visibly beat the covering pitcher's own token to 1B");
       if (pitcherAdj) scheduleAdjustments.push(pitcherAdj);
@@ -5716,6 +5755,7 @@
     fielderProfile: fielderProfile, throwProfile: throwProfile,
     chargeFielderArriveS: chargeFielderArriveS,
     pitcherCover1BArrivalMs: pitcherCover1BArrivalMs, pitcherCover1BLegs: pitcherCover1BLegs,
+    firstBaseCoverage: firstBaseCoverage,
     fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
     fielderStartAnchorFt: fielderStartAnchorFt,
     TAG_UP_MS: TAG_UP_MS,

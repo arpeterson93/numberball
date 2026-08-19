@@ -1108,6 +1108,41 @@ def main() -> None:
             got = page.evaluate("(a) => KMFlight.fieldingNotation(a.m, a.flight)", {"m": m, "flight": flight})
             check(label, got, want)
 
+        print("\nPFP coverage - real race, not a lattice angle (Task 5a):")
+        print("measured against KMTraj-simulated grounders assigned to 1B (angle 77 bucket):")
+        pfp = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '000', obc_after: '000', runs: 0, diff: 250};
+                function resolved(ev, la) {
+                  var sim = KMTraj.simulateFlight(ev, la, 32, 'R');
+                  var flight = {
+                    ev: ev, la: la, angle: 77, distance: sim.distance,
+                    x: sim.landing.x, y: sim.landing.y,
+                    contactVel: sim.contactVel, archetype: 'grounder', clearedFence: false,
+                  };
+                  KMFlight.resolveGrounderInterception(m, flight, 'R');
+                  return flight;
+                }
+                var routine = resolved(80, 0);
+                var hardRoller = resolved(110, 10);
+                return {
+                  routineFielder: routine.fielder,
+                  routineCoverage: KMFlight.firstBaseCoverage(m, routine),
+                  routineNotation: KMFlight.fieldingNotation(m, routine),
+                  hardFielder: hardRoller.fielder,
+                  hardCoverage: KMFlight.firstBaseCoverage(m, hardRoller),
+                  hardNotation: KMFlight.fieldingNotation(m, hardRoller),
+                };
+            }"""
+        )
+        check("routine 77deg grounder is still fielded by 1B", pfp["routineFielder"], "1B")
+        check("routine 77deg grounder: 1B covers himself (honest return easily beats the batter)",
+              pfp["routineCoverage"], "1B")
+        check("routine 77deg grounder reads unassisted, not 3-1", pfp["routineNotation"], "3U")
+        check("hard-hit 77deg roller is still fielded by 1B", pfp["hardFielder"], "1B")
+        check("hard-hit 77deg roller: pitcher covers (1B honestly can't get back)", pfp["hardCoverage"], "P")
+        check("hard-hit 77deg roller reads 3-1", pfp["hardNotation"], "3-1")
+
         print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
         prim = page.evaluate(
             """() => {
