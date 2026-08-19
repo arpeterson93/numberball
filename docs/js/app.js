@@ -3235,9 +3235,14 @@
        schedule: sequentialThrowSchedule's own [{base,startMs,endMs,drawMs,out}]
        isOut: true - runner must NOT beat the throw (forceOut/tagOut);
               false - runner MUST beat the throw (contestedSafe/uncontested)
+       runnerWho (optional): the specific runner (mv.from - "BATTER"/a base
+         key) the runnerLateJump/stretchRunner knobs apply to, so a caller
+         (sceneFieldHtml, Stage 4) can look adjustments up per-move; falls
+         back to the generic "runner" label when the caller doesn't know
+         (or care) which one, e.g. a steal's own single-runner plays.
      Every application is recorded in the returned adjustments[] - debug
      ability is a feature, not an afterthought (plan 4.1's own framing). */
-  function reconcileThrowSchedule(schedule, runnerArrivalMs, cls, diff, isOut) {
+  function reconcileThrowSchedule(schedule, runnerArrivalMs, cls, diff, isOut, runnerWho) {
     var adjustments = [];
     if (!schedule || !schedule.length || runnerArrivalMs == null) {
       return { schedule: schedule, adjustments: adjustments };
@@ -3305,14 +3310,14 @@
     if (remaining > 0) {
       var jump = Math.min(remaining, RUNNER_LATE_JUMP_MAX_MS);
       remaining -= jump;
-      adjustments.push({ knob: "runnerLateJump", who: "runner", ms: Math.round(jump),
+      adjustments.push({ knob: "runnerLateJump", who: runnerWho || "runner", ms: Math.round(jump),
         reason: cls + " runner needed a later break to keep the throw honest" });
     }
     if (remaining > 0) {
       var cap = runnerArrivalMs * STRETCH_RUNNER_MAX_FRAC;
       var stretch = Math.min(remaining, cap);
       remaining -= stretch;
-      adjustments.push({ knob: "stretchRunner", who: "runner", ms: Math.round(stretch),
+      adjustments.push({ knob: "stretchRunner", who: runnerWho || "runner", ms: Math.round(stretch),
         reason: cls + " runner needed to slow down to keep the throw honest" });
     }
     if (remaining > 0) {
@@ -5119,21 +5124,14 @@
     });
   }
 
-  // Honest arrival of the specific runner a real out-throw target base
-  // corroborates - the exact mvDelay/legDurMs formula sceneFieldHtml's own
-  // per-move timing already uses (forcedOnContact leaves on contact; every
-  // other out-bound runner waits for fieldedMs/OUT_BEAT_MS), factored out so
-  // throwSchedule's reconciler and the renderer never compute two different
-  // answers to "when does this runner get there" for the same play. Finds
-  // the move via the exact same forced-base redirect outThrowTargets itself
-  // used to produce targetBase; falls back to the batter (untracked by
-  // deriveRunnerMoves) only in the one case outThrowTargets does the same -
-  // an unaccounted non-FC-family out at 1B. Returns null when no real runner
-  // resolves to this base (the rare caught-line-drive/decorative-HOME edge
-  // outThrowTargets itself flags in its own comment) - callers must treat
-  // that as "nothing honest to reconcile against," not "runner arrives at
-  // time zero."
-  function forcedOutRunnerArrivalMs(m, flight, moves, targetBase) {
+  // Which tracked move (if any) a real out-throw target base corroborates -
+  // the exact forced-base redirect outThrowTargets itself used to produce
+  // targetBase, factored out so both the reconciler's runner-arrival lookup
+  // and its own runner-identity tag (Stage 4 - who a runnerLateJump/
+  // stretchRunner adjustment applies to) read one answer. Falls back to the
+  // batter (untracked by deriveRunnerMoves) only in the one case
+  // outThrowTargets does the same - an unaccounted non-FC-family out at 1B.
+  function runnerForOutTarget(m, moves, targetBase) {
     var forced = FORCED_OUT_BASE[m.result];
     var mv = null;
     moves.forEach(function (x) {
@@ -5142,6 +5140,20 @@
       if (candidate === targetBase) mv = x;
     });
     if (!mv && targetBase === "1B" && !BATTER_REACHES_FIRST[m.result]) mv = { from: "BATTER" };
+    return mv;
+  }
+  // Honest arrival of the specific runner a real out-throw target base
+  // corroborates - the exact mvDelay/legDurMs formula sceneFieldHtml's own
+  // per-move timing already uses (forcedOnContact leaves on contact; every
+  // other out-bound runner waits for fieldedMs/OUT_BEAT_MS), factored out so
+  // throwSchedule's reconciler and the renderer never compute two different
+  // answers to "when does this runner get there" for the same play. Returns
+  // null when no real runner resolves to this base (the rare caught-line-
+  // drive/decorative-HOME edge, or the FC family's own untracked forced
+  // runner) - callers must treat that as "nothing honest to reconcile
+  // against," not "runner arrives at time zero."
+  function forcedOutRunnerArrivalMs(m, flight, moves, targetBase) {
+    var mv = runnerForOutTarget(m, moves, targetBase);
     if (!mv) return null;
     var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
     var endOrd = targetBase === "HOME" ? 4 : BASE_ORDINAL[targetBase];
@@ -5206,7 +5218,7 @@
         var dist = throwDistFt(BASE_POS_FT[targets[i - 1]], b);
         return dist == null ? THROW_DRAW_MS : throwDrawMsForFt(dist);
       });
-      reconcileThrowSchedule(tagSchedule, runnerArrival, "uncontested", m.diff, false);
+      tagSchedule.adjustments = reconcileThrowSchedule(tagSchedule, runnerArrival, "uncontested", m.diff, false).adjustments;
       return tagSchedule;
     }
 
@@ -5258,10 +5270,14 @@
     // infieldSingleThrowHtml uses below, just reached through the main
     // schedule instead of a parallel one.
     var lastLeg = schedule[schedule.length - 1];
+    var finalRunnerMv = runnerForOutTarget(m, moves, lastLeg.base);
     var finalRunnerArrival = forcedOutRunnerArrivalMs(m, flight, moves, lastLeg.base);
+    var scheduleAdjustments = [];
     if (finalRunnerArrival != null) {
-      reconcileThrowSchedule(schedule, finalRunnerArrival,
-        lastLeg.out ? "forceOut" : "contestedSafe", m.diff, !!lastLeg.out);
+      var recon = reconcileThrowSchedule(schedule, finalRunnerArrival,
+        lastLeg.out ? "forceOut" : "contestedSafe", m.diff, !!lastLeg.out,
+        finalRunnerMv && finalRunnerMv.from);
+      scheduleAdjustments = scheduleAdjustments.concat(recon.adjustments);
     }
 
     // A genuine 3-1 (single relay leg straight to 1B, pitcher covering per
@@ -5276,9 +5292,18 @@
     // whichever of the two actually requires more hold wins.
     if (targets.length === 1 && targets[0] === "1B" && flight.fielder === "1B" &&
         coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length) === "P") {
-      holdChainTo(schedule, pitcherCover1BArrivalMs(m), "holdRelease",
+      var pitcherAdj = holdChainTo(schedule, pitcherCover1BArrivalMs(m), "holdRelease",
         "the ball must not visibly beat the covering pitcher's own token to 1B");
+      if (pitcherAdj) scheduleAdjustments.push(pitcherAdj);
     }
+    // Stage 4 (sceneFieldHtml, fielderTokensHtml): the runnerLateJump/
+    // stretchRunner knobs above don't move anything IN this array (they're
+    // a render-layer concern - the runner token's own start delay/pace) -
+    // attached here as a non-enumerable-ish extra property so `.map`/
+    // `.length`/every existing consumer of this array keeps working
+    // untouched, while a caller that wants to honor them can read
+    // schedule.adjustments and look up its own runner's own entry by `who`.
+    schedule.adjustments = scheduleAdjustments;
     return schedule;
   }
 
@@ -5296,6 +5321,23 @@
     var map = {};
     schedule.forEach(function (t) { if (t.out) map[t.base] = t.endMs; });
     return map;
+  }
+
+  // The reconciler's own runnerLateJump/stretchRunner adjustments for this
+  // play, keyed by runner (mv.from) - Stage 4's own read side of Task 4.4's
+  // "these are a render-layer concern" note (throwSchedule computes them,
+  // this is where a renderer actually asks for them). Sums both knobs per
+  // runner (at most one of each ever fires per reconciliation - see
+  // reconcileThrowSchedule's own ordering - so summing is just "the total
+  // extra ms this runner's own token needs," not double-counting anything).
+  function throwRunnerAdjustmentMs(m, moves, flight, who) {
+    var schedule = throwSchedule(m, moves, flight);
+    var adjustments = schedule.adjustments || [];
+    var total = 0;
+    adjustments.forEach(function (a) {
+      if (a.who === who && (a.knob === "runnerLateJump" || a.knob === "stretchRunner")) total += a.ms;
+    });
+    return total;
   }
 
   /* When a caught-stealing out is actually recorded (the tag, not the
@@ -5634,7 +5676,8 @@
     THROW_DELAY_MS: THROW_DELAY_MS,
     MARGIN_POLICY: MARGIN_POLICY, targetMarginMs: targetMarginMs,
     reconcileThrowSchedule: reconcileThrowSchedule, holdChainTo: holdChainTo,
-    forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs,
+    forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs, runnerForOutTarget: runnerForOutTarget,
+    throwRunnerAdjustmentMs: throwRunnerAdjustmentMs,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     RUNNER_LEAD_MS: RUNNER_LEAD_MS,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
@@ -5777,7 +5820,23 @@
     }
     var lastStop = stops[stops.length - 1];
     var totalMs = outAtMs + walkMs;
-    if (outAtMs > lastStop.ms + 0.01) stops.push({ ms: outAtMs, x: lastStop.x, y: lastStop.y });
+    if (outAtMs > lastStop.ms + 0.01) {
+      // The runtime floor beneath the reconciler (plan Task 4.4, point 5) -
+      // the runner's own honest sprint finished before the real out moment
+      // (outAtMs, from the throw), so they visibly hold at the bag until
+      // then rather than snapping ahead. This is what makes goal (a)
+      // literally unbreakable regardless of any upstream gap, but the
+      // reconciler (Stage 3) is supposed to make it unreachable for any
+      // play within its own margin-policy bounds - a real fielded/thrown
+      // out that still lands here means the reconciliation upstream didn't
+      // honestly close the gap (an "unresolved" adjustment, most likely),
+      // worth a look rather than silently relying on this fallback alone.
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[gameday] runner held at bag " + (outAtMs - lastStop.ms).toFixed(0) +
+          "ms past their own honest arrival - the reconciler should have closed this; check its adjustments for this play");
+      }
+      stops.push({ ms: outAtMs, x: lastStop.x, y: lastStop.y });
+    }
     stops.push({ ms: totalMs, x: dugoutX, y: dugoutY });
 
     var name = "rnOut" + (rnOutArcCounter++);
@@ -5830,6 +5889,19 @@
     // outDelay (a no-flight, non-steal out - a strikeout, or an out nothing
     // here corroborates) when a base isn't in the map.
     var outEndByBase = outThrowEndByBase(m, moves, flight);
+    // The reconciler's own runnerLateJump/stretchRunner knobs (Task 4.4),
+    // keyed by runner - Stage 4's read side: the specific forced-out/
+    // contested runner throwSchedule's own reconciliation decided needed a
+    // later break or a slower pace to keep the throw honest gets that same
+    // extra time folded into their own token's run below (legDurMs), rather
+    // than leaving it as inert bookkeeping the runtime hold-at-bag fallback
+    // alone had to paper over.
+    var runnerAdjMsByWho = {};
+    (throwSchedule(m, moves, flight).adjustments || []).forEach(function (a) {
+      if (a.knob === "runnerLateJump" || a.knob === "stretchRunner") {
+        runnerAdjMsByWho[a.who] = (runnerAdjMsByWho[a.who] || 0) + a.ms;
+      }
+    });
     // Closure, not called until the moves.map() loop below - stealOut is
     // assigned further down but already final by then, same as every other
     // var this function reads late.
@@ -6001,6 +6073,12 @@
         };
       }
       var legDurMs = isStealAdvance ? stealLegMs(m, mv.from) : runnerLegMs(m, mv.from, legs);
+      // Stage 4: fold in this specific runner's own reconciler adjustment,
+      // if throwSchedule's reconciliation decided one was needed to keep a
+      // real out-throw's margin honest (runnerAdjMsByWho, above) - reads as
+      // a genuinely slower/later-breaking runner rather than relying solely
+      // on the runtime hold-at-bag fallback to paper over the gap.
+      legDurMs += runnerAdjMsByWho[mv.from] || 0;
       // A genuinely forced runner (isForcedRunner, on one of the ground-ball
       // results where that applies) leaves on contact - same beat as a safe
       // runner on a hit - because they have no choice but to vacate the
