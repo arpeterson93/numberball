@@ -2721,7 +2721,16 @@
   function chargeFielderArriveS(anchor, flight, alongFt, ftPerS) {
     var p = groundDirPoint(flight, alongFt);
     var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
-    return (distFt > 0 ? CHARGE_REACTION_S : 0) + distFt / (ftPerS || FIELDER_CHARGE_FT_PER_S);
+    // Re-based on the shared primitive (Task 3.1): the charge race now
+    // accelerates instead of running at a flat top speed - a deliberate
+    // behavior change (slightly lengthens short charges, more honest to
+    // real fielder motion). accelFtPerS2 defaults to FIELDER_ACCEL_FT_S2
+    // via arrivalTimeS/accelTimeS.
+    return arrivalTimeS(distFt, {
+      topSpeedFtPerS: ftPerS || FIELDER_CHARGE_FT_PER_S,
+      accelFtPerS2: FIELDER_ACCEL_FT_S2,
+      reactionS: CHARGE_REACTION_S
+    });
   }
   // Earliest point along the ball's own roll (0..gp.restFt) where this one
   // fielder's own charge-in catches up to it, real seconds since contact for
@@ -3083,7 +3092,8 @@
   // throw - Alex's ask: it should draw at a runner's pace, not 90mph.
   // Mirrors throwDrawMsForFt exactly, just off RUNNER_SPRINT_FT_PER_S.
   function runnerDrawMsForFt(distFt) {
-    return Math.max(1, Math.round(distFt / RUNNER_SPRINT_FT_PER_S * 1000));
+    return Math.max(1, Math.round(arrivalTimeS(distFt,
+      { topSpeedFtPerS: RUNNER_SPRINT_FT_PER_S, accelFtPerS2: Infinity, reactionS: 0 }) * 1000));
   }
   // Per-target whether outThrowTargets' leg i is that same "fielder covers
   // it himself" case, in chain order - the exact coverage rule
@@ -3856,11 +3866,12 @@
   var IDLE_DRIFT_DECAY_FT = 40;
   var IDLE_DRIFT_MIN_FT = 0.5;
   var IDLE_DRIFT_EXCLUDED_POSITIONS = { C: 1, P: 1 };
-  function accelDistForTimeS(timeS, topSpeedFtPerS) {
+  function accelDistForTimeS(timeS, topSpeedFtPerS, accelFtPerS2) {
+    var accel = accelFtPerS2 || FIELDER_ACCEL_FT_S2;
     if (timeS <= 0) return 0;
-    var accelTimeToTopS = topSpeedFtPerS / FIELDER_ACCEL_FT_S2;
-    if (timeS <= accelTimeToTopS) return 0.5 * FIELDER_ACCEL_FT_S2 * timeS * timeS;
-    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * FIELDER_ACCEL_FT_S2);
+    var accelTimeToTopS = topSpeedFtPerS / accel;
+    if (timeS <= accelTimeToTopS) return 0.5 * accel * timeS * timeS;
+    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * accel);
     return accelDistFt + topSpeedFtPerS * (timeS - accelTimeToTopS);
   }
   function idleDriftLeg(pos, targetFt, anchorOverride, m, flight) {
@@ -3975,7 +3986,6 @@
   // that distance). OUTFIELDER_REACT_MS (the pre-break read) is the only
   // OF-specific trait left, and it's a genuinely different thing - a delay
   // before moving, not a slower pace once moving.
-  var OUTFIELDER_PACE_SCALE = 1;
   function fielderStartDelay(pos, baseDelay) {
     return baseDelay + (OUTFIELD_POSITIONS[pos] ? OUTFIELDER_REACT_MS : 0);
   }
@@ -3995,12 +4005,81 @@
   // in a bit over a second, same rough feel as a real infielder's controlled
   // first few steps.
   var FIELDER_ACCEL_FT_S2 = 25;
-  function accelTimeS(distFt, topSpeedFtPerS) {
+  function accelTimeS(distFt, topSpeedFtPerS, accelFtPerS2) {
+    var accel = accelFtPerS2 || FIELDER_ACCEL_FT_S2;
     if (distFt <= 0) return 0;
-    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * FIELDER_ACCEL_FT_S2);
-    if (distFt <= accelDistFt) return Math.sqrt(2 * distFt / FIELDER_ACCEL_FT_S2);
-    var accelTimeToTopS = topSpeedFtPerS / FIELDER_ACCEL_FT_S2;
+    var accelDistFt = (topSpeedFtPerS * topSpeedFtPerS) / (2 * accel);
+    if (distFt <= accelDistFt) return Math.sqrt(2 * distFt / accel);
+    var accelTimeToTopS = topSpeedFtPerS / accel;
     return accelTimeToTopS + (distFt - accelDistFt) / topSpeedFtPerS;
+  }
+
+  // ── Shared race primitive (gameday reconciliation plan, Task 3.1) ─────────
+  // One motion model for everything that moves or flies. A "profile" is
+  // { topSpeedFtPerS, accelFtPerS2, reactionS }: an accelerating fielder or
+  // runner passes a finite accelFtPerS2 (accelTimeS above); a thrown/pitched
+  // ball is the degenerate case (accelFtPerS2: Infinity, i.e. constant
+  // velocity from release) - same function, no special casing at call sites.
+  // reactionS is a one-time delay before movement starts (recognize-and-break),
+  // charged once per race, not per leg of a multi-leg run.
+  function arrivalTimeS(distFt, profile) {
+    var dist = Math.max(0, distFt || 0);
+    var reactionS = (profile && profile.reactionS) || 0;
+    if (dist <= 0) return 0;
+    var accel = profile.accelFtPerS2;
+    var moveTimeS = (accel == null || !isFinite(accel))
+      ? dist / profile.topSpeedFtPerS
+      : accelTimeS(dist, profile.topSpeedFtPerS, accel);
+    return reactionS + moveTimeS;
+  }
+  // Per-leg duration array over an ordered [{distFt}, ...] path - momentum
+  // (and the one-time reaction) carries across legs rather than each leg
+  // re-accelerating from a dead stop; same contract fielderLegDurationsMs
+  // already had. A single leg is the degenerate case and reduces to
+  // arrivalTimeS's own single-value result.
+  function legDurationsMs(legs, profile) {
+    var reactionS = (profile && profile.reactionS) || 0;
+    var accel = profile && profile.accelFtPerS2;
+    var topSpeed = profile && profile.topSpeedFtPerS;
+    var cumDistFt = 0, prevTimeS = 0, reactionApplied = false;
+    return legs.map(function (leg) {
+      var distFt = (leg && leg.distFt != null) ? leg.distFt : leg;
+      cumDistFt += distFt;
+      var moveTimeS = (accel == null || !isFinite(accel))
+        ? cumDistFt / topSpeed
+        : accelTimeS(cumDistFt, topSpeed, accel);
+      var timeS = moveTimeS + (!reactionApplied && cumDistFt > 0 ? reactionS : 0);
+      if (cumDistFt > 0) reactionApplied = true;
+      var ms = (timeS - prevTimeS) * 1000;
+      prevTimeS = timeS;
+      return Math.round(ms);
+    });
+  }
+  // Fielder motion profiles, built off the existing per-position/per-kind
+  // constants so each keeps its exact current meaning as a profile
+  // parameter, not a formula fork. kind: "charge" (infield charge-in, 16
+  // base) | "pursuit" (OF charge-in, 24 base) | "run" (fielder token pace,
+  // 27 base, same rate a runner sprints at). All scaled by this fielder's
+  // own spdPaceScale(fielderSpd(m,pos)).
+  function fielderProfile(m, pos, kind) {
+    var base = kind === "pursuit" ? OF_CHARGE_FT_PER_S
+      : kind === "charge" ? FIELDER_CHARGE_FT_PER_S
+      : RUNNER_SPRINT_FT_PER_S;
+    return {
+      topSpeedFtPerS: base * spdPaceScale(fielderSpd(m, pos)),
+      accelFtPerS2: FIELDER_ACCEL_FT_S2,
+      reactionS: kind === "run" ? 0 : CHARGE_REACTION_S
+    };
+  }
+  // Throw motion profile. throwClass is an extensibility hook (Task 3.3) -
+  // "full" is the only implemented class this pass (THROW_SPEED_MPH, no
+  // data-grounded arm-strength rating exists to vary it by fielder); "toss"
+  // is reserved for a future short-distance/underhand flip and currently
+  // falls back to "full" unchanged.
+  var THROW_CLASS_MPH = { full: THROW_SPEED_MPH };
+  function throwProfile(throwClass) {
+    var mph = (throwClass && THROW_CLASS_MPH[throwClass]) || THROW_SPEED_MPH;
+    return { topSpeedFtPerS: mph * 1.46667, accelFtPerS2: Infinity, reactionS: 0 };
   }
   // Real per-player speed (Alex's ask, spdPaceScale/fielderSpd above) scales
   // every fielder's own top speed, not just the flat outfielder slowdown
@@ -4021,15 +4100,7 @@
   // distFt, prevTimeS starts at 0) and returns exactly the old single-value
   // formula unchanged.
   function fielderLegDurationsMs(m, pos, legs) {
-    var topSpeed = RUNNER_SPRINT_FT_PER_S * spdPaceScale(fielderSpd(m, pos));
-    var cumDistFt = 0, prevTimeS = 0;
-    return legs.map(function (leg) {
-      cumDistFt += leg.distFt;
-      var timeS = accelTimeS(cumDistFt, topSpeed);
-      var ms = (timeS - prevTimeS) * 1000;
-      prevTimeS = timeS;
-      return Math.round(OUTFIELD_POSITIONS[pos] ? ms * OUTFIELDER_PACE_SCALE : ms);
-    });
+    return legDurationsMs(legs, fielderProfile(m, pos, "run"));
   }
 
   var fielderArcCounter = 0;
@@ -5321,6 +5392,9 @@
     fielderSpd: fielderSpd, spdPaceScale: spdPaceScale,
     accelTimeS: accelTimeS, FIELDER_ACCEL_FT_S2: FIELDER_ACCEL_FT_S2,
     accelDistForTimeS: accelDistForTimeS, idleDriftLeg: idleDriftLeg,
+    arrivalTimeS: arrivalTimeS, legDurationsMs: legDurationsMs,
+    fielderProfile: fielderProfile, throwProfile: throwProfile,
+    chargeFielderArriveS: chargeFielderArriveS,
     pitcherCover1BArrivalMs: pitcherCover1BArrivalMs, pitcherCover1BLegs: pitcherCover1BLegs,
     fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
     fielderStartAnchorFt: fielderStartAnchorFt,
