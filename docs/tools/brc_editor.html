@@ -91,6 +91,10 @@ svg.diamond{width:100%; height:auto; display:block; overflow:visible; margin-bot
    var(--text) is the theme-flipped near-black/near-white everything else
    in the app already leans on for guaranteed contrast in both modes. */
 .fielder-throw{font-size:8.5px; font-weight:800; fill:var(--text); text-anchor:middle; dominant-baseline:middle;}
+/* Marks a value that only resolved via the coarser ThrowOrder_OF fallback,
+   not this outfielder's own specific LF/CF/RF column - italic + muted so
+   it's visually distinct from a position's own real value at a glance. */
+.fielder-throw.from-of{font-style:italic; font-weight:700; fill:var(--muted);}
 .fielder-pos-label{font-size:6.5px; font-weight:700; fill:var(--muted); text-anchor:middle; letter-spacing:0.3px;}
 .fielder-excluded-x{stroke:var(--red); stroke-width:2; stroke-linecap:round;}
 
@@ -210,7 +214,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         <span><i style="background:var(--red)"></i> out</span>
         <span><i style="background:var(--green)"></i> scores</span>
       </div>
-      <p class="hint">Fielder dots: number is that position's own <code>ThrowOrder_*</code>; a gold ring is <code>DefaultPosition</code>, a red X is <code>ExcludedPositions</code>. Text above each base is <code>bN</code>, below is <code>rN</code>/<code>aN</code>.</p>
+      <p class="hint">Fielder dots: number is that position's own <code>ThrowOrder_*</code> (italic/muted for an outfielder means it's inheriting <code>ThrowOrder_OF</code>, not its own <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code>); a gold ring is <code>DefaultPosition</code>, a red X is <code>ExcludedPositions</code>. Text above each base is <code>bN</code>, below is <code>rN</code>/<code>aN</code>.</p>
     </div>
 
     <div class="form-card">
@@ -237,7 +241,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
       </fieldset>
       <fieldset>
         <legend class="fs-legend">Fielding</legend>
-        <p class="hint"><code>ExcludedPositions</code>/<code>DefaultPosition</code>: position codes, e.g. <code>SS,2B</code> / <code>3B</code>. <code>ThrowOrder</code>*: comma-separated position codes, e.g. <code>4,3,1</code>.</p>
+        <p class="hint"><code>ExcludedPositions</code>/<code>DefaultPosition</code>: position codes, e.g. <code>SS,2B</code> / <code>3B</code>. <code>ThrowOrder</code>*: comma-separated position codes, e.g. <code>4,3,1</code>. <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code> are a specific outfielder's own sequence and beat the older, coarser <code>ThrowOrder_OF</code> (any outfielder) when both are set - fill in a specific one only when that outfielder's own throw genuinely differs from the shared default.</p>
         <div class="field-grid wide" id="fields-fielding"></div>
       </fieldset>
     </div>
@@ -319,12 +323,19 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     return { outs: outs, obcBefore: BRC_TO_OBC[obcCode] || "000", result: result, obcCode: obcCode };
   }
 
-  var NEW_COLS = ["a1", "a2", "a3", "delay", "retreat"];
+  // ThrowOrder_LF/CF/RF ride along with a1/a2/a3/delay/retreat here (not just
+  // rendered in the form below) so loading an OLDER import_BRC.csv that
+  // predates them still gets real columns to write into - the same
+  // ensure-it-exists-on-load, highlight-it-green, ensure-it's-exported
+  // treatment those already get, not just an editable field that would
+  // silently vanish on export if the loaded file never had it.
+  var NEW_COLS = ["a1", "a2", "a3", "delay", "retreat", "ThrowOrder_LF", "ThrowOrder_CF", "ThrowOrder_RF"];
   var ALL_COLS = [
     "Situation", "B", "r1", "r2", "r3", "a1", "a2", "a3", "delay", "retreat",
     "b1", "b2", "b3", "Runs", "eOuts", "OBC", "AB", "HIT",
     "ExcludedPositions", "DefaultPosition",
-    "ThrowOrder", "ThrowOrder_P", "ThrowOrder_C", "ThrowOrder_1B", "ThrowOrder_2B", "ThrowOrder_SS", "ThrowOrder_3B", "ThrowOrder_OF",
+    "ThrowOrder", "ThrowOrder_P", "ThrowOrder_C", "ThrowOrder_1B", "ThrowOrder_2B", "ThrowOrder_SS", "ThrowOrder_3B",
+    "ThrowOrder_OF", "ThrowOrder_LF", "ThrowOrder_CF", "ThrowOrder_RF",
   ];
 
   // ---- app state ----
@@ -493,7 +504,13 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
       fieldHtml(row, "ExcludedPositions") + fieldHtml(row, "DefaultPosition") + fieldHtml(row, "ThrowOrder") +
       fieldHtml(row, "ThrowOrder_P") + fieldHtml(row, "ThrowOrder_C") +
       fieldHtml(row, "ThrowOrder_1B") + fieldHtml(row, "ThrowOrder_2B") +
-      fieldHtml(row, "ThrowOrder_SS") + fieldHtml(row, "ThrowOrder_3B") + fieldHtml(row, "ThrowOrder_OF");
+      fieldHtml(row, "ThrowOrder_SS") + fieldHtml(row, "ThrowOrder_3B") +
+      // LF/CF/RF (a specific outfielder's own throw) beat the older, coarser
+      // ThrowOrder_OF (any outfielder) - both stay editable side by side,
+      // same "specific wins, OF is the fallback" order app.js's own
+      // outThrowTargets reads them in.
+      fieldHtml(row, "ThrowOrder_LF") + fieldHtml(row, "ThrowOrder_CF") + fieldHtml(row, "ThrowOrder_RF") +
+      fieldHtml(row, "ThrowOrder_OF");
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-col]"), function (el) {
       var evt = el.type === "checkbox" ? "change" : "input";
@@ -646,13 +663,27 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   };
   var FIELDER_ORDER = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"];
   var OF_POS = { LF: 1, CF: 1, RF: 1 };
-  // ThrowOrder_OF is one shared column for any outfielder (import_BRC.csv
-  // doesn't distinguish which of LF/CF/RF fielded it, matching app.js's own
-  // throwOrderKeyForPosition collapse) - so all three show the same value.
-  var THROW_ORDER_COL_FOR_POS = {
-    P: "ThrowOrder_P", C: "ThrowOrder_C", "1B": "ThrowOrder_1B", "2B": "ThrowOrder_2B",
-    "3B": "ThrowOrder_3B", SS: "ThrowOrder_SS", LF: "ThrowOrder_OF", CF: "ThrowOrder_OF", RF: "ThrowOrder_OF",
+  // Mirrors app.js's throwOrderCandidateKeys/outThrowTargets fallback chain
+  // exactly: an outfielder's own specific column (ThrowOrder_LF/CF/RF) wins
+  // over the older, coarser ThrowOrder_OF (any outfielder) whenever both are
+  // set; infield/battery positions have just their one column, no fallback.
+  var THROW_ORDER_COLS_FOR_POS = {
+    P: ["ThrowOrder_P"], C: ["ThrowOrder_C"], "1B": ["ThrowOrder_1B"], "2B": ["ThrowOrder_2B"],
+    "3B": ["ThrowOrder_3B"], SS: ["ThrowOrder_SS"],
+    LF: ["ThrowOrder_LF", "ThrowOrder_OF"], CF: ["ThrowOrder_CF", "ThrowOrder_OF"], RF: ["ThrowOrder_RF", "ThrowOrder_OF"],
   };
+  // {value, fromOf} - fromOf marks a value that only resolved via the
+  // coarser fallback column, not this position's own specific one, so the
+  // preview can visually distinguish "this outfielder has his own throw
+  // order" from "he's inheriting the shared any-outfielder one."
+  function throwOrderForPos(row, pos) {
+    var cols = THROW_ORDER_COLS_FOR_POS[pos] || [];
+    for (var i = 0; i < cols.length; i++) {
+      var v = String(row[cols[i]] == null ? "" : row[cols[i]]).trim();
+      if (v) return { value: v, fromOf: i > 0 };
+    }
+    return { value: "", fromOf: false };
+  }
 
   function parsePositionList(raw) {
     return String(raw == null ? "" : raw).split(",")
@@ -671,7 +702,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     var excluded = parsePositionList(row.ExcludedPositions);
     FIELDER_ORDER.forEach(function (pos) {
       var pt = FIELDER_PT[pos];
-      var throwVal = String(row[THROW_ORDER_COL_FOR_POS[pos]] == null ? "" : row[THROW_ORDER_COL_FOR_POS[pos]]).trim();
+      var throwOrder = throwOrderForPos(row, pos);
       var isDefault = defaultPos === pos;
       var isExcluded = excluded.indexOf(pos) !== -1 || (OF_POS[pos] && excluded.indexOf("OF") !== -1);
 
@@ -684,11 +715,11 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
       circle.setAttribute("class", "fielder-dot" + (isDefault ? " is-default" : ""));
       g.appendChild(circle);
 
-      if (throwVal) {
+      if (throwOrder.value) {
         var tv = document.createElementNS(svgNS, "text");
-        tv.setAttribute("class", "fielder-throw");
+        tv.setAttribute("class", "fielder-throw" + (throwOrder.fromOf ? " from-of" : ""));
         tv.setAttribute("y", "1");
-        tv.textContent = throwVal;
+        tv.textContent = throwOrder.value;
         g.appendChild(tv);
       }
 
