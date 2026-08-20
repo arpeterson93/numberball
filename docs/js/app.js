@@ -4163,8 +4163,11 @@
   function ofPursuitDeficitMs(m, flight, anchorFt) {
     var fieldedFt = fieldedPoint(flight);
     var distFt = Math.hypot(fieldedFt.x - anchorFt.x, fieldedFt.y - anchorFt.y);
-    var pursuitMs = fielderLegDurationsMs(m, flight.fielder, [{ distFt: distFt }])[0];
-    var honestArrivalMs = OUTFIELDER_REACT_MS + pursuitMs;
+    // "pursuit" kind's own profile already carries OUTFIELDER_REACT_MS as
+    // its reactionS (fielderProfile, below) plus the Statcast-fit OF
+    // pursuit top speed/accel - no longer the generic "run" kind's
+    // fielderLegDurationsMs with OUTFIELDER_REACT_MS bolted on separately.
+    var honestArrivalMs = Math.round(arrivalTimeS(distFt, fielderProfile(m, flight.fielder, "pursuit")) * 1000);
     return fieldedMs(flight) - honestArrivalMs;
   }
   // anchorFt: whichever anchor the fielder is actually being rendered from
@@ -4265,6 +4268,31 @@
   // in a bit over a second, same rough feel as a real infielder's controlled
   // first few steps.
   var FIELDER_ACCEL_FT_S2 = 25;
+  // Runners and a fielder's own "run" kind (below) used to share
+  // FIELDER_ACCEL_FT_S2 wholesale. Split out (Alex's ask) after fitting a
+  // constant-acceleration curve to the 2026 Statcast home-to-first splits
+  // (n=507): a pure-acceleration fit over the 0-40ft window - short enough
+  // that real runners haven't already leveled off toward top speed, which
+  // pulls a wider-window fit down further than the true early ramp - lands
+  // at ~19.2ft/s2, well under FIELDER_ACCEL_FT_S2's 25. Infield charge/
+  // barehand-scoop kind keeps the old 25 unchanged; that's a different,
+  // shorter-range action this dataset doesn't speak to.
+  var RUNNER_ACCEL_FT_S2 = 19.2;
+  // Outfield fly-ball pursuit ("pursuit" kind, below) gets its own top speed
+  // and acceleration, fit against the 2026 Statcast outfielder jump data
+  // (n=90, f_bootup_distance: real feet gained toward the ball's eventual
+  // spot in the first 3s) rather than reusing a runner/infield number.
+  // Solved against the pursuit kind's OWN already-live reaction constant
+  // (OUTFIELDER_REACT_MS/1000 = 0.4s, not CHARGE_REACTION_S) for the
+  // constant acceleration that reproduces the real league-average 34.4ft in
+  // 3s: ~10.2ft/s2 - a much gentler ramp than FIELDER_ACCEL_FT_S2, and
+  // consistent with a fielder still being well short of top speed 3 seconds
+  // after reading a fly ball. OF_PURSUIT_TOP_SPEED_FT_PER_S is set to the
+  // speed that constant acceleration reaches AT that same 3s mark (rather
+  // than assumed independently), since the data doesn't cover what happens
+  // after - so the two constants are read together, not tuned separately.
+  var OF_PURSUIT_ACCEL_FT_S2 = 10.2;
+  var OF_PURSUIT_TOP_SPEED_FT_PER_S = 26.4;
   function accelTimeS(distFt, topSpeedFtPerS, accelFtPerS2) {
     var accel = accelFtPerS2 || FIELDER_ACCEL_FT_S2;
     if (distFt <= 0) return 0;
@@ -4318,17 +4346,25 @@
   // Fielder motion profiles, built off the existing per-position/per-kind
   // constants so each keeps its exact current meaning as a profile
   // parameter, not a formula fork. kind: "charge" (infield charge-in, 16
-  // base) | "pursuit" (OF charge-in, 24 base) | "run" (fielder token pace,
-  // 27 base, same rate a runner sprints at). All scaled by this fielder's
-  // own spdPaceScale(fielderSpd(m,pos)).
+  // base, FIELDER_ACCEL_FT_S2) | "pursuit" (OF fly-ball routing, its own
+  // Statcast-fit top speed/accel above, reaction OUTFIELDER_REACT_MS) |
+  // "run" (fielder token pace, 27 base, RUNNER_ACCEL_FT_S2 - same rate and
+  // ramp a runner sprints at). All scaled by this fielder's own
+  // spdPaceScale(fielderSpd(m,pos)).
   function fielderProfile(m, pos, kind) {
-    var base = kind === "pursuit" ? OF_CHARGE_FT_PER_S
+    var base = kind === "pursuit" ? OF_PURSUIT_TOP_SPEED_FT_PER_S
       : kind === "charge" ? FIELDER_CHARGE_FT_PER_S
       : RUNNER_SPRINT_FT_PER_S;
+    var accel = kind === "pursuit" ? OF_PURSUIT_ACCEL_FT_S2
+      : kind === "charge" ? FIELDER_ACCEL_FT_S2
+      : RUNNER_ACCEL_FT_S2;
+    var reactionS = kind === "run" ? 0
+      : kind === "pursuit" ? OUTFIELDER_REACT_MS / 1000
+      : CHARGE_REACTION_S;
     return {
       topSpeedFtPerS: base * spdPaceScale(fielderSpd(m, pos)),
-      accelFtPerS2: FIELDER_ACCEL_FT_S2,
-      reactionS: kind === "run" ? 0 : CHARGE_REACTION_S
+      accelFtPerS2: accel,
+      reactionS: reactionS
     };
   }
   // Runner motion profile (Task 3.2) - real per-runner pace, same
@@ -4337,7 +4373,7 @@
   function runnerProfile(m, who) {
     return {
       topSpeedFtPerS: RUNNER_SPRINT_FT_PER_S * spdPaceScale(runnerSpd(m, who)),
-      accelFtPerS2: FIELDER_ACCEL_FT_S2,
+      accelFtPerS2: RUNNER_ACCEL_FT_S2,
       reactionS: 0
     };
   }
