@@ -2504,6 +2504,31 @@
   // depthMax are audit-only now (2.4) - distance comes from the physics
   // integrator, la/ev straight into KMTraj.simulateFlight, for every
   // archetype including grounders (physics-redesign plan Part 2.3).
+  // Horizontal-spray bucket classification (gameday reconciliation
+  // spray-bucket stage) - mirrors compute_flight_ranges.py's own
+  // SPRAY_BUCKETS table exactly (there is no shared source of truth across
+  // Python/JS for a table this small; keep both in sync by hand). offsetDeg
+  // is degrees off dead center in the SAME convention `angle` below already
+  // uses (0-90, 45=center, higher=1B/right side, lower=3B/left side - the
+  // same convention OF_CANONICAL_ANGLE/ofShadeDirection use elsewhere in
+  // this file), so callers just pass `angle - 45`.
+  var SPRAY_BUCKETS = [
+    ["3B_LINE", -45.0, -34.5],
+    ["LF", -34.5, -19.5],
+    ["LF_GAP", -19.5, -7.5],
+    ["CF", -7.5, 7.5],
+    ["RF_GAP", 7.5, 19.5],
+    ["RF", 19.5, 34.5],
+    ["1B_LINE", 34.5, 45.0],
+  ];
+  function classifySprayBucket(offsetDeg) {
+    for (var i = 0; i < SPRAY_BUCKETS.length; i++) {
+      var b = SPRAY_BUCKETS[i];
+      if (offsetDeg >= b[1] && offsetDeg <= b[2]) return b[0];
+    }
+    return null;
+  }
+
   function flightParams(play, tables) {
     var result = play.result;
     if (!tables || (tables.excluded || []).indexOf(result) !== -1) return null;
@@ -2534,7 +2559,20 @@
     // real LA spread at that distance to land on. Falls back to the old
     // independent-marginal formula only if a band has no stations (e.g. a
     // stale cached meta.json predating this change).
-    var station = stationsLookup(band, q);
+    //
+    // Spray-bucket stations (gameday reconciliation spray-bucket stage):
+    // for the results that carry one (2B/3B/1BWH/1BWH2 - band.stationsBySpray,
+    // see key_moments_build.py's _flight_meta), read this play's own real
+    // spray-conditioned station set instead of the pooled-every-direction
+    // one - a double hit right at an outfielder's own position genuinely
+    // needs a harder/farther real sample than one down the line. Falls back
+    // to the unconditioned band.stations whenever this result has no
+    // stationsBySpray at all, or this specific bucket's own real sample was
+    // too thin to trust (compute_flight_ranges.py just never wrote that
+    // bucket's rows in that case).
+    var sprayBucket = classifySprayBucket(angle - 45);
+    var stationRows = (band.stationsBySpray && band.stationsBySpray[sprayBucket]) || band.stations;
+    var station = stationsLookup({ stations: stationRows }, q);
     var LA, EV;
     if (station) {
       LA = onTop ? station.laTopped : station.laUppercut;
@@ -5740,6 +5778,7 @@
     CATCH_RETREAT_PENALTY: CATCH_RETREAT_PENALTY, PICKUP_RETREAT_PENALTY: PICKUP_RETREAT_PENALTY,
     launchAngleFor: launchAngleFor,
     stationsLookup: stationsLookup,
+    classifySprayBucket: classifySprayBucket, SPRAY_BUCKETS: SPRAY_BUCKETS,
     FENCE_DEPTH_FT: FENCE_DEPTH_FT, fenceTruncatedSamples: fenceTruncatedSamples,
     ordinal: ordinal, deriveRunnerMoves: deriveRunnerMoves,
     outThrowTargets: outThrowTargets, throwSchedule: throwSchedule,

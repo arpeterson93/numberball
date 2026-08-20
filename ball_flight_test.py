@@ -1200,6 +1200,76 @@ def main() -> None:
               ofpursuit["shallowReadDelay"], ofpursuit["shallowDeficitBefore"], tol=1)
         check("the read delay stays within its own bound", ofpursuit["shallowReadDelay"] <= ofpursuit["READ_DELAY_MAX"], True)
 
+        print("\nHorizontal-spray bucket classification + station selection:")
+        spray = page.evaluate(
+            """() => {
+                var buckets = KMFlight.SPRAY_BUCKETS.map(function (b) { return b[0]; });
+                var classifications = {
+                  center: KMFlight.classifySprayBucket(0),
+                  lf: KMFlight.classifySprayBucket(-27),
+                  rf: KMFlight.classifySprayBucket(27),
+                  lfGap: KMFlight.classifySprayBucket(-13.5),
+                  rfGap: KMFlight.classifySprayBucket(13.5),
+                  thirdLine: KMFlight.classifySprayBucket(-40),
+                  firstLine: KMFlight.classifySprayBucket(40),
+                  farFoul: KMFlight.classifySprayBucket(60),
+                };
+                // Every real angle flightParams can actually produce (5..85,
+                // i.e. offset -40..40) must classify into some real bucket -
+                // no gaps in the reachable range.
+                var reachableGapFound = null;
+                for (var off = -40; off <= 40; off += 0.5) {
+                  if (KMFlight.classifySprayBucket(off) == null) { reachableGapFound = off; break; }
+                }
+
+                // flightParams-level: a synthetic band with a stationsBySpray
+                // entry for one bucket (a single, distinctive station at every
+                // q) must be picked over the unconditioned band.stations when
+                // the play's own angle lands in that bucket, and must fall
+                // back to band.stations when it lands in a DIFFERENT bucket
+                // with no stationsBySpray entry.
+                function flatStation(la) {
+                  return { q: 0, laTopped: la, evTopped: 90, distTopped: 380,
+                           laUppercut: la, evUppercut: 90, distUppercut: 380 };
+                }
+                var band = {
+                  lo: 0, hi: 500, archetype: "double",
+                  stations: [flatStation(20)],
+                  stationsBySpray: { CF: [flatStation(35)] },
+                };
+                var tables = { bands: { "2B": band }, excluded: [] };
+                // pitch/swing chosen so lastDigit bucket=0 -> angle=45 (dead
+                // center, CF) - has a stationsBySpray entry.
+                var centerPlay = { result: "2B", pitch: 100, swing: 100, diff: 250, batter_hand: "R" };
+                var centerFlight = KMFlight.flightParams(centerPlay, tables);
+                // pitch/swing chosen so bucket=4 (unambiguous - clear of the
+                // +/-5 circular-wraparound boundary) -> angle=77 (offset
+                // +32, RF) - no stationsBySpray entry, must fall back.
+                var otherPlay = { result: "2B", pitch: 104, swing: 100, diff: 250, batter_hand: "R" };
+                var otherFlight = KMFlight.flightParams(otherPlay, tables);
+                return {
+                  buckets: buckets, classifications: classifications,
+                  reachableGapFound: reachableGapFound,
+                  centerLa: centerFlight.la, otherLa: otherFlight.la,
+                };
+            }"""
+        )
+        check("7 spray buckets defined", len(spray["buckets"]), 7)
+        check("dead center classifies as CF", spray["classifications"]["center"], "CF")
+        check("LF's own canonical bearing classifies as LF", spray["classifications"]["lf"], "LF")
+        check("RF's own canonical bearing classifies as RF", spray["classifications"]["rf"], "RF")
+        check("LF-CF alley midpoint classifies as LF_GAP", spray["classifications"]["lfGap"], "LF_GAP")
+        check("CF-RF alley midpoint classifies as RF_GAP", spray["classifications"]["rfGap"], "RF_GAP")
+        check("-40deg (the app's own reachable extreme) classifies as 3B_LINE", spray["classifications"]["thirdLine"], "3B_LINE")
+        check("+40deg (the app's own reachable extreme) classifies as 1B_LINE", spray["classifications"]["firstLine"], "1B_LINE")
+        check("a genuine foul-side outlier past +/-45deg classifies as no bucket", spray["classifications"]["farFoul"], None)
+        check("every angle flightParams can actually roll (+/-40deg) lands in some real bucket",
+              spray["reachableGapFound"], None)
+        check("a play landing in a bucket WITH its own stationsBySpray entry reads that bucket's station",
+              spray["centerLa"], 35)
+        check("a play landing in a bucket with NO stationsBySpray entry falls back to band.stations",
+              spray["otherLa"], 20)
+
         print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
         prim = page.evaluate(
             """() => {

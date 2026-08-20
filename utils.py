@@ -703,26 +703,49 @@ def get_diff_bands(season: int | None) -> dict[str, dict]:
 # distance) via key_moments_build.py's _flight_meta().
 _FLIGHT_STATIONS: dict[str, list[dict]] = {}
 
+# (result, spray_bucket) -> [station, ...], the spray-angle-conditioned
+# sibling of _FLIGHT_STATIONS above (gameday reconciliation plan, spray-bucket
+# stage) - only populated for the results compute_flight_ranges.py actually
+# builds bucketed stations for (SPRAY_BUCKETED_RESULTS there: 2B/3B/1BWH/
+# 1BWH2), and only for buckets whose own real sample was large enough to
+# trust. _FLIGHT_STATIONS[result] (the unconditioned "" pool, unchanged by
+# this feature) is every result's own runtime fallback whenever a specific
+# (result, bucket) pair has no entry here - see key_moments_build.py's
+# _flight_meta and docs/js/app.js's flightParams.
+_FLIGHT_STATIONS_BY_SPRAY: dict[tuple[str, str], list[dict]] = {}
+
 
 def _load_flight_stations() -> None:
-    global _FLIGHT_STATIONS
+    global _FLIGHT_STATIONS, _FLIGHT_STATIONS_BY_SPRAY
     try:
         _sdf = pd.read_csv("flight_stations.csv").sort_values(["result", "station_idx"])
-        _FLIGHT_STATIONS = {
-            str(result): [
-                {
-                    "station_idx": int(r["station_idx"]), "q": float(r["q"]),
-                    "la_topped": float(r["la_topped"]), "ev_topped": float(r["ev_topped"]),
-                    "dist_topped": float(r["dist_topped"]),
-                    "la_uppercut": float(r["la_uppercut"]), "ev_uppercut": float(r["ev_uppercut"]),
-                    "dist_uppercut": float(r["dist_uppercut"]),
-                }
-                for _, r in group.iterrows()
-            ]
-            for result, group in _sdf.groupby("result")
-        }
     except FileNotFoundError:
-        pass
+        return
+    # Older flight_stations.csv files (pre-spray-bucket) have no spray_bucket
+    # column at all - treat every row there as the unconditioned "" pool.
+    if "spray_bucket" not in _sdf.columns:
+        _sdf["spray_bucket"] = ""
+    _sdf["spray_bucket"] = _sdf["spray_bucket"].fillna("")
+
+    def _station_row(r: "pd.Series") -> dict:
+        return {
+            "station_idx": int(r["station_idx"]), "q": float(r["q"]),
+            "la_topped": float(r["la_topped"]), "ev_topped": float(r["ev_topped"]),
+            "dist_topped": float(r["dist_topped"]),
+            "la_uppercut": float(r["la_uppercut"]), "ev_uppercut": float(r["ev_uppercut"]),
+            "dist_uppercut": float(r["dist_uppercut"]),
+        }
+
+    unbucketed = _sdf[_sdf["spray_bucket"] == ""]
+    _FLIGHT_STATIONS = {
+        str(result): [_station_row(r) for _, r in group.iterrows()]
+        for result, group in unbucketed.groupby("result")
+    }
+    bucketed = _sdf[_sdf["spray_bucket"] != ""]
+    _FLIGHT_STATIONS_BY_SPRAY = {
+        (str(result), str(bucket)): [_station_row(r) for _, r in group.iterrows()]
+        for (result, bucket), group in bucketed.groupby(["result", "spray_bucket"])
+    }
 
 
 _load_re24_ranges()

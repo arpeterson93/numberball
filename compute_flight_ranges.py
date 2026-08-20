@@ -57,10 +57,25 @@ columns) - each script preserves the other's columns on write rather than
 overwriting the whole file, since band_lo/band_hi/n/source come from MLN's
 own play history (Supabase) while everything here comes from Statcast.
 
-Run from the project root (pulls a full season by default - takes a few
-minutes; pybaseball caches each day's pull locally, so a second run for an
-overlapping range is fast):
+Spray-angle-conditioned stations (Alex's ask): for 2B/3B/1BWH/1BWH2 - the
+results with a real outfield-pursuit dependency (docs/js/app.js's
+ofPursuitDeficitMs) - flight_stations.csv also carries a per-horizontal-spray-
+bucket station table (SPRAY_BUCKETS below), built from real hc_x/hc_y hit
+coordinates rather than pooling every direction together. A double hit right
+at an outfielder's own position genuinely has to be hit harder/farther to get
+past him than one down the line, and pooling them into one distribution (the
+previous behavior) made those statistically indistinguishable. Every other
+result keeps exactly today's single unconditioned station set
+(spray_bucket=""), which also remains every bucketed result's own fallback
+whenever a specific bucket's real sample is too thin (see SPRAY_BUCKETED_
+RESULTS/_build_bucketed_stations below).
+
+Run from the project root (pulls 5 real MLB seasons by default - takes a
+while, on the order of a few minutes per season; pybaseball caches each day's
+pull locally, so a second run for an overlapping range is fast, and one
+season's pull failing doesn't lose the others already cached):
     python compute_flight_ranges.py
+    python compute_flight_ranges.py --seasons 2021-2025
     python compute_flight_ranges.py --start 2024-03-01 --end 2024-11-01
 """
 from __future__ import annotations
@@ -95,6 +110,94 @@ def _trim_by_distance(df: pd.DataFrame) -> pd.DataFrame:
     d = df["hit_distance_sc"]
     lo, hi = d.quantile(DIST_TRIM_LO), d.quantile(DIST_TRIM_HI)
     return df[(d >= lo) & (d <= hi)]
+
+
+# ── Spray-angle-conditioned stations (Alex's ask) ──────────────────────────
+# Only these results have a real outfield-pursuit dependency downstream
+# (docs/js/app.js's ofPursuitApplies) - every other result keeps today's
+# single unconditioned station set untouched.
+SPRAY_BUCKETED_RESULTS = {"2B", "3B", "1BWH", "1BWH2"}
+
+# Degrees off dead center (0 = straight up the middle, negative = 3B/left
+# field side, positive = 1B/right field side) - the SAME "offset from
+# center, true bearing" convention docs/js/app.js's ofShadeDirection/angle
+# already use, not a lattice angle. Bucket widths: +/-7.5deg around each
+# outfielder's own canonical position (LF -27, CF 0, RF 27, matching
+# app.js's OF_CANONICAL_ANGLE offset-from-45 convention), the two "down the
+# line" buckets extended out to meet the fielder buckets (closing what would
+# otherwise be an orphan seam), everything else is a gap. Built from the
+# real 0-45deg range on both sides regardless of what docs/js/app.js's own
+# synthetic spray mechanic can currently roll (that mechanic tops out at
+# +/-40deg today, so the outermost ~5deg of each line bucket goes unused at
+# runtime for now - the DATA stays the full real distribution either way, only
+# the app's own reachable range is narrower; see the gameday-reconciliation
+# spray-bucket plan for the discussion). Keep this table in sync with
+# app.js's own classifySprayBucket - there is no shared source of truth
+# across Python/JS for a table this small, so both sides just have to agree.
+SPRAY_BUCKETS = [
+    ("3B_LINE", -45.0, -34.5),
+    ("LF", -34.5, -19.5),
+    ("LF_GAP", -19.5, -7.5),
+    ("CF", -7.5, 7.5),
+    ("RF_GAP", 7.5, 19.5),
+    ("RF", 19.5, 34.5),
+    ("1B_LINE", 34.5, 45.0),
+]
+
+# Standard Statcast hit-coordinate -> spray-angle conversion (Bill Petti's
+# baseballr formula, the community-standard transform for MLBAM Gameday's
+# hc_x/hc_y pixel coordinates - home plate sits at roughly (125.42, 198.27)
+# in that system). HC_X_SIGN exists because this repo has an explicitly
+# flagged, never-actually-validated question about which pixel direction
+# (increasing hc_x) corresponds to which real field side - rather than guess,
+# _validate_spray_sign below checks the pulled sample's own real handedness
+# pull tendency (RHH pull to LF/3B side, LHH pull to RF/1B side, both well
+# past 50% in real aggregate data) and flips this if the raw formula's sign
+# doesn't match. Do not hand-edit this constant directly - it's set by that
+# validation step at runtime, this default is only a starting guess.
+HC_X_SIGN = 1
+HC_X_HOME, HC_Y_HOME = 125.42, 198.27
+
+
+def _spray_angle_deg(bip: pd.DataFrame) -> "pd.Series[float]":
+    import numpy as np
+    dx = HC_X_SIGN * (bip["hc_x"] - HC_X_HOME)
+    dy = HC_Y_HOME - bip["hc_y"]
+    return np.degrees(np.arctan2(dx, dy)) * 0.75
+
+
+def _validate_spray_sign(bip: pd.DataFrame) -> None:
+    """Real aggregate pull tendency (RHH pull toward the 3B/LF side -
+    negative in this convention; LHH pull toward the 1B/RF side - positive),
+    checked against actual balls in play with a real stand/hc_x/hc_y, rather
+    than trusting the hc_x pixel-direction guess blind. Flips HC_X_SIGN (and
+    reprints a warning) if the pulled sample disagrees - a real, if rare,
+    possibility depending on which season's Gameday coordinate convention was
+    in effect."""
+    global HC_X_SIGN
+    sub = bip.dropna(subset=["hc_x", "hc_y", "stand"])
+    if len(sub) < 1000:
+        print("WARNING: too few rows with hc_x/hc_y/stand to validate the spray-angle sign convention - trusting the default.")
+        return
+    angle = _spray_angle_deg(sub)
+    rhh_mean = angle[sub["stand"] == "R"].mean()
+    lhh_mean = angle[sub["stand"] == "L"].mean()
+    print(f"Spray-angle sign check: RHH mean={rhh_mean:.1f}deg (expect negative, pull side), "
+          f"LHH mean={lhh_mean:.1f}deg (expect positive, pull side)")
+    if rhh_mean > 0 and lhh_mean < 0:
+        HC_X_SIGN = -HC_X_SIGN
+        print(f"NOTE: sign was backwards - flipped HC_X_SIGN to {HC_X_SIGN}. Re-check this print on the next run.")
+    elif not (rhh_mean < 0 and lhh_mean > 0):
+        print("WARNING: real pull tendency wasn't clearly signed either way - spray bucket assignment may be unreliable this run.")
+
+
+def _classify_spray_bucket(deg: float) -> str | None:
+    if deg < SPRAY_BUCKETS[0][1] or deg > SPRAY_BUCKETS[-1][2]:
+        return None  # a genuine foul-side/extreme outlier past +/-45deg - no bucket
+    for name, lo, hi in SPRAY_BUCKETS:
+        if lo <= deg <= hi:
+            return name
+    return None
 
 
 # Granular by design (Alex's call): a station table is now just a sort +
@@ -349,8 +452,11 @@ def _build_stations(sub: pd.DataFrame, floor_ft: float | None = None, floor_abov
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--start", default="2025-03-18", help="Statcast pull start date (default: 2025 opening day)")
-    ap.add_argument("--end", default="2025-11-05", help="Statcast pull end date (default: end of 2025 postseason)")
+    ap.add_argument("--seasons", default="2021-2025",
+                     help="MLB season year range to pull, inclusive (default: 2021-2025). "
+                          "Ignored if --start/--end are both given explicitly.")
+    ap.add_argument("--start", default=None, help="explicit Statcast pull start date - overrides --seasons, requires --end too")
+    ap.add_argument("--end", default=None, help="explicit Statcast pull end date - overrides --seasons, requires --start too")
     ap.add_argument("--out", default=OUT_CSV, help=f"output CSV path (default {OUT_CSV})")
     ap.add_argument("--stations-out", default=STATIONS_OUT_CSV, help=f"station-table output CSV path (default {STATIONS_OUT_CSV})")
     args = ap.parse_args()
@@ -358,12 +464,43 @@ def main() -> None:
     import pybaseball as pb  # deferred: heavy import, only needed for this script
 
     pb.cache.enable()
-    print(f"Pulling Statcast {args.start}..{args.end} (a few minutes on a cold cache)...")
-    raw = pb.statcast(start_dt=args.start, end_dt=args.end)
-    print(f"Pulled {len(raw):,} pitches")
+
+    if args.start and args.end:
+        season_ranges = [(args.start, args.end)]
+    elif args.start or args.end:
+        sys.exit("ERROR: --start and --end must be given together, or neither (use --seasons instead).")
+    else:
+        lo_year, hi_year = (int(x) for x in args.seasons.split("-"))
+        # -03-01/-11-05 per year rather than each season's real opening day/
+        # postseason-end date: a generous, uniform superset - Statcast (via
+        # pybaseball) only ever contains real regular/postseason games, so
+        # the early-March/pre-opening-day slack just costs a few empty
+        # request days, not a bad pull.
+        season_ranges = [(f"{y}-03-01", f"{y}-11-05") for y in range(lo_year, hi_year + 1)]
+
+    frames = []
+    for start, end in season_ranges:
+        print(f"Pulling Statcast {start}..{end} (a few minutes on a cold cache)...")
+        try:
+            season_raw = pb.statcast(start_dt=start, end_dt=end)
+        except Exception as exc:
+            print(f"WARNING: Statcast pull for {start}..{end} failed ({exc}) - skipping this "
+                  f"range; whatever seasons already succeeded are kept.")
+            continue
+        print(f"  pulled {len(season_raw):,} pitches")
+        frames.append(season_raw)
+    if not frames:
+        sys.exit("ERROR: every Statcast pull failed - nothing to build from.")
+    raw = pd.concat(frames, ignore_index=True)
+    print(f"Pulled {len(raw):,} pitches total across {len(frames)} season range(s)")
 
     bip = raw[raw["type"] == "X"].copy()
     print(f"{len(bip):,} balls in play")
+
+    _validate_spray_sign(bip)
+    bip["spray_deg"] = _spray_angle_deg(bip)
+    bip["spray_bucket"] = bip["spray_deg"].apply(
+        lambda d: _classify_spray_bucket(d) if pd.notna(d) else None)
 
     filters = _build_filters(bip)
 
@@ -515,7 +652,15 @@ def main() -> None:
     # stations - see _build_stations' docstring. Built from sample_by_result
     # (the exact sample - own or pooled - each result's la/ev/depth
     # percentiles above were computed from), so the two files never disagree
-    # about which real plays back a given result.
+    # about which real plays back a given result. spray_bucket="" (this
+    # loop's own unconditioned station set, unchanged from before this
+    # feature) is every result's own runtime fallback - SPRAY_BUCKETED_
+    # RESULTS additionally get one more station set per real spray bucket
+    # below, each with its own MIN_SAMPLE floor; a bucket too thin to trust
+    # on its own gets no row at all (not a duplicate of the unconditioned
+    # set) - docs/js/app.js's own bySpray[bucket]||band fallback already
+    # reads the unconditioned "" set whenever a specific bucket is missing,
+    # so writing a redundant copy here would just be dead weight.
     print(f"\nBuilding {N_STATIONS}-station flight tables...")
     station_rows = []
     for result, sample in sample_by_result.items():
@@ -524,10 +669,24 @@ def main() -> None:
         else:
             stations = _build_stations(sample)
         for station in stations:
-            station_rows.append({"result": result, **station})
+            station_rows.append({"result": result, "spray_bucket": "", **station})
+
+        if result in SPRAY_BUCKETED_RESULTS:
+            for bucket_name, _lo, _hi in SPRAY_BUCKETS:
+                bucket_sample = sample[sample["spray_bucket"] == bucket_name]
+                if len(bucket_sample) < MIN_SAMPLE:
+                    print(f"  {result}/{bucket_name}: own sample too thin (n={len(bucket_sample)}) - "
+                          f"falls back to {result}'s unconditioned pool at runtime, no row written")
+                    continue
+                bucket_stations = _build_stations(bucket_sample)
+                for station in bucket_stations:
+                    station_rows.append({"result": result, "spray_bucket": bucket_name, **station})
+                print(f"  {result}/{bucket_name}: n={len(bucket_sample)}")
     stations_df = pd.DataFrame(station_rows)
     stations_df.to_csv(args.stations_out, index=False)
-    print(f"Saved {N_STATIONS}-station flight tables for {len(sample_by_result)} results to {args.stations_out}")
+    n_bucketed_rows = int((stations_df["spray_bucket"] != "").sum())
+    print(f"Saved {N_STATIONS}-station flight tables for {len(sample_by_result)} results to "
+          f"{args.stations_out} ({n_bucketed_rows} additional spray-bucketed rows)")
 
 
 if __name__ == "__main__":

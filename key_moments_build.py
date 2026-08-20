@@ -1290,21 +1290,37 @@ def _flight_meta(archive_season: int | None = None) -> dict:
     plays). distTopped/distUppercut are each that same real play's own
     hit_distance_sc - what the runtime radially rescales the rendered flight
     to. Compact keys since this repeats ~100x per result: q, laTopped,
-    evTopped, distTopped, laUppercut, evUppercut, distUppercut."""
+    evTopped, distTopped, laUppercut, evUppercut, distUppercut.
+
+    stationsBySpray (gameday reconciliation spray-bucket stage): a sibling
+    key, present ONLY for the results compute_flight_ranges.py actually
+    builds spray-conditioned stations for (2B/3B/1BWH/1BWH2 today), one
+    `stations`-shaped array per real horizontal-spray bucket
+    (utils._FLIGHT_STATIONS_BY_SPRAY). Every other result's band keeps
+    exactly today's shape - this is purely additive. `stations` above (the
+    unconditioned pool) is unchanged and remains every result's own runtime
+    fallback for a bucket with no entry here - see docs/js/app.js's
+    flightParams, which reads stationsBySpray[bucket] when present and falls
+    back to the top-level `stations` otherwise."""
+    def _station_dict(st: dict) -> dict:
+        return {
+            "q": st["q"],
+            "laTopped": st["la_topped"], "evTopped": st["ev_topped"], "distTopped": st["dist_topped"],
+            "laUppercut": st["la_uppercut"], "evUppercut": st["ev_uppercut"], "distUppercut": st["dist_uppercut"],
+        }
+
+    by_spray: dict[str, dict[str, list]] = {}
+    for (result, bucket), stations in utils._FLIGHT_STATIONS_BY_SPRAY.items():
+        by_spray.setdefault(result, {})[bucket] = [_station_dict(st) for st in stations]
+
     bands = {
         result: {
             "archetype": row["archetype"], "lo": row["band_lo"], "hi": row["band_hi"],
             "laMin": row["la_min"], "laIdeal": row["la_ideal"], "laMax": row["la_max"],
             "evMin": row["ev_min"], "evMax": row["ev_max"],
             "depthMin": row["depth_min"], "depthMax": row["depth_max"],
-            "stations": [
-                {
-                    "q": st["q"],
-                    "laTopped": st["la_topped"], "evTopped": st["ev_topped"], "distTopped": st["dist_topped"],
-                    "laUppercut": st["la_uppercut"], "evUppercut": st["ev_uppercut"], "distUppercut": st["dist_uppercut"],
-                }
-                for st in utils._FLIGHT_STATIONS.get(result, [])
-            ],
+            "stations": [_station_dict(st) for st in utils._FLIGHT_STATIONS.get(result, [])],
+            **({"stationsBySpray": by_spray[result]} if result in by_spray else {}),
         }
         for result, row in utils.get_diff_bands(archive_season).items()
     }
