@@ -4631,7 +4631,14 @@
       var isAir = !!CAUGHT_IN_AIR[archetype];
       var isNewOut = (m.outs_after || 0) > (m.outs_before || 0);
       var isGroundOrAir = flight.fielder && (GROUND_ARCHETYPES[archetype] || isAir);
-      if (isNewOut && isGroundOrAir) {
+      // Task 2a (fact 23): computed once, ahead of the branch, so a
+      // decorative/contestedSafe leg (a b0534c3 explicit-ThrowOrder hit
+      // throw, a sac-fly tag throw, the folded infield-single 1B leg) can
+      // route through the chain-mover branch below too, not just a real
+      // out - its receiver now gets moved to the bag same as an out-throw's
+      // does, instead of standing idle.
+      var targets = outThrowTargets(m, moves, flight);
+      if (flight.fielder && (targets.length || (isNewOut && isGroundOrAir))) {
         // Same chain fieldingChainDetail builds (same inputs, same
         // coveringPosition rule) - but collapsed differently. That function
         // drops a later touch by the SAME fielder entirely (an unassisted
@@ -4641,7 +4648,10 @@
         // than stopping at the fielding point (Alex's ask). Merging (keep
         // the LAST base seen per position) rather than dropping gets that
         // without changing fieldingChainDetail's own label-facing contract.
-        var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
+        // The FULL target list now (Task 2a) - previously sliced to
+        // realOutThrowCount, which left every decorative leg's receiver
+        // out of the chain entirely.
+        var relayBases = targets;
         var rawChain = [{ pos: flight.fielder, base: null }];
         relayBases.forEach(function (base) {
           rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length, m, flight), base: base });
@@ -4686,13 +4696,31 @@
               : [{ toSvg: destSvg, distFt: Math.hypot(destFt.x - anchor.x, destFt.y - anchor.y) }];
           }
           moving[e.pos] = 1;
-          var deadlineMs = (isAir && e.base === null) ? startDelay + ballTravelMs(flight) : null;
-          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay, anchor, deadlineMs);
+          // Task 5 (facts 18/24): ground archetypes now compress the
+          // fielding run to fieldedMs (the charge race's own answer),
+          // exactly as a fly out already compresses to ballTravelMs -
+          // previously only the air case got a deadline at all. Scoped to
+          // e.base===null (the ball-toucher's own single-leg entry) same as
+          // before; the merged unassisted case (e.base!==null on this same
+          // pos) is left undeadlined on purpose - movingFielderTokenHtml
+          // would compress the whole 2-leg run proportionally, over-
+          // compressing leg 2's honest bag-run, not just leg 1's fielding
+          // run. Acceptable v1 (no per-leg deadlines built).
+          var deadlineMs = e.base === null ? startDelay + (isAir ? ballTravelMs(flight) : fieldedMs(flight)) : null;
+          // Task 2a point 3: the ball-touching entry (and only that one -
+          // relay receivers never read the pitch) carries the same OF
+          // read-delay the solo branch below always applied - returns 0 for
+          // every non-qualifying play, so infield/out-play chains are
+          // unaffected.
+          var entryReadDelayMs = (e.pos === flight.fielder) ? ofReadDelayMs(m, flight, anchor) : 0;
+          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay + entryReadDelayMs, anchor, deadlineMs);
         });
       } else if (flight.fielder) {
-        // Not converted to an out: no chain, just the one fielder who
-        // ends up with the ball (unchanged from the original single-mover
-        // behaviour, before the idle 8 were added).
+        // Fallback only now (Task 2a point 4): fires when outThrowTargets
+        // found nothing at all - a plain hit (single/double/triple) with no
+        // explicit ThrowOrder and no recorded out - so there's no chain to
+        // build; just the one fielder who ends up with the ball (unchanged
+        // from the original single-mover behaviour).
         var soloAnchor = fielderStartAnchorFt(flight.fielder, flight, m);
         var fieldedFt = fieldedPoint(flight);
         if (soloAnchor) {
@@ -4704,8 +4732,13 @@
           // fielder actually starts, real or shaded) would otherwise beat
           // the ball. 0 for every out-of-the-outfield/non-qualifying play.
           var readDelayMs = ofReadDelayMs(m, flight, soloAnchor);
+          // Task 5 point 2: a ground-archetype hit charge race also
+          // compresses to fieldedMs here - the bunt/infield-single hit
+          // charge, never an OF pursuit hit (that late arrival is intended,
+          // fact 11; Task 3 owns its throw side, not this token deadline).
+          var soloDeadlineMs = GROUND_ARCHETYPES[archetype] ? startDelay + fieldedMs(flight) : null;
           moversHtml += movingFielderTokenHtml(m, flight.fielder,
-            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay + readDelayMs, soloAnchor);
+            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay + readDelayMs, soloAnchor, soloDeadlineMs);
         }
       }
     }
@@ -5071,6 +5104,17 @@
       sorted.push("HOME");
     }
 
+    // infieldSingleThrowHtml's one surviving job (Task 1a, probe 0.2),
+    // folded in here: with no explicit ThrowOrder and no recorded out to
+    // derive a target from, an infield single still gets a decorative,
+    // always-loses throw to 1B - the general schedule (contestedSafe against
+    // the batter's own arrival) draws it from here on. Scoped to
+    // infield_single only, exactly as the old function was - a bunt stays
+    // throw-less.
+    if (!sorted.length && flight.archetype === "infield_single") {
+      sorted.push("1B");
+    }
+
     return sorted;
   }
 
@@ -5106,6 +5150,18 @@
          1B side) -> SS covers. The >=45 half deliberately folds in the
          45deg comebacker-to-the-pitcher tie case, not just the literal
          right side, per Alex's call.
+         Fact 22 (gameday-animation-refinements round): that spray-side rule
+         answers "which infielder is closer", but on a throw FROM an
+         outfielder it's real defensive convention, not proximity, that
+         decides - LF's throw to 2B is always taken by the second baseman
+         (2B has to hold the bag facing a throw from the batter's left);
+         CF/RF's is always taken by the shortstop (mirror reasoning, from
+         the batter's right/dead-center). Keyed off the thrower's own
+         position when it's an OF; the angle rule stays exactly as before
+         for every non-OF thrower. The two rules agree in the common case
+         (LF-side balls already have angle<45, RF/CF-side already >=45) -
+         the only visible delta is a fielding OF whose identity crosses the
+         spray-side boundary (e.g. CF ranging left of 45deg).
      fieldingNotation collapses a fielder covering their own next base right
      back down to a single (unassisted) touch - see there for why that's the
      general unassisted rule rather than a separate angle check.
@@ -5121,7 +5177,10 @@
       if (fielderPos === "1B" && relayCount === 1 && firstBaseCoverage(m, flight) === "P") return "P";
       return "1B";
     }
-    if (base === "2B") return angle < 45 ? "2B" : "SS";
+    if (base === "2B") {
+      if (OUTFIELD_POSITIONS[fielderPos]) return fielderPos === "LF" ? "2B" : "SS";
+      return angle < 45 ? "2B" : "SS";
+    }
     return fielderPos;
   }
 
@@ -5370,12 +5429,35 @@
   // only covers the same edge deriveRunnerMoves itself doesn't model (see
   // runnerForOutTarget's own comment).
   function runnerForSafeTarget(m, moves, targetBase) {
-    var mv = null;
+    var candidates = [];
     moves.forEach(function (x) {
-      if (x.to === "OUT" || mv) return;
+      if (x.to === "OUT") return;
       var reached = x.scored ? "HOME" : x.to;
-      if (reached === targetBase) mv = x;
+      if (reached === targetBase) candidates.push(x);
     });
+    var mv = null;
+    if (candidates.length > 1) {
+      // Two runners can only share a destination when both score (Task 1b,
+      // probe 0.3) - deriveRunnerMoves orders most-advanced-first, so a
+      // plain first-match here returned the LEAD scorer (the earliest
+      // arriver), letting a contestedSafe throw home reconcile against the
+      // wrong (faster) runner and visibly beat the trailing one the result
+      // says scored safely. Reconcile against whichever mover actually
+      // arrives latest instead - same Math.max-over-every-safe-mover
+      // principle throwSchedule's tag-throw branch already applies above.
+      var bestMs = -1;
+      candidates.forEach(function (x) {
+        var startOrd = x.from === "BATTER" ? 0 : BASE_ORDINAL[x.from];
+        var endOrd = targetBase === "HOME" ? 4 : BASE_ORDINAL[targetBase];
+        if (startOrd == null || endOrd == null || endOrd <= startOrd) return;
+        var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
+        var ms = runnerLegMs(m, x.from, legs);
+        if (ms > bestMs) { bestMs = ms; mv = x; }
+      });
+      if (!mv) mv = candidates[0];
+    } else {
+      mv = candidates[0] || null;
+    }
     if (!mv && targetBase === "1B" && !moves.some(function (x) { return x.from === "BATTER"; })) {
       mv = { from: "BATTER" };
     }
@@ -5388,6 +5470,9 @@
   // by definition doesn't apply when nobody's out): a safe runner on a
   // normal hit just runs at the shared RUNNER_LEAD_MS beat, the same
   // mvDelay sceneFieldHtml's own non-tag-up safe-move branch already uses.
+  // runnerForSafeTarget now already resolves to the latest-arriving mover
+  // when multiple runners share targetBase (Task 1b) - this stays a
+  // straight arrival computation for whichever single mv that is.
   function safeRunnerArrivalMs(m, flight, moves, targetBase) {
     var mv = runnerForSafeTarget(m, moves, targetBase);
     if (!mv) return null;
@@ -5502,9 +5587,10 @@
     // explicit ThrowOrder on a plain hit - the general version of that same
     // gap: nobody's out at all, so there's no OUT-typed move to reconcile
     // against, only a SAFE one) - reconciles as contestedSafe instead
-    // (throw must honestly lose) against the SAFE-side lookup, the same
-    // policy infieldSingleThrowHtml uses below, just reached through the
-    // main schedule instead of a parallel one.
+    // (throw must honestly lose) against the SAFE-side lookup. This is also
+    // how a no-explicit-ThrowOrder infield single's own default 1B leg
+    // (outThrowTargets' own default, Task 1a) resolves - folded in here
+    // rather than the separate infieldSingleThrowHtml this used to be.
     var lastLeg = schedule[schedule.length - 1];
     var finalRunnerMv = lastLeg.out
       ? runnerForOutTarget(m, moves, lastLeg.base)
@@ -5627,9 +5713,9 @@
   // line on top of an already-busy runner+fielder scene; the animated ball
   // alone already tells the same story. Real out-throws keep the line -
   // callers pass showLine explicitly false only for the safe/uncontested
-  // case (throwHtml's own t.out flag; infieldSingleThrowHtml, which is
-  // always decorative). The clip/line machinery is skipped entirely rather
-  // than just hidden - the ball's own animation never depended on it.
+  // case (throwHtml's own t.out flag). The clip/line machinery is skipped
+  // entirely rather than just hidden - the ball's own animation never
+  // depended on it.
   function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs, fadeAtMs, showLine) {
     var draw = drawMs || THROW_DRAW_MS;
     var clip = "", line = "";
@@ -5683,45 +5769,6 @@
     var ball = '<g class="' + ballCls + '" style="' + ballVars + '">' +
       '<g class="throw-ball-inner">' + wheelBallIconSvg(BALL_R, "ball-body") + "</g></g>";
     return clip + line + ball;
-  }
-
-  // Infield singles get a real "tried to throw him out, just missed" throw
-  // (Alex's ask) - outThrowTargets/throwSchedule are built around real outs
-  // (their own realOutThrowCount cap, forceOut's "must beat the runner"
-  // margin direction), so this is a separate, small function rather than
-  // forcing a throw that's SUPPOSED to lose the race through machinery
-  // built to guarantee a throw wins it. Forward-computed from when the
-  // ball's actually fielded (same real distance/speed every other throw
-  // uses), then reconciled as a contestedSafe event (Task 4.3/4.4) against
-  // the batter's own known arrival at first (batterFirstArrivalMs) -
-  // reproduces the old direct backward-solve's numbers through the one
-  // shared mechanism instead of a parallel one. Scoped to infield_single
-  // only - a routine "1B" landing beyond the infield has no real
-  // close-play-at-first moment to draw.
-  //
-  // moves (Alex's ask, closing a real duplicate-throw risk): outThrowTargets
-  // no longer only fires on real outs - an explicit ThrowOrder now renders
-  // through the main throwHtml/throwSchedule path on ANY play, hits
-  // included (see throwSchedule's own contestedSafe-when-nothing's-out
-  // branch). If someone fills in a ThrowOrder for an infield_single row,
-  // that path would draw its OWN throw to 1B - this function must not also
-  // draw a second, redundant one on top of it.
-  function infieldSingleThrowHtml(m, flight, moves, seqDelay) {
-    if (!flight || flight.archetype !== "infield_single" || !flight.fielder || flight.clearedFence) return "";
-    if (outThrowTargets(m, moves, flight).length) return "";
-    var originFt = fieldedPoint(flight);
-    var baseFt = BASE_POS_FT["1B"];
-    var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
-    var earliestStartMs = fieldedMs(flight) + THROW_DELAY_MS;
-    var schedule = sequentialThrowSchedule(["1B"], earliestStartMs, 0, function () {
-      return throwDrawMsForFt(distFt);
-    });
-    reconcileThrowSchedule(schedule, batterFirstArrivalMs(m), "contestedSafe", m.diff, false);
-    var leg = schedule[0];
-    var from = ftToSvg(originFt.x, originFt.y);
-    var to = SCENE_BASES["1B"];
-    if (!to) return "";
-    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", leg.startMs + (seqDelay || 0), leg.drawMs, null, false);
   }
 
   function throwHtml(m, flight, moves, seqDelay) {
@@ -5948,7 +5995,6 @@
     parseThrowOrder: parseThrowOrder,
     brcExcludes: brcExcludes,
     resolveGrounderInterception: resolveGrounderInterception, resolveSinglePickup: resolveSinglePickup,
-    infieldSingleThrowHtml: infieldSingleThrowHtml,
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
     FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
     CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
@@ -6719,7 +6765,6 @@
         pitchBallHtml(m, flight, wheelFinishMs) +
         ballFlightHtml(m, flight, moves, seqDelay) +
         throwHtml(m, flight, moves, seqDelay) +
-        infieldSingleThrowHtml(m, flight, moves, seqDelay) +
         stealThrowHtml(m, moves, runDelay, outDelay, runnerSeqDelay) +
         fielderNameLabelsHtml(m, flight, seqDelay) +
         onDeckRunnerLabelsHtml(m) +

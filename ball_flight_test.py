@@ -1109,6 +1109,24 @@ def main() -> None:
             got = page.evaluate("(a) => KMFlight.fieldingNotation(a.m, a.flight)", {"m": m, "flight": flight})
             check(label, got, want)
 
+        print("\n2B coverage keyed off the thrower for OF throws (Task 2b, fact 22):")
+        cov2b = page.evaluate(
+            """() => {
+                return {
+                  lf: KMFlight.coveringPosition('2B', 'single', 20, 'LF', 1, null, null),
+                  cf: KMFlight.coveringPosition('2B', 'single', 20, 'CF', 1, null, null),
+                  rf: KMFlight.coveringPosition('2B', 'single', 20, 'RF', 1, null, null),
+                  nonOfLowAngle: KMFlight.coveringPosition('2B', 'grounder', 20, 'SS', 1, null, null),
+                  nonOfHighAngle: KMFlight.coveringPosition('2B', 'grounder', 60, '3B', 1, null, null),
+                };
+            }"""
+        )
+        check("LF throwing to 2B: the second baseman covers", cov2b["lf"], "2B")
+        check("CF throwing to 2B: the shortstop covers", cov2b["cf"], "SS")
+        check("RF throwing to 2B: the shortstop covers", cov2b["rf"], "SS")
+        check("non-OF thrower keeps the angle rule (angle<45 -> 2B)", cov2b["nonOfLowAngle"], "2B")
+        check("non-OF thrower keeps the angle rule (angle>=45 -> SS)", cov2b["nonOfHighAngle"], "SS")
+
         print("\nPFP coverage - real race, not a lattice angle (Task 5a):")
         print("measured against KMTraj-simulated grounders assigned to 1B (angle 77 bucket):")
         pfp = page.evaluate(
@@ -1324,8 +1342,84 @@ def main() -> None:
         check("the throw is reconciled: lands at least contestedSafe.minMs after the batter's real arrival",
               (hit_gap["lastLegEndMs"] - hit_gap["safeArrival"]) >= hit_gap["contestedSafeMin"] - 1, True)
 
-        print("\ninfieldSingleThrowHtml doesn't double up when an explicit ThrowOrder is also set:")
-        dup_guard = page.evaluate(
+        print("\nMulti-scorer HOME target reconciles against the TRAILING runner, not the lead scorer (Task 1b, probe 0.3):")
+        multi_scorer = page.evaluate(
+            """() => {
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '4'};
+                var moves = KMFlight.deriveRunnerMoves('110', '000', 2);
+                var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
+                var mv = KMFlight.runnerForSafeTarget(m, moves, 'HOME');
+                var arrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, 'HOME');
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var lastLeg = schedule[schedule.length - 1];
+                return {
+                  mvFrom: mv && mv.from,
+                  arrival: Math.round(arrival),
+                  lastLegEndMs: Math.round(lastLeg.endMs),
+                  contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
+                };
+            }"""
+        )
+        check("resolves to the trailing (2B, further-behind) runner, not the lead (3B) scorer",
+              multi_scorer["mvFrom"], "2B")
+        check("the throw lands at least contestedSafe.minMs after the TRAILING runner's arrival",
+              (multi_scorer["lastLegEndMs"] - multi_scorer["arrival"]) >= multi_scorer["contestedSafeMin"] - 1, True)
+
+        print("\nFact-25 regression pin: a CF single with no recorded outs never renders as a forceOut (Task 1c):")
+        fact25 = page.evaluate(
+            """() => {
+                // A runner on 1B advances to 2B on the single (batter to 1B) -
+                // throw_order '2' (old digit convention: 2 -> 2B) draws a
+                // decorative throw chasing that advancing runner to 2B.
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '2'};
+                var moves = KMFlight.deriveRunnerMoves('001', '011', 0);
+                var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var lastLeg = schedule[schedule.length - 1];
+                var arrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, '2B');
+                return {
+                  legOut: lastLeg.out,
+                  legBase: lastLeg.base,
+                  lastLegEndMs: Math.round(lastLeg.endMs),
+                  arrival: Math.round(arrival),
+                  contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
+                };
+            }"""
+        )
+        check("a plain CF single's own throw leg is never a forceOut", fact25["legOut"], False)
+        check("the leg targets 2B (the advancing runner)", fact25["legBase"], "2B")
+        check("it reconciles contestedSafe against the advancing runner's own arrival",
+              (fact25["lastLegEndMs"] - fact25["arrival"]) >= fact25["contestedSafeMin"] - 1, True)
+
+        print("\nGrounder deadline compression - a fielding run never outruns fieldedMs (Task 5, facts 18/24):")
+        deadline_grounder = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, diff: 250, batter_spd: 1};
+                var flight = {
+                  archetype: 'grounder', fielder: 'SS', clearedFence: false,
+                  x: -80, y: 60, distance: 100, fieldedDistFt: 100, groundTimeS: 1.8,
+                  contactVel: { vx: -30, vy: 20, vz: -2 }, angle: 29,
+                };
+                var fieldedMs = KMFlight.fieldedMs(flight);
+                var legs = [{ toSvg: {x: 100, y: 100}, distFt: 140 }];
+                var durs = KMFlight.legDurationsMs(legs, KMFlight.fielderProfile(m, 'SS', 'run'));
+                var naturalMs = durs.reduce(function (a, b) { return a + b; }, 0);
+                var html = KMFlight.movingFielderTokenHtml(m, 'SS', legs, 0, {x: -80, y: 60}, fieldedMs);
+                var durMatch = html.match(/--dur:(\\d+)ms/);
+                var compressedMs = durMatch ? Number(durMatch[1]) : null;
+                return {
+                  fieldedMs: Math.round(fieldedMs), naturalMs: Math.round(naturalMs),
+                  compressedMs: compressedMs, naturalExceedsFielded: naturalMs > fieldedMs,
+                };
+            }"""
+        )
+        check("this fixture's natural (uncompressed) run duration exceeds fieldedMs, so compression is exercised",
+              deadline_grounder["naturalExceedsFielded"], True)
+        check("movingFielderTokenHtml compresses the run to at or under fieldedMs when given that deadline",
+              deadline_grounder["compressedMs"] <= deadline_grounder["fieldedMs"] + 1, True)
+
+        print("\nAn infield single with no explicit ThrowOrder gets a decorative contestedSafe 1B leg (Task 1a fold):")
+        if1b_default = page.evaluate(
             """() => {
                 var flight = {
                   archetype: 'infield_single', fielder: '3B', clearedFence: false,
@@ -1333,17 +1427,27 @@ def main() -> None:
                   contactVel: { vx: 5, vy: 30, vz: -2 },
                 };
                 var moves = KMFlight.deriveRunnerMoves('000', '001', 0);
-                var withoutOrder = KMFlight.infieldSingleThrowHtml(
-                  {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250}, flight, moves, 0);
-                var withOrder = KMFlight.infieldSingleThrowHtml(
-                  {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'}, flight, moves, 0);
-                return { withoutOrderNonEmpty: withoutOrder.length > 0, withOrderEmpty: withOrder.length === 0 };
+                var mNoOrder = {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250};
+                var mWithOrder = {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'};
+                var targetsNoOrder = KMFlight.outThrowTargets(mNoOrder, moves, flight);
+                var scheduleNoOrder = KMFlight.throwSchedule(mNoOrder, moves, flight);
+                var lastLeg = scheduleNoOrder[scheduleNoOrder.length - 1];
+                var targetsWithOrder = KMFlight.outThrowTargets(mWithOrder, moves, flight);
+                return {
+                  targetsNoOrder: targetsNoOrder,
+                  lastLegOut: lastLeg.out,
+                  lastLegBase: lastLeg.base,
+                  targetsWithOrder: targetsWithOrder,
+                };
             }"""
         )
-        check("infieldSingleThrowHtml still draws its own decorative throw with no explicit ThrowOrder",
-              dup_guard["withoutOrderNonEmpty"], True)
-        check("infieldSingleThrowHtml steps aside when an explicit ThrowOrder already covers this play",
-              dup_guard["withOrderEmpty"], True)
+        check("no explicit ThrowOrder still gets a default 1B target on an infield single",
+              if1b_default["targetsNoOrder"], ["1B"])
+        check("that leg is decorative (out: false), reconciled contestedSafe not forceOut",
+              if1b_default["lastLegOut"], False)
+        check("that leg targets 1B", if1b_default["lastLegBase"], "1B")
+        check("an explicit ThrowOrder still wins over the infield-single default",
+              if1b_default["targetsWithOrder"], ["1B"])
 
         print("\nDecorative/safe throws skip the dashed line, keeping only the ball (Alex's ask):")
         line_vis = page.evaluate(
