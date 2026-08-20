@@ -1218,6 +1218,61 @@ def main() -> None:
               ofpursuit["shallowReadDelay"], ofpursuit["shallowDeficitBefore"], tol=1)
         check("the read delay stays within its own bound", ofpursuit["shallowReadDelay"] <= ofpursuit["READ_DELAY_MAX"], True)
 
+        print("\nOF throw resync - the throw never draws before the fielder's own rendered arrival (Task 3):")
+        of_resync = page.evaluate(
+            """() => {
+                function resolved(ev, la, phi, archetype, result) {
+                  var sim = KMTraj.simulateFlight(ev, la, phi, 'R');
+                  var flight = {
+                    ev: ev, la: la, distance: sim.distance,
+                    x: sim.landing.x, y: sim.landing.y,
+                    contactVel: sim.contactVel, archetype: archetype, clearedFence: false,
+                  };
+                  KMFlight.resolveHitPickup(flight);
+                  return flight;
+                }
+                // Deep double, explicit ThrowOrder so throwSchedule actually
+                // builds a leg (a plain hit with no ThrowOrder draws no
+                // throw at all - see outThrowTargets).
+                var deep = resolved(100, 25, 10, 'double', 'double');
+                var m = {result: '2B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '2'};
+                var moves = KMFlight.deriveRunnerMoves('000', '010', 0);
+                var arrival = KMFlight.fielderBallArrivalMs(m, deep);
+                var schedule = KMFlight.throwSchedule(m, moves, deep);
+                var honestFieldedMs = KMFlight.fieldedMs(deep);
+                // fielderBallArrivalMs must agree with what the token itself
+                // renders (single-sourcing, Task 3 point 2): render the same
+                // ball-touching leg through movingFielderTokenHtml with the
+                // identical inputs fielderTokensHtml's solo branch would use,
+                // and compare its own --delay+--dur sum.
+                var anchor = KMFlight.fielderStartAnchorFt(deep.fielder, deep, m);
+                var fieldedFt = KMFlight.fieldedPoint(deep);
+                var svgFrom = {x: 0, y: 0};
+                var distFt = Math.hypot(fieldedFt.x - anchor.x, fieldedFt.y - anchor.y);
+                var kind = KMFlight.ofPursuitApplies(m, deep) ? 'pursuit' : 'run';
+                var html = KMFlight.movingFielderTokenHtml(m, deep.fielder,
+                  [{toSvg: svgFrom, distFt: distFt}], 0, anchor, null, kind);
+                var delayMatch = html.match(/--delay:(\\d+)ms/);
+                var durMatch = html.match(/--dur:(\\d+)ms/);
+                var renderedArrivalMs = (delayMatch ? Number(delayMatch[1]) : null) +
+                  (durMatch ? Number(durMatch[1]) : null);
+                return {
+                  fielder: deep.fielder,
+                  arrival: arrival == null ? null : Math.round(arrival),
+                  renderedArrivalMs: renderedArrivalMs,
+                  scheduleBaseMs: schedule.length ? Math.round(schedule[0].startMs) : null,
+                  honestFieldedMs: Math.round(honestFieldedMs),
+                };
+            }"""
+        )
+        print(f"  fielder={of_resync['fielder']} fielderBallArrivalMs={of_resync['arrival']} "
+              f"rendered(--delay+--dur)={of_resync['renderedArrivalMs']} "
+              f"scheduleBase={of_resync['scheduleBaseMs']} fieldedMs={of_resync['honestFieldedMs']}")
+        check("fielderBallArrivalMs matches the token's own rendered arrival exactly (single-sourced)",
+              of_resync["arrival"], of_resync["renderedArrivalMs"])
+        check("the throw's first leg never starts before the fielder's own honest rendered arrival",
+              of_resync["scheduleBaseMs"] >= of_resync["arrival"], True)
+
         print("\nHorizontal-spray bucket classification + station selection:")
         spray = page.evaluate(
             """() => {

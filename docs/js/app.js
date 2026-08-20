@@ -4264,6 +4264,31 @@
   function fielderStartDelay(pos, baseDelay) {
     return baseDelay + (OUTFIELD_POSITIONS[pos] ? OUTFIELDER_REACT_MS : 0);
   }
+
+  // Task 3 (facts 14/26): the ONE source of "when does the ball-touching
+  // fielder actually arrive at fieldedPoint, as rendered" - both
+  // fielderTokensHtml (the picture) and throwSchedule (the race) read this
+  // so they can never disagree about the same run. Raw units, same
+  // pre-seqDelay convention fieldedMs/ballTravelMs already use - callers add
+  // their own seqDelay/startDelay on top.
+  //   reaction beat: "run" kind gets the flat OUTFIELDER_REACT_MS add
+  //   (fielderStartDelay's own logic, reproduced here without baseDelay);
+  //   "pursuit" kind already carries that same reaction inside its own
+  //   profile (fielderProfile's reactionS) - added once, not twice, exactly
+  //   the double-count movingFielderTokenHtml's profileKind param (below)
+  //   also avoids.
+  function fielderBallArrivalMs(m, flight) {
+    if (!flight || !flight.fielder) return null;
+    var anchor = fielderStartAnchorFt(flight.fielder, flight, m);
+    if (!anchor) return null;
+    var fieldedFt = fieldedPoint(flight);
+    var distFt = Math.hypot(fieldedFt.x - anchor.x, fieldedFt.y - anchor.y);
+    var kind = ofPursuitApplies(m, flight) ? "pursuit" : "run";
+    var readDelayMs = ofReadDelayMs(m, flight, anchor);
+    var reactionMs = (kind === "run" && OUTFIELD_POSITIONS[flight.fielder]) ? OUTFIELDER_REACT_MS : 0;
+    var travelMs = Math.round(arrivalTimeS(distFt, fielderProfile(m, flight.fielder, kind)) * 1000);
+    return readDelayMs + reactionMs + travelMs;
+  }
   // Real fielders build up to their top pace rather than moving at a flat
   // rate from frame one (Alex's ask, two related reports pointing at the
   // same missing piece: the idle-drift lean read as an instant snap over
@@ -4430,8 +4455,8 @@
   // stops. A single leg is the degenerate case (cumDistFt === its own
   // distFt, prevTimeS starts at 0) and returns exactly the old single-value
   // formula unchanged.
-  function fielderLegDurationsMs(m, pos, legs) {
-    return legDurationsMs(legs, fielderProfile(m, pos, "run"));
+  function fielderLegDurationsMs(m, pos, legs, kind) {
+    return legDurationsMs(legs, fielderProfile(m, pos, kind || "run"));
   }
 
   var fielderArcCounter = 0;
@@ -4466,12 +4491,16 @@
   // compresses the run to land exactly on the deadline instead. Only ever
   // shortens, never extends - a fielder who's naturally early keeps their
   // own natural pace, no artificial slow-down to "wait" for the ball.
-  function movingFielderTokenHtml(m, pos, legs, startDelay, anchorOverride, deadlineMs) {
+  function movingFielderTokenHtml(m, pos, legs, startDelay, anchorOverride, deadlineMs, profileKind) {
     var anchor = anchorOverride || FIELDER_ANCHORS_FT[pos];
     if (!anchor || !legs.length) return "";
     var from = ftToSvg(anchor.x, anchor.y);
-    var delayMs = fielderStartDelay(pos, startDelay);
-    var durs = fielderLegDurationsMs(m, pos, legs);
+    // "pursuit" already carries its own reaction beat inside its profile
+    // (fielderBallArrivalMs's own comment) - skip fielderStartDelay's flat
+    // OUTFIELDER_REACT_MS add here to avoid double-counting it; every other
+    // kind (the default "run") keeps that add exactly as before.
+    var delayMs = profileKind === "pursuit" ? startDelay : fielderStartDelay(pos, startDelay);
+    var durs = fielderLegDurationsMs(m, pos, legs, profileKind);
     var totalMs = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
     if (deadlineMs != null) {
       var budgetMs = deadlineMs - delayMs;
@@ -4713,7 +4742,13 @@
           // every non-qualifying play, so infield/out-play chains are
           // unaffected.
           var entryReadDelayMs = (e.pos === flight.fielder) ? ofReadDelayMs(m, flight, anchor) : 0;
-          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay + entryReadDelayMs, anchor, deadlineMs);
+          // Task 3 point 1: the ball-touching entry renders on the same
+          // "pursuit" profile ofPursuitDeficitMs/the race already use when
+          // it qualifies - previously the picture always used "run" while
+          // the race used "pursuit", disagreeing about the same fielder's
+          // real arrival. Every other entry (a relay receiver) keeps "run".
+          var entryKind = (e.pos === flight.fielder && ofPursuitApplies(m, flight)) ? "pursuit" : "run";
+          moversHtml += movingFielderTokenHtml(m, e.pos, legs, startDelay + entryReadDelayMs, anchor, deadlineMs, entryKind);
         });
       } else if (flight.fielder) {
         // Fallback only now (Task 2a point 4): fires when outThrowTargets
@@ -4737,8 +4772,14 @@
           // charge, never an OF pursuit hit (that late arrival is intended,
           // fact 11; Task 3 owns its throw side, not this token deadline).
           var soloDeadlineMs = GROUND_ARCHETYPES[archetype] ? startDelay + fieldedMs(flight) : null;
+          // Task 3 point 1: same profile the race (ofPursuitDeficitMs) and
+          // fielderBallArrivalMs already use - this is the main path a
+          // pursuit-qualifying double/triple/1BWH single actually renders
+          // through (no explicit ThrowOrder to route it into the chain
+          // branch above).
+          var soloKind = ofPursuitApplies(m, flight) ? "pursuit" : "run";
           moversHtml += movingFielderTokenHtml(m, flight.fielder,
-            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay + readDelayMs, soloAnchor, soloDeadlineMs);
+            [{ toSvg: ftToSvg(fieldedFt.x, fieldedFt.y), distFt: soloDistFt }], startDelay + readDelayMs, soloAnchor, soloDeadlineMs, soloKind);
         }
       }
     }
@@ -5545,6 +5586,22 @@
     // throwHtml's origin). fieldedMs (Part 7) replaces the old
     // ballTravelMs+rollMs sum with one physically-timed number.
     var base = fieldedMs(flight) + THROW_DELAY_MS;
+    // Task 3 point 3 (facts 14/26): on an OF hit (resolveHitPickup-resolved
+    // doubles/triples, an OF single), the rendered fielder can arrive at
+    // fieldedPoint well after fieldedMs says the ball's at rest - fact 11's
+    // intended pause. Only the THROW must wait for the honest picture;
+    // fieldedMs alone used to let the throw draw from a spot the fielder
+    // hadn't actually reached yet. Floors (never lowers) base at the same
+    // fielderBallArrivalMs the token itself renders on, so the two can never
+    // disagree. Scoped off air catches (their own ballTravelMs anchor
+    // already accounts for the catch) and off infield charge races (their
+    // own fieldedMs already IS the charge race's own arrival answer).
+    if (OUTFIELD_POSITIONS[flight.fielder] && !CAUGHT_IN_AIR[flight.archetype]) {
+      var honestArrivalMs = fielderBallArrivalMs(m, flight);
+      if (honestArrivalMs != null) {
+        base = Math.max(fieldedMs(flight), honestArrivalMs) + THROW_DELAY_MS;
+      }
+    }
     // Real distance per throw (Alex's ask - a relay leg must not take as
     // long as a full corner-to-first throw): throw 0 runs from the ball's
     // actual fielded spot (fieldedPoint), every throw after it from the
@@ -6026,6 +6083,7 @@
     pitcherCover1BArrivalMs: pitcherCover1BArrivalMs, pitcherCover1BLegs: pitcherCover1BLegs,
     firstBaseCoverage: firstBaseCoverage,
     fielderLegDurationsMs: fielderLegDurationsMs, movingFielderTokenHtml: movingFielderTokenHtml,
+    fielderBallArrivalMs: fielderBallArrivalMs,
     fielderStartAnchorFt: fielderStartAnchorFt,
     ofPursuitApplies: ofPursuitApplies, ofPursuitDeficitMs: ofPursuitDeficitMs,
     ofReadDelayMs: ofReadDelayMs, ofDerivedShadeAnchorFt: ofDerivedShadeAnchorFt,
