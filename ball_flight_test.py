@@ -1345,6 +1345,29 @@ def main() -> None:
         check("infieldSingleThrowHtml steps aside when an explicit ThrowOrder already covers this play",
               dup_guard["withOrderEmpty"], True)
 
+        print("\nDecorative/safe throws skip the dashed line, keeping only the ball (Alex's ask):")
+        line_vis = page.evaluate(
+            """() => {
+                var withLine = KMFlight.throwLineHtml(0, 0, 100, 100, 'throw-line throw-out', 0, 200, null, true);
+                var withoutLine = KMFlight.throwLineHtml(0, 0, 100, 100, 'throw-line throw-safe', 0, 200, null, false);
+                var stealDefault = KMFlight.throwLineHtml(0, 0, 100, 100, 'throw-line steal-throw throw-safe', 0, 200);
+                return {
+                  outHasLine: withLine.indexOf('<line') !== -1,
+                  outHasBall: withLine.indexOf('throw-ball') !== -1,
+                  safeHasLine: withoutLine.indexOf('<line') !== -1,
+                  safeHasClipPath: withoutLine.indexOf('<clipPath') !== -1,
+                  safeHasBall: withoutLine.indexOf('throw-ball') !== -1,
+                  stealStillHasLine: stealDefault.indexOf('<line') !== -1,
+                };
+            }"""
+        )
+        check("a real out-throw still shows the dashed line", line_vis["outHasLine"], True)
+        check("a real out-throw still shows the ball", line_vis["outHasBall"], True)
+        check("a decorative/safe throw (showLine=false) has no dashed line", line_vis["safeHasLine"], False)
+        check("a decorative/safe throw has no clip-path either (not just hidden, never built)", line_vis["safeHasClipPath"], False)
+        check("a decorative/safe throw still shows the ball", line_vis["safeHasBall"], True)
+        check("a steal throw (no showLine arg passed) keeps the line by default - unscoped, unchanged", line_vis["stealStillHasLine"], True)
+
         print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
         prim = page.evaluate(
             """() => {

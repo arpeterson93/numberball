@@ -5574,18 +5574,29 @@
   // own bearing. Animating just its width via CSS is what actually grows
   // the visible portion of the (separately, statically dashed) line
   // underneath.
-  function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs, fadeAtMs) {
-    var len = Math.hypot(x2 - x1, y2 - y1) || 1;
-    var angleDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-    var id = "throwClip" + (THROW_CLIP_SEQ++);
+  // showLine (optional, default true): Alex's ask - a decorative/safe throw
+  // (nobody's actually out) reads as visual clutter with the dashed reveal
+  // line on top of an already-busy runner+fielder scene; the animated ball
+  // alone already tells the same story. Real out-throws keep the line -
+  // callers pass showLine explicitly false only for the safe/uncontested
+  // case (throwHtml's own t.out flag; infieldSingleThrowHtml, which is
+  // always decorative). The clip/line machinery is skipped entirely rather
+  // than just hidden - the ball's own animation never depended on it.
+  function throwLineHtml(x1, y1, x2, y2, cls, startMs, drawMs, fadeAtMs, showLine) {
     var draw = drawMs || THROW_DRAW_MS;
-    var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + draw + "ms";
-    var clip = '<clipPath id="' + id + '" clipPathUnits="userSpaceOnUse">' +
-      '<rect class="throw-clip-rect" x="' + x1.toFixed(1) + '" y="' + (y1 - 4).toFixed(1) +
-      '" width="0" height="8" transform="rotate(' + angleDeg.toFixed(2) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
-      ')" style="' + clipVars + '"></rect></clipPath>';
-    var line = '<line class="' + cls + '" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) +
-      '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" clip-path="url(#' + id + ')"></line>';
+    var clip = "", line = "";
+    if (showLine !== false) {
+      var len = Math.hypot(x2 - x1, y2 - y1) || 1;
+      var angleDeg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+      var id = "throwClip" + (THROW_CLIP_SEQ++);
+      var clipVars = "--len:" + len.toFixed(1) + "px;--delay:" + startMs + "ms;--draw:" + draw + "ms";
+      clip = '<clipPath id="' + id + '" clipPathUnits="userSpaceOnUse">' +
+        '<rect class="throw-clip-rect" x="' + x1.toFixed(1) + '" y="' + (y1 - 4).toFixed(1) +
+        '" width="0" height="8" transform="rotate(' + angleDeg.toFixed(2) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
+        ')" style="' + clipVars + '"></rect></clipPath>';
+      line = '<line class="' + cls + '" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) +
+        '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" clip-path="url(#' + id + ')"></line>';
+    }
     // Alex's ask: every throw is now a moving baseball, not just a dashed
     // line revealing itself - travels x1,y1->x2,y2 over the exact same
     // startMs/draw window the clip-rect above already uses, so the ball and
@@ -5662,7 +5673,7 @@
     var from = ftToSvg(originFt.x, originFt.y);
     var to = SCENE_BASES["1B"];
     if (!to) return "";
-    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", leg.startMs + (seqDelay || 0), leg.drawMs);
+    return throwLineHtml(from.x, from.y, to.x, to.y, "throw-line throw-safe", leg.startMs + (seqDelay || 0), leg.drawMs, null, false);
   }
 
   function throwHtml(m, flight, moves, seqDelay) {
@@ -5692,7 +5703,7 @@
       // (its own fadeAtMs comment).
       var next = schedule[i + 1];
       var fadeAtMs = next ? next.startMs + delay : null;
-      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay, t.drawMs, fadeAtMs);
+      var html = throwLineHtml(origin.x, origin.y, to.x, to.y, cls, t.startMs + delay, t.drawMs, fadeAtMs, t.out);
       origin = to;   // next throw relays from here (A5)
       return html;
     }).join("");
