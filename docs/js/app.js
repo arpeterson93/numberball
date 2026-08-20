@@ -4934,13 +4934,16 @@
     return bases;
   }
 
-  // import_BRC.csv's optional per-position ThrowOrder_* columns key on "OF"
-  // for any outfielder rather than LF/CF/RF individually - a play's throw
-  // sequence rarely needs to distinguish which outfield third fielded it,
-  // just infield vs outfield vs battery. flight.fielder is always a specific
-  // LF/CF/RF, so this collapses those three down to the one column to check.
-  function throwOrderKeyForPosition(pos) {
-    return OF_POSITIONS[pos] ? "OF" : pos;
+  // import_BRC.csv's optional per-position ThrowOrder_* columns - a specific
+  // outfielder's own column (ThrowOrder_LF/CF/RF) beats the older, coarser
+  // "any outfielder" ThrowOrder_OF column, which is kept alongside them
+  // rather than replaced (non-destructive - existing ThrowOrder_OF rows keep
+  // working unchanged; a situation can fill in the specific position, the
+  // coarse one, or both). Infield/battery positions have no coarser fallback
+  // of their own, just their one column. Returns candidate keys in the order
+  // they should be tried, most specific first.
+  function throwOrderCandidateKeys(pos) {
+    return OF_POSITIONS[pos] ? [pos, "OF"] : [pos];
   }
 
   /* Every base a throw goes to, in real fielding order (A2/A3/B6). Which
@@ -4953,12 +4956,19 @@
      second opinion to reconcile against one that has. Checked most-specific
      first: a per-position ThrowOrder_* (which fielder ends up credited,
      after any ExcludedPositions/DefaultPosition override, decides which
-     column) beats the generic ThrowOrder column, which beats the heuristic. */
+     column; a specific outfielder's own column beats the coarser ThrowOrder_OF)
+     beats the generic ThrowOrder column, which beats the heuristic. */
   function outThrowTargets(m, moves, flight) {
     if (!flight || flight.clearedFence) return [];
     var byPosition = m.throw_order_by_position;
-    var posKey = throwOrderKeyForPosition(flight.fielder);
-    var explicit = parseThrowOrder(byPosition && byPosition[posKey]) || parseThrowOrder(m.throw_order);
+    var explicit = null;
+    if (byPosition) {
+      var candidateKeys = throwOrderCandidateKeys(flight.fielder);
+      for (var i = 0; i < candidateKeys.length && !explicit; i++) {
+        explicit = parseThrowOrder(byPosition[candidateKeys[i]]);
+      }
+    }
+    explicit = explicit || parseThrowOrder(m.throw_order);
     if (explicit) return explicit;
     var caught = !!CAUGHT_IN_AIR[flight.archetype];
     var forced = FORCED_OUT_BASE[m.result];
@@ -5252,7 +5262,15 @@
   // and its own runner-identity tag (Stage 4 - who a runnerLateJump/
   // stretchRunner adjustment applies to) read one answer. Falls back to the
   // batter (untracked by deriveRunnerMoves) only in the one case
-  // outThrowTargets does the same - an unaccounted non-FC-family out at 1B.
+  // outThrowTargets does the same - an unaccounted non-FC-family out at 1B;
+  // recorded>0 guards that (Alex's ask, closing a real-if-harmless latent
+  // overreach): every actual call site already only reaches this function
+  // when there's a genuine recorded out (throwSchedule only calls it for a
+  // lastLeg.out===true leg, which by construction requires recorded>0), so
+  // this was never wrong in production - but called directly with a
+  // zero-out hit (now possible - see runnerForSafeTarget's own use of
+  // targetBase "1B"), the un-guarded version would have wrongly claimed the
+  // batter was thrown out at first on a play where nobody's out at all.
   function runnerForOutTarget(m, moves, targetBase) {
     var forced = FORCED_OUT_BASE[m.result];
     var mv = null;
@@ -5261,7 +5279,8 @@
       var candidate = forced === "OWN" ? x.from : (forced || NEXT_BASE[x.from] || x.from);
       if (candidate === targetBase) mv = x;
     });
-    if (!mv && targetBase === "1B" && !BATTER_REACHES_FIRST[m.result]) mv = { from: "BATTER" };
+    var recorded = (m.outs_after || 0) - (m.outs_before || 0);
+    if (!mv && recorded > 0 && targetBase === "1B" && !BATTER_REACHES_FIRST[m.result]) mv = { from: "BATTER" };
     return mv;
   }
   // Honest arrival of the specific runner a real out-throw target base
@@ -5287,6 +5306,49 @@
     var forcedOnContact = FORCE_TIMING_RESULTS[m.result] && isForcedRunner(mv.from, before);
     var mvDelay = forcedOnContact ? runDelay : outDelay;
     return mvDelay + runnerLegMs(m, mv.from, legs);
+  }
+
+  // The SAFE-side sibling of runnerForOutTarget - which tracked move (if
+  // any) actually reached targetBase safely, for a decorative/contestedSafe
+  // throw leg on a play where nobody's out at all (an explicit ThrowOrder on
+  // a plain hit, closing a real gap: realOutThrowCount is 0 for a hit, so
+  // there's no OUT-typed move to find the runner from at all - without this,
+  // that kind of throw rendered from pure forward physics with no
+  // reconciliation, no guarantee it wouldn't visibly beat a runner who was
+  // never in any danger). Matches whichever move's own real destination is
+  // targetBase (scored counts as reaching HOME) - for a normal hit,
+  // deriveRunnerMoves already tracks the batter's own BATTER->base move, so
+  // this resolves directly in the common case; the BATTER fallback below
+  // only covers the same edge deriveRunnerMoves itself doesn't model (see
+  // runnerForOutTarget's own comment).
+  function runnerForSafeTarget(m, moves, targetBase) {
+    var mv = null;
+    moves.forEach(function (x) {
+      if (x.to === "OUT" || mv) return;
+      var reached = x.scored ? "HOME" : x.to;
+      if (reached === targetBase) mv = x;
+    });
+    if (!mv && targetBase === "1B" && !moves.some(function (x) { return x.from === "BATTER"; })) {
+      mv = { from: "BATTER" };
+    }
+    return mv;
+  }
+  // Honest arrival of the specific runner a decorative/contestedSafe throw
+  // leg is chasing, for a play with no real out at all - the safe-side
+  // sibling of forcedOutRunnerArrivalMs. No forcedOnContact distinction here
+  // (that's specifically about a FORCED runner fleeing a force play, which
+  // by definition doesn't apply when nobody's out): a safe runner on a
+  // normal hit just runs at the shared RUNNER_LEAD_MS beat, the same
+  // mvDelay sceneFieldHtml's own non-tag-up safe-move branch already uses.
+  function safeRunnerArrivalMs(m, flight, moves, targetBase) {
+    var mv = runnerForSafeTarget(m, moves, targetBase);
+    if (!mv) return null;
+    var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
+    var endOrd = targetBase === "HOME" ? 4 : BASE_ORDINAL[targetBase];
+    if (startOrd == null || endOrd == null || endOrd <= startOrd) return null;
+    var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
+    var runDelay = flight ? RUNNER_LEAD_MS : 0;
+    return runDelay + runnerLegMs(m, mv.from, legs);
   }
 
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
@@ -5385,15 +5447,23 @@
     // relay's earlier legs are real chained transfers, only the last leg
     // ever actually races anyone. A real out (schedule's own `out` flag)
     // reconciles as forceOut (throw must beat the runner, today's
-    // previously-unenforced-at-runtime gap); a leg that fell outside
-    // realOutThrowCount's own cap (more throws than outs recorded, e.g. a DP
-    // whose back end never actually retired anyone) reconciles as
-    // contestedSafe instead (throw must honestly lose) - the same policy
-    // infieldSingleThrowHtml uses below, just reached through the main
-    // schedule instead of a parallel one.
+    // previously-unenforced-at-runtime gap) against the OUT-side lookup; a
+    // leg that isn't a real out - either one that fell outside
+    // realOutThrowCount's own cap (a DP whose back end never actually
+    // retired anyone), or realOutThrowCount is 0 for the whole play (an
+    // explicit ThrowOrder on a plain hit - the general version of that same
+    // gap: nobody's out at all, so there's no OUT-typed move to reconcile
+    // against, only a SAFE one) - reconciles as contestedSafe instead
+    // (throw must honestly lose) against the SAFE-side lookup, the same
+    // policy infieldSingleThrowHtml uses below, just reached through the
+    // main schedule instead of a parallel one.
     var lastLeg = schedule[schedule.length - 1];
-    var finalRunnerMv = runnerForOutTarget(m, moves, lastLeg.base);
-    var finalRunnerArrival = forcedOutRunnerArrivalMs(m, flight, moves, lastLeg.base);
+    var finalRunnerMv = lastLeg.out
+      ? runnerForOutTarget(m, moves, lastLeg.base)
+      : runnerForSafeTarget(m, moves, lastLeg.base);
+    var finalRunnerArrival = lastLeg.out
+      ? forcedOutRunnerArrivalMs(m, flight, moves, lastLeg.base)
+      : safeRunnerArrivalMs(m, flight, moves, lastLeg.base);
     var scheduleAdjustments = [];
     if (finalRunnerArrival != null) {
       var recon = reconcileThrowSchedule(schedule, finalRunnerArrival,
@@ -5569,8 +5639,17 @@
   // shared mechanism instead of a parallel one. Scoped to infield_single
   // only - a routine "1B" landing beyond the infield has no real
   // close-play-at-first moment to draw.
-  function infieldSingleThrowHtml(m, flight, seqDelay) {
+  //
+  // moves (Alex's ask, closing a real duplicate-throw risk): outThrowTargets
+  // no longer only fires on real outs - an explicit ThrowOrder now renders
+  // through the main throwHtml/throwSchedule path on ANY play, hits
+  // included (see throwSchedule's own contestedSafe-when-nothing's-out
+  // branch). If someone fills in a ThrowOrder for an infield_single row,
+  // that path would draw its OWN throw to 1B - this function must not also
+  // draw a second, redundant one on top of it.
+  function infieldSingleThrowHtml(m, flight, moves, seqDelay) {
     if (!flight || flight.archetype !== "infield_single" || !flight.fielder || flight.clearedFence) return "";
+    if (outThrowTargets(m, moves, flight).length) return "";
     var originFt = fieldedPoint(flight);
     var baseFt = BASE_POS_FT["1B"];
     var distFt = Math.hypot(baseFt.x - originFt.x, baseFt.y - originFt.y);
@@ -5800,6 +5879,7 @@
     MARGIN_POLICY: MARGIN_POLICY, targetMarginMs: targetMarginMs,
     reconcileThrowSchedule: reconcileThrowSchedule, holdChainTo: holdChainTo,
     forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs, runnerForOutTarget: runnerForOutTarget,
+    safeRunnerArrivalMs: safeRunnerArrivalMs, runnerForSafeTarget: runnerForSafeTarget,
     throwRunnerAdjustmentMs: throwRunnerAdjustmentMs,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
     RUNNER_LEAD_MS: RUNNER_LEAD_MS,
@@ -5817,7 +5897,7 @@
     resolveHitPickup: resolveHitPickup,
     applyAngleOverride: applyAngleOverride, clampFairTerritory: clampFairTerritory,
     groundDirPoint: groundDirPoint, fieldedPoint: fieldedPoint,
-    throwOrderKeyForPosition: throwOrderKeyForPosition,
+    throwOrderCandidateKeys: throwOrderCandidateKeys,
     fieldingChain: fieldingChain, fieldingChainDetail: fieldingChainDetail, involvedPositions: involvedPositions,
     fielderLabelHasResult: fielderLabelHasResult, ballFlightHtml: ballFlightHtml,
     ballResultLabelHtml: ballResultLabelHtml,
@@ -6580,7 +6660,7 @@
         pitchBallHtml(m, flight, wheelFinishMs) +
         ballFlightHtml(m, flight, moves, seqDelay) +
         throwHtml(m, flight, moves, seqDelay) +
-        infieldSingleThrowHtml(m, flight, seqDelay) +
+        infieldSingleThrowHtml(m, flight, moves, seqDelay) +
         stealThrowHtml(m, moves, runDelay, outDelay, runnerSeqDelay) +
         fielderNameLabelsHtml(m, flight, seqDelay) +
         onDeckRunnerLabelsHtml(m) +

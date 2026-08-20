@@ -150,9 +150,16 @@ _BRC_POSITION_OVERRIDE: dict[tuple[str, str, int], dict] = {}
 # a single string like the generic ThrowOrder column.
 _BRC_THROW_ORDER_BY_POSITION: dict[tuple[str, str, int], dict] = {}
 
+# ThrowOrder_OF (the original, coarse "any outfielder" column) stays alongside
+# the newer per-outfielder LF/CF/RF columns rather than being replaced - a
+# situation can fill in either, or both (docs/js/app.js's own lookup tries
+# the specific position first, then falls back to OF). This is a deliberate,
+# non-destructive add: the 43 rows already filled in under ThrowOrder_OF keep
+# working unchanged, no CSV data migration needed.
 _THROW_ORDER_POSITION_COLUMNS = {
     "P": "ThrowOrder_P", "C": "ThrowOrder_C",
     "1B": "ThrowOrder_1B", "2B": "ThrowOrder_2B", "3B": "ThrowOrder_3B", "SS": "ThrowOrder_SS",
+    "LF": "ThrowOrder_LF", "CF": "ThrowOrder_CF", "RF": "ThrowOrder_RF",
     "OF": "ThrowOrder_OF",
 }
 

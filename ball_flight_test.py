@@ -1270,6 +1270,81 @@ def main() -> None:
         check("a play landing in a bucket with NO stationsBySpray entry falls back to band.stations",
               spray["otherLa"], 20)
 
+        print("\nThrowOrder_LF/CF/RF (specific outfielder beats the coarser ThrowOrder_OF):")
+        throw_keys = page.evaluate(
+            """() => {
+                return {
+                  lf: KMFlight.throwOrderCandidateKeys('LF'),
+                  firstBase: KMFlight.throwOrderCandidateKeys('1B'),
+                };
+            }"""
+        )
+        check("an outfield position tries its own column first, then OF", throw_keys["lf"], ["LF", "OF"])
+        check("an infield/battery position has no OF fallback", throw_keys["firstBase"], ["1B"])
+        throw_pref = page.evaluate(
+            """() => {
+                var m = {result: '2B', outs_before: 0, outs_after: 0};
+                var flight = {fielder: 'LF', clearedFence: false};
+                var moves = [];
+                var specificWins = KMFlight.outThrowTargets(
+                  Object.assign({}, m, {throw_order_by_position: {LF: '1', OF: '2'}}), moves, flight);
+                var fallsBackToOf = KMFlight.outThrowTargets(
+                  Object.assign({}, m, {throw_order_by_position: {OF: '3'}}), moves, flight);
+                return {specificWins: specificWins, fallsBackToOf: fallsBackToOf};
+            }"""
+        )
+        check("ThrowOrder_LF wins over ThrowOrder_OF when both are set", throw_pref["specificWins"], ["1B"])
+        check("falls back to ThrowOrder_OF when no LF-specific value is set", throw_pref["fallsBackToOf"], ["3B"])
+
+        print("\nExplicit ThrowOrder on a hit with zero real outs (closing the general gap):")
+        hit_gap = page.evaluate(
+            """() => {
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'};
+                var moves = KMFlight.deriveRunnerMoves('000', '001', 0);
+                var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
+                var outLookup = KMFlight.runnerForOutTarget(m, moves, '1B');
+                var safeLookup = KMFlight.runnerForSafeTarget(m, moves, '1B');
+                var safeArrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, '1B');
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var lastLeg = schedule[schedule.length - 1];
+                return {
+                  outLookupFound: outLookup != null,
+                  safeLookupFrom: safeLookup && safeLookup.from,
+                  safeArrival: Math.round(safeArrival),
+                  lastLegOut: lastLeg.out,
+                  lastLegEndMs: Math.round(lastLeg.endMs),
+                  contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
+                };
+            }"""
+        )
+        check("the OUT-side lookup finds nothing on a play with zero real outs (the old gap)",
+              hit_gap["outLookupFound"], False)
+        check("the SAFE-side lookup finds the batter's own real move to 1B", hit_gap["safeLookupFrom"], "BATTER")
+        check("the final leg reads as decorative (out: false), not a real out", hit_gap["lastLegOut"], False)
+        check("the throw is reconciled: lands at least contestedSafe.minMs after the batter's real arrival",
+              (hit_gap["lastLegEndMs"] - hit_gap["safeArrival"]) >= hit_gap["contestedSafeMin"] - 1, True)
+
+        print("\ninfieldSingleThrowHtml doesn't double up when an explicit ThrowOrder is also set:")
+        dup_guard = page.evaluate(
+            """() => {
+                var flight = {
+                  archetype: 'infield_single', fielder: '3B', clearedFence: false,
+                  x: 20, y: 30, distance: 36, fieldedDistFt: 40, groundTimeS: 0.5,
+                  contactVel: { vx: 5, vy: 30, vz: -2 },
+                };
+                var moves = KMFlight.deriveRunnerMoves('000', '001', 0);
+                var withoutOrder = KMFlight.infieldSingleThrowHtml(
+                  {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250}, flight, moves, 0);
+                var withOrder = KMFlight.infieldSingleThrowHtml(
+                  {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'}, flight, moves, 0);
+                return { withoutOrderNonEmpty: withoutOrder.length > 0, withOrderEmpty: withOrder.length === 0 };
+            }"""
+        )
+        check("infieldSingleThrowHtml still draws its own decorative throw with no explicit ThrowOrder",
+              dup_guard["withoutOrderNonEmpty"], True)
+        check("infieldSingleThrowHtml steps aside when an explicit ThrowOrder already covers this play",
+              dup_guard["withOrderEmpty"], True)
+
         print("\nShared race primitive (gameday reconciliation plan, Task 3.1):")
         prim = page.evaluate(
             """() => {
