@@ -1739,6 +1739,73 @@ def main() -> None:
               "unresolved" in recon["hopelessKnobs"], True)
         check("a schedule already exactly at its required margin is left untouched", recon["exactAdjCount"], 0)
 
+        print("\nPer-position throw speed table (Task 9.3):")
+        speed_pos = page.evaluate(
+            """() => {
+                var distFt = 130;
+                return {
+                  rfMs: KMFlight.throwDrawMsForFt(distFt, KMFlight.THROW_SPEED_BY_POS.RF.mph),
+                  cMs: KMFlight.throwDrawMsForFt(distFt, KMFlight.THROW_SPEED_BY_POS.C.mph),
+                  unknownMs: KMFlight.throwDrawMsForFt(distFt),
+                  ninetyMs: KMFlight.throwDrawMsForFt(distFt, 90),
+                };
+            }"""
+        )
+        check("RF's throw over a fixed distance is faster than C's (90 vs 80 mph)",
+              speed_pos["rfMs"] < speed_pos["cMs"], True)
+        check("an unknown/unspecified thrower falls back to 90mph (THROW_SPEED_MPH)",
+              speed_pos["unknownMs"], speed_pos["ninetyMs"])
+
+        print("\nslowThrow reconciler knob - real mph, not just a held release (Task 9.4):")
+        slow_throw = page.evaluate(
+            """() => {
+                var margin = KMFlight.targetMarginMs('contestedSafe', 250);
+                var distFt = 127.28;
+                var pos = 'SS'; // mph 85, min 80, max 90
+                var naturalMph = KMFlight.THROW_SPEED_BY_POS[pos].mph;
+                var naturalDrawMs = distFt / (naturalMph * 1.46667) * 1000;
+
+                // In-range case: the needed mph (82) sits inside [min,max] -
+                // slowThrow alone should land exactly on the required time,
+                // no holdRelease needed at all.
+                var neededMphA = 82;
+                var neededDrawMsA = distFt / (neededMphA * 1.46667) * 1000;
+                var scheduleA = [{base: '1B', startMs: 0, endMs: naturalDrawMs, drawMs: naturalDrawMs, out: false, distFt: distFt, throwerPos: pos}];
+                var runnerArrivalA = neededDrawMsA - margin;
+                var resultA = KMFlight.reconcileThrowSchedule(scheduleA, runnerArrivalA, 'contestedSafe', 250, false);
+                var knobsA = resultA.adjustments.map(a => a.knob);
+                var slowAdjA = resultA.adjustments.filter(a => a.knob === 'slowThrow')[0];
+
+                // Floor-bound case: the needed mph (50) is well below SS's own
+                // min (80) - slowThrow clamps to the floor, holdRelease closes
+                // the remainder on top of it.
+                var neededMphB = 50;
+                var neededDrawMsB = distFt / (neededMphB * 1.46667) * 1000;
+                var scheduleB = [{base: '1B', startMs: 0, endMs: naturalDrawMs, drawMs: naturalDrawMs, out: false, distFt: distFt, throwerPos: pos}];
+                var runnerArrivalB = neededDrawMsB - margin;
+                var resultB = KMFlight.reconcileThrowSchedule(scheduleB, runnerArrivalB, 'contestedSafe', 250, false);
+                var knobsB = resultB.adjustments.map(a => a.knob);
+                var slowAdjB = resultB.adjustments.filter(a => a.knob === 'slowThrow')[0];
+
+                return {
+                  finalEndA: scheduleA[0].endMs, requiredA: neededDrawMsA,
+                  knobsA: knobsA, mphToA: slowAdjA && slowAdjA.mphTo,
+                  knobsB: knobsB, mphToB: slowAdjB && slowAdjB.mphTo,
+                  finalEndB: scheduleB[0].endMs, requiredB: neededDrawMsB,
+                };
+            }"""
+        )
+        check("in-range case: slowThrow alone lands exactly on the required time",
+              slow_throw["finalEndA"], slow_throw["requiredA"], tol=1)
+        check("in-range case: only slowThrow fired, no holdRelease needed",
+              slow_throw["knobsA"], ["slowThrow"])
+        check("in-range case: the recorded mphTo matches the needed mph (82)", slow_throw["mphToA"], 82)
+        check("floor-bound case: slowThrow clamps to the position's own floor (80)", slow_throw["mphToB"], 80)
+        check("floor-bound case: holdRelease closes the remainder on top of the floor",
+              "holdRelease" in slow_throw["knobsB"], True)
+        check("floor-bound case: the combined knobs still land exactly on the required time",
+              slow_throw["finalEndB"], slow_throw["requiredB"], tol=1)
+
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(
             """(a) => {

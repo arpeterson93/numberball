@@ -3126,8 +3126,23 @@
   // what made it worth the reach).
   var THROW_SPEED_MPH = 90;
   var THROW_DRAW_MS = Math.round(BASE_DIAG_FT / (THROW_SPEED_MPH * 1.46667) * 1000);
-  function throwDrawMsForFt(distFt) {
-    return Math.max(1, Math.round(distFt / (THROW_SPEED_MPH * 1.46667) * 1000));
+  // Task 9.3 (fact 4): per-position throw speed - Alex's supplied numbers,
+  // verbatim. min/max are the realistic floor/ceiling the reconciler's
+  // slowThrow knob (Task 9.4) solves within; mph is the natural/default
+  // speed used everywhere else. No per-player arm data exists, so this is
+  // position-only, same granularity fielderProfile's own top speeds use.
+  var THROW_SPEED_BY_POS = {
+    P: { mph: 85, min: 80, max: 90 }, C: { mph: 80, min: 75, max: 90 },
+    "1B": { mph: 80, min: 70, max: 85 }, "2B": { mph: 80, min: 70, max: 85 },
+    "3B": { mph: 85, min: 80, max: 90 }, SS: { mph: 85, min: 80, max: 90 },
+    LF: { mph: 87, min: 75, max: 95 }, CF: { mph: 90, min: 75, max: 95 },
+    RF: { mph: 90, min: 75, max: 95 },
+  };
+  // mph (optional): defaults to THROW_SPEED_MPH, the unknown-thrower
+  // fallback and THROW_DRAW_MS's own flat-fallback basis - unchanged for
+  // every call site that doesn't know (or care) who's throwing.
+  function throwDrawMsForFt(distFt, mph) {
+    return Math.max(1, Math.round(distFt / ((mph || THROW_SPEED_MPH) * 1.46667) * 1000));
   }
   // Alex's ask: a pitch animation ahead of every play (Balk excepted - there
   // was never an actual pitch on one). Real representative MLB pitch speed,
@@ -3298,12 +3313,49 @@
     if (Math.abs(delta) < 1) return { schedule: schedule, adjustments: adjustments };
 
     if (delta > 0) {
+      // Task 9.4 (fact 20): "taking something off the throw" is the
+      // physically honest way to land later - solve for the single constant
+      // mph (floor-bounded at this thrower's own realistic minimum,
+      // THROW_SPEED_BY_POS) that lands the FINAL leg exactly on the
+      // required time, before falling back to holding the release at all.
+      // Applies to every delta>0 class this function sees (contestedSafe,
+      // uncontested, and the rare too-early forceOut, where it reads as
+      // "didn't rush a throw that was never in doubt" instead of an
+      // arbitrarily early arrival) - chosen once at scheduling time and
+      // constant for the leg's own whole flight, so with 9.1's linear CSS
+      // timing the rendered ball actually moves at it, not just its total
+      // duration.
+      if (last.distFt != null && last.throwerPos && THROW_SPEED_BY_POS[last.throwerPos]) {
+        var neededDrawMs = required - last.startMs;
+        if (neededDrawMs > 0) {
+          var speedRange = THROW_SPEED_BY_POS[last.throwerPos];
+          var mphFrom = last.distFt / (last.drawMs / 1000) / 1.46667;
+          var neededMph = last.distFt / (neededDrawMs / 1000) / 1.46667;
+          var mphTo = Math.max(neededMph, speedRange.min);
+          var oldDrawMs = last.drawMs;
+          last.drawMs = Math.round(last.distFt / (mphTo * 1.46667) * 1000);
+          last.endMs = last.startMs + last.drawMs;
+          adjustments.push({
+            knob: "slowThrow", who: last.base, ms: Math.round(last.drawMs - oldDrawMs),
+            mphFrom: Math.round(mphFrom), mphTo: Math.round(mphTo),
+            reason: cls + " throw eased off to land later - " +
+              (mphTo === speedRange.min && neededMph < speedRange.min
+                ? "floor speed reached, closing the remainder with holdRelease"
+                : "lands exactly on the required margin, no hold needed"),
+          });
+          delta = required - last.endMs;
+        }
+      }
       // Throw must land LATER - hold the release (generalizes today's ad-hoc
       // pitcher-cover-1B clamp and the sac-fly tagStart backward-solve into
-      // the one shared knob).
-      var adj = holdChainTo(schedule, required, "holdRelease",
-        cls + " throw landed earlier than the required margin");
-      if (adj) adjustments.push(adj);
+      // the one shared knob). slowThrow above already closed as much of the
+      // gap as an honestly slower throw can; this closes only the remainder,
+      // if any.
+      if (delta > 0) {
+        var adj = holdChainTo(schedule, required, "holdRelease",
+          cls + " throw landed earlier than the required margin");
+        if (adj) adjustments.push(adj);
+      }
       return { schedule: schedule, adjustments: adjustments };
     }
 
@@ -4443,8 +4495,12 @@
   // is reserved for a future short-distance/underhand flip and currently
   // falls back to "full" unchanged.
   var THROW_CLASS_MPH = { full: THROW_SPEED_MPH };
-  function throwProfile(throwClass) {
-    var mph = (throwClass && THROW_CLASS_MPH[throwClass]) || THROW_SPEED_MPH;
+  // pos (optional, Task 9.3): THROW_SPEED_BY_POS's own mph wins when known,
+  // ahead of throwClass's flat fallback - same precedence throwSchedule's
+  // own per-leg thrower resolution uses.
+  function throwProfile(throwClass, pos) {
+    var mph = (pos && THROW_SPEED_BY_POS[pos] && THROW_SPEED_BY_POS[pos].mph) ||
+      (throwClass && THROW_CLASS_MPH[throwClass]) || THROW_SPEED_MPH;
     return { topSpeedFtPerS: mph * 1.46667, accelFtPerS2: Infinity, reactionS: 0 };
   }
   // Real per-player speed (Alex's ask, spdPaceScale/fielderSpd above) scales
@@ -5402,15 +5458,26 @@
      anchor; every throw after it is fully determined by the one before.
      drawMsFor(i, base), when given, picks each throw's own duration (see
      throwSchedule's real-distance closures below) - defaults to the flat
-     THROW_DRAW_MS when omitted. */
+     THROW_DRAW_MS when omitted. drawMsFor may return a bare ms number
+     (legacy/simple callers) or, since Task 9.3/9.4, an object
+     {drawMs, distFt, throwerPos} - the latter two ride along on the
+     schedule entry itself so reconcileThrowSchedule's slowThrow knob can
+     solve a real mph without threading extra parallel arrays through every
+     caller. */
   function sequentialThrowSchedule(targets, firstStartMs, realCount, drawMsFor) {
     var prevEnd = null;
     return targets.map(function (b, i) {
       var start = i === 0 ? firstStartMs : prevEnd + THROW_STAGGER_MS;
-      var draw = drawMsFor ? drawMsFor(i, b) : THROW_DRAW_MS;
+      var picked = drawMsFor ? drawMsFor(i, b) : THROW_DRAW_MS;
+      var isObj = picked && typeof picked === "object";
+      var draw = isObj ? picked.drawMs : picked;
       var end = start + draw;
       prevEnd = end;
-      return { base: b, startMs: start, endMs: end, drawMs: draw, out: i < realCount };
+      return {
+        base: b, startMs: start, endMs: end, drawMs: draw, out: i < realCount,
+        distFt: isObj ? picked.distFt : undefined,
+        throwerPos: isObj ? picked.throwerPos : undefined,
+      };
     });
   }
 
@@ -5731,9 +5798,17 @@
       // does the rest of the "land comfortably past the runner" work,
       // replacing the old direct backward-solve.
       var tagSchedule = sequentialThrowSchedule(targets, catchMs + THROW_DELAY_MS, realCount, function (i, b) {
-        if (i === 0) return THROW_DRAW_MS;
+        // Task 9.3: leg 0 has no real fielded-point origin to draw distance
+        // from (comment above), but the THROWER is still known - draw the
+        // same flat BASE_DIAG_FT model at their own position speed rather
+        // than the generic THROW_SPEED_MPH.
+        var throwerPos = i === 0 ? flight.fielder : coveringPosition(targets[i - 1], flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
+        var mph = THROW_SPEED_BY_POS[throwerPos] && THROW_SPEED_BY_POS[throwerPos].mph;
+        if (i === 0) return { drawMs: throwDrawMsForFt(BASE_DIAG_FT, mph), throwerPos: throwerPos };
         var dist = throwDistFt(BASE_POS_FT[targets[i - 1]], b);
-        return dist == null ? THROW_DRAW_MS : throwDrawMsForFt(dist);
+        return dist == null
+          ? { drawMs: THROW_DRAW_MS, throwerPos: throwerPos }
+          : { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos };
       });
       tagSchedule.adjustments = reconcileThrowSchedule(tagSchedule, runnerArrival, "uncontested", m.diff, false).adjustments;
       return tagSchedule;
@@ -5782,13 +5857,25 @@
     // landed, this line marker kept its old flat pace and started visibly
     // beating the glove token that's supposedly the one carrying it).
     var unassisted = relayLegIsUnassisted(m, targets, flight);
+    // Task 9.3/8.2: leg 0's thrower is the ball-fielding fielder; every leg
+    // after it is thrown by whoever covered the PREVIOUS leg's target base
+    // (coveringPosition) - already computed for the unassisted check below,
+    // reused rather than recomputed for the mph lookup.
+    function throwerForLeg(i) {
+      return i === 0 ? flight.fielder
+        : coveringPosition(targets[i - 1], flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
+    }
     var schedule = sequentialThrowSchedule(targets, base, realCount, function (i, b) {
       var fromPt = i === 0 ? origin0 : BASE_POS_FT[targets[i - 1]];
       var dist = throwDistFt(fromPt, b);
-      if (dist == null) return THROW_DRAW_MS;
-      if (!unassisted[i]) return throwDrawMsForFt(dist);
+      var throwerPos = throwerForLeg(i);
+      if (dist == null) return { drawMs: THROW_DRAW_MS, throwerPos: throwerPos };
+      if (!unassisted[i]) {
+        var mph = THROW_SPEED_BY_POS[throwerPos] && THROW_SPEED_BY_POS[throwerPos].mph;
+        return { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos };
+      }
       var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
-      return fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0];
+      return { drawMs: fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0], distFt: dist, throwerPos: coveringPos };
     });
 
     // The actual bug fix (plan fact 0.3): the honest forward race against
@@ -6206,6 +6293,7 @@
     safeRunnerArrivalMs: safeRunnerArrivalMs, runnerForSafeTarget: runnerForSafeTarget,
     throwRunnerAdjustmentMs: throwRunnerAdjustmentMs,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
+    THROW_SPEED_BY_POS: THROW_SPEED_BY_POS, throwDrawMsForFt: throwDrawMsForFt,
     RUNNER_LEAD_MS: RUNNER_LEAD_MS,
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
     TAG_THROW_ARCHETYPES: TAG_THROW_ARCHETYPES,
