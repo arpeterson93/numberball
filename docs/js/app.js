@@ -1638,6 +1638,12 @@
   // dynamic instead), every leg here genuinely does take the same real time,
   // since speed and per-leg distance are both constant.
   var RUNNER_SPRINT_FT_PER_S = 27;
+  // Task 11: +1ft/s per SPD point off the league-average runner, additive
+  // rather than spdPaceScale's multiplicative percentage - runnerProfile
+  // (below) is the only consumer; RUN_LEG_MS/STEAL_LEG_DUR_MS stay flat
+  // league-average fallback constants built off RUNNER_SPRINT_FT_PER_S
+  // alone, untouched.
+  var RUNNER_SPD_FT_PER_S_PER_POINT = 1.0;
   var RUN_LEG_MS = [0, 1, 2, 3, 4].map(function (legs) {
     return Math.round(legs * BASE_DIST_FT / RUNNER_SPRINT_FT_PER_S * 1000);
   });
@@ -4409,7 +4415,11 @@
   // "BATTER" | "1B" | "2B" | "3B" -> runnerSpd, above.
   function runnerProfile(m, who) {
     return {
-      topSpeedFtPerS: RUNNER_SPRINT_FT_PER_S * spdPaceScale(runnerSpd(m, who)),
+      // Task 11: additive, not spdPaceScale's multiplicative percentage -
+      // spd 1..5 -> 25/26/27/28/29 ft/s (a 16% spread top to bottom,
+      // vs. spdPaceScale's wider 63.2%). Fielders keep spdPaceScale
+      // untouched (fielderProfile, idleDriftLeg) - this is runners only.
+      topSpeedFtPerS: RUNNER_SPRINT_FT_PER_S + (runnerSpd(m, who) - SPD_AVERAGE) * RUNNER_SPD_FT_PER_S_PER_POINT,
       accelFtPerS2: RUNNER_ACCEL_FT_S2,
       reactionS: 0
     };
@@ -5404,6 +5414,147 @@
     });
   }
 
+  // Task 10 (facts 15/5, active bug): runners must not visibly pass each
+  // other on a shared basepath. A pure pre-pass, single-sourced into both
+  // the token render (sceneFieldHtml) and the reconciler's runner-arrival
+  // lookups (safeRunnerArrivalMs/forcedOutRunnerArrivalMs, below) - see the
+  // fix-map for how each side folds the result in.
+  //
+  // Scope (deliberately narrower than sceneFieldHtml's full mvDelay tree):
+  // batted-ball plays only (flight truthy - a steal has no shared basepath
+  // risk in this sense), excluding retreat (a scramble-back, not a forward
+  // leg to collide on) and stranded-safe walk-offs (dugout-bound, not
+  // basepath movement). Reproduces the SAME mvDelay/legs/legDurMs formula
+  // forcedOutRunnerArrivalMs/safeRunnerArrivalMs already use for their own
+  // respective out/safe cases - not a parallel model, the same one.
+  function runnerMoveTiming(m, flight, moves, mv) {
+    if (!flight || mv.retreat) return null;
+    var isOut = mv.to === "OUT";
+    var strandedSafe = !isOut && !mv.scored && !!m.is_half_inning_final;
+    if (strandedSafe) return null;
+    var startOrd = mv.from === "BATTER" ? 0 : BASE_ORDINAL[mv.from];
+    var runDelay = RUNNER_LEAD_MS; // flight is truthy here (guarded above)
+    var mvDelay, endOrd;
+    if (isOut) {
+      var forced = FORCED_OUT_BASE[m.result];
+      var candidate = forced === "OWN" ? mv.from : (forced || NEXT_BASE[mv.from] || mv.from);
+      var realOutTargets = outThrowTargets(m, moves, flight);
+      var forcedBase = realOutTargets.indexOf(candidate) !== -1 ? candidate : null;
+      if (!forcedBase) return null; // uncorroborated - no real forward leg, same guard basepathWaypoints itself applies
+      endOrd = forcedBase === "HOME" ? 4 : BASE_ORDINAL[forcedBase];
+      var before = String(m.obc_before || "000");
+      var forcedOnContact = FORCE_TIMING_RESULTS[m.result] && isForcedRunner(mv.from, before);
+      var outDelay = ballTravelMs(flight) + OUT_BEAT_MS;
+      mvDelay = forcedOnContact ? runDelay : outDelay;
+    } else {
+      endOrd = mv.scored ? 4 : BASE_ORDINAL[mv.to];
+      var catchMs = CAUGHT_IN_AIR[flight.archetype] ? ballTravelMs(flight) : 0;
+      mvDelay = catchMs ? catchMs + TAG_UP_MS : runDelay;
+    }
+    if (startOrd == null || endOrd == null || endOrd <= startOrd) return null;
+    var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
+    return { mvDelay: mvDelay, startOrd: startOrd, endOrd: endOrd, legDurMs: runnerLegMs(m, mv.from, legs) };
+  }
+  // A mover's own base-ordinal position at time t (raw units, same
+  // pre-seqDelay convention as mvDelay itself) - flat at startOrd before
+  // mvDelay, linear through the leg, flat at endOrd once arrived. delayMs/
+  // paceScale (both default to none) apply a candidate trailLateBreak/
+  // trailSlowPace correction on top, without mutating the timing object -
+  // resolvePassing below evaluates many candidates cheaply this way.
+  function runnerOrdinalAt(timing, delayMs, paceScale, t) {
+    var mvDelay = timing.mvDelay + (delayMs || 0);
+    var legDurMs = timing.legDurMs * (paceScale || 1);
+    if (t <= mvDelay) return timing.startOrd;
+    if (t >= mvDelay + legDurMs) return timing.endOrd;
+    return timing.startOrd + (t - mvDelay) / legDurMs * (timing.endOrd - timing.startOrd);
+  }
+  var RUNNER_MIN_GAP_ORD = 0.1; // ~9ft - close enough to read as "right behind", not "level with"
+  // Both movers are piecewise-linear in ordinal-vs-time (flat/ramp/flat), so
+  // their difference is piecewise-linear too - its minimum over the whole
+  // timeline occurs at one of the two curves' own breakpoints (start/end of
+  // each ramp). Checking those 4 candidate times is sufficient; no need to
+  // sample the continuous timeline.
+  function minPassingGap(leadT, trailT, delayMs, paceScale) {
+    var trailStart = trailT.mvDelay + (delayMs || 0);
+    var trailEnd = trailStart + trailT.legDurMs * (paceScale || 1);
+    var candidates = [leadT.mvDelay, leadT.mvDelay + leadT.legDurMs, trailStart, trailEnd];
+    var min = Infinity;
+    candidates.forEach(function (t) {
+      var gap = runnerOrdinalAt(leadT, 0, 1, t) - runnerOrdinalAt(trailT, delayMs, paceScale, t);
+      if (gap < min) min = gap;
+    });
+    return min;
+  }
+  // Resolution, bounded and named, applied to the TRAILING runner only, in
+  // order (Task 10 point 2): trailLateBreak (delay their start, reusing the
+  // reconciler's own RUNNER_LATE_JUMP_MAX_MS bound) first; trailSlowPace
+  // (stretch their leg duration, reusing STRETCH_RUNNER_MAX_FRAC) only if a
+  // late break alone can't close it; a residual that even the combined
+  // bound can't cover renders anyway (verdicts are never at risk, only
+  // positions) with a console.warn, same "say so instead of hiding it"
+  // policy reconcileThrowSchedule's own unresolved case uses. Bisection
+  // (same idiom ofDerivedShadeAnchorFt already uses above) finds the
+  // smallest correction that closes the gap, not just the bound itself.
+  function resolvePassing(leadT, trailT) {
+    if (minPassingGap(leadT, trailT, 0, 1) >= RUNNER_MIN_GAP_ORD) return null;
+    var delayMs = RUNNER_LATE_JUMP_MAX_MS;
+    if (minPassingGap(leadT, trailT, RUNNER_LATE_JUMP_MAX_MS, 1) >= RUNNER_MIN_GAP_ORD) {
+      var lo = 0, hi = RUNNER_LATE_JUMP_MAX_MS;
+      for (var i = 0; i < 20; i++) {
+        var mid = (lo + hi) / 2;
+        if (minPassingGap(leadT, trailT, mid, 1) >= RUNNER_MIN_GAP_ORD) hi = mid; else lo = mid;
+      }
+      delayMs = hi;
+    }
+    var paceScale = 1;
+    if (minPassingGap(leadT, trailT, delayMs, 1) < RUNNER_MIN_GAP_ORD) {
+      var maxScale = 1 + STRETCH_RUNNER_MAX_FRAC;
+      paceScale = maxScale;
+      if (minPassingGap(leadT, trailT, delayMs, maxScale) >= RUNNER_MIN_GAP_ORD) {
+        var slo = 1, shi = maxScale;
+        for (var j = 0; j < 20; j++) {
+          var smid = (slo + shi) / 2;
+          if (minPassingGap(leadT, trailT, delayMs, smid) >= RUNNER_MIN_GAP_ORD) shi = smid; else slo = smid;
+        }
+        paceScale = shi;
+      } else if (typeof console !== "undefined" && console.warn) {
+        console.warn("[gameday runner-passing] could not fully close a passing gap even at the bound - " +
+          "upstream inputs need a look, rendering with the bounded correction anyway");
+      }
+    }
+    return { delayMs: Math.round(delayMs), paceScale: paceScale };
+  }
+  // The pre-pass itself: every same-direction pair (a lead mover who started
+  // further along the bases, a trailing mover who started behind) on this
+  // play's own shared basepath gets checked; the trailing runner's own
+  // correction (the largest needed across every lead it might otherwise
+  // pass, if more than one) is returned keyed by mv.from. Two movers ending
+  // at the SAME base (only possible at HOME, both scoring - Task 1b's own
+  // case) are excluded here: "levelling up" at a shared destination is the
+  // real outcome, not a passing violation to correct away.
+  function runnerPassingAdjustments(m, flight, moves) {
+    var result = {};
+    if (!flight) return result;
+    var timings = moves.map(function (mv) {
+      return { mv: mv, timing: runnerMoveTiming(m, flight, moves, mv) };
+    }).filter(function (t) { return t.timing != null; });
+    for (var i = 0; i < timings.length; i++) {
+      for (var j = 0; j < timings.length; j++) {
+        if (i === j) continue;
+        var lead = timings[i], trail = timings[j];
+        if (lead.timing.startOrd <= trail.timing.startOrd) continue;
+        if (lead.timing.endOrd === trail.timing.endOrd) continue;
+        var adj = resolvePassing(lead.timing, trail.timing);
+        if (!adj) continue;
+        var existing = result[trail.mv.from];
+        result[trail.mv.from] = existing
+          ? { delayMs: Math.max(existing.delayMs, adj.delayMs), paceScale: Math.max(existing.paceScale, adj.paceScale) }
+          : adj;
+      }
+    }
+    return result;
+  }
+
   // Which tracked move (if any) a real out-throw target base corroborates -
   // the exact forced-base redirect outThrowTargets itself used to produce
   // targetBase, factored out so both the reconciler's runner-arrival lookup
@@ -5453,7 +5604,11 @@
     var before = String(m.obc_before || "000");
     var forcedOnContact = FORCE_TIMING_RESULTS[m.result] && isForcedRunner(mv.from, before);
     var mvDelay = forcedOnContact ? runDelay : outDelay;
-    return mvDelay + runnerLegMs(m, mv.from, legs);
+    // Task 10: single-sourced no-passing correction, if this runner needed
+    // one to keep from visibly passing a lead runner still ahead of them.
+    var passAdj = runnerPassingAdjustments(m, flight, moves)[mv.from];
+    var legDurMs = runnerLegMs(m, mv.from, legs) * (passAdj ? passAdj.paceScale : 1);
+    return mvDelay + (passAdj ? passAdj.delayMs : 0) + legDurMs;
   }
 
   // The SAFE-side sibling of runnerForOutTarget - which tracked move (if
@@ -5522,7 +5677,11 @@
     if (startOrd == null || endOrd == null || endOrd <= startOrd) return null;
     var legs = Math.min(endOrd - startOrd, RUN_LEG_MS.length - 1);
     var runDelay = flight ? RUNNER_LEAD_MS : 0;
-    return runDelay + runnerLegMs(m, mv.from, legs);
+    // Task 10: single-sourced no-passing correction, same as
+    // forcedOutRunnerArrivalMs's own fold-in above.
+    var passAdj = runnerPassingAdjustments(m, flight, moves)[mv.from];
+    var legDurMs = runnerLegMs(m, mv.from, legs) * (passAdj ? passAdj.paceScale : 1);
+    return runDelay + (passAdj ? passAdj.delayMs : 0) + legDurMs;
   }
 
   /* Pure schedule (A4/A5): throw i originates at the ball's landing point;
@@ -6042,6 +6201,8 @@
     MARGIN_POLICY: MARGIN_POLICY, targetMarginMs: targetMarginMs,
     reconcileThrowSchedule: reconcileThrowSchedule, holdChainTo: holdChainTo,
     forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs, runnerForOutTarget: runnerForOutTarget,
+    runnerMoveTiming: runnerMoveTiming, runnerPassingAdjustments: runnerPassingAdjustments,
+    RUNNER_MIN_GAP_ORD: RUNNER_MIN_GAP_ORD,
     safeRunnerArrivalMs: safeRunnerArrivalMs, runnerForSafeTarget: runnerForSafeTarget,
     throwRunnerAdjustmentMs: throwRunnerAdjustmentMs,
     THROW_DRAW_MS: THROW_DRAW_MS, THROW_STAGGER_MS: THROW_STAGGER_MS,
@@ -6273,6 +6434,12 @@
         runnerAdjMsByWho[a.who] = (runnerAdjMsByWho[a.who] || 0) + a.ms;
       }
     });
+    // Task 10 (facts 15/5): the same no-passing correction throwSchedule's
+    // own reconciliation reads (via safeRunnerArrivalMs/forcedOutRunnerArrivalMs)
+    // gets folded into this runner's own token below (mvDelay/legDurMs) -
+    // single-sourced, so the picture and the reconciled race can never
+    // disagree about where this runner actually is.
+    var runnerPassAdjByWho = runnerPassingAdjustments(m, flight, moves);
     // Closure, not called until the moves.map() loop below - stealOut is
     // assigned further down but already final by then, same as every other
     // var this function reads late.
@@ -6450,6 +6617,12 @@
       // a genuinely slower/later-breaking runner rather than relying solely
       // on the runtime hold-at-bag fallback to paper over the gap.
       legDurMs += runnerAdjMsByWho[mv.from] || 0;
+      // Task 10: this runner's own no-passing pace correction (trailSlowPace),
+      // if resolvePassing decided one was needed - runnerPassAdjByWho reads
+      // the identical adjustment safeRunnerArrivalMs/forcedOutRunnerArrivalMs
+      // already folded into the reconciled race above.
+      var passAdj = runnerPassAdjByWho[mv.from];
+      if (passAdj) legDurMs *= passAdj.paceScale;
       // A genuinely forced runner (isForcedRunner, on one of the ground-ball
       // results where that applies) leaves on contact - same beat as a safe
       // runner on a hit - because they have no choice but to vacate the
@@ -6490,6 +6663,8 @@
           ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
           : ((catchMs && !strandedSafe) ? catchMs + TAG_UP_MS
               : ((stealOut && stealOut.caught) ? stealOutDelay : runDelay));
+      // Task 10: this runner's own no-passing start correction (trailLateBreak).
+      mvDelay += passAdj ? passAdj.delayMs : 0;
       // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
       // matching the out choreography's own run-then-leave timing exactly)
       // - legDurMs here would understate how long the token is actually on

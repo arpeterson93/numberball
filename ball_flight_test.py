@@ -1592,6 +1592,90 @@ def main() -> None:
               f"acceleration included, per the plan's 3.2 deliberate re-timing decision)")
         check("runnerLegMs(..., 0) is 0 (no bases covered)", spd["legMsZero"], 0)
 
+        print("\nAdditive runner-speed model - +1ft/s per SPD point (Task 11):")
+        speed_table = page.evaluate(
+            """() => {
+                var speeds = {};
+                [1, 2, 3, 4, 5].forEach(function (s) {
+                  speeds[s] = KMFlight.runnerProfile({batter_spd: s}, "BATTER").topSpeedFtPerS;
+                });
+                return speeds;
+            }"""
+        )
+        for spd_pt, want_speed in [(1, 25), (2, 26), (3, 27), (4, 28), (5, 29)]:
+            check(f"spd-{spd_pt} runner top speed", speed_table[str(spd_pt)], want_speed)
+        check("spd-3 reproduces RUNNER_SPRINT_FT_PER_S exactly (league average, unchanged)",
+              speed_table["3"], 27)
+
+        print("\nRunners must not pass each other (Task 10, facts 15/5):")
+        passing = page.evaluate(
+            """() => {
+                // A force at 2B (FCLead - not in FORCE_TIMING_RESULTS, so the
+                // forced runner waits for outDelay, a late start) while the
+                // batter (fast, spd 5) safely reaches 1B on the shared beat
+                // right after contact - the batter's own destination (1B) is
+                // exactly where the still-stationary forced runner starts.
+                var m = {
+                  result: 'FCLead', outs_before: 0, outs_after: 1, diff: 250,
+                  obc_before: '001', throw_order: '2', batter_spd: 5,
+                };
+                var moves = [
+                  { from: '1B', to: 'OUT', scored: false },
+                  { from: 'BATTER', to: '1B', scored: false },
+                ];
+                var flight = { archetype: 'grounder', fielder: 'SS', clearedFence: false, groundTimeS: 0.5, hangMs: 3300, angle: 29 };
+                var adjustments = KMFlight.runnerPassingAdjustments(m, flight, moves);
+                var leadT = KMFlight.runnerMoveTiming(m, flight, moves, moves[0]);
+                var trailT = KMFlight.runnerMoveTiming(m, flight, moves, moves[1]);
+                // A more severe version (much later forced-out start) exceeds
+                // even the combined bound (400ms + 15%) - still renders with
+                // the bounded correction applied, not silently ignored.
+                var severeFlight = Object.assign({}, flight, { hangMs: 5000 });
+                var severeAdj = KMFlight.runnerPassingAdjustments(m, severeFlight, moves)['BATTER'];
+                // Recompute the gap at trail's own (possibly adjusted) breakpoints,
+                // same 4-breakpoint sufficiency the implementation itself relies on.
+                function ordinalAt(t, delayMs, paceScale, timeVar) {
+                  var mvDelay = t.mvDelay + (delayMs || 0);
+                  var legDurMs = t.legDurMs * (paceScale || 1);
+                  if (timeVar <= mvDelay) return t.startOrd;
+                  if (timeVar >= mvDelay + legDurMs) return t.endOrd;
+                  return t.startOrd + (timeVar - mvDelay) / legDurMs * (t.endOrd - t.startOrd);
+                }
+                var adj = adjustments['BATTER'];
+                var d = adj ? adj.delayMs : 0, p = adj ? adj.paceScale : 1;
+                var trailStart = trailT.mvDelay + d, trailEnd = trailStart + trailT.legDurMs * p;
+                var breakpoints = [leadT.mvDelay, leadT.mvDelay + leadT.legDurMs, trailStart, trailEnd];
+                var minGap = Math.min.apply(null, breakpoints.map(function (bt) {
+                  return ordinalAt(leadT, 0, 1, bt) - ordinalAt(trailT, d, p, bt);
+                }));
+                // A different-direction pair (nothing else on base) gets no
+                // adjustment at all - only one mover, nothing to collide with.
+                var soloMoves = [{ from: 'BATTER', to: '1B', scored: false }];
+                var soloAdj = KMFlight.runnerPassingAdjustments(m, flight, soloMoves);
+                return {
+                  adjustedBatter: !!adj,
+                  delayMs: d, paceScale: p,
+                  minGapAfterAdjustment: minGap,
+                  MIN_GAP: KMFlight.RUNNER_MIN_GAP_ORD,
+                  soloHasNoAdjustment: Object.keys(soloAdj).length === 0,
+                  severeDelayMs: severeAdj.delayMs, severePaceScale: severeAdj.paceScale,
+                  RUNNER_LATE_JUMP_MAX_MS: 400, STRETCH_MAX_SCALE: 1.15,
+                };
+            }"""
+        )
+        print(f"  batter adjustment: delayMs={passing['delayMs']} paceScale={round(passing['paceScale'], 4)} "
+              f"minGapAfterAdjustment={round(passing['minGapAfterAdjustment'], 4)} (>= {passing['MIN_GAP']} required)")
+        check("the fast trailing batter got a no-passing correction", passing["adjustedBatter"], True)
+        check("the correction actually closes the gap to at least RUNNER_MIN_GAP_ORD",
+              passing["minGapAfterAdjustment"] >= passing["MIN_GAP"] - 1e-6, True)
+        check("a lone mover with nothing to collide with gets no adjustment", passing["soloHasNoAdjustment"], True)
+        print(f"  severe case: delayMs={passing['severeDelayMs']} paceScale={round(passing['severePaceScale'], 4)} "
+              f"(exceeds the bound - still renders with the capped correction, not left unbounded)")
+        check("a severe violation hits the trailLateBreak bound",
+              passing["severeDelayMs"], passing["RUNNER_LATE_JUMP_MAX_MS"], tol=1)
+        check("a severe violation hits the trailSlowPace bound",
+              passing["severePaceScale"], passing["STRETCH_MAX_SCALE"], tol=0.001)
+
         print("\nReconciler + margin policy (Task 4.3/4.4):")
         recon = page.evaluate(
             """() => {
