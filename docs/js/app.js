@@ -3715,7 +3715,11 @@
       stops += lastOff.toFixed(3) + "% { transform: translate(" + projected[i].x.toFixed(1) + "px," + projected[i].y.toFixed(1) + "px); } ";
       trailStops += lastOff.toFixed(3) + "% { stroke-dashoffset: " + (len - cumLen[i]).toFixed(1) + "px; } ";
       var scale = shadowScaleAt(s.z, apexFt);
-      shadowStops += lastOff.toFixed(3) + "% { transform: translate(" + shadowPts[i].x.toFixed(1) + "px," + shadowPts[i].y.toFixed(1) + "px) scale(" + scale.toFixed(2) + "); } ";
+      // opacity:1 here only when clearedFence (below explains why) - holds
+      // the shadow visible through every real sample so the fade-to-0 added
+      // at the truncation stop below is the only opacity change, not a
+      // fade spread across the whole flight.
+      shadowStops += lastOff.toFixed(3) + "% { transform: translate(" + shadowPts[i].x.toFixed(1) + "px," + shadowPts[i].y.toFixed(1) + "px) scale(" + scale.toFixed(2) + ");" + (flight.clearedFence ? " opacity: 1;" : "") + " } ";
     });
     // A cleared-fence HR's samples are cut short at the wall (fenceTruncated
     // Samples), well before totalS (still the real, un-truncated hang time) -
@@ -3731,7 +3735,15 @@
       trailStops += "100.000% { stroke-dashoffset: 0px; } ";
       var lastShadowP = shadowPts[shadowPts.length - 1];
       var lastScale = shadowScaleAt(series.samples[series.samples.length - 1].z, apexFt);
-      shadowStops += "100.000% { transform: translate(" + lastShadowP.x.toFixed(1) + "px," + lastShadowP.y.toFixed(1) + "px) scale(" + lastScale.toFixed(2) + "); } ";
+      // clearedFence only (Task 12, probe 0.6): the shadow's ground point at
+      // the truncation stop is fence+15ft, whose z=0 projection paints
+      // inside the drawn wall band (fenceWallPathD) - a resting shadow on
+      // the wall's face. The ball itself keeps settling here (Alex's
+      // earlier call, untouched) - only the ground shadow, physically
+      // hidden behind the wall once the ball clears it, fades out. The
+      // movement animation's own `both` fill (movementRule) holds this 0
+      // for the rest of the play once the keyframe animation ends.
+      shadowStops += "100.000% { transform: translate(" + lastShadowP.x.toFixed(1) + "px," + lastShadowP.y.toFixed(1) + "px) scale(" + lastScale.toFixed(2) + ");" + (flight.clearedFence ? " opacity: 0;" : "") + " } ";
     }
     var name = kmArcId(m);
     // Mirrors style.css's own .ball.air/.ball.clear composite rule exactly

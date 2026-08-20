@@ -1007,19 +1007,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .throw-line.throw-out{stroke:var(--red);}
 .throw-line.throw-safe{stroke:var(--green);}
 .throw-clip-rect{
-  animation:throwClipGrow calc(var(--draw,180ms) / var(--play-speed,1)) ease calc(var(--delay) / var(--play-speed,1)) both;
+  animation:throwClipGrow calc(var(--draw,180ms) / var(--play-speed,1)) linear calc(var(--delay) / var(--play-speed,1)) both;
 }
 @keyframes throwClipGrow{from{width:0;}to{width:var(--len);}}
 /* Alex's ask: the throw itself is now a moving baseball, not just the
    dashed line's own reveal - throwLineHtml's own comment. Reuses pitchFly
    (style.css, pitch-ball's own keyframe - a generic --fx/--fy->--tx/--ty
    translate) and the shared .ball-body styling, so this is pixel-identical
-   to the pitch/flight ball, just travelling a different line. ease, not
-   linear (unlike pitchFly's other callers) - matches throwClipGrow's own
-   easing immediately above, so the ball and the line's leading edge stay
-   together instead of the ball drifting ahead of or behind the reveal. */
+   to the pitch/flight ball, just travelling a different line. linear, not
+   ease (same .fielder precedent above - the draw duration is now a real
+   throw-speed/distance computation, so an added ease shape would undercut
+   it) - matches throwClipGrow's own easing immediately above, so the ball
+   and the line's leading edge stay together instead of the ball drifting
+   ahead of or behind the reveal. */
 .throw-ball{transform:translate(var(--fx),var(--fy));
-  animation:pitchFly calc(var(--pdur) / var(--play-speed,1)) ease
+  animation:pitchFly calc(var(--pdur) / var(--play-speed,1)) linear
     calc(var(--pstart,0s) / var(--play-speed,1)) both;}
 /* Alex's report: without this, the ball sat visible at x1,y1 from slide
    mount (throwLineHtml's own comment) - reuses ballAppear (opacity 0->1,
@@ -1742,6 +1744,12 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      one, so these win over .ball's own opacity:1 base rule and
      .throw-ball-inner's own animation:none fallback without !important. */
   .ball.handoff, .ball-shadow.handoff{opacity:0;}
+  /* Task 12 (fence-shadow fix) mirror for reduced motion: the animated
+     version fades the shadow out at the fence-truncation stop because its
+     resting ground point projects inside the drawn wall band - with
+     animation:none above, the base .ball-shadow rule's opacity:0.32 would
+     otherwise paint that same static shadow on the wall face here too. */
+  .ball-shadow.clear{opacity:0;}
   .throw-ball.fades .throw-ball-inner{opacity:0;}
   /* Same "already arrived" end state as the pitch ball above - a
      reduced-motion viewer sees every throw already at its target base,
