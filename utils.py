@@ -129,11 +129,14 @@ _load_wp_table()
 # (result, before_obc, outs) -> (runs_scored, new_obc, eouts)
 _BRC_RUN_LOOKUP: dict[tuple[str, str, int], tuple[float, str, int]] = {}
 
-# (result, before_obc, outs) -> raw ThrowOrder string, e.g. "1234" (throw to
-# 1B, then 2B, then 3B, then home). Column is optional - a CSV without it
-# (every one that exists today) just leaves this dict empty, and every
-# consumer (get_throw_order below) treats "no entry" as "no explicit throw
-# order for this situation," not an error.
+# (result, before_obc, outs) -> raw ThrowOrder string, e.g. "fst" (throw to
+# 1B, then 2B, then 3B) or "6h" (cutoff through SS, then home) - one
+# character per leg, parsed client-side by docs/js/app.js's parseThrowOrder
+# (h/f/s/t for HOME/1B/2B/3B, 1-9 for a position/cutoff leg). This module
+# never interprets the string itself, just passes it through raw. Column is
+# optional - a CSV without it (every one that exists today) just leaves this
+# dict empty, and every consumer (get_throw_order below) treats "no entry"
+# as "no explicit throw order for this situation," not an error.
 _BRC_THROW_ORDER: dict[tuple[str, str, int], str] = {}
 
 # (result, before_obc, outs) -> {"excluded": [...], "default": "SS"}. Lets a
@@ -415,9 +418,9 @@ _load_brc_table()
 
 def get_throw_order(result: str, obc: str, outs: int) -> str | None:
     """Explicit throw sequence for this (result, before_obc, outs) situation,
-    straight from import_BRC.csv's optional ThrowOrder column - e.g. "1234"
-    for 1B, then 2B, then 3B, then home. None when the column doesn't exist
-    yet, or this particular situation row hasn't been filled in - callers
+    straight from import_BRC.csv's optional ThrowOrder column - e.g. "fst"
+    for 1B, then 2B, then 3B. None when the column doesn't exist yet, or
+    this particular situation row hasn't been filled in - callers
     (key_moments_build.py) treat that as "no explicit order," not an error.
     """
     return _BRC_THROW_ORDER.get((result, obc, outs))

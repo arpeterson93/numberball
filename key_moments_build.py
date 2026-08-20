@@ -726,10 +726,11 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "steal_num": play.get("steal_num"),
         # Explicit fielding-throw sequence for this (result, obc_before,
         # outs_before) situation, straight from import_BRC.csv's optional
-        # ThrowOrder column (e.g. "1234" = throw to 1B, then 2B, then 3B,
-        # then home) - None on every row until that column exists and this
-        # situation has one filled in. app.js's outThrowTargets() prefers
-        # this over its own before/after-diff heuristic whenever it's set.
+        # ThrowOrder column (e.g. "fst" = throw to 1B, then 2B, then 3B;
+        # "6h" = cutoff through SS, then home) - None on every row until
+        # that column exists and this situation has one filled in. app.js's
+        # outThrowTargets() prefers this over its own before/after-diff
+        # heuristic whenever it's set.
         "throw_order": utils.get_throw_order(result, state["obc_before"], state["outs_before"]),
         # If import_BRC.csv's ExcludedPositions/DefaultPosition columns say
         # the physics-computed fielder for this situation doesn't make

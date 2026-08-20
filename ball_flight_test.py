@@ -529,11 +529,92 @@ def main() -> None:
             got = page.evaluate(
                 """(a) => {
                     var moves = KMFlight.deriveRunnerMoves(a.before, a.after, a.runs);
-                    return KMFlight.outThrowTargets(a.m, moves, a.flight);
+                    return KMFlight.baseLegs(KMFlight.outThrowTargets(a.m, moves, a.flight));
                 }""",
                 {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
             )
             check(f"outThrowTargets({result} {before}->{after})", got, want)
+
+        print("\nThrowOrder grammar - bases, positions, mixed cutoff chains, invalid input (Task 8.1):")
+        grammar = page.evaluate(
+            """() => {
+                return {
+                  plainBase: KMFlight.parseThrowOrder('h'),
+                  allBases: KMFlight.parseThrowOrder('h,f,s,t'),
+                  positionOnly: KMFlight.parseThrowOrder('6'),
+                  mixedCutoff: KMFlight.parseThrowOrder('6h'),
+                  separators: KMFlight.parseThrowOrder('6-h'),
+                  caseInsensitive: KMFlight.parseThrowOrder('H'),
+                  strayChar: KMFlight.parseThrowOrder('6z'),
+                  nullInput: KMFlight.parseThrowOrder(null),
+                  emptyInput: KMFlight.parseThrowOrder(''),
+                };
+            }"""
+        )
+        check("a single base letter parses to one base leg",
+              grammar["plainBase"], [{"kind": "base", "base": "HOME"}])
+        check("all four base letters parse in order",
+              grammar["allBases"],
+              [{"kind": "base", "base": "HOME"}, {"kind": "base", "base": "1B"},
+               {"kind": "base", "base": "2B"}, {"kind": "base", "base": "3B"}])
+        check("a bare position number parses to one position leg (decorative-only, warns)",
+              grammar["positionOnly"], [{"kind": "pos", "pos": "SS"}])
+        check("a mixed cutoff chain (position then base) parses both legs in order",
+              grammar["mixedCutoff"], [{"kind": "pos", "pos": "SS"}, {"kind": "base", "base": "HOME"}])
+        check("a dash separator parses identically to no separator",
+              grammar["separators"], grammar["mixedCutoff"])
+        check("base letters are case-insensitive", grammar["caseInsensitive"], [{"kind": "base", "base": "HOME"}])
+        check("a stray invalid character rejects the whole value (falls back to the heuristic)",
+              grammar["strayChar"], None)
+        check("null input parses to null", grammar["nullInput"], None)
+        check("empty string input parses to null", grammar["emptyInput"], None)
+
+        print("\nCutoff spot geometry - a constant fraction of the throw line (Task 8.3):")
+        cutoff = page.evaluate(
+            """() => {
+                var origin = {x: 0, y: 100};
+                var base = {x: 0, y: 0};
+                var spot = KMFlight.cutoffSpotFt(origin, base);
+                return { spot: spot, frac: KMFlight.CUTOFF_POSITION_FRAC, nullOrigin: KMFlight.cutoffSpotFt(null, base) };
+            }"""
+        )
+        check("the cutoff spot sits at CUTOFF_POSITION_FRAC of the way from origin to base",
+              cutoff["spot"]["y"], 100 * (1 - cutoff["frac"]))
+        check("CUTOFF_POSITION_FRAC defaults to 50% (Alex's ask)", cutoff["frac"], 0.5)
+        check("a missing origin/base returns null rather than a garbage point", cutoff["nullOrigin"], None)
+
+        print("\nA cutoff-assisted explicit ThrowOrder threads a position leg through the full schedule (Task 8.2):")
+        cutoff_chain = page.evaluate(
+            """() => {
+                // CF fields a double, throws through SS (cutoff) to 3B.
+                var m = {result: '3B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '6t'};
+                var moves = KMFlight.deriveRunnerMoves('000', '000', 0);
+                var flight = {
+                  archetype: 'double', fielder: 'CF', clearedFence: false,
+                  x: 0, y: 300, distance: 300, fieldedDistFt: 300, groundTimeS: 0.4,
+                  contactVel: { vx: 0, vy: 90, vz: -5 },
+                };
+                var targets = KMFlight.outThrowTargets(m, moves, flight);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                return {
+                  legKinds: targets.map(function (l) { return l.kind; }),
+                  scheduleLen: schedule.length,
+                  leg0Base: schedule[0].base, leg0Pos: schedule[0].pos,
+                  leg1Base: schedule[1] && schedule[1].base,
+                  leg0Out: schedule[0].out, leg1Out: schedule[1] && schedule[1].out,
+                  leg1ThrowerPos: schedule[1] && schedule[1].throwerPos,
+                };
+            }"""
+        )
+        check("the chain has one position leg then one base leg",
+              cutoff_chain["legKinds"], ["pos", "base"])
+        check("the schedule has two legs", cutoff_chain["scheduleLen"], 2)
+        check("leg 0 targets the cutoff spot (no base)", cutoff_chain["leg0Base"], None)
+        check("leg 0's own position is the named cutoff man (SS)", cutoff_chain["leg0Pos"], "SS")
+        check("leg 1 targets the real base (3B)", cutoff_chain["leg1Base"], "3B")
+        check("a position/cutoff leg is never an out", cutoff_chain["leg0Out"], False)
+        check("leg 1 is thrown by the cutoff man (SS), not CF directly",
+              cutoff_chain["leg1ThrowerPos"], "SS")
 
         print("\nstealThrowTarget (B3-c - catcher throw on steal attempts):")
         steal_cases = [
@@ -644,7 +725,10 @@ def main() -> None:
                         var flight = KMFlight.flightParams(m, a.tables);
                         var moves = KMFlight.deriveRunnerMoves(
                             String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
-                        var targets = KMFlight.outThrowTargets(m, moves, flight);
+                        // Task 8.2: the ground-truth invariant is about REAL
+                        // (base) legs only - a position/cutoff leg is never
+                        // an out and can legitimately repeat a position.
+                        var targets = KMFlight.baseLegs(KMFlight.outThrowTargets(m, moves, flight));
                         var recorded = Math.max(0, (m.outs_after || 0) - (m.outs_before || 0));
                         if (targets.length > recorded) bad.push(m.moment_id + ": too many targets");
                         var seen = {};
@@ -1061,19 +1145,19 @@ def main() -> None:
              {"result": "BGO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
              {"fielder": "1B", "archetype": "bunt", "angle": 81, "clearedFence": False}),
             ("bunt fielded by 3B, force at third, SS covers", "5-6",
-             {"result": "BFC", "outs_before": 0, "outs_after": 1, "obc_before": "110", "obc_after": "011", "runs": 0, "throw_order": "3"},
+             {"result": "BFC", "outs_before": 0, "outs_after": 1, "obc_before": "110", "obc_after": "011", "runs": 0, "throw_order": "t"},
              {"fielder": "3B", "archetype": "bunt", "angle": 9, "clearedFence": False}),
             ("double play, SS fields (6-4-3)", "6-4-3",
-             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "2,1"},
+             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "s,f"},
              {"fielder": "SS", "archetype": "grounder", "angle": 29, "clearedFence": False}),
             ("double play, 2B fields (4-6-3)", "4-6-3",
-             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "2,1"},
+             {"result": "DP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0, "throw_order": "s,f"},
              {"fielder": "2B", "archetype": "grounder", "angle": 61, "clearedFence": False}),
             ("comebacker to the pitcher at 45deg, SS covers second (tie-break)", "1-6",
-             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "2"},
+             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "s"},
              {"fielder": "P", "archetype": "grounder", "angle": 45, "clearedFence": False}),
             ("fielder's choice, SS forces the lead runner at 2nd", "6-4",
-             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "2"},
+             {"result": "FC", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "010", "runs": 0, "throw_order": "s"},
              {"fielder": "SS", "archetype": "grounder", "angle": 29, "clearedFence": False}),
             ("LODP, SS lines out and doubles off 1B - real 2-chain", "6-3",
              {"result": "LODP", "outs_before": 0, "outs_after": 2, "obc_before": "001", "obc_after": "000", "runs": 0,
@@ -1084,7 +1168,7 @@ def main() -> None:
               "runner_moves": [{"from": "1B", "to": "OUT", "scored": False}]},
              {"fielder": "1B", "archetype": "line_drive", "angle": 81, "clearedFence": False}),
             ("double play at home, 3B fields, force at home then relay to 1st", "5-2-3",
-             {"result": "DPH1", "outs_before": 1, "outs_after": 3, "obc_before": "111", "obc_after": "000", "runs": 0, "throw_order": "4,1"},
+             {"result": "DPH1", "outs_before": 1, "outs_after": 3, "obc_before": "111", "obc_after": "000", "runs": 0, "throw_order": "h,f"},
              {"fielder": "3B", "archetype": "grounder", "angle": 9, "clearedFence": False}),
             ("routine flyout, no throw", "F8",
              {"result": "FO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
@@ -1093,10 +1177,10 @@ def main() -> None:
              {"result": "PO", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
              {"fielder": "2B", "archetype": "pop_up", "angle": 61, "clearedFence": False}),
             ("sac fly: decorative tag-up throw must NOT read as a putout at home, and gets the S prefix", "SF9",
-             {"result": "SacF", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "000", "runs": 1, "throw_order": "4"},
+             {"result": "SacF", "outs_before": 0, "outs_after": 1, "obc_before": "100", "obc_after": "000", "runs": 1, "throw_order": "h"},
              {"fielder": "RF", "archetype": "fly_ball", "angle": 69, "clearedFence": False}),
             ("double sac fly (DSacF) also gets the S prefix", "SF7",
-             {"result": "DSacF", "outs_before": 0, "outs_after": 1, "obc_before": "001", "obc_after": "000", "runs": 1, "throw_order": "4"},
+             {"result": "DSacF", "outs_before": 0, "outs_after": 1, "obc_before": "001", "obc_after": "000", "runs": 1, "throw_order": "h"},
              {"fielder": "LF", "archetype": "fly_ball", "angle": 29, "clearedFence": False}),
             ("strikeout has no batted ball - no notation", None,
              {"result": "K", "outs_before": 0, "outs_after": 1, "obc_before": "000", "obc_after": "000", "runs": 0},
@@ -1235,7 +1319,7 @@ def main() -> None:
                 // builds a leg (a plain hit with no ThrowOrder draws no
                 // throw at all - see outThrowTargets).
                 var deep = resolved(100, 25, 10, 'double', 'double');
-                var m = {result: '2B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '2'};
+                var m = {result: '2B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 's'};
                 var moves = KMFlight.deriveRunnerMoves('000', '010', 0);
                 var arrival = KMFlight.fielderBallArrivalMs(m, deep);
                 var schedule = KMFlight.throwSchedule(m, moves, deep);
@@ -1359,10 +1443,10 @@ def main() -> None:
                 var m = {result: '2B', outs_before: 0, outs_after: 0};
                 var flight = {fielder: 'LF', clearedFence: false};
                 var moves = [];
-                var specificWins = KMFlight.outThrowTargets(
-                  Object.assign({}, m, {throw_order_by_position: {LF: '1', OF: '2'}}), moves, flight);
-                var fallsBackToOf = KMFlight.outThrowTargets(
-                  Object.assign({}, m, {throw_order_by_position: {OF: '3'}}), moves, flight);
+                var specificWins = KMFlight.baseLegs(KMFlight.outThrowTargets(
+                  Object.assign({}, m, {throw_order_by_position: {LF: 'f', OF: 's'}}), moves, flight));
+                var fallsBackToOf = KMFlight.baseLegs(KMFlight.outThrowTargets(
+                  Object.assign({}, m, {throw_order_by_position: {OF: 't'}}), moves, flight));
                 return {specificWins: specificWins, fallsBackToOf: fallsBackToOf};
             }"""
         )
@@ -1372,7 +1456,7 @@ def main() -> None:
         print("\nExplicit ThrowOrder on a hit with zero real outs (closing the general gap):")
         hit_gap = page.evaluate(
             """() => {
-                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'};
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 'f'};
                 var moves = KMFlight.deriveRunnerMoves('000', '001', 0);
                 var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
                 var outLookup = KMFlight.runnerForOutTarget(m, moves, '1B');
@@ -1400,7 +1484,7 @@ def main() -> None:
         print("\nMulti-scorer HOME target reconciles against the TRAILING runner, not the lead scorer (Task 1b, probe 0.3):")
         multi_scorer = page.evaluate(
             """() => {
-                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '4'};
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 'h'};
                 var moves = KMFlight.deriveRunnerMoves('110', '000', 2);
                 var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
                 var mv = KMFlight.runnerForSafeTarget(m, moves, 'HOME');
@@ -1424,9 +1508,9 @@ def main() -> None:
         fact25 = page.evaluate(
             """() => {
                 // A runner on 1B advances to 2B on the single (batter to 1B) -
-                // throw_order '2' (old digit convention: 2 -> 2B) draws a
-                // decorative throw chasing that advancing runner to 2B.
-                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '2'};
+                // throw_order 's' (2B, Task 8's alphabet) draws a decorative
+                // throw chasing that advancing runner to 2B.
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 's'};
                 var moves = KMFlight.deriveRunnerMoves('001', '011', 0);
                 var flight = {archetype: 'single', fielder: 'CF', clearedFence: false, groundTimeS: 0.3, hangMs: 1500};
                 var schedule = KMFlight.throwSchedule(m, moves, flight);
@@ -1483,11 +1567,11 @@ def main() -> None:
                 };
                 var moves = KMFlight.deriveRunnerMoves('000', '001', 0);
                 var mNoOrder = {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250};
-                var mWithOrder = {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: '1'};
-                var targetsNoOrder = KMFlight.outThrowTargets(mNoOrder, moves, flight);
+                var mWithOrder = {result: 'IF1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 'f'};
+                var targetsNoOrder = KMFlight.baseLegs(KMFlight.outThrowTargets(mNoOrder, moves, flight));
                 var scheduleNoOrder = KMFlight.throwSchedule(mNoOrder, moves, flight);
                 var lastLeg = scheduleNoOrder[scheduleNoOrder.length - 1];
-                var targetsWithOrder = KMFlight.outThrowTargets(mWithOrder, moves, flight);
+                var targetsWithOrder = KMFlight.baseLegs(KMFlight.outThrowTargets(mWithOrder, moves, flight));
                 return {
                   targetsNoOrder: targetsNoOrder,
                   lastLegOut: lastLeg.out,
@@ -1617,7 +1701,7 @@ def main() -> None:
                 // exactly where the still-stationary forced runner starts.
                 var m = {
                   result: 'FCLead', outs_before: 0, outs_after: 1, diff: 250,
-                  obc_before: '001', throw_order: '2', batter_spd: 5,
+                  obc_before: '001', throw_order: 's', batter_spd: 5,
                 };
                 var moves = [
                   { from: '1B', to: 'OUT', scored: false },

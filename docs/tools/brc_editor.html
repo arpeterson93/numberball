@@ -116,6 +116,10 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   font:inherit; font-size:12.5px; padding:6px 7px; border:1px solid var(--border); border-radius:5px;
   background:var(--card); color:var(--text); width:100%;
 }
+/* Task 8.4: a ThrowOrder* input's own pattern attribute (old-convention
+   digit-only values, e.g. "2,1", no longer match) - the browser's native
+   :invalid flags it live as the user types, no extra JS needed. */
+.field input[type=text]:invalid{border-color:var(--red); background:color-mix(in srgb, var(--red) 10%, var(--card));}
 .field.flag{flex-direction:row; align-items:center; gap:6px;}
 .field.flag label{font-size:12px; color:var(--text); font-weight:600;}
 .new-col label{color:var(--green);}
@@ -214,7 +218,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         <span><i style="background:var(--red)"></i> out</span>
         <span><i style="background:var(--green)"></i> scores</span>
       </div>
-      <p class="hint">Fielder dots: number is that position's own <code>ThrowOrder_*</code> (italic/muted for an outfielder means it's inheriting <code>ThrowOrder_OF</code>, not its own <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code>); a gold ring is <code>DefaultPosition</code>, a red X is <code>ExcludedPositions</code>. Text above each base is <code>bN</code>, below is <code>rN</code>/<code>aN</code>.</p>
+      <p class="hint">Fielder dots: value is that position's own <code>ThrowOrder_*</code> (italic/muted for an outfielder means it's inheriting <code>ThrowOrder_OF</code>, not its own <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code>); a gold ring is <code>DefaultPosition</code>, a red X is <code>ExcludedPositions</code>. Text above each base is <code>bN</code>, below is <code>rN</code>/<code>aN</code>.</p>
     </div>
 
     <div class="form-card">
@@ -241,7 +245,7 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
       </fieldset>
       <fieldset>
         <legend class="fs-legend">Fielding</legend>
-        <p class="hint"><code>ExcludedPositions</code>/<code>DefaultPosition</code>: position codes, e.g. <code>SS,2B</code> / <code>3B</code>. <code>ThrowOrder</code>*: comma-separated position codes, e.g. <code>4,3,1</code>. <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code> are a specific outfielder's own sequence and beat the older, coarser <code>ThrowOrder_OF</code> (any outfielder) when both are set - fill in a specific one only when that outfielder's own throw genuinely differs from the shared default.</p>
+        <p class="hint"><code>ExcludedPositions</code>/<code>DefaultPosition</code>: position codes, e.g. <code>SS,2B</code> / <code>3B</code>. <code>ThrowOrder</code>*: one character per leg, comma/space/dash all work as separators - <code>h</code>/<code>f</code>/<code>s</code>/<code>t</code> for a real throw to HOME/1B/2B/3B (reconciled against the runner), <code>1</code>-<code>9</code> for a cutoff man's own scorecard position number (decorative relay only, never an out) - e.g. <code>fst</code> is a direct 1B-then-2B-then-3B relay, <code>6h</code> is a throw cut off by the shortstop and relayed home. <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code> are a specific outfielder's own sequence and beat the older, coarser <code>ThrowOrder_OF</code> (any outfielder) when both are set - fill in a specific one only when that outfielder's own throw genuinely differs from the shared default.</p>
         <div class="field-grid wide" id="fields-fielding"></div>
       </fieldset>
     </div>
@@ -480,12 +484,36 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         '<input type="checkbox" data-col="' + col + '" id="fld-' + col + '"' + (val ? " checked" : "") + '>' +
         '<label for="fld-' + col + '">' + (opts.label || col) + "</label></div>";
     }
+    // opts.pattern (Task 8.4 - the migrated ThrowOrder alphabet): a
+    // browser-level guard against characters outside the new grammar (a
+    // stray letter/symbol app.js's own parseThrowOrder would reject
+    // wholesale). Note this can't catch every stale old-convention value on
+    // its own - 1-9 are legitimate NEW characters too (position/cutoff
+    // legs), so a plain "2,1" is valid syntax under both schemes, just with
+    // a different meaning; the one-time migration script is what actually
+    // converts existing cells, this is just a typo/stray-character guard
+    // for new edits. Client-side only, same trust level every other field
+    // here already has - not a server-enforced constraint.
+    var patternAttr = opts.pattern ? ' pattern="' + opts.pattern + '"' : "";
+    var titleAttr = opts.title ? ' title="' + opts.title.replace(/"/g, "&quot;") + '"' : "";
     return '<div class="field' + (isNew ? " new-col" : "") + '">' +
       '<label for="fld-' + col + '">' + (opts.label || col) + '</label>' +
       '<input type="text" data-col="' + col + '" id="fld-' + col + '" value="' +
-        String(val).replace(/"/g, "&quot;") + '">' +
+        String(val).replace(/"/g, "&quot;") + '"' + patternAttr + titleAttr + '>' +
       "</div>";
   }
+  // Task 8.4: h/f/s/t (base legs) + 1-9 (position/cutoff legs) + the three
+  // accepted separators - mirrors docs/js/app.js's parseThrowOrder exactly,
+  // empty string also allowed (an unfilled cell). The dash MUST be escaped
+  // (\- not a bare trailing -) - the HTML pattern attribute compiles under
+  // Unicode-mode regex rules, where an unescaped "-" straight after a \s
+  // class escape is a SyntaxError; an unescaped/invalid pattern doesn't
+  // throw or fall back, it just silently disables validation entirely
+  // (caught by testing, not by reasoning about it up front - every value
+  // read as "valid" until this was found).
+  var THROW_ORDER_PATTERN = "[hfstHFST1-9,\\s\\-]*";
+  var THROW_ORDER_TITLE = "One character per leg: h/f/s/t = HOME/1B/2B/3B (real throw), " +
+    "1-9 = scorecard position number (cutoff man, decorative). Comma/space/dash as separators.";
 
   function renderForm(row) {
     $("fields-destinations").innerHTML =
@@ -500,17 +528,18 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
     $("fields-outcome").innerHTML =
       fieldHtml(row, "Runs") + fieldHtml(row, "eOuts") + fieldHtml(row, "OBC") +
       fieldHtml(row, "AB") + fieldHtml(row, "HIT");
+    var throwOrderOpts = { pattern: THROW_ORDER_PATTERN, title: THROW_ORDER_TITLE };
     $("fields-fielding").innerHTML =
-      fieldHtml(row, "ExcludedPositions") + fieldHtml(row, "DefaultPosition") + fieldHtml(row, "ThrowOrder") +
-      fieldHtml(row, "ThrowOrder_P") + fieldHtml(row, "ThrowOrder_C") +
-      fieldHtml(row, "ThrowOrder_1B") + fieldHtml(row, "ThrowOrder_2B") +
-      fieldHtml(row, "ThrowOrder_SS") + fieldHtml(row, "ThrowOrder_3B") +
+      fieldHtml(row, "ExcludedPositions") + fieldHtml(row, "DefaultPosition") + fieldHtml(row, "ThrowOrder", throwOrderOpts) +
+      fieldHtml(row, "ThrowOrder_P", throwOrderOpts) + fieldHtml(row, "ThrowOrder_C", throwOrderOpts) +
+      fieldHtml(row, "ThrowOrder_1B", throwOrderOpts) + fieldHtml(row, "ThrowOrder_2B", throwOrderOpts) +
+      fieldHtml(row, "ThrowOrder_SS", throwOrderOpts) + fieldHtml(row, "ThrowOrder_3B", throwOrderOpts) +
       // LF/CF/RF (a specific outfielder's own throw) beat the older, coarser
       // ThrowOrder_OF (any outfielder) - both stay editable side by side,
       // same "specific wins, OF is the fallback" order app.js's own
       // outThrowTargets reads them in.
-      fieldHtml(row, "ThrowOrder_LF") + fieldHtml(row, "ThrowOrder_CF") + fieldHtml(row, "ThrowOrder_RF") +
-      fieldHtml(row, "ThrowOrder_OF");
+      fieldHtml(row, "ThrowOrder_LF", throwOrderOpts) + fieldHtml(row, "ThrowOrder_CF", throwOrderOpts) + fieldHtml(row, "ThrowOrder_RF", throwOrderOpts) +
+      fieldHtml(row, "ThrowOrder_OF", throwOrderOpts);
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-col]"), function (el) {
       var evt = el.type === "checkbox" ? "change" : "input";

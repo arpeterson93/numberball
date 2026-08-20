@@ -3181,9 +3181,15 @@
   // fallback throwDistFt's own null case already uses elsewhere.
   function relayLegIsUnassisted(m, targets, flight) {
     if (!flight.fielder) return targets.map(function () { return false; });
+    var relayBaseCount = baseLegs(targets).length;
     var prevPos = flight.fielder;
-    return targets.map(function (b) {
-      var pos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
+    return targets.map(function (leg) {
+      // Task 8.2: compare against the leg's own resolved position for
+      // both kinds - a position/cutoff leg names its receiver directly
+      // (coveringPosition bypassed), a base leg still resolves through the
+      // coverage convention.
+      var pos = leg.kind === "pos" ? leg.pos
+        : coveringPosition(leg.base, flight.archetype, flight.angle, flight.fielder, relayBaseCount, m, flight);
       var unassisted = pos === prevPos;
       prevPos = pos;
       return unassisted;
@@ -4747,19 +4753,39 @@
         // realOutThrowCount, which left every decorative leg's receiver
         // out of the chain entirely.
         var relayBases = targets;
-        var rawChain = [{ pos: flight.fielder, base: null }];
-        relayBases.forEach(function (base) {
-          rawChain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length, m, flight), base: base });
+        var pickupFt = fieldedPoint(flight);
+        var pickupSvg = ftToSvg(pickupFt.x, pickupFt.y);
+        // Task 8.3: every cutoff (position) leg in this chain sits on the
+        // SAME line - from where the ball was originally fielded to the
+        // chain's own eventual base - at the same constant fraction along
+        // it (CUTOFF_POSITION_FRAC). Not dynamic mid-flight redirection
+        // (round 1 scoped that out and it stays out): a pre-declared spot,
+        // computed once here.
+        var finalBaseLeg = finalBaseOfChain(relayBases);
+        var finalBaseFt = finalBaseLeg ? BASE_POS_FT[finalBaseLeg] : null;
+        var chainCutoffFt = finalBaseFt ? cutoffSpotFt(pickupFt, finalBaseFt) : null;
+        var relayBaseCount = baseLegs(relayBases).length;
+        var rawChain = [{ pos: flight.fielder, base: null, kind: null, cutoffFt: null }];
+        relayBases.forEach(function (leg) {
+          if (leg.kind === "pos") {
+            rawChain.push({ pos: leg.pos, base: null, kind: "pos", cutoffFt: chainCutoffFt });
+          } else {
+            rawChain.push({
+              pos: coveringPosition(leg.base, archetype, flight.angle, flight.fielder, relayBaseCount, m, flight),
+              base: leg.base, kind: "base", cutoffFt: null,
+            });
+          }
         });
         var merged = [];
         rawChain.forEach(function (entry) {
           var prev = merged[merged.length - 1];
-          if (prev && prev.pos === entry.pos) prev.base = entry.base;
-          else merged.push({ pos: entry.pos, base: entry.base });
+          if (prev && prev.pos === entry.pos) {
+            prev.base = entry.base; prev.kind = entry.kind; prev.cutoffFt = entry.cutoffFt;
+          } else {
+            merged.push({ pos: entry.pos, base: entry.base, kind: entry.kind, cutoffFt: entry.cutoffFt });
+          }
         });
 
-        var pickupFt = fieldedPoint(flight);
-        var pickupSvg = ftToSvg(pickupFt.x, pickupFt.y);
         merged.forEach(function (e) {
           if (moving[e.pos]) return;
           var anchor = fielderStartAnchorFt(e.pos, flight, m);
@@ -4769,9 +4795,11 @@
           // primary toucher merged into): two real legs, field it then run
           // the bag - not a straight line from anchor to the base skipping
           // the ball entirely (Alex's report - this was the actual bug).
-          // Every other entry (base===null - just fielding; or base!==null
-          // but a different fielder receiving a relay, never touched the
-          // ball) is one leg, unchanged.
+          // Every other entry (base===null - just fielding, or a cutoff leg;
+          // or base!==null but a different fielder receiving a relay, never
+          // touched the ball) is one leg, unchanged. e.base is only ever
+          // non-null for a base leg, so a cutoff-touching flight.fielder
+          // (kind "pos") always falls through to the single-leg branch below.
           var unassisted = e.pos === flight.fielder && e.base !== null;
           var legs;
           if (unassisted) {
@@ -4783,8 +4811,11 @@
               { toSvg: baseSvg, distFt: Math.hypot(baseFt.x - pickupFt.x, baseFt.y - pickupFt.y) },
             ];
           } else {
-            var destFt = e.base === null ? pickupFt : BASE_POS_FT[e.base];
-            var destSvg = e.base === null ? pickupSvg : (e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base]);
+            // Task 8.3: a cutoff leg's destination is its own derived spot,
+            // not a named base.
+            var destFt = e.kind === "pos" ? e.cutoffFt : (e.base === null ? pickupFt : BASE_POS_FT[e.base]);
+            var destSvg = e.kind === "pos" ? (e.cutoffFt ? ftToSvg(e.cutoffFt.x, e.cutoffFt.y) : null)
+              : (e.base === null ? pickupSvg : (e.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[e.base]));
             if (!destFt || !destSvg) return;
             legs = (e.pos === "P" && e.base === "1B")
               ? pitcherCover1BLegs(anchor, destFt, destSvg)
@@ -4795,13 +4826,17 @@
           // fielding run to fieldedMs (the charge race's own answer),
           // exactly as a fly out already compresses to ballTravelMs -
           // previously only the air case got a deadline at all. Scoped to
-          // e.base===null (the ball-toucher's own single-leg entry) same as
+          // the ball-toucher's own single-leg entry (e.pos===flight.fielder
+          // AND e.base===null - Task 8 note: a cutoff-RECEIVING entry can
+          // also have base===null now, e.g. an SS relay man's own entry, so
+          // the pos check is load-bearing here, not redundant) same as
           // before; the merged unassisted case (e.base!==null on this same
           // pos) is left undeadlined on purpose - movingFielderTokenHtml
           // would compress the whole 2-leg run proportionally, over-
           // compressing leg 2's honest bag-run, not just leg 1's fielding
           // run. Acceptable v1 (no per-leg deadlines built).
-          var deadlineMs = e.base === null ? startDelay + (isAir ? ballTravelMs(flight) : fieldedMs(flight)) : null;
+          var deadlineMs = (e.pos === flight.fielder && e.base === null)
+            ? startDelay + (isAir ? ballTravelMs(flight) : fieldedMs(flight)) : null;
           // Task 2a point 3: the ball-touching entry (and only that one -
           // relay receivers never read the pitch) carries the same OF
           // read-delay the solo branch below always applied - returns 0 for
@@ -5105,21 +5140,81 @@
   // token, since that's the one fixed point every balk is actually about.
   var BALK_RESULTS = { Balk: 1 };
 
-  // import_BRC.csv's optional ThrowOrder column (e.g. "1,2,3,4" or bare
-  // "1234") - a base-by-base fielding sequence for one (result, obc_before,
-  // outs_before) situation, straight from the data instead of guessed from
-  // before/after diffing. Digits only: 1=1B, 2=2B, 3=3B, 4=home. Anything
-  // that isn't one of those four characters (a comma, a space, a dash) is
-  // just a separator and gets stripped, so "1,2,3,4" and "1234" parse
-  // identically - no format the sheet ends up using is wrong.
-  var THROW_ORDER_DIGIT_TO_BASE = { "1": "1B", "2": "2B", "3": "3B", "4": "HOME" };
+  // import_BRC.csv's optional ThrowOrder column (Task 8.1 - the migrated
+  // cutoff-capable grammar, one character per leg): h/f/s/t -> HOME/1B/2B/3B
+  // (base legs - a real out/safe target, reconciled against the runner
+  // exactly as before); 1-9 -> standard scorekeeping position numbers
+  // (P,C,1B,2B,3B,SS,LF,CF,RF - built from POSITION_NUMBER's own map, not a
+  // separate table) -> position/cutoff legs, decorative only, no runner to
+  // reconcile against. Case-insensitive on the base letters. Superseded the
+  // old digit-only alphabet (1=1B/2=2B/3=3B/4=HOME) - see
+  // tools/migrate_throw_order.py, run once against import_BRC.csv.
+  var THROW_ORDER_BASE_LETTER = { h: "HOME", f: "1B", s: "2B", t: "3B" };
+  var THROW_ORDER_POSITION_NUMBER = {};
+  Object.keys(POSITION_NUMBER).forEach(function (pos) {
+    THROW_ORDER_POSITION_NUMBER[String(POSITION_NUMBER[pos])] = pos;
+  });
+  // Returns an ordered list of typed legs - {kind:"base", base:"HOME"} or
+  // {kind:"pos", pos:"SS"} - never a bare base array (every consumer reads
+  // typed legs now; baseLegs() below is the "I only care about bases"
+  // helper for the many that do). ",", " ", "-" are stripped as
+  // separators; any OTHER character makes the WHOLE value invalid - a
+  // stray digit under this alphabet is a plausible wrong leg, not noise
+  // the old digit-only parser could safely ignore, so this warns and
+  // rejects (falls back to the heuristic) rather than silently dropping
+  // just that character.
   function parseThrowOrder(raw) {
     if (raw == null) return null;
-    var digits = String(raw).replace(/[^1234]/g, "");
-    if (!digits) return null;
-    var bases = [];
-    for (var i = 0; i < digits.length; i++) bases.push(THROW_ORDER_DIGIT_TO_BASE[digits.charAt(i)]);
-    return bases;
+    var stripped = String(raw).replace(/[,\s-]/g, "");
+    if (!stripped) return null;
+    var legs = [];
+    for (var i = 0; i < stripped.length; i++) {
+      var ch = stripped.charAt(i);
+      var lower = ch.toLowerCase();
+      if (THROW_ORDER_BASE_LETTER[lower]) {
+        legs.push({ kind: "base", base: THROW_ORDER_BASE_LETTER[lower] });
+      } else if (THROW_ORDER_POSITION_NUMBER[ch]) {
+        legs.push({ kind: "pos", pos: THROW_ORDER_POSITION_NUMBER[ch] });
+      } else {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[gameday ThrowOrder] invalid character in ThrowOrder value, falling back to the heuristic:", raw);
+        }
+        return null;
+      }
+    }
+    var last = legs[legs.length - 1];
+    if (last.kind !== "base" && typeof console !== "undefined" && console.warn) {
+      console.warn("[gameday ThrowOrder] chain doesn't end in a base leg - decorative-only, no runner to reconcile:", raw);
+    }
+    return legs;
+  }
+  // The many consumers that only care about which real bases a chain
+  // touches (out-count capping, runner-arrival lookups, scorecard relay
+  // bases, ...) - position/cutoff legs carry no base of their own.
+  function baseLegs(legs) {
+    return (legs || []).filter(function (l) { return l.kind === "base"; }).map(function (l) { return l.base; });
+  }
+  // Task 8.3 (Alex's call): a cutoff man stands on the straight line from
+  // where the ball was fielded to the base he'll eventually relay to, at a
+  // constant fraction of that distance - not dynamic mid-flight
+  // redirection (out of scope, round 1). Abstracted into its own constant
+  // so the fraction is a one-line tune, not a hunt through the geometry.
+  var CUTOFF_POSITION_FRAC = 0.5;
+  function cutoffSpotFt(originFt, targetBaseFt) {
+    if (!originFt || !targetBaseFt) return null;
+    return {
+      x: originFt.x + (targetBaseFt.x - originFt.x) * CUTOFF_POSITION_FRAC,
+      y: originFt.y + (targetBaseFt.y - originFt.y) * CUTOFF_POSITION_FRAC,
+    };
+  }
+  // The chain's own eventual base - the LAST base-typed leg, scanning from
+  // the end (a chain normally ends in exactly one base leg; this is
+  // defensive against an unusual shape rather than a real expected case).
+  function finalBaseOfChain(legs) {
+    for (var i = (legs || []).length - 1; i >= 0; i--) {
+      if (legs[i].kind === "base") return legs[i].base;
+    }
+    return null;
   }
 
   // import_BRC.csv's optional per-position ThrowOrder_* columns - a specific
@@ -5222,7 +5317,11 @@
       sorted.push("1B");
     }
 
-    return sorted;
+    // The heuristic only ever derives real out/safe bases (never a cutoff -
+    // that's explicit-ThrowOrder-only data, Task 8) - wrap as typed base
+    // legs so every consumer reads one consistent typed-leg contract
+    // regardless of which path produced it.
+    return sorted.map(function (b) { return { kind: "base", base: b }; });
   }
 
   /* Traditional scorecard notation (fieldingNotation, below) needs to know
@@ -5315,6 +5414,21 @@
     var battersOwnOut = CAUGHT_IN_AIR[flight.archetype] ? 1 : 0;
     return Math.max(0, recorded - battersOwnOut);
   }
+  // Task 8.2: the prefix of a typed-leg chain covering the first n REAL
+  // (base) legs, including any position/cutoff legs along the way - a
+  // plain array slice(0,n) would miscount once position legs are mixed in
+  // (out flags map onto base legs only, never position legs). Stops right
+  // after the nth base leg; nothing after it (base or position) is
+  // included.
+  function firstRealLegs(legs, n) {
+    var result = [];
+    var baseCount = 0;
+    for (var i = 0; i < legs.length && baseCount < n; i++) {
+      result.push(legs[i]);
+      if (legs[i].kind === "base") baseCount++;
+    }
+    return result;
+  }
 
   // The ordered, adjacent-duplicate-collapsed chain of { pos, base } touches
   // on this ball, or null when there's nothing to describe - no flight, no
@@ -5335,11 +5449,21 @@
     if ((m.outs_after || 0) <= (m.outs_before || 0)) return null;
 
     var moves = resolveRunnerMoves(m);
-    var relayBases = outThrowTargets(m, moves, flight).slice(0, realOutThrowCount(m, flight));
+    var relayLegs = firstRealLegs(outThrowTargets(m, moves, flight), realOutThrowCount(m, flight));
+    var relayBaseCount = baseLegs(relayLegs).length;
 
+    // Task 8.2: a position/cutoff leg joins the chain as a touch of its own
+    // (a 9-6-2 relay reads "9-6-2" when it records an out) - base is left
+    // null for it, same as the ball-toucher's own first entry, since there's
+    // no bag to anchor a receiving-fielder label at (v1: falls back to the
+    // position's own nominal spot).
     var chain = [{ pos: flight.fielder, base: null }];
-    relayBases.forEach(function (base) {
-      chain.push({ pos: coveringPosition(base, archetype, flight.angle, flight.fielder, relayBases.length, m, flight), base: base });
+    relayLegs.forEach(function (leg) {
+      if (leg.kind === "pos") {
+        chain.push({ pos: leg.pos, base: null });
+      } else {
+        chain.push({ pos: coveringPosition(leg.base, archetype, flight.angle, flight.fielder, relayBaseCount, m, flight), base: leg.base });
+      }
     });
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
@@ -5456,27 +5580,37 @@
      as thrown, caught, THEN thrown again, not two dashed lines animating at
      once (Alex's ask). Only the first throw's start is a caller-supplied
      anchor; every throw after it is fully determined by the one before.
-     drawMsFor(i, base), when given, picks each throw's own duration (see
+     drawMsFor(i, leg), when given, picks each throw's own duration (see
      throwSchedule's real-distance closures below) - defaults to the flat
      THROW_DRAW_MS when omitted. drawMsFor may return a bare ms number
      (legacy/simple callers) or, since Task 9.3/9.4, an object
-     {drawMs, distFt, throwerPos} - the latter two ride along on the
-     schedule entry itself so reconcileThrowSchedule's slowThrow knob can
-     solve a real mph without threading extra parallel arrays through every
-     caller. */
+     {drawMs, distFt, throwerPos, toFt} - these ride along on the schedule
+     entry itself so reconcileThrowSchedule's slowThrow knob (distFt/
+     throwerPos) and the renderer's own endpoint (toFt, Task 8.3's cutoff
+     spot) don't need extra parallel arrays threaded through every caller.
+     targets: typed legs (Task 8.2) - base is set only for a base leg
+     (never a position/cutoff leg); realCount counts against base legs
+     ONLY, in order (position legs are never outs - out flags would
+     otherwise miscount once the two kinds are interleaved). */
   function sequentialThrowSchedule(targets, firstStartMs, realCount, drawMsFor) {
     var prevEnd = null;
-    return targets.map(function (b, i) {
+    var baseLegIndex = 0;
+    return targets.map(function (leg, i) {
       var start = i === 0 ? firstStartMs : prevEnd + THROW_STAGGER_MS;
-      var picked = drawMsFor ? drawMsFor(i, b) : THROW_DRAW_MS;
+      var picked = drawMsFor ? drawMsFor(i, leg) : THROW_DRAW_MS;
       var isObj = picked && typeof picked === "object";
       var draw = isObj ? picked.drawMs : picked;
       var end = start + draw;
       prevEnd = end;
+      var isBase = leg.kind === "base";
+      var out = isBase && baseLegIndex < realCount;
+      if (isBase) baseLegIndex++;
       return {
-        base: b, startMs: start, endMs: end, drawMs: draw, out: i < realCount,
+        base: isBase ? leg.base : null, pos: isBase ? null : leg.pos, kind: leg.kind,
+        startMs: start, endMs: end, drawMs: draw, out: out,
         distFt: isObj ? picked.distFt : undefined,
         throwerPos: isObj ? picked.throwerPos : undefined,
+        toFt: isObj ? picked.toFt : undefined,
       };
     });
   }
@@ -5505,7 +5639,7 @@
     if (isOut) {
       var forced = FORCED_OUT_BASE[m.result];
       var candidate = forced === "OWN" ? mv.from : (forced || NEXT_BASE[mv.from] || mv.from);
-      var realOutTargets = outThrowTargets(m, moves, flight);
+      var realOutTargets = baseLegs(outThrowTargets(m, moves, flight));
       var forcedBase = realOutTargets.indexOf(candidate) !== -1 ? candidate : null;
       if (!forcedBase) return null; // uncorroborated - no real forward leg, same guard basepathWaypoints itself applies
       endOrd = forcedBase === "HOME" ? 4 : BASE_ORDINAL[forcedBase];
@@ -5769,8 +5903,33 @@
     // Which legs are a real out vs a decorative tag-up throw nobody's out on
     // (realOutThrowCount) - drives throwHtml's out/safe (red/green) colour,
     // same "which of these throws actually put someone out" question
-    // fieldingNotation asks of the identical target list.
+    // fieldingNotation asks of the identical target list. Counted against
+    // base legs only (sequentialThrowSchedule's own convention, Task 8.2) -
+    // a position/cutoff leg is never an out.
     var realCount = realOutThrowCount(m, flight);
+    // Task 8.3: every position/cutoff leg in this chain resolves to the
+    // SAME derived spot - on the line from where the ball was fielded to
+    // the chain's own eventual base, at CUTOFF_POSITION_FRAC. relayBaseCount
+    // is the coveringPosition relayCount convention (base legs only, same
+    // as fieldingChainDetail/relayLegIsUnassisted use it).
+    var finalBaseLeg = finalBaseOfChain(targets);
+    var finalBaseFt = finalBaseLeg ? BASE_POS_FT[finalBaseLeg] : null;
+    var relayBaseCount = baseLegs(targets).length;
+    function legPointFt(leg) {
+      return leg.kind === "base" ? BASE_POS_FT[leg.base]
+        : (finalBaseFt ? cutoffSpotFt(fieldedPoint(flight), finalBaseFt) : null);
+    }
+    function ptDistFt(a, b) {
+      if (!a || !b || !isFinite(a.x) || !isFinite(b.x)) return null;
+      return Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    // Whoever covered/received the PREVIOUS leg throws this one - a base
+    // leg resolves through the coverage convention, a position/cutoff leg
+    // names its own receiver directly (coveringPosition bypassed).
+    function throwerOf(leg) {
+      return leg.kind === "pos" ? leg.pos
+        : coveringPosition(leg.base, flight.archetype, flight.angle, flight.fielder, relayBaseCount, m, flight);
+    }
 
     // A fly ball/pop-up's throw (SacF/DSacF/FO's decorative "throw home
     // anyway" - outThrowTargets appends it, or an explicit ThrowOrder
@@ -5797,18 +5956,19 @@
       // every other throw waits out - the reconciler's own holdRelease then
       // does the rest of the "land comfortably past the runner" work,
       // replacing the old direct backward-solve.
-      var tagSchedule = sequentialThrowSchedule(targets, catchMs + THROW_DELAY_MS, realCount, function (i, b) {
+      var tagSchedule = sequentialThrowSchedule(targets, catchMs + THROW_DELAY_MS, realCount, function (i, leg) {
         // Task 9.3: leg 0 has no real fielded-point origin to draw distance
         // from (comment above), but the THROWER is still known - draw the
         // same flat BASE_DIAG_FT model at their own position speed rather
         // than the generic THROW_SPEED_MPH.
-        var throwerPos = i === 0 ? flight.fielder : coveringPosition(targets[i - 1], flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
+        var throwerPos = i === 0 ? flight.fielder : throwerOf(targets[i - 1]);
         var mph = THROW_SPEED_BY_POS[throwerPos] && THROW_SPEED_BY_POS[throwerPos].mph;
-        if (i === 0) return { drawMs: throwDrawMsForFt(BASE_DIAG_FT, mph), throwerPos: throwerPos };
-        var dist = throwDistFt(BASE_POS_FT[targets[i - 1]], b);
+        var toFt = legPointFt(leg);
+        if (i === 0) return { drawMs: throwDrawMsForFt(BASE_DIAG_FT, mph), throwerPos: throwerPos, toFt: toFt };
+        var dist = ptDistFt(legPointFt(targets[i - 1]), toFt);
         return dist == null
-          ? { drawMs: THROW_DRAW_MS, throwerPos: throwerPos }
-          : { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos };
+          ? { drawMs: THROW_DRAW_MS, throwerPos: throwerPos, toFt: toFt }
+          : { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos, toFt: toFt };
       });
       tagSchedule.adjustments = reconcileThrowSchedule(tagSchedule, runnerArrival, "uncontested", m.diff, false).adjustments;
       return tagSchedule;
@@ -5858,24 +6018,21 @@
     // beating the glove token that's supposedly the one carrying it).
     var unassisted = relayLegIsUnassisted(m, targets, flight);
     // Task 9.3/8.2: leg 0's thrower is the ball-fielding fielder; every leg
-    // after it is thrown by whoever covered the PREVIOUS leg's target base
-    // (coveringPosition) - already computed for the unassisted check below,
+    // after it is thrown by whoever covered/received the PREVIOUS leg
+    // (throwerOf, above) - already resolved for the unassisted check below,
     // reused rather than recomputed for the mph lookup.
-    function throwerForLeg(i) {
-      return i === 0 ? flight.fielder
-        : coveringPosition(targets[i - 1], flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
-    }
-    var schedule = sequentialThrowSchedule(targets, base, realCount, function (i, b) {
-      var fromPt = i === 0 ? origin0 : BASE_POS_FT[targets[i - 1]];
-      var dist = throwDistFt(fromPt, b);
-      var throwerPos = throwerForLeg(i);
-      if (dist == null) return { drawMs: THROW_DRAW_MS, throwerPos: throwerPos };
+    var schedule = sequentialThrowSchedule(targets, base, realCount, function (i, leg) {
+      var fromPt = i === 0 ? origin0 : legPointFt(targets[i - 1]);
+      var toPt = legPointFt(leg);
+      var dist = ptDistFt(fromPt, toPt);
+      var throwerPos = i === 0 ? flight.fielder : throwerOf(targets[i - 1]);
+      if (dist == null) return { drawMs: THROW_DRAW_MS, throwerPos: throwerPos, toFt: toPt };
       if (!unassisted[i]) {
         var mph = THROW_SPEED_BY_POS[throwerPos] && THROW_SPEED_BY_POS[throwerPos].mph;
-        return { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos };
+        return { drawMs: throwDrawMsForFt(dist, mph), distFt: dist, throwerPos: throwerPos, toFt: toPt };
       }
-      var coveringPos = coveringPosition(b, flight.archetype, flight.angle, flight.fielder, targets.length, m, flight);
-      return { drawMs: fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0], distFt: dist, throwerPos: coveringPos };
+      var coveringPos = throwerOf(leg);
+      return { drawMs: fielderLegDurationsMs(m, coveringPos, [{ distFt: dist }])[0], distFt: dist, throwerPos: coveringPos, toFt: toPt };
     });
 
     // The actual bug fix (plan fact 0.3): the honest forward race against
@@ -5919,8 +6076,8 @@
     // verdict margin - a "never render past a real token's own arrival"
     // constraint) applied after the runner-margin reconciliation above, so
     // whichever of the two actually requires more hold wins.
-    if (targets.length === 1 && targets[0] === "1B" && flight.fielder === "1B" &&
-        coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, targets.length, m, flight) === "P") {
+    if (targets.length === 1 && targets[0].kind === "base" && targets[0].base === "1B" && flight.fielder === "1B" &&
+        coveringPosition("1B", flight.archetype, flight.angle, flight.fielder, 1, m, flight) === "P") {
       var pitcherAdj = holdChainTo(schedule, pitcherCover1BArrivalMs(m), "holdRelease",
         "the ball must not visibly beat the covering pitcher's own token to 1B");
       if (pitcherAdj) scheduleAdjustments.push(pitcherAdj);
@@ -6084,7 +6241,12 @@
     var origin = ftToSvg(fieldedPoint(flight).x, fieldedPoint(flight).y);
     var delay = seqDelay || 0;
     return schedule.map(function (t, i) {
-      var to = t.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[t.base];
+      // Task 8.3: a position/cutoff leg's endpoint is its own derived spot
+      // (schedule's own toFt, single-sourced from throwSchedule - never
+      // recomputed here), not a named base.
+      var to = t.base === "HOME" ? SCENE_BASES.HOME
+        : t.base ? SCENE_BASES[t.base]
+        : (t.toFt ? ftToSvg(t.toFt.x, t.toFt.y) : null);
       if (!to) return "";
       // Red for a throw that puts someone out, green for the rare safe/
       // decorative one (a tag-up run that scores anyway) - Alex's call, same
@@ -6298,7 +6460,10 @@
     dirtEdgeFt: dirtEdgeFt, CAUGHT_IN_AIR: CAUGHT_IN_AIR,
     TAG_THROW_ARCHETYPES: TAG_THROW_ARCHETYPES,
     GROUND_ARCHETYPES: GROUND_ARCHETYPES,
-    parseThrowOrder: parseThrowOrder,
+    parseThrowOrder: parseThrowOrder, baseLegs: baseLegs, firstRealLegs: firstRealLegs,
+    finalBaseOfChain: finalBaseOfChain, cutoffSpotFt: cutoffSpotFt,
+    CUTOFF_POSITION_FRAC: CUTOFF_POSITION_FRAC,
+    THROW_ORDER_BASE_LETTER: THROW_ORDER_BASE_LETTER, THROW_ORDER_POSITION_NUMBER: THROW_ORDER_POSITION_NUMBER,
     brcExcludes: brcExcludes,
     resolveGrounderInterception: resolveGrounderInterception, resolveSinglePickup: resolveSinglePickup,
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
@@ -6488,7 +6653,7 @@
     // already noted above outThrowTargets - on a strikeout or walk this was
     // showing stranded runners advancing toward a base before "being out",
     // when nothing actually happened to them at all).
-    var realOutTargets = outThrowTargets(m, moves, flight);
+    var realOutTargets = baseLegs(outThrowTargets(m, moves, flight));
     var stealOut = stealThrowTarget(m, moves);
 
     // Safe/scoring runners lead off 150ms after slide mount, behind the ball
