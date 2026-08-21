@@ -4166,8 +4166,16 @@
   //     it (fieldedMs) - so they stop leaning once the play's already
   //     decided, rather than continuing to visibly creep after the real
   //     fielder has already touched the ball.
-  var IDLE_DRIFT_MAX_FT = 10;
-  var IDLE_DRIFT_DECAY_FT = 40;
+  // Task 13 (low priority, tuning only): widened so an infielder still
+  // acknowledges an outfield play while the far outfield stays nearly
+  // still - MAX 10->12 (~8.3ft at 40ft, ~3.8ft at the infield diagonal
+  // 127ft, ~1.2ft at 250ft, ~0.65ft at 320ft), DECAY 40->110 (IDLE_DRIFT_MIN_FT
+  // now cuts the drift off around ~350ft instead of ~110ft). Mechanism,
+  // exclusions, accel-time cap all untouched - if this still reads as too
+  // uniform after a visual pass, lower DECAY_FT toward 80 before touching
+  // anything else (Alex's own call, not yet made).
+  var IDLE_DRIFT_MAX_FT = 12;
+  var IDLE_DRIFT_DECAY_FT = 110;
   var IDLE_DRIFT_MIN_FT = 0.5;
   var IDLE_DRIFT_EXCLUDED_POSITIONS = { C: 1, P: 1 };
   function accelDistForTimeS(timeS, topSpeedFtPerS, accelFtPerS2) {
