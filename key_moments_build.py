@@ -479,25 +479,72 @@ def _defense_alignment_for_play(ref: dict, play: dict, half: str, is_final: bool
 
 # ── per-game replay ───────────────────────────────────────────────────────────
 
-def _runs_on_play(play: dict, nxt: dict | None, game: dict | None) -> int:
+def _runs_on_play(play: dict, nxt: dict | None, game: dict | None, prev: dict | None = None,
+                   archive_mode: bool = False) -> int:
     """Runs scored on this play, from the running score in the sheet.
 
-    a_Scr/h_Scr on a play row are the score BEFORE that play, so the delta to
-    the next row is the runs this play produced. The final play of a completed
-    game is closed out against the Games tab's final score; anything else falls
-    back to the run-advancement model.
+    Live sheet (`Plays (Raw)`): a_Scr/h_Scr on a play row are the score
+    BEFORE that play, so the delta to the NEXT row is the runs this play
+    produced. The final play of a completed game is closed out against the
+    Games tab's final score; anything else falls back to the run-advancement
+    model.
+
+    Archive mode (`archive_mode=True`, per-season - see
+    _detect_archive_score_convention): the opposite convention - a_Scr/h_Scr
+    is the score AFTER that play resolves (confirmed against real data: a
+    3-run HR with runners on 2nd and 3rd already carries the full +3 jump on
+    its own row). So there the delta is against the PREVIOUS row instead,
+    with 0-0 standing in for "no previous row" (the first play of a game).
     """
-    before = (play["away_score"] or 0) + (play["home_score"] or 0)
-    if nxt is not None:
-        after = (nxt["away_score"] or 0) + (nxt["home_score"] or 0)
-    elif game and game.get("away_score") is not None and game.get("home_score") is not None:
-        after = (game["away_score"] or 0) + (game["home_score"] or 0)
+    if archive_mode:
+        before = ((prev["away_score"] if prev else 0) or 0) + ((prev["home_score"] if prev else 0) or 0)
+        after = (play["away_score"] or 0) + (play["home_score"] or 0)
     else:
-        after = None
+        before = (play["away_score"] or 0) + (play["home_score"] or 0)
+        if nxt is not None:
+            after = (nxt["away_score"] or 0) + (nxt["home_score"] or 0)
+        elif game and game.get("away_score") is not None and game.get("home_score") is not None:
+            after = (game["away_score"] or 0) + (game["home_score"] or 0)
+        else:
+            after = None
     if after is not None and after >= before:
         return after - before
     _, runs = utils.advance_runners(play.get("result") or "", play["obc"], play.get("_outs_before", 0))
     return int(runs)
+
+
+def _detect_archive_score_convention(by_game: dict[str, list[dict]]) -> bool:
+    """Does this archive season's a_Scr/h_Scr store the score AFTER each play
+    (post-play), or BEFORE it (pre-play, same as the live sheet's Plays (Raw)
+    tab)? Re-derived from the data every build rather than assumed, because
+    it is NOT constant across the archive: verified directly against the
+    sheet, seasons 1-10 are post-play but 11-12 switch to the live
+    convention (presumably a scorekeeping process change).
+
+    Samples solo home runs (result == HR, obc_before == "000") - the batter
+    is the only run, unambiguous - and checks whether that run already shows
+    up in the HR's own row's score total (post-play) or only in the next
+    row's (pre-play). Returns True (post-play) on a tie or no samples, since
+    every archive season observed so far defaults to post-play.
+    """
+    post_votes = 0
+    pre_votes = 0
+    for gp in by_game.values():
+        ordered = sorted(gp, key=lambda p: p["play_num"])
+        for i, p in enumerate(ordered):
+            if p.get("result") != "HR" or p.get("obc") != "000":
+                continue
+            total_this = (p["away_score"] or 0) + (p["home_score"] or 0)
+            total_prev = ((ordered[i - 1]["away_score"] or 0) + (ordered[i - 1]["home_score"] or 0)) if i > 0 else 0
+            total_next = None
+            if i + 1 < len(ordered):
+                nxt = ordered[i + 1]
+                total_next = (nxt["away_score"] or 0) + (nxt["home_score"] or 0)
+            if total_this == total_prev + 1:
+                post_votes += 1
+            elif total_next is not None and total_next == total_this + 1:
+                pre_votes += 1
+    return post_votes >= pre_votes
 
 
 def _game_is_final(game: dict | None) -> bool:
@@ -508,13 +555,26 @@ def _game_is_final(game: dict | None) -> bool:
     return utils.game_is_final(game)
 
 
-def _is_final_play(play: dict, game: dict | None, is_last_in_data: bool) -> bool:
+def _is_final_play(play: dict, game: dict | None, is_last_in_data: bool, archive_mode: bool = False) -> bool:
     """Is this play the last out of a completed game?
 
-    Cross-checked against the Games tab's last_play so that a plays feed lagging
-    behind the games feed cannot promote a mid-game play to the final out.
+    Live season: cross-checked against the Games tab's last_play so that a
+    plays feed lagging behind the games feed cannot promote a mid-game play
+    to the final out.
+
+    Archive mode: skips the Games-tab cross-check entirely (Alex's call -
+    trust the Plays data). Every archive season is a finished historical
+    record already (build() treats every archive game as final regardless of
+    what its own Games-tab row says), and season 1 in particular shows the
+    Games tab disagreeing with the Plays data's own reconstructed score on
+    21 of 75 games - so whatever is literally the last recorded play for
+    this game IS the final play, full stop.
     """
-    if not is_last_in_data or not _game_is_final(game):
+    if not is_last_in_data:
+        return False
+    if archive_mode:
+        return True
+    if not _game_is_final(game):
         return False
     recorded_last = str(game.get("last_play") or "").strip()
     if recorded_last:
@@ -522,8 +582,14 @@ def _is_final_play(play: dict, game: dict | None, is_last_in_data: bool) -> bool
     return True
 
 
-def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
-    """Walk one game's plays in order, returning a state record per play."""
+def replay_game(plays: list[dict], game: dict | None, archive_mode: bool = False) -> list[dict]:
+    """Walk one game's plays in order, returning a state record per play.
+
+    `archive_mode` flips the a_Scr/h_Scr convention used to derive runs and
+    the pre-play score (see _runs_on_play) - the Historical Archive sheet's
+    Plays tab (seasons 1-12) stores those columns post-play, the opposite of
+    the live sheet's Plays (Raw) tab.
+    """
     ordered = sorted(plays, key=lambda p: p["play_num"])
     outs_tracker: dict[tuple, int] = {}
     states: list[dict] = []
@@ -542,13 +608,18 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
         outs_tracker[inn_key] = outs_after
 
         play["_outs_before"] = outs_before
+        prev = ordered[i - 1] if i > 0 else None
         nxt = ordered[i + 1] if i + 1 < len(ordered) else None
         is_last = nxt is None
-        runs = _runs_on_play(play, nxt, game)
+        runs = _runs_on_play(play, nxt, game, prev=prev, archive_mode=archive_mode)
 
         batting_is_home = (half == "bottom")
-        away_score = play["away_score"] or 0
-        home_score = play["home_score"] or 0
+        if archive_mode:
+            away_score = (prev["away_score"] if prev else 0) or 0
+            home_score = (prev["home_score"] if prev else 0) or 0
+        else:
+            away_score = play["away_score"] or 0
+            home_score = play["home_score"] or 0
         lead_before = (home_score - away_score) if batting_is_home else (away_score - home_score)
         lead_after = lead_before + runs
 
@@ -562,10 +633,21 @@ def replay_game(plays: list[dict], game: dict | None) -> list[dict]:
         remaining = utils.remaining_half_innings(inning, half, MLN_INNINGS)
         wp_before = utils.get_win_probability_interpolated(remaining, outs_before, obc_before, lead_before)
 
-        ended = _is_final_play(play, game, is_last)
+        ended = _is_final_play(play, game, is_last, archive_mode=archive_mode)
         if ended:
-            final_bat = (game["home_score"] if batting_is_home else game["away_score"]) or 0
-            final_fld = (game["away_score"] if batting_is_home else game["home_score"]) or 0
+            if archive_mode:
+                # Trust the Plays data's own running score over the Games
+                # tab (Alex's call) - away_score/home_score here are already
+                # this play's own before-score (see above), so adding this
+                # play's runs gives the final total the same way build_moment
+                # computes the displayed score.
+                final_away = away_score + (0 if batting_is_home else runs)
+                final_home = home_score + (runs if batting_is_home else 0)
+            else:
+                final_away = game["away_score"] or 0
+                final_home = game["home_score"] or 0
+            final_bat = final_home if batting_is_home else final_away
+            final_fld = final_away if batting_is_home else final_home
             wp_after = 1.0 if final_bat > final_fld else (0.5 if final_bat == final_fld else 0.0)
         elif outs_after >= 3:
             rem_next = remaining - 1
@@ -1111,6 +1193,21 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         p["diff"] = utils.circular_diff(pitch, swing) if pitch is not None and swing is not None else None
         by_game.setdefault(p["game_code"], []).append(p)
 
+    # See _detect_archive_score_convention's docstring - the archive sheet's
+    # a_Scr/h_Scr convention flips between seasons, so this is re-derived per
+    # build rather than assumed from archive_season alone. Live season always
+    # uses the pre-play convention (archive_mode=False), unconditionally.
+    archive_score_post = _detect_archive_score_convention(by_game) if archive_season is not None else False
+    if archive_season is not None:
+        print(f"  season {archive_season}: archive score convention = "
+              f"{'post-play' if archive_score_post else 'pre-play (live-style)'}", file=sys.stderr)
+        repaired = sum(1 for p in plays if p.get("_obc_repaired"))
+        unresolved = sum(1 for p in plays if p.get("_obc_cell_has_extra"))
+        if repaired or unresolved:
+            print(f"  season {archive_season}: obc repaired from Playcode on {repaired}/{len(plays)} plays "
+                  f"({unresolved} still show a cell-only runner Playcode doesn't confirm - left as-is)",
+                  file=sys.stderr)
+
     # Lineups is only ever needed for in-progress games (Decision 1: never
     # rely on it for completed games) - fetched at most once per build run,
     # lazily, the first time a non-final game is actually encountered below.
@@ -1172,7 +1269,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # relies on).
         occ_half_key = None
         occupants: dict[str, dict] = {}
-        for state in replay_game(game_plays, game):
+        for state in replay_game(game_plays, game, archive_mode=archive_score_post):
             last_state = state
             play = state["play"]
             defense = _defense_alignment_for_play(

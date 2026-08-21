@@ -8579,7 +8579,54 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None
             | (2 if on_second not in ("0", "-") else 0)
             | (4 if on_third  not in ("0", "-") else 0)
         )
-        obc = BRC_TO_OBC.get(brc, "Empty")
+        cell_obc = BRC_TO_OBC.get(brc, "Empty")
+
+        # Cross-check against Playcode ("Outs_OBC_Result", e.g. "0_5_HR") -
+        # its middle token is the league's own canonical base-state code
+        # (0=empty, 1-3=one runner in base order, 4-6=two runners, 7=loaded -
+        # decoded with _BRC_TO_OBC, the SAME table import_BRC.csv's Situation
+        # column uses; the public BRC_TO_OBC above numbers codes 3/4
+        # differently and is only for turning these OnFirst/OnSecond/OnThird
+        # cells into a string, never for decoding a real league base-state
+        # code like this one). Verified against real data (Alex's report):
+        # the live sheet's cells agree with Playcode on every row, but the
+        # archive sheet disagrees on ~5% of season 1's rows (smaller pockets
+        # elsewhere, 0% in season 12).
+        #
+        # Alex's hierarchy, in order:
+        #  1. Same runner COUNT on both sides (just a different base) - trust
+        #     the cells outright. They carry a real player id per base;
+        #     Playcode's digit is only a count/pattern, so OR-ing the two
+        #     here would manufacture a phantom second runner neither source
+        #     actually shows (e.g. cells say 2B, Playcode says 1B - both one
+        #     runner, not two).
+        #  2. Different count - build the occupancy up from Playcode's
+        #     pattern instead, keeping every base the cells already have a
+        #     real id for and adding whichever base(s) Playcode implies are
+        #     missing. Never removes a cell-sourced base, even if that
+        #     leaves more runners than Playcode's own count suggests -
+        #     losing a real known id is worse than an unresolved surplus.
+        # obc_cell_has_extra flags any leftover cells-only base (case 1
+        # always, case 2 when the cells simply have more runners than
+        # Playcode) for a caller to report on rather than resolve silently.
+        play_code = _str(row.get("Playcode"))
+        pc_parts = play_code.split("_")
+        playcode_obc = None
+        if len(pc_parts) >= 2:
+            try:
+                playcode_obc = _BRC_TO_OBC.get(int(pc_parts[1]))
+            except ValueError:
+                playcode_obc = None
+        obc = cell_obc
+        obc_repaired = False
+        obc_cell_has_extra = False
+        if playcode_obc is not None and cell_obc in _OBC_STRING_TO_CODE and playcode_obc != cell_obc:
+            obc_cell_has_extra = any(c == "1" and p == "0" for c, p in zip(cell_obc, playcode_obc))
+            if cell_obc.count("1") != playcode_obc.count("1"):
+                merged = "".join("1" if (a == "1" or b == "1") else "0" for a, b in zip(cell_obc, playcode_obc))
+                if merged != cell_obc:
+                    obc = merged
+                    obc_repaired = True
 
         plays.append({
             "league":      "MLN",
@@ -8602,7 +8649,7 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None
             "home_score": _safe_int(row.get("h_Scr")),
             "play_type":  play_type,
             "result":     result,
-            "play_code":  _str(row.get("Playcode")),
+            "play_code":  play_code,
             "pitcher_id": _safe_int(row.get("Pitcher")),
             "catcher_id": _safe_int(row.get("Catcher")),
             "pos":        _str(row.get("Pos") or row.get("Pos*")),
@@ -8610,6 +8657,12 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None
             "on_first":   on_first,
             "on_second":  on_second,
             "on_third":   on_third,
+            # Diagnostics for the Playcode cross-check above - not consumed
+            # by the base-diamond/runner logic itself (obc already carries
+            # the repair), just there for a caller to report repair/conflict
+            # rates without re-deriving them.
+            "_obc_repaired":        obc_repaired,
+            "_obc_cell_has_extra":  obc_cell_has_extra,
             "scored2":    _str(row.get("scored2")),
             "scored3":    _str(row.get("scored3")),
             "scored4":    _str(row.get("scored4")),
