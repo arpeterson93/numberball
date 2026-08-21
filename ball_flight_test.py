@@ -725,15 +725,22 @@ def main() -> None:
                         var flight = KMFlight.flightParams(m, a.tables);
                         var moves = KMFlight.deriveRunnerMoves(
                             String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
-                        // Task 8.2: the ground-truth invariant is about REAL
-                        // (base) legs only - a position/cutoff leg is never
-                        // an out and can legitimately repeat a position.
-                        var targets = KMFlight.baseLegs(KMFlight.outThrowTargets(m, moves, flight));
+                        // Task 1b/b0534c3 (fact 0.2): an explicit ThrowOrder
+                        // on a hit with ZERO real outs is legitimate -
+                        // decorative/contestedSafe legs beyond the outs
+                        // actually recorded (e.g. an OF single throwing to
+                        // 2B just to hold the batter) are expected now, so
+                        // the invariant is scoped to the schedule's own
+                        // OUT-marked legs specifically (throwSchedule's
+                        // per-base-leg-ordinal out-flag, Task 8.2), not the
+                        // raw target count.
                         var recorded = Math.max(0, (m.outs_after || 0) - (m.outs_before || 0));
-                        if (targets.length > recorded) bad.push(m.moment_id + ": too many targets");
+                        var schedule = KMFlight.throwSchedule(m, moves, flight);
+                        var outLegs = schedule.filter(function (t) { return t.out; }).map(function (t) { return t.base; });
+                        if (outLegs.length > recorded) bad.push(m.moment_id + ": too many OUT-marked legs");
                         var seen = {};
-                        targets.forEach(function (b) {
-                            if (seen[b]) bad.push(m.moment_id + ": dup base " + b);
+                        outLegs.forEach(function (b) {
+                            if (seen[b]) bad.push(m.moment_id + ": dup base among OUT-marked legs " + b);
                             seen[b] = 1;
                         });
                     });
