@@ -1953,6 +1953,51 @@ def main() -> None:
         check("awr is monotonically decreasing 1->3->5 (higher awr, shorter lead)",
               awr_test["awr1"] > awr_test["awr3"] > awr_test["awr5"], True)
 
+        print("\nPitcher charge-in reaction (Task 6, probe-validated against 76,724 real plays -")
+        print("see tools/pitcher_reaction_probe.py):")
+        pitcher_reaction = page.evaluate(
+            """() => {
+                // Real flip case (s01 moment 10204007): a near-dead soft
+                // roller right at the plate - the pitcher's own 0.15s
+                // reaction still wins it, but the probe-selected 0.45s
+                // correctly hands it to 3B instead (this exact play flips
+                // between those two values in the real corpus sweep).
+                var flipM = {result: 'GO', batter_hand: 'L'};
+                var flipFlight = {
+                  archetype: 'grounder', angle: 21, distance: 2,
+                  x: -0.4087064727077347, y: 1.9577944271978103,
+                  contactVel: { vx: -15.633437920733332, vy: 34.5757694707328, vz: -60.942363937660154 },
+                };
+                var flipResult = Object.assign({}, flipFlight);
+                KMFlight.resolveGrounderInterception(flipM, flipResult, 'L');
+
+                // True comebacker: hard-hit, short, dead center (P's own
+                // nominal HZ bucket) - the probe's own nominal=P P-vs-3B
+                // split (522/22) never moved across any tested reaction
+                // value, confirmed here directly: P still wins even at the
+                // pinned 0.45s.
+                var comebackerM = {result: 'GO', batter_hand: 'R'};
+                var comebackerFlight = {
+                  archetype: 'grounder', angle: 45, distance: 20,
+                  x: 0, y: 20, contactVel: { vx: 0, vy: -95, vz: -3 },
+                };
+                var comebackerResult = Object.assign({}, comebackerFlight);
+                KMFlight.resolveGrounderInterception(comebackerM, comebackerResult, 'R');
+
+                return {
+                  flipWinner: flipResult.fielder,
+                  comebackerWinner: comebackerResult.fielder,
+                  PITCHER_CHARGE_REACTION_S: KMFlight.PITCHER_CHARGE_REACTION_S,
+                };
+            }"""
+        )
+        check("the pinned reaction value is the probe-selected 0.45s",
+              pitcher_reaction["PITCHER_CHARGE_REACTION_S"], 0.45)
+        check("a 3B-should-win charge (real flip case) resolves to 3B at the pinned reaction",
+              pitcher_reaction["flipWinner"], "3B")
+        check("a true comebacker still resolves to P at the pinned reaction",
+              pitcher_reaction["comebackerWinner"], "P")
+
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(
             """(a) => {

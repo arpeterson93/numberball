@@ -2754,6 +2754,15 @@
   // its own value since a charge decision is a different kind of read than
   // "the ball's already in my glove, throw now."
   var CHARGE_REACTION_S = 0.15;
+  // Task 6 (round-1 Stage 5c, fact 12): "finishing the delivery costs a
+  // beat" - a flat pitcher-specific reaction override, simplest honest
+  // model (Alex's own recommendation over a continuous reaction-window
+  // model). Provisional value, probe-selected below (see
+  // tools/pitcher_reaction_probe.py) - a split second more than the shared
+  // 0.15, not a full second. Only applies once a fielder actually has to
+  // move (chargeFielderArriveS's own distFt>0 gate, untouched) - a
+  // comebacker right at the mound still gets fielded on the spot.
+  var PITCHER_CHARGE_REACTION_S = 0.45;
   // Every infielder who could plausibly be the one who actually gets to a
   // short roller - LF/CF/RF never win this (they're hundreds of feet away,
   // the race below prices that in for free without needing an explicit
@@ -2778,18 +2787,19 @@
   // 65mph "grounder" the camped 2B was standing right on top of still
   // ended up "fielded" 130ft past his own depth, because the race never
   // credited him with blocking it as it arrived.
-  function chargeFielderArriveS(anchor, flight, alongFt, ftPerS) {
+  function chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS) {
     var p = groundDirPoint(flight, alongFt);
     var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
     // Re-based on the shared primitive (Task 3.1): the charge race now
     // accelerates instead of running at a flat top speed - a deliberate
     // behavior change (slightly lengthens short charges, more honest to
     // real fielder motion). accelFtPerS2 defaults to FIELDER_ACCEL_FT_S2
-    // via arrivalTimeS/accelTimeS.
+    // via arrivalTimeS/accelTimeS. reactionS (Task 6): per-position
+    // override - defaults to the shared CHARGE_REACTION_S when omitted.
     return arrivalTimeS(distFt, {
       topSpeedFtPerS: ftPerS || FIELDER_CHARGE_FT_PER_S,
       accelFtPerS2: FIELDER_ACCEL_FT_S2,
-      reactionS: CHARGE_REACTION_S
+      reactionS: reactionS == null ? CHARGE_REACTION_S : reactionS
     });
   }
   // Earliest point along the ball's own roll (0..gp.restFt) where this one
@@ -2830,9 +2840,9 @@
   // every fielder's distance to the ball's full, un-intercepted ~225ft
   // natural roll instead - a wildly wrong "who fields it" answer for what
   // should have been an instant comebacker out.
-  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt, ftPerS) {
+  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt, ftPerS, reactionS) {
     var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
-    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt, ftPerS) - gp.timeAt(alongFt); }
+    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS) - gp.timeAt(alongFt); }
     if (h(0) <= 0) return { alongFt: 0, atS: gp.timeAt(0) };
     if (knownAlongFt != null && knownAlongFt > 0 && knownAlongFt <= restFt && h(knownAlongFt) <= 0) {
       var lo0 = 0, hi0 = knownAlongFt;
@@ -2858,7 +2868,7 @@
       }
       prevAlong = along;
     }
-    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt, ftPerS) };
+    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt, ftPerS, reactionS) };
   }
   // Races every plausible infielder's own charge-in (above) and returns
   // whichever actually gets there first - "who fields it" and "how long does
@@ -2911,11 +2921,16 @@
       // for everyone else).
       var basePace = OUTFIELD_POSITIONS[pos] ? OF_CHARGE_FT_PER_S : FIELDER_CHARGE_FT_PER_S;
       var ftPerS = basePace * spdPaceScale(fielderSpd(m, pos));
+      // Task 6: the pitcher's own reaction is a real beat longer - still
+      // finishing the delivery, not already in a fielding-ready stance the
+      // way an infielder is. Every other candidate keeps the shared
+      // CHARGE_REACTION_S (chargeFielderArriveS's own default).
+      var reactionS = pos === "P" ? PITCHER_CHARGE_REACTION_S : CHARGE_REACTION_S;
       // fielderInterceptS's own knownAlongFt: only the camped candidate has
       // one exact along-distance we already know to check directly
       // (distFt=0 there) - every other candidate's real static anchor has
       // no such analytically-known point, so it just races the coarse grid.
-      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, isCamped ? campedAlongFt : null, ftPerS);
+      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, isCamped ? campedAlongFt : null, ftPerS, reactionS);
       if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS };
     });
     return best;
@@ -4467,8 +4482,12 @@
     var accel = kind === "pursuit" ? OF_PURSUIT_ACCEL_FT_S2
       : kind === "charge" ? FIELDER_ACCEL_FT_S2
       : RUNNER_ACCEL_FT_S2;
+    // Task 6: a charging pitcher gets the same longer reaction the race
+    // itself uses (chargeInIntercept) - any other profile consumer agrees
+    // with the race instead of quietly picturing a faster break.
     var reactionS = kind === "run" ? 0
       : kind === "pursuit" ? OUTFIELDER_REACT_MS / 1000
+      : (kind === "charge" && pos === "P") ? PITCHER_CHARGE_REACTION_S
       : CHARGE_REACTION_S;
     return {
       topSpeedFtPerS: base * spdPaceScale(fielderSpd(m, pos)),
@@ -6516,6 +6535,12 @@
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
     FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
     CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
+    PITCHER_CHARGE_REACTION_S: PITCHER_CHARGE_REACTION_S,
+    // Probe-only (Task 6's validation sweep, tools/pitcher_reaction_probe.py) -
+    // lets the probe script re-run chargeInIntercept at several candidate
+    // reaction values without editing source per value. Not read by the
+    // page itself.
+    setPitcherChargeReactionS: function (v) { PITCHER_CHARGE_REACTION_S = v; },
     applyAirPositionOverride: applyAirPositionOverride,
     resolveHitPickup: resolveHitPickup,
     applyAngleOverride: applyAngleOverride, clampFairTerritory: clampFairTerritory,
