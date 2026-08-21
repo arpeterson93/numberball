@@ -6285,7 +6285,20 @@
   // of the real 90ft basepath - rather than starting flat-footed on the bag,
   // so the animated leg is only the remaining 78ft (sceneFieldHtml's own
   // token rendering, and the arrival math right below, both key off this).
+  // Survives as the league-average fallback constant (awr null, or a
+  // historical archive built before the awr field existed) - stealLeadoffFt
+  // (Task 14.2) is what every real call site reads now.
   var STEAL_LEADOFF_FT = 12;
+  // Pitcher awareness (1-5, 3=average) sets how tight a leadoff he holds a
+  // runner to - 10/11/12/13/14ft for awr 5..1 (a sharper pitcher, a shorter
+  // lead). Calibrated so awr=3 (and every unresolved/historical row)
+  // reproduces today's flat 12ft exactly - see batter_optimizer.py's own
+  // (pitcher AWR + catcher EYE)/2 precedent for the same rating's real-
+  // world weight elsewhere in this project.
+  function stealLeadoffFt(m) {
+    var awr = m && m.pitcher_awr;
+    return 15 - (awr == null ? SPD_AVERAGE : awr);
+  }
   // Real per-runner accelerating sprint over the shortened leg (Task 3.2,
   // folded onto the shared primitive) - the runner covers less ground in
   // less real time, not the same full-leg duration over a shorter distance
@@ -6295,7 +6308,7 @@
   // existed) - stealLegMs(m, who) is what every real call site uses now.
   var STEAL_LEG_DUR_MS = runnerDrawMsForFt(BASE_DIST_FT - STEAL_LEADOFF_FT);
   function stealLegMs(m, who) {
-    return Math.round(arrivalTimeS(BASE_DIST_FT - STEAL_LEADOFF_FT, runnerProfile(m, who)) * 1000);
+    return Math.round(arrivalTimeS(BASE_DIST_FT - stealLeadoffFt(m), runnerProfile(m, who)) * 1000);
   }
   // Alex's ask: instead of a single flat gap, the throw's own margin off the
   // runner's arrival now scales with how decisive the underlying
@@ -6320,6 +6333,22 @@
   // a beat to catch it, come up, and get the ball out - stealThrowHtml's own
   // floor on when the throw may start.
   var CATCHER_POP_MS = 250;
+  // Task 14.1: the catcher's own scouted EYE rating (1-5, 3=average) drives
+  // how fast their steal-throw actually travels - m.defense.C is the same
+  // [full, last, spd, eye] shape every other position uses, index 3 the
+  // append probe 0.3 confirmed reaches the client. Falls back to the
+  // average rating (SPD_AVERAGE - same "3=average" convention every other
+  // rating here shares) when unresolved.
+  function catcherEye(m) {
+    var e = m.defense && m.defense.C && m.defense.C[3];
+    return e == null ? SPD_AVERAGE : e;
+  }
+  // Piecewise, not linear across 1-5 (Alex's real range, 75-90, isn't
+  // centered on his own average, 80): below-average eye costs 2.5mph/point
+  // down to 75 at eye 1; above-average gains 5mph/point up to 90 at eye 5.
+  function eyeArmMph(eye) {
+    return eye < 3 ? 80 - (3 - eye) * 2.5 : 80 + (eye - 3) * 5;
+  }
 
   // The runner token's own "reaches the base" moment - stealLegMs(m, who)
   // (the shortened, leadoff-adjusted leg, above) is both a plain legs1
@@ -6397,21 +6426,29 @@
       ? Math.abs(signedCirc(m.steal_num, m.throw_num, 1000)) : 250;
     var margin = stealThrowMarginMs(diff);
     var idealArrive = target.caught ? arrival - margin : arrival + margin;
+    // Task 14.1: real distance (origin to the actual target base) at the
+    // catcher's own EYE-driven arm speed, replacing the flat THROW_DRAW_MS/
+    // BASE_DIAG_FT model - coincidentally close to right for C->2B (the
+    // diagonal, same distance BASE_DIAG_FT approximates), ~40% too slow-
+    // looking for the much shorter C->3B before this. Falls back to the
+    // flat model only when the origin isn't resolvable.
+    var stealDistFt = throwDistFt(originAnchor, target.base);
+    var drawMs = stealDistFt == null ? THROW_DRAW_MS : throwDrawMsForFt(stealDistFt, eyeArmMph(catcherEye(m)));
     // Alex's ask: the catcher can't release the throw before the pitch has
     // actually arrived (pitchBallHtml's own wheelFinishMs - CATCHER_POP_MS's
     // own comment) - Math.max only ever pushes idealArrive LATER, never
     // earlier, so this is a floor, not a second target.
     var pitchArriveMs = Math.round(FIELD_SEQUENCE_DELAY_MS / stealWheelPace(m));
-    var arrive = Math.max(idealArrive, pitchArriveMs + CATCHER_POP_MS + THROW_DRAW_MS);
+    var arrive = Math.max(idealArrive, pitchArriveMs + CATCHER_POP_MS + drawMs);
     // But that floor must never be allowed to push a caught-stealing's throw
     // past the runner's own arrival - a real out has to keep reading as one
     // regardless of how slow the wheel/how tight the diff-based margin above
     // was. (A safe steal has no equivalent risk - arriving later than
     // idealArrive only ever reads as "even more clearly safe.")
     if (target.caught) arrive = Math.min(arrive, arrival - MARGIN_POLICY.tagOut.minMs);
-    var start = Math.max(0, arrive - THROW_DRAW_MS);
+    var start = Math.max(0, arrive - drawMs);
     var cls = "throw-line steal-throw " + (target.caught ? "throw-out" : "throw-safe");
-    return throwLineHtml(from.x, from.y, to.x, to.y, cls, start + (seqDelay || 0));
+    return throwLineHtml(from.x, from.y, to.x, to.y, cls, start + (seqDelay || 0), drawMs);
   }
 
   // Exposed for the Playwright pure-function test harness only
@@ -6437,9 +6474,11 @@
     stealThrowTarget: stealThrowTarget, stealRunnerArrivalMs: stealRunnerArrivalMs,
     stealThrowOrigin: stealThrowOrigin, stealThrowHtml: stealThrowHtml, stealOutAtMs: stealOutAtMs,
     stealThrowMarginMs: stealThrowMarginMs, STEAL_LEG_DUR_MS: STEAL_LEG_DUR_MS,
+    catcherEye: catcherEye, eyeArmMph: eyeArmMph,
     stealLegMs: stealLegMs, runnerSpd: runnerSpd, runnerProfile: runnerProfile,
     runnerLegMs: runnerLegMs,
     STEAL_LEADOFF_FT: STEAL_LEADOFF_FT, CATCHER_POP_MS: CATCHER_POP_MS,
+    stealLeadoffFt: stealLeadoffFt,
     pitchBallHtml: pitchBallHtml, PITCH_TRAVEL_MS: PITCH_TRAVEL_MS, PITCH_SPEED_MPH: PITCH_SPEED_MPH,
     walkPitchTargetSvg: walkPitchTargetSvg, WALK_PITCH_OFFSET_FT: WALK_PITCH_OFFSET_FT,
     stealWheelPace: stealWheelPace, WHEEL_PACE_MIN: WHEEL_PACE_MIN, wheelHtml: wheelHtml,
@@ -6857,7 +6896,7 @@
       // worth it over a 12ft/90ft fraction.
       var isStealAdvance = stealOut && !useRetreat && !strandedSafe && path.length > 0;
       if (isStealAdvance) {
-        var leadoffFrac = STEAL_LEADOFF_FT / BASE_DIST_FT;
+        var leadoffFrac = stealLeadoffFt(m) / BASE_DIST_FT;
         from = {
           x: from.x + (path[0].x - from.x) * leadoffFrac,
           y: from.y + (path[0].y - from.y) * leadoffFrac,

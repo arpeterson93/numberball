@@ -1890,6 +1890,69 @@ def main() -> None:
         check("floor-bound case: the combined knobs still land exactly on the required time",
               slow_throw["finalEndB"], slow_throw["requiredB"], tol=1)
 
+        print("\nCatcher EYE -> steal-throw speed (Task 14.1):")
+        eye_test = page.evaluate(
+            """() => {
+                function mDefense(eye) {
+                  return { defense: { C: ['Catcher Name', 'Name', 3, eye] } };
+                }
+                return {
+                  eye1Mph: KMFlight.eyeArmMph(KMFlight.catcherEye(mDefense(1))),
+                  eye3Mph: KMFlight.eyeArmMph(KMFlight.catcherEye(mDefense(3))),
+                  eye5Mph: KMFlight.eyeArmMph(KMFlight.catcherEye(mDefense(5))),
+                  missingEyeMph: KMFlight.eyeArmMph(KMFlight.catcherEye({defense: {}})),
+                  noDefenseMph: KMFlight.eyeArmMph(KMFlight.catcherEye({})),
+                };
+            }"""
+        )
+        check("eye 1 -> 75mph (below-average floor)", eye_test["eye1Mph"], 75)
+        check("eye 3 -> 80mph (average)", eye_test["eye3Mph"], 80)
+        check("eye 5 -> 90mph (above-average ceiling)", eye_test["eye5Mph"], 90)
+        check("missing eye on an otherwise-resolved catcher falls back to 80mph (average)",
+              eye_test["missingEyeMph"], 80)
+        check("no defense data at all falls back to 80mph (average) - same as missing eye",
+              eye_test["noDefenseMph"], 80)
+        check("eye is monotonically increasing 1->3->5", eye_test["eye1Mph"] < eye_test["eye3Mph"] < eye_test["eye5Mph"], True)
+
+        print("\nstealThrowHtml draws C->3B faster than C->2B (real distance, Task 14.1):")
+        steal_draw = page.evaluate(
+            """() => {
+                var moves2b = KMFlight.deriveRunnerMoves('001', '010', 0);
+                var moves3b = KMFlight.deriveRunnerMoves('010', '100', 0);
+                var m = {result: 'SB2', steal_num: 500, throw_num: 500, defense: {C: ['C', 'C', 3, 3]}};
+                var html2b = KMFlight.stealThrowHtml(Object.assign({}, m, {result: 'SB2'}), moves2b, 150, 550, 0);
+                var m3 = Object.assign({}, m, {result: 'SB3'});
+                var html3b = KMFlight.stealThrowHtml(m3, moves3b, 150, 550, 0);
+                function drawMs(html) {
+                  var mt = html.match(/--pdur:(\\d+)ms/);
+                  return mt ? Number(mt[1]) : null;
+                }
+                return { draw2b: drawMs(html2b), draw3b: drawMs(html3b) };
+            }"""
+        )
+        print(f"  C->2B drawMs={steal_draw['draw2b']} C->3B drawMs={steal_draw['draw3b']}")
+        check("C->3B (shorter, real distance) draws faster than C->2B", steal_draw["draw3b"] < steal_draw["draw2b"], True)
+
+        print("\nPitcher AWR -> steal leadoff distance (Task 14.2):")
+        awr_test = page.evaluate(
+            """() => {
+                return {
+                  awr1: KMFlight.stealLeadoffFt({pitcher_awr: 1}),
+                  awr3: KMFlight.stealLeadoffFt({pitcher_awr: 3}),
+                  awr5: KMFlight.stealLeadoffFt({pitcher_awr: 5}),
+                  missingAwr: KMFlight.stealLeadoffFt({}),
+                  STEAL_LEADOFF_FT: KMFlight.STEAL_LEADOFF_FT,
+                };
+            }"""
+        )
+        check("awr 1 -> 14ft (a weaker pickoff threat, longer lead)", awr_test["awr1"], 14)
+        check("awr 3 -> 12ft (average)", awr_test["awr3"], 12)
+        check("awr 5 -> 10ft (a sharp pickoff threat, shorter lead)", awr_test["awr5"], 10)
+        check("missing awr falls back to exactly today's flat 12ft constant",
+              awr_test["missingAwr"], awr_test["STEAL_LEADOFF_FT"])
+        check("awr is monotonically decreasing 1->3->5 (higher awr, shorter lead)",
+              awr_test["awr1"] > awr_test["awr3"] > awr_test["awr5"], True)
+
         print("\nDOM smoke test (one play slide renders a kmArc keyframe + ball-trail path):")
         smoke = page.evaluate(
             """(a) => {

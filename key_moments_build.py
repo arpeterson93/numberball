@@ -384,12 +384,13 @@ def _team_view(ref: dict, key: str | None) -> dict:
 
 def _player_view(ref: dict, player_id: int | None) -> dict:
     if not player_id:
-        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": "", "hand": "", "spd": None}
+        return {"id": None, "name": "", "last_name": "", "rookie": False, "team": "", "hand": "",
+                "spd": None, "eye": None, "awr": None}
     p = ref["player_by_id"].get(player_id)
     if not p:
         # Traded, released, or otherwise off the current roster tab.
         return {"id": player_id, "name": f"Player {player_id}", "last_name": f"Player {player_id}",
-                "rookie": False, "team": "", "hand": "", "spd": None}
+                "rookie": False, "team": "", "hand": "", "spd": None, "eye": None, "awr": None}
     return {
         "id": player_id,
         "name": p.get("name") or f"Player {player_id}",
@@ -404,24 +405,33 @@ def _player_view(ref: dict, player_id: int | None) -> dict:
         # mapping falls back to the average (3) rating in that case, same as
         # every other "traded/released, no real data" gap in this pipeline.
         "spd": p.get("spd"),
+        # 1-5 scouted eye/awareness ratings, same convention/columns as spd
+        # (utils.read_mln_players_from_sheet already parses both in every
+        # format) - Task 14: eye drives a catcher's own steal-throw speed,
+        # awr a pitcher's own pickoff leadoff distance. Same None-on-
+        # unresolved fallback as spd.
+        "eye": p.get("eye"),
+        "awr": p.get("awr"),
     }
 
 
 def _defense_entry(ref: dict, player_id: int | None, fallback_name: str | None = None) -> list | None:
-    """[full_name, last_name, spd] for one resolved defensive position (or
-    on-base runner - see _trace_base_occupants/runners_on_base), or None
-    when there's nothing to show. Names and spd come from _player_view
+    """[full_name, last_name, spd, eye] for one resolved defensive position
+    (or on-base runner - see _trace_base_occupants/runners_on_base), or None
+    when there's nothing to show. Names/spd/eye come from _player_view
     (never split/re-derived client-side - see build_moment's defense
     docstring) except when a Lineups-tab name has no matching player_id
     (traded/released player off the current roster tab) - there, fall back
-    to the raw sheet name for both name slots and a null spd rather than
-    dropping the label entirely.
+    to the raw sheet name for both name slots and null spd/eye rather than
+    dropping the label entirely. eye (Task 14.1) is index 3 - an append,
+    not an insert, so every existing entry[0..2] reader (client and tests)
+    stays correct unchanged.
     """
     if player_id:
         v = _player_view(ref, player_id)
-        return [v["name"], v["last_name"], v["spd"]]
+        return [v["name"], v["last_name"], v["spd"], v["eye"]]
     if fallback_name:
-        return [fallback_name, fallback_name, None]
+        return [fallback_name, fallback_name, None, None]
     return None
 
 
@@ -816,6 +826,10 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         # pitcher-in-field convention). 1-5, None when unresolved.
         "batter_spd": feat["batter"]["spd"],
         "pitcher_spd": feat["pitcher"]["spd"],
+        # Task 14.2: pitcher awareness (1-5, None when unresolved) - drives
+        # the client's own stealLeadoffFt (a sharper pitcher holds a runner
+        # closer to the bag). Sibling of pitcher_spd, same fallback.
+        "pitcher_awr": feat["pitcher"]["awr"],
 
         # Who's standing on each base BEFORE this play resolves, same
         # [full, last, spd] shape as defense (_trace_base_occupants tracked
