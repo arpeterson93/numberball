@@ -138,13 +138,6 @@ button{font-family:inherit;cursor:pointer;}
 .header-toggle-btn.active{color:var(--navy);}
 #header-fav-toggle.active svg{fill:currentColor;}
 
-/* Reserves no space at all when empty (the common case) - only takes a line
-   once app.js actually puts a message in it. Lives in the Settings panel's
-   modal-body now, left-aligned like the rest of that column rather than the
-   right-aligned treatment it needed back when it sat under the header. */
-.refresh-status{font-size:12px;color:var(--muted);}
-.refresh-status:not(:empty){margin-top:-4px;}
-
 /* ---- Scoreboard ---- */
 /* Sits above #scoreboard so "Updated X min ago" always has somewhere to
    live, even when the scoreboard itself is hidden (e.g. "Full season") - see
@@ -186,6 +179,17 @@ button{font-family:inherit;cursor:pointer;}
   color:var(--navy);border-color:var(--navy);
 }
 .tile-replay-btn.loading{opacity:0.4;pointer-events:none;}
+/* MLN Reference link - moved here from the plays rows (Alex's ask: once per
+   game instead of once per play) - same round icon-badge footprint as its
+   replay-button neighbour so the pair reads as one family. */
+.sb-game-link{
+  position:relative;z-index:2;
+  width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:20px;background:var(--tint);
+  color:var(--muted);cursor:pointer;flex-shrink:0;text-decoration:none;
+}
+.sb-game-link svg{width:11px;height:11px;}
+.sb-game-link:hover,.sb-game-link:focus-visible{color:var(--navy);border-color:var(--navy);}
 @media (hover: hover){
   .scoreboard-tile:hover{border-color:var(--border-hover);}
   .scoreboard-tile.selected:hover{border-color:var(--navy);}
@@ -203,7 +207,9 @@ button{font-family:inherit;cursor:pointer;}
    next to its own team instead of pushed out to the tile's far edge, where
    it read as belonging to the diamond/outs cluster instead. */
 .sb-abbr{letter-spacing:0.2px;min-width:47px;}
-.sb-score{font-size:14px;font-weight:800;}
+/* min-width+center so a 1-digit and 2-digit score sit on the same centre
+   point instead of both left-aligning right after the abbreviation. */
+.sb-score{font-size:14px;font-weight:800;min-width:18px;text-align:center;}
 .sb-state{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .sb-state .inning-indicator{min-width:20px;}
 .sb-state .state-stack{min-width:0;}
@@ -273,6 +279,10 @@ button{font-family:inherit;cursor:pointer;}
   cursor:pointer;border-radius:5px;
 }
 .input-clear-btn:hover{color:var(--text);background:var(--tint);}
+/* [hidden] and .input-clear-btn are equal specificity, so without this the
+   class's own display:flex above wins the cascade on source order alone and
+   the X stays visible on an empty box despite the hidden attribute. */
+.input-clear-btn[hidden]{display:none;}
 .player-suggest{
   position:absolute;top:100%;left:0;right:0;margin-top:4px;z-index:20;
   background:var(--card);border:1px solid var(--border);border-radius:6px;
@@ -335,10 +345,6 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   display:flex;align-items:stretch;gap:18px;overflow:hidden;
 }
 .corner-actions{position:absolute;top:8px;right:10px;display:flex;align-items:center;gap:6px;}
-.game-link{
-  font-size:12px;color:var(--muted);text-decoration:none;line-height:1;
-}
-.game-link:hover{color:var(--blue);}
 /* Jumps into Game Replay at this exact play - same round icon-badge format
    as .tile-replay-btn on the scoreboard cards, so the two read as the same
    affordance. An SVG polygon, not a "▶" text glyph: iOS renders that glyph
@@ -1664,9 +1670,25 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 
 @media (max-width:600px){
   .catchup-modal{padding:0;}
-  .catchup-card{height:100vh;max-width:none;border-radius:0;}
+  /* 100dvh alongside the 100vh fallback (browsers without dvh support just
+     ignore the second declaration): in a plain mobile browser tab (not
+     installed as a PWA) 100vh sizes against the LARGEST possible viewport -
+     as if the address bar were already hidden - so the card renders taller
+     than what's actually visible and its bottom controls run off-screen.
+     dvh tracks the real, current visible viewport instead. */
+  .catchup-card{height:100vh;height:100dvh;max-width:none;border-radius:0;}
   .catchup-title-teams{font-size:17px;}
   .catchup-title-logo{width:28px;height:28px;}
+
+  /* A touch more clearance off the very top edge (Alex's ask) - nothing
+     softens how close these position:absolute controls sit to the physical
+     top of the screen in a plain browser tab the way a PWA's own chrome
+     does, so on phone they get nudged down slightly. .catchup-progress's own
+     top padding grows to match, so the play counter still clears them. */
+  .catchup-close,.catchup-fullscreen,.catchup-loop,.catchup-speed,.catchup-info{
+    top:14px;
+  }
+  .catchup-progress{padding-top:36px;min-height:62px;}
 }
 
 /* Honour a reduced-motion preference: the slideshow still advances, it just

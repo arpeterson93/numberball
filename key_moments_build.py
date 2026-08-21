@@ -703,6 +703,22 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
     scoring_names = _scoring_names(ref, play, feat["batter"]["id"])
     position_override = utils.get_position_override(result, state["obc_before"], state["outs_before"])
 
+    away_score = state["away_score_before"] + (0 if state["batting_is_home"] else state["runs"])
+    home_score = state["home_score_before"] + (state["runs"] if state["batting_is_home"] else 0)
+    # state["game_ended"] only ever fires once the Games tab's own Win column
+    # has caught up (_is_final_play), which can lag well behind the game
+    # actually being mathematically decided - the same gap _scoreboard()
+    # already patches over with this same _is_walkoff_final call for the
+    # scoreboard tile. Applying it here too, on every moment as it's built,
+    # keeps is_game_final consistent everywhere it's read: the slideshow's
+    # FINAL badge, and _next_batter_moment's on-deck-placeholder gate below
+    # (both currently only trusted state["game_ended"]/last_moment's own
+    # is_game_final and so stayed mid-inning-looking - Now Batting slide
+    # included - for a game that was already over).
+    is_final_moment = state["game_ended"] or _is_walkoff_final(
+        state["inning"], state["half"], state["outs_after"], home_score, away_score
+    )
+
     # Anything derivable from a small closed set (team names, sub-league,
     # result labels, tag labels, base-diamond SVG) lives in meta.json instead of
     # being repeated on every play - the feed carries every play now, so the
@@ -793,8 +809,8 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "def_team_abbr": deff["abbrev"],
         "away_team_abbr": _team_view(ref, play.get("away"))["abbrev"],
         "home_team_abbr": _team_view(ref, play.get("home"))["abbrev"],
-        "away_score": state["away_score_before"] + (0 if state["batting_is_home"] else state["runs"]),
-        "home_score": state["home_score_before"] + (state["runs"] if state["batting_is_home"] else 0),
+        "away_score": away_score,
+        "home_score": home_score,
         "batting_is_home": state["batting_is_home"],
 
         "win_prob_before": None if state["wp_before"] is None else round(state["wp_before"], 4),
@@ -806,7 +822,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "is_key_moment": any(t not in FILTER_ONLY_TAGS for t in tags),
         "tags": tags,
         "is_half_inning_final": state["outs_after"] == 3,
-        "is_game_final": state["game_ended"],
+        "is_game_final": is_final_moment,
 
         # Who's playing each defensive position, as {"SS": [full, last, spd], ...} -
         # in-progress games from a live Lineups-tab read (as of this build),
@@ -1013,6 +1029,12 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         home_wp = last_wp_after if last_batting_is_home else 1 - last_wp_after
     next_wp_after = None if home_wp is None else (home_wp if batting_is_home else 1 - home_wp)
 
+    # Scouted hand for the up-next batter (Alex's ask: the Now Batting slide
+    # should stand them in the correct side of the box) - next_up itself only
+    # carries what the Lineups tab has (name/slot/id), so this is its own
+    # roster lookup rather than a field already on next_up.
+    next_batter_view = _player_view(ref, next_up["player_id"])
+
     m = dict(last_moment)
     m.update({
         "moment_id": str(last_moment["play_num"]) + "-next",
@@ -1024,7 +1046,8 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         "throw_num": None, "steal_num": None, "throw_order": None,
         "excluded_positions": None, "default_position": None, "throw_order_by_position": None,
         "runner_moves": None, "runs": 0, "scoring_names": [],
-        "batter_name": next_up["name"], "batter_id": next_up["player_id"], "batter_hand": None,
+        "batter_name": next_up["name"], "batter_id": next_up["player_id"],
+        "batter_hand": next_batter_view["hand"] or None,
         "pitcher_name": pitcher_view["name"], "pitcher_id": pitcher_view["id"],
         "featured_name": next_up["name"], "featured_id": next_up["player_id"],
         "featured_side": "batting", "featured_team_abbr": off["abbrev"],
@@ -1172,8 +1195,13 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # ask, ideas-and-opinions conversation) - never for a completed game
         # (Path B's reconstructed timeline has no concept of "what happens
         # after the last real play" - there isn't one) or one whose last
-        # real play already ended it.
-        if not is_final and last_state is not None and not last_state["game_ended"] and rows:
+        # real play already ended it. Reads rows[-1]'s own is_game_final
+        # (which already folds in the _is_walkoff_final inference above)
+        # rather than last_state["game_ended"] directly, so a game that's
+        # mathematically over but whose Games-tab Win column hasn't caught up
+        # yet doesn't grow a "Now Batting" placeholder for a plate appearance
+        # that will never happen.
+        if not is_final and last_state is not None and rows and not rows[-1]["is_game_final"]:
             # This game's own already-built moments (obc_before/after,
             # runner_moves, batter_name/id - the real fields _next_batter_
             # moment's own base-occupant tracer needs), not the raw game_plays

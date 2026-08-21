@@ -22,6 +22,34 @@
   var GAME_LINK_BASE_ARCHIVE = "https://www.mln-reference.com/game/";
   var PLAYER_LINK_BASE = "https://www.mln-reference.com/player/";
 
+  /* Shared by scoreboardCard() (the only place this link lives now - it used
+     to also ride along on every play row, which meant one arrow repeated on
+     every play of a game instead of once per game). Historical (not the live
+     season currently being played) games moved to mln-reference's /game/
+     path - every card currently on screen belongs to whichever season is
+     active, so this one check covers all of them. mln-reference's own game
+     ids drop the season digit's leading zero (season 1-9) - game_code stays
+     zero-padded everywhere else in this file (session/game lookups depend on
+     the fixed 6-digit shape), so this strip is local to the outbound link
+     only. */
+  function mlnGameLinkHtml(gameCode, className) {
+    if (!gameCode) return "";
+    var base = season.active !== season.current ? GAME_LINK_BASE_ARCHIVE : GAME_LINK_BASE;
+    // A small box-score table (header row, two column dividers) rather than
+    // a plain arrow (Alex's call) - the link goes to a box-score view
+    // specifically, not just "somewhere else", so the icon says what's there.
+    return '<a class="' + className + '" href="' + base + encodeURIComponent(String(Number(gameCode))) +
+      '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
+      'aria-label="View this game on MLN Reference">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<rect x="3" y="4" width="18" height="16" rx="2"></rect>' +
+      '<line x1="3" y1="9" x2="21" y2="9"></line>' +
+      '<line x1="9" y1="9" x2="9" y2="20"></line>' +
+      '<line x1="15" y1="9" x2="15" y2="20"></line>' +
+      "</svg></a>";
+  }
+
   var data = {
     moments: [],        // key moments, whole season
     players: [],
@@ -61,8 +89,7 @@
   var season = { current: null, active: null, cache: {} };
   // [{season, sessions}, ...] for every committed archive season - from the
   // live season's meta.archive_seasons, captured once at boot (immutable
-  // once committed, so no need to refresh except when reloadData() re-reads
-  // the live meta in case a new archive season landed while the tab's open).
+  // once committed, so nothing here needs invalidating mid-session).
   var archiveSeasonsMeta = [];
   // The LIVE season's own session list, cached separately from data.meta -
   // once a historical season is active, data.meta.sessions belongs to THAT
@@ -563,23 +590,12 @@
         '<a class="counterpart-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.counterpart_id) +
         '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.counterpart_name) + "</a></span>"
       : "";
-    // Historical (not the live season currently being played) games moved to
-    // mln-reference's /game/ path - every card currently on screen belongs
-    // to whichever season is active, so this one check covers all of them.
-    var gameLinkBase = season.active !== season.current ? GAME_LINK_BASE_ARCHIVE : GAME_LINK_BASE;
-    // mln-reference's own game ids drop the season digit's leading zero
-    // (season 1-9) - game_code stays zero-padded everywhere else in this
-    // file (session/game lookups depend on the fixed 6-digit shape), so
-    // this strip is local to the outbound link only.
-    var gameLink = m.game_code
-      ? '<a class="game-link" href="' + gameLinkBase + encodeURIComponent(String(Number(m.game_code))) +
-        '" target="_blank" rel="noopener noreferrer" title="View this game on MLN Reference" ' +
-        'aria-label="View this game on MLN Reference">↗︎</a>'
-      : "";
-    // Jumps straight into Game Replay at this exact play, left of the
-    // MLN-reference arrow. Needs the same three fields Game Replay's own
-    // scoreboard-tile replay button uses (loadGameReplay's game/session,
-    // play_num to seek within it) - all already on every card.
+    // Jumps straight into Game Replay at this exact play. Needs the same
+    // three fields Game Replay's own scoreboard-tile replay button uses
+    // (loadGameReplay's game/session, play_num to seek within it) - all
+    // already on every card. The MLN-reference link that used to ride along
+    // next to this now lives once per game on the scoreboard card instead of
+    // once per play here (see scoreboardCard).
     var jumpBtn = (m.game_code && m.session_number != null && m.play_num != null)
       ? '<button type="button" class="play-jump-btn" data-jump-game="' + escapeHtml(m.game_code) +
         '" data-jump-session="' + m.session_number + '" data-jump-num="' + m.play_num +
@@ -592,7 +608,7 @@
     var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
-      '<div class="corner-actions">' + jumpBtn + gameLink + "</div>" +
+      '<div class="corner-actions">' + jumpBtn + "</div>" +
       '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
         (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
@@ -648,7 +664,10 @@
      started overlapping once tiles got wider from the column-balancing pass
      below. */
   function scoreboardCard(g) {
-    var awayBatting = g.half === "top";
+    // Once final, "batting" no longer means anything - the highlight goes to
+    // whoever won instead, so a finished tile's bright row is the winner, not
+    // whichever team happened to be up when the last play landed.
+    var awayBatting = g.is_game_final ? g.away_score > g.home_score : g.half === "top";
     var awayPct = g.away_win_prob != null ? Math.round(g.away_win_prob * 100) : 50;
     var homePct = 100 - awayPct;
     var gameColors = gameTeamColors(g.home_team_abbr, g.away_team_abbr);
@@ -656,6 +675,11 @@
     var homeHex = gameColors.home || "#c7ccd3";
     var levBadge = g.is_game_final ? "" :
       '<span class="sb-lev' + leverageClass(g.leverage) + '">LI ' + g.leverage.toFixed(1) + "</span>";
+    // Between the leverage pill and the replay button (Alex's ask) - same
+    // circular icon-badge language as the replay button next to it, so the
+    // action row reads as one family instead of a text link dropped in among
+    // buttons.
+    var gameLink = mlnGameLinkHtml(g.game_code, "sb-game-link");
     var replayBtn = '<button type="button" class="tile-replay-btn" data-replay="' +
       escapeHtml(g.game_code) + '" title="Replay this game" aria-label="Replay ' +
       escapeHtml(g.away_team_abbr) + " at " + escapeHtml(g.home_team_abbr) + '">' +
@@ -712,7 +736,7 @@
         // replay button stops colliding with the scorebug in the tile's
         // top-right. A finished game drops the pill and the row centres on the
         // button alone.
-        '<div class="sb-actions">' + levBadge + replayBtn + "</div>" +
+        '<div class="sb-actions">' + levBadge + gameLink + replayBtn + "</div>" +
       "</div>" +
     "</div>";
   }
@@ -7112,16 +7136,19 @@
     var noPa = (data.meta.flight && data.meta.flight.no_pa) || [];
     var batterReached = moves.some(function (mv) { return mv.from === "BATTER"; });
     // m.result is only null on the on-deck placeholder (no real play has a
-    // null result) - nothing has happened yet, so no phantom batter walking
-    // to the dugout for it.
-    if (!batterReached && m.result != null) {
+    // null result) - nothing has happened yet, so it gets the same static
+    // "standing in the box" treatment as a no-PA play below (no motion, no
+    // walk to the dugout), not skipped outright - the Now Batting slide still
+    // needs a batter token to show its handedness in.
+    if (!batterReached && (m.result != null || m.is_on_deck)) {
       var h = SCENE_BASES.HOME;
-      if (noPa.indexOf(m.result) !== -1) {
-        // Alex's ask: a stolen base attempt or a balk still has a batter
-        // standing in their box the whole time - no PA happened on either,
-        // so no motion, no colour change, no walk to the dugout, just
-        // present the entire play (--tx/--ty only - .rn's own base rule
-        // renders straight from that with no animation class to move it).
+      if (m.is_on_deck || noPa.indexOf(m.result) !== -1) {
+        // Alex's ask: a stolen base attempt, a balk, or the on-deck
+        // placeholder still has a batter standing in their box the whole
+        // time - no PA happened on any of them, so no motion, no colour
+        // change, no walk to the dugout, just present the entire play
+        // (--tx/--ty only - .rn's own base rule renders straight from that
+        // with no animation class to move it).
         var boxVars = "--tx:" + batterBoxSvg.x + "px;--ty:" + batterBoxSvg.y + "px";
         tokens += '<g class="rn batter" style="' + boxVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
@@ -7601,15 +7628,20 @@
          it can be one continuous curve. So the badge is a callout about the
          moment rather than a label for the dot's height: on an away-team gain
          the dot still sits at the home team's win probability. */
-      // No "before" to diff against (the very first plotted play, or the
-      // on-deck placeholder, which never gets a win_prob_before - see
-      // _next_batter_moment) - fall back to whoever's actually leading right
-      // now instead of defaulting to home. gain stays null in that case, so
-      // the WPA delta label below is already skipped, not just the team pick.
+      // No "before" to diff against on the very first plotted play - fall
+      // back to whoever's actually leading right now instead of defaulting
+      // to home. gain stays null in that case, so the WPA delta label below
+      // is already skipped, not just the team pick.
       var homeGained = homeDelta == null ? wpAfter >= 0.5 : homeDelta >= 0;
       var gainAbbr = homeGained ? slide.homeAbbr : slide.awayAbbr;
       var gainPct = homeGained ? wpAfter : 1 - wpAfter;
-      var gain = homeDelta == null ? null : Math.abs(homeDelta) * 100;
+      // The on-deck "Now Batting" slide's `cur` was remapped (above) to the
+      // last REAL play, not the placeholder itself, purely so the line/marker
+      // sit exactly where the game left off - that play's own WPA gain
+      // already had its own slide, so showing it again here would read as a
+      // second, unearned "+X%" for a plate appearance that hasn't happened.
+      var gain = (homeDelta == null || (slide.play && slide.play.is_on_deck))
+        ? null : Math.abs(homeDelta) * 100;
       // Only the badge itself needs to stay inside the plot; the readout flips
       // to the other side once the point is far enough right.
       var markLeft = Math.max(1.7, Math.min(98.3, xPct));
@@ -9905,8 +9937,8 @@
   }
 
   /* Polls for new plays ONLY while the grid is open (Alex's ask), and is
-     deliberately its own narrow path rather than reloadData()/requestRefresh
-     - those call computeCatchUp(), which reads Catch Me Up's cursor, marks
+     deliberately its own narrow path rather than boot()'s own full reload -
+     that calls computeCatchUp(), which reads Catch Me Up's cursor, marks
      it seen up to now, and only then computes what's "new". Running that
      here would silently clear the backlog for anyone who's had the page open
      in a background tab, which is exactly the case Alex wants preserved -
@@ -10068,8 +10100,8 @@
   }
 
   // keepSelection: re-select whatever (season.active, filters.session) is
-  // right now - used on plain re-renders (e.g. reloadData) where neither
-  // has changed. forceSession (may be null for "Full season", or undefined
+  // right now - used on plain re-renders where neither has changed.
+  // forceSession (may be null for "Full season", or undefined
   // to fall back to the active season's latest session) - used right after
   // a season switch, to land on a specific session instead of always
   // defaulting to the newest.
@@ -10114,8 +10146,8 @@
     sel.value = season.active + "|" + (target === null ? "" : target);
   }
 
-  // Everything reloadData()/boot() already re-render after a fresh data
-  // load, replayed here after a season switch. Filter state that can't
+  // Everything boot() already re-renders after a fresh data load, replayed
+  // here after a season switch. Filter state that can't
   // survive the switch is reset: selectedGame and session (recomputed by
   // populateSessionSelect below) always; team, since abbreviations differ
   // across seasons. playerId is a global human id (Part 0 finding 9) and
@@ -10146,15 +10178,9 @@
       window.KMFavorites.setPlayers(data.players);
       window.KMFavorites.refreshList();
     }
-    // Live-only features: refresh (a finished season never has anything new
-    // to fetch) and Catch Me Up (meaningless for a season that's over, and
-    // its cursor must not advance just from browsing history).
-    var refreshBtn = $("refresh-btn");
-    var refreshRow = refreshBtn && refreshBtn.closest(".settings-row");
-    if (refreshRow) refreshRow.hidden = historical;
+    // Catch Me Up is live-only: meaningless for a season that's over, and its
+    // cursor must not advance just from browsing history.
     if (historical) {
-      var status = $("refresh-status");
-      if (status) status.textContent = "";
       window.clearTimeout(catchUpCaughtUpTimer); // don't let a stale "caught up" fade fire while browsing history
       var banner = $("catchup-banner");
       if (banner) banner.hidden = true;
@@ -10189,7 +10215,7 @@
   // season's key_moments/players/meta. Returns a Promise. The live season
   // is never served from cache - it keeps changing under a long-running
   // tab, so returning to it always re-fetches fresh (bust() + no-store,
-  // same as boot/reloadData).
+  // same as boot()).
   function setActiveSeason(n, targetSession) {
     if (n === season.active) return Promise.resolve();
     season.cache[season.active] = snapshotSeasonData();
@@ -10498,6 +10524,12 @@
         openGameReplayFor(replayBtn);
         return;
       }
+      // Same reasoning as the replay button above - let the MLN Reference
+      // link navigate on its own without also toggling tile selection.
+      if (e.target.closest(".sb-game-link")) {
+        e.stopPropagation();
+        return;
+      }
       var tile = e.target.closest(".scoreboard-tile");
       if (!tile) return;
       selectScoreboardTile(tile);
@@ -10508,7 +10540,8 @@
     $("scoreboard").addEventListener("keydown", function (e) {
       if (e.key !== "Enter" && e.key !== " ") return;
       var tile = e.target.closest(".scoreboard-tile");
-      if (!tile || e.target.closest("[data-replay]")) return;   // the button handles itself
+      // the button/link handle themselves
+      if (!tile || e.target.closest("[data-replay]") || e.target.closest(".sb-game-link")) return;
       e.preventDefault();
       selectScoreboardTile(tile);
     });
@@ -10695,8 +10728,6 @@
       window.KMFavorites.toggle(btn.getAttribute("data-fav-id"));
     });
 
-    $("refresh-btn").addEventListener("click", requestRefresh);
-
     wireCatchUp();
     wireReplay();
     wireLiveGrid();
@@ -10790,98 +10821,6 @@
     }
     $("methodology-close").addEventListener("click", closeMethodology);
     modal.addEventListener("click", function (e) { if (e.target === modal) closeMethodology(); });
-  }
-
-  // ── refresh ─────────────────────────────────────────────────────────────────
-
-  function reloadData() {
-    return Promise.all([
-      getJSON("data/key_moments.json"),
-      getJSON("data/meta.json"),
-    ]).then(function (res) {
-      data.moments = res[0];
-      data.meta = res[1];
-      data.playsBySession = {};   // stale once the feed moves
-      archiveSeasonsMeta = (data.meta.archive_seasons || []).slice();
-      liveSeasonSessions = (data.meta.sessions || []).slice();
-      $("built-at").textContent = formatBuiltAt(data.meta.built_at);
-      populateSessionSelect(true);
-      renderScoreboard();
-      populateTeamSelect();
-      populateTagChips();
-      Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
-        c.classList.toggle("active", filters.tags.has(c.getAttribute("data-tag")));
-      });
-      populateObcChips();
-      Array.prototype.forEach.call(document.querySelectorAll("#obc-chips .chip"), function (c) {
-        c.classList.toggle("active", c.getAttribute("data-obc") === filters.obc);
-      });
-      renderMaybeLoading();
-      // Mirrors boot()'s own post-load step - without this, Catch Me Up's
-      // banner and cursor only ever refresh on a full page load, not after a
-      // manual "Refresh now" that pulls in new plays mid-session.
-      return computeCatchUp().then(function (groups) {
-        data.catchUpGroups = groups;
-        renderCatchUpBanner();
-      });
-    });
-  }
-
-  function requestRefresh() {
-    var url = (window.KM_CONFIG && window.KM_CONFIG.REFRESH_ENDPOINT) || "";
-    var btn = $("refresh-btn");
-    var status = $("refresh-status");
-    if (!url) {
-      status.textContent = "Refresh endpoint not configured - see apps-script/DEPLOY.md.";
-      return;
-    }
-    var startedAt = data.meta.built_at || "";
-    btn.disabled = true;
-    status.textContent = "Refreshing...";
-
-    fetch(url + "?action=trigger_refresh")
-      .then(function (r) { return r.json(); })
-      .catch(function () { return null; })
-      .then(function (res) {
-        if (res && res.error) {
-          status.textContent = "Refresh rejected: " + res.error;
-          btn.disabled = false;
-          return;
-        }
-        status.textContent = "Fetching the latest plays - usually done within a couple minutes.";
-        pollForRebuild(startedAt, Date.now() + 180000);
-      });
-  }
-
-  function pollForRebuild(startedAt, deadline) {
-    var btn = $("refresh-btn");
-    var status = $("refresh-status");
-    window.setTimeout(function () {
-      getJSON("data/meta.json")
-        .then(function (meta) {
-          if (meta.built_at && meta.built_at !== startedAt) {
-            return reloadData().then(function () {
-              status.textContent = "";
-              btn.disabled = false;
-              toast("Key moments updated.");
-            });
-          }
-          if (Date.now() > deadline) {
-            status.textContent = "Still refreshing - check back shortly.";
-            btn.disabled = false;
-            return;
-          }
-          pollForRebuild(startedAt, deadline);
-        })
-        .catch(function () {
-          if (Date.now() > deadline) {
-            status.textContent = "Still refreshing - check back shortly.";
-            btn.disabled = false;
-          } else {
-            pollForRebuild(startedAt, deadline);
-          }
-        });
-    }, 6000);
   }
 
   // ── boot ────────────────────────────────────────────────────────────────────

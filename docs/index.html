@@ -282,21 +282,8 @@
            slideshow's own control bar (Alex's ask) - one live control next to
            the thing it affects, instead of a setting buried in a separate
            panel. -->
-      <!-- Moved out of the sticky header (Alex's ask, for now) to leave room
-           there for the new season/session selector pair. Hidden entirely
-           while browsing a historical season (app.js's activateSeasonData) -
-           a finished season has nothing new to refresh. -->
-      <div class="settings-row">
-        <span>Data</span>
-        <button type="button" class="icon-btn refresh-btn" id="refresh-btn" title="Refresh now" aria-label="Refresh now">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <polyline points="1 20 1 14 7 14"></polyline>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>
-        </button>
-      </div>
-      <div id="refresh-status" class="refresh-status"></div>
+      <!-- Manual "Refresh now" removed (Alex's ask) - the data now updates
+           on its own often enough that a manual trigger is redundant. -->
       <!-- Same methodology panel the replay modal's own (i) button opens
            (app.js's wireMethodology binds both) - reachable from here too
            since Settings is available any time, not just mid-replay. -->

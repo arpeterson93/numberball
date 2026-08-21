@@ -80,6 +80,25 @@
       .slice(0, 60);
   }
 
+  /* Display names are the only thing this feature ever shows to a second
+     person (a shared Google Sheet key everyone else's favorites live under,
+     per the file header) - not a full moderation system, just a lightweight
+     guard against the obvious troll name. Matched as whole slug tokens
+     (slugify already lowercases/strips punctuation to hyphens) so a word
+     that only happens to CONTAIN one of these - "classic", "scunthorpe" -
+     is never falsely blocked. */
+  var BLOCKED_WORDS = [
+    "fuck", "shit", "bitch", "asshole", "ass", "bastard", "cunt", "dick",
+    "piss", "cock", "pussy", "slut", "whore", "fag", "faggot", "retard",
+    "nigger", "nigga", "chink", "spic", "kike", "gook", "tranny", "rape",
+    "nazi", "hitler", "porn", "sex",
+  ];
+
+  function containsBlockedWord(name) {
+    var tokens = String(name || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return tokens.some(function (t) { return BLOCKED_WORDS.indexOf(t) !== -1; });
+  }
+
   function readLocalIds() {
     try {
       var raw = window.localStorage.getItem(LOCAL_IDS_KEY);
@@ -177,7 +196,11 @@
 
   function setName(name) {
     var slug = slugify(name);
-    if (!slug) return Promise.resolve();
+    if (!slug) return Promise.resolve(false);
+    if (containsBlockedWord(name)) {
+      setStatus("That name isn't allowed - try something else.");
+      return Promise.resolve(false);
+    }
     state.name = String(name).trim();
     state.key = slug;
     try {
@@ -192,6 +215,7 @@
     // (its .catch swallows the network failure), so this fires either way.
     return load().then(function () {
       if (state.onNameReady) state.onNameReady();
+      return true;
     });
   }
 
@@ -268,7 +292,8 @@
     modal.addEventListener("click", function (e) { if (e.target === modal) closePanel(); });
 
     saveNameBtn.addEventListener("click", function () {
-      setName(nameInput.value).then(function () {
+      setName(nameInput.value).then(function (ok) {
+        if (!ok) return;   // blocked/empty name - setStatus already explains why
         search.disabled = false;
         renderList(search.value);
       });
