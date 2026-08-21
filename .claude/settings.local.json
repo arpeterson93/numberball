@@ -36,7 +36,11 @@
       "Bash(git pull *)",
       "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" \"C:\\\\Users\\\\Alex\\\\.claude\\\\jobs\\\\4731015e\\\\tmp\\\\compute_ranges.py\")",
       "Bash(\"C:\\\\Users\\\\Alex\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python310\\\\python.exe\" ball_flight_test.py)",
-      "WebFetch(domain:www.mlb.com)"
+      "WebFetch(domain:www.mlb.com)",
+      "Bash(python3 -c ' *)",
+      "Bash(python ball_flight_test.py)",
+      "Bash(tail -40 /tmp_baseline_test.log)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }
