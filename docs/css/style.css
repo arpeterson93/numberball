@@ -336,6 +336,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .sort-bar{display:flex;align-items:center;justify-content:flex-end;margin-bottom:16px;padding:0 2px;}
 .sort-chip-row{display:flex;gap:8px;flex-wrap:wrap;}
 .lbl-short{display:none;}
+/* Empty on whichever sort chip isn't active (wireControls' sort-chips click
+   handler owns the text) - :empty keeps that state from also leaving behind
+   the margin's own gap next to the label. */
+.chip-arrow{margin-left:4px;}
+.chip-arrow:empty{margin-left:0;}
 
 /* ---- Moment row ---- */
 .moment{
@@ -689,6 +694,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .catchup-title-team{display:flex;align-items:center;gap:10px;}
 .catchup-title-logo{width:34px;height:34px;object-fit:contain;}
 .catchup-at{color:var(--muted);font-weight:600;}
+.catchup-title-stadium{margin-top:4px;font-size:13px;font-weight:600;font-style:italic;color:var(--muted);}
 .catchup-title-sub{margin-top:10px;font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0.3px;}
 
 /* ---- Play Scene (slideshow play slide) ---- */
@@ -730,7 +736,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* position:relative is load-bearing: the watermark below is absolutely
    positioned and would otherwise resolve against the whole modal card and
    cover the entire slide. */
-.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(78%,340px);}
+.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(78%,374px);}
 .scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
 /* Real field colors, sampled directly from Alex's reference photo (grass
    rgb(54,123,68), dirt/warning-track rgb(199,165,128), fence rgb(38,85,48))
@@ -826,13 +832,25 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    like a real ground shadow under this field's angled camera); transform
    scale grows/shrinks that same shape uniformly per keyframe. */
 .ball-shadow{transform:translate(var(--stx),var(--sty)) scale(var(--sscale,1));opacity:0.32;fill:#000;}
+/* Round 3 plan §11 (Task 8): a flat companion shadow under every thrown AND
+   pitched baseball (Alex confirmed both, answer 9) - purely cosmetic, no z
+   data to scale from (unlike .ball-shadow's own real-height scale above),
+   so no transform/keyframe of its own: it's the first child inside
+   .throw-ball-inner/.pitch-ball-inner (app.js), riding that group's own
+   translate + opacity animations for free. Same fill/opacity as the flight
+   ball's shadow, for one consistent "every moving ball is grounded" look. */
+.throw-ball-shadow, .pitch-ball-shadow{fill:#000;opacity:0.32;}
 /* Alex's ask: the flight ball is now a real baseball (wheelBallIconSvg,
-   seams included) rather than a plain circle, wrapped in a <g> - the fill/
-   stroke that used to live directly on .ball's own <circle> now targets this
-   child instead (shared with the pitch ball and every throw-line's own
-   moving marker below - one visual, reused everywhere a ball needs to show
-   up on the diamond). */
-.ball-body{fill:#fff;stroke:var(--navy);stroke-width:1.5;}
+   seams included) rather than a plain circle, wrapped in a <g> - the color
+   that used to live directly on .ball's own <circle> (as a stroke) now
+   targets this child instead (shared with the pitch ball and every
+   throw-line's own moving marker below - one visual, reused everywhere a
+   ball needs to show up on the diamond). wheelBallIconSvg's own border layer
+   is a filled shape, not a stroke - it's real vector art (baseball1.svg),
+   already exactly one layer wide - so its color comes from `color`/
+   currentColor here rather than a `stroke` override, and there's no
+   separate outline on top of it to double up against. */
+.ball-body{color:var(--navy);}
 .ball-trail{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3;opacity:0.6;}
 .ball.air, .ball.ground, .ball.land, .ball.clear{
   animation:ballFly calc(var(--dur) / var(--play-speed,1)) ease-out forwards,
@@ -869,19 +887,22 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   animation:trailDraw calc(var(--dur) / var(--play-speed,1)) ease-out forwards;
 }
 @keyframes trailDraw{to{stroke-dashoffset:0;}}
-/* C1: the ball's own colour tells the story - the stroke (never the white
+/* C1: the ball's own colour tells the story - the border (never the white
    fill, which stays visible against the grass in both themes) goes green for
    a hit, red for an out. A play that is both (a sac fly) reads as an out -
-   the ball itself was caught. Targets .ball-body (the child circle) now that
-   .ball itself is a <g> - .ball-trail is still a plain stroked <path>, no
-   child to descend into. */
-.ball.hit .ball-body, .ball-trail.hit{stroke:var(--green);}
-.ball.out .ball-body, .ball-trail.out{stroke:var(--red);}
+   the ball itself was caught. .ball-body's border is `color`-driven now (see
+   its own rule above); .ball-trail is a plain stroked <path>, unrelated to
+   that icon, so it still just takes `stroke` directly. */
+.ball.hit .ball-body{color:var(--green);}
+.ball-trail.hit{stroke:var(--green);}
+.ball.out .ball-body{color:var(--red);}
+.ball-trail.out{stroke:var(--red);}
 /* A ground ball out specifically goes neutral grey instead - the throw
    itself (throw-out, below) now carries the red "who's out" verdict, so the
    grounder's own trail doesn't also claim it. Two classes beats one, so this
    wins the cascade over the plain .out rule above without needing !important. */
-.ball.out.grounded-out .ball-body, .ball-trail.out.grounded-out{stroke:var(--muted);}
+.ball.out.grounded-out .ball-body{color:var(--muted);}
+.ball-trail.out.grounded-out{stroke:var(--muted);}
 
 /* Pitch animation (Alex's ask): the small ball travels mound->plate ahead of
    every play (app.js's BALK_RESULTS check skips rendering this one entirely
@@ -895,7 +916,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    via the shared .ball-body class (Alex's ask - same baseball the flight
    ball and every throw-line's own marker use, wheelBallIconSvg(BALL_R,
    "ball-body")) rather than the wheel's own smaller WHEEL_DOT_R dot or a
-   pitch-specific style of its own; .wheel-dot-seam's red stroke is already a
+   pitch-specific style of its own; .wheel-ball-seam's red fill is already a
    bare global rule, so the seams pick that up for free regardless of size. */
 .pitch-ball{transform:translate(var(--fx),var(--fy));
   animation:pitchFly calc(var(--pdur) / var(--play-speed,1)) linear
@@ -1397,8 +1418,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* Reference arc for the result's own diff band (DIFF wheel only) - anchored
    at the first dot, same direction the real arc swept, so the actual diff
    and "the range we set up for this result" sit on the same ring and are
-   directly comparable at a glance. */
-.wheel-band{fill:none;stroke:var(--tint-red-border,var(--border));stroke-width:3;stroke-linecap:round;opacity:0.55;}
+   directly comparable at a glance. Alex's ask: colored as the offensive
+   team's own primary color (app.js's wheelBandArcHtml sets --band-color
+   inline per play) rather than a fixed neutral tint, with a thin gray
+   border - drawn as two stacked arcs at the same radius/sweep rather than a
+   single stroked path, so the border shows on both edges regardless of
+   theme or team color. var()'s own fallback (not a JS branch) covers a team
+   with no resolved color on file. */
+.wheel-band-border{fill:none;stroke:var(--border);stroke-width:4.2;stroke-linecap:round;opacity:0.55;}
+.wheel-band{fill:none;stroke:var(--band-color, var(--tint-red-border,var(--border)));stroke-width:3;stroke-linecap:round;opacity:0.85;}
 /* LA/HZ read as pure mechanics - a neutral, theme-flipped stroke (black on
    light, white on dark) rather than a colour that could be mistaken for a
    verdict. DIFF is the wheel that actually produced the result, so its arc
@@ -1425,13 +1453,17 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    which one appears first: defense (pitcher/catcher) is a baseball, offense
    (batter/runner) is a bat - so a batted ball's pitch dot and a steal's
    catcher dot are both a baseball even though one goes first and the other
-   second. Both use fixed, real-life colours rather than theme variables -
-   a baseball and a bat look the same regardless of light/dark mode; a fixed
-   mid-grey/dark-brown outline (rather than var(--border), which is nearly
-   invisible against a light card) keeps both readable in both themes. */
+   second. Both are real vector art (wheelBallIconSvg/wheelBatIconSvg) with
+   their own fixed, real-life colours baked into each path - a baseball and a
+   bat look the same regardless of light/dark mode - so neither needs a fill
+   here; .wheel-dot-def only sets `color`, picked up by the ball icon's own
+   currentColor border layer (a fixed mid-grey - var(--border) is nearly
+   invisible against a light card - not a separate stroke on top of it, so
+   there's exactly one border source, never two stacked). The bat's own
+   wood/grip colors are all inline fills already (baseball_bat3.svg), so
+   .wheel-dot-off carries nothing. */
 .wheel-dot{transform-box:fill-box;transform-origin:center;opacity:0;}
-.wheel-dot-def{fill:#ffffff;stroke:#9aa1ab;stroke-width:0.7;}
-.wheel-dot-off{fill:#8b5a2b;stroke:#4a2f14;stroke-width:0.35;stroke-linejoin:round;}
+.wheel-dot-def{color:#9aa1ab;}
 /* Steal DIFF's runner marker (Alex's ask - now a running shoe, real vector
    data from Alex's own running_shoe.svg, not a redraw - see wheelRunnerIconSvg's
    own comment): color is set inline per-play as the stealing team's own
@@ -1454,9 +1486,16 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    The team-coloured backing (.wheel-shoe-bg) is untouched - it's not part of
    the white/black pair Alex meant. */
 :root[data-theme="dark"] .wheel-dot-runner .wheel-shoe{fill:#1a1a1a;stroke:#fff;}
-/* Baseball seam curves on the defense marker - real stitch red, overriding
-   the ball body's stroke so they read as seams, not another outline. */
-.wheel-dot-seam{fill:none;stroke:var(--red);stroke-width:0.6;stroke-linecap:round;}
+/* wheelBallIconSvg's three layers (baseball1.svg, real vector art): white
+   body, red seam stitching, then the border shape on top - see .ball-body's
+   own comment above on why that border is `currentColor`, not a stroke.
+   .wheel-ball-white/.wheel-ball-seam stay fixed real-life colors in both
+   themes, same as the bat's wood tones - only the border ever recolors
+   (gray by default here, green/red/muted for the flight ball via
+   .ball-body's own color rules above). */
+.wheel-ball-white{fill:#fff;}
+.wheel-ball-seam{fill:var(--red);}
+.wheel-ball-border{fill:currentColor;}
 .wheel-dot-1{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease 0ms both;}
 .wheel-dot-2{animation:wheelDotIn calc(160ms / (var(--play-speed,1) * var(--wheel-pace,1))) ease
   calc(650ms / (var(--play-speed,1) * var(--wheel-pace,1))) both;}
@@ -1524,6 +1563,61 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    this now centers itself explicitly, same as .scene-defense right above it
    does for its own row. */
 .play-scene .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;text-align:center;}
+
+/* Debug mode (reconciler knob inspector, Settings' Debug mode toggle) -
+   hidden by default; app.js always renders it (cheap - reuses the exact
+   throwSchedule/chainMoverPlan calls sceneFieldHtml itself makes), same
+   attribute-driven "CSS does the work, no re-render needed" pattern
+   theme.js already uses for data-theme. */
+.scene-debug{display:none;}
+html[data-km-debug="1"] .scene-debug{
+  display:block;margin-top:4px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:8px;background:var(--card);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:10.5px;color:var(--text);max-height:340px;overflow:auto;text-align:left;
+}
+.scene-debug-section + .scene-debug-section{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
+.scene-debug-head{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;font-size:9px;margin-bottom:3px;}
+.scene-debug-note{color:var(--muted);font-style:italic;}
+.scene-debug-table{width:100%;border-collapse:collapse;}
+.scene-debug-table th{text-align:left;color:var(--muted);font-weight:600;padding:1px 6px 1px 0;white-space:nowrap;}
+.scene-debug-table td{padding:1px 6px 1px 0;white-space:nowrap;vertical-align:top;}
+.scene-debug-table td:first-child{color:var(--muted);}
+
+/* Debug tuning panel (tier 1 of Alex's "what if I tuned this" ask) - a
+   single floating panel injected once into document.body (app.js's
+   wireTuningPanel), independent of whichever play slide is on screen, so
+   it survives slide navigation instead of being torn down and rebuilt
+   every mount the way .scene-debug is. Same hidden-by-default/shown-under-
+   [data-km-debug="1"] pattern as .scene-debug. Known limitation (see
+   wireTuningPanel's own comment): invisible while the replay card is
+   fullscreened. */
+.km-tuning-panel{display:none;}
+html[data-km-debug="1"] .km-tuning-panel{
+  position:fixed;right:12px;bottom:12px;z-index:50;width:240px;max-height:70vh;
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 4px 18px rgba(0,0,0,0.25);overflow:hidden;display:flex;flex-direction:column;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--text);
+}
+.km-tuning-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;border-bottom:1px solid var(--border);background:var(--tint);
+  font-family:system-ui,-apple-system,sans-serif;
+}
+.km-tuning-head strong{font-size:12px;}
+.km-tuning-head-actions{display:flex;align-items:center;gap:6px;}
+.km-tuning-head-actions .link-btn{font-size:11px;}
+.km-tuning-head-actions .icon-btn{width:22px;height:22px;padding:0;line-height:1;font-size:14px;}
+.km-tuning-body{overflow:auto;padding:8px 10px;}
+.km-tuning-panel.collapsed .km-tuning-body{display:none;}
+.km-tuning-group + .km-tuning-group{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
+.km-tuning-group-title{color:var(--muted);text-transform:uppercase;letter-spacing:0.3px;font-size:9px;margin-bottom:3px;}
+.km-tuning-row{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:2px 0;}
+.km-tuning-input-wrap{display:flex;align-items:center;gap:3px;flex:0 0 auto;}
+.km-tuning-input-wrap input{
+  width:56px;font-family:inherit;font-size:11px;color:var(--text);background:var(--tint);
+  border:1px solid var(--border);border-radius:4px;padding:2px 4px;text-align:right;
+}
+.km-tuning-unit{color:var(--muted);font-size:10px;min-width:14px;}
 
 .scene-ribbon{padding:10px 0 6px;}
 /* Exactly the plot box, and the only positioning context the marker sees. */
@@ -1627,7 +1721,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      gap everywhere else (diamond, matchup, ribbon). */
   .scene-defense{margin-top:-3px;}
   .play-scene .scoring-line{margin-top:-3px;}
-  .scene-diamond-wrap{order:1;width:min(90vw,340px);}
+  .scene-diamond-wrap{order:1;width:min(90vw,374px);}
   /* min(90vw,340px) is measured against the full viewport, not the space
      .catchup-slide's own 37px nav gutters leave clear - smaller/narrower on
      this axis so the wheels (pinned to the wrap's own edges) can't reach
@@ -1685,9 +1779,21 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
      top of the screen in a plain browser tab the way a PWA's own chrome
      does, so on phone they get nudged down slightly. .catchup-progress's own
      top padding grows to match, so the play counter still clears them. */
-  .catchup-close,.catchup-fullscreen,.catchup-loop,.catchup-speed,.catchup-info{
+  .catchup-close,.catchup-loop,.catchup-speed,.catchup-info{
     top:14px;
   }
+  /* The card is already full-screen on phone (.catchup-card above), so
+     there's nothing left for this button to toggle. */
+  .catchup-fullscreen{display:none;}
+  /* With fullscreen hidden, loop/speed slide into its slot rather than
+     leaving a gap where it used to sit - same 36px spacing, just one slot
+     closer to the close button. #replay-modal's own copies need their own
+     override since their unconditional (desktop) offsets already win on
+     specificity over a plain .catchup-loop/.catchup-speed rule here. */
+  .catchup-loop{right:46px;}
+  .catchup-speed{right:82px;}
+  #replay-modal .catchup-loop{right:82px;}
+  #replay-modal .catchup-speed{right:118px;}
   .catchup-progress{padding-top:36px;min-height:62px;}
 }
 

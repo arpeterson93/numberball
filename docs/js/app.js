@@ -7623,6 +7623,46 @@
     return mvDelay + (passAdj ? passAdj.delayMs : 0) + legDurMs;
   }
 
+  // Real distance a retreat-move runner (LODP/LOTP - resolveRunnerMoves'
+  // own raw mv.retreat/mv.assist flags, a runner doubled off a caught line
+  // drive) covers breaking toward mv.assist before having to reverse -
+  // shared by retreatRunnerArrivalMs (below) and sceneFieldHtml's own
+  // retreat token, so the reconciler and the render can never disagree
+  // about how far out this runner actually got. Real baseball: this
+  // runner has to commit and break the instant the ball's off the bat,
+  // same beat any other force-reactive runner leaves on (RUNNER_LEAD_MS) -
+  // not the "out choreography" beat (outDelay) that assumes the ball's
+  // already down, which is what a caught line drive's own retreat move
+  // used to (wrongly) wait for. Runs at real accelerating-run pace
+  // (runnerProfile) only until the ball is actually caught (ballTravelMs -
+  // CAUGHT_IN_AIR already lists line_drive) - capped at BASE_DIST_FT, real
+  // basepath geometry, they can't run past the next base itself.
+  function retreatOutDistFt(m, flight, mv) {
+    var catchMs = flight ? ballTravelMs(flight) : 0;
+    var advanceWindowS = Math.max(0, (catchMs - RUNNER_LEAD_MS) / 1000);
+    var profile = runnerProfile(m, mv.from);
+    return Math.min(BASE_DIST_FT, accelDistForTimeS(advanceWindowS, profile.topSpeedFtPerS, profile.accelFtPerS2));
+  }
+  // The retreat-move sibling of forcedOutRunnerArrivalMs (Alex's ask):
+  // genuinely different physics, not an extension of that formula -
+  // forcedOutRunnerArrivalMs's own ordinal math rejects a same-base
+  // "advance" outright (endOrd<=startOrd), and rightly so, since a retreat
+  // isn't a simple N-base advance at real running speed. This runner breaks
+  // out for real distance (retreatOutDistFt), then has to plant and cover
+  // that SAME real distance back to their own base - a fresh accelerating
+  // run from a stop, same runnerProfile pace either direction. Returns null
+  // for anything that isn't a real retreat move (mv.retreat/mv.assist both
+  // set) - callers must treat that as "nothing honest to reconcile
+  // against," matching forcedOutRunnerArrivalMs's own null contract.
+  function retreatRunnerArrivalMs(m, flight, moves, targetBase) {
+    var mv = runnerForOutTarget(m, moves, targetBase);
+    if (!mv || !mv.retreat || !mv.assist || !flight) return null;
+    var outDistFt = retreatOutDistFt(m, flight, mv);
+    var profile = runnerProfile(m, mv.from);
+    var backMs = arrivalTimeS(outDistFt, profile) * 1000;
+    return ballTravelMs(flight) + backMs;
+  }
+
   // The SAFE-side sibling of runnerForOutTarget - which tracked move (if
   // any) actually reached targetBase safely, for a decorative/contestedSafe
   // throw leg on a play where nobody's out at all (an explicit ThrowOrder on
@@ -7822,7 +7862,16 @@
     for (var i = 0; i < schedule.length; i++) {
       if (!schedule[i].out) continue;
       var mv = runnerForOutTarget(m, moves, schedule[i].base);
-      var arrival = forcedOutRunnerArrivalMs(m, flight, moves, schedule[i].base);
+      // Alex's ask: a retreat move (LODP/LOTP) is a same-base "advance" -
+      // forcedOutRunnerArrivalMs's own ordinal guard (endOrd<=startOrd)
+      // rejects it outright and returns null, same as it always has for
+      // this case. retreatRunnerArrivalMs is the real-physics sibling for
+      // exactly that gap - this leg used to skip reconciliation against the
+      // runner entirely (arrival stayed null, so the whole block below
+      // never ran) whenever it fell through here.
+      var arrival = mv && mv.retreat
+        ? retreatRunnerArrivalMs(m, flight, moves, schedule[i].base)
+        : forcedOutRunnerArrivalMs(m, flight, moves, schedule[i].base);
       if (arrival != null) {
         var hardCapMs = arrival - MARGIN_POLICY.forceOut.minMs;
         capByIdx[i] = hardCapMs;
@@ -8533,6 +8582,7 @@
     reconcileThrowSchedule: reconcileThrowSchedule, holdChainTo: holdChainTo,
     reconcileLeg: reconcileLeg, reconcileChain: reconcileChain,
     forcedOutRunnerArrivalMs: forcedOutRunnerArrivalMs, runnerForOutTarget: runnerForOutTarget,
+    retreatRunnerArrivalMs: retreatRunnerArrivalMs, retreatOutDistFt: retreatOutDistFt,
     outMoveTargetBase: outMoveTargetBase, FORCED_OUT_BASE: FORCED_OUT_BASE,
     runnerMoveTiming: runnerMoveTiming, runnerPassingAdjustments: runnerPassingAdjustments,
     RUNNER_MIN_GAP_ORD: RUNNER_MIN_GAP_ORD,
@@ -8928,6 +8978,20 @@
       // separate, not-yet-designed animation).
       var assistBase = mv.assist === "HOME" ? SCENE_BASES.HOME : (mv.assist ? SCENE_BASES[mv.assist] : null);
       var useRetreat = isOut && mv.retreat && !!assistBase;
+      // Alex's ask: real advance-then-retreat physics, single-sourced with
+      // retreatRunnerArrivalMs/retreatOutDistFt (throwSchedule's own
+      // reconciliation reads the identical two numbers) - replaces the old
+      // fixed "run to the midpoint, cosmetic 75%-of-duration breakpoint"
+      // shape, which had no connection to either this runner's own real
+      // pace or the actual catch moment (ballTravelMs). retreatOutMs is the
+      // real window they had to break in (contact to catch); retreatBackMs
+      // is a fresh accelerating run back over that SAME real distance.
+      var retreatFt = 0, retreatOutMs = 0, retreatBackMs = 0;
+      if (useRetreat) {
+        retreatFt = retreatOutDistFt(m, flight, mv);
+        retreatOutMs = Math.max(0, ballTravelMs(flight) - RUNNER_LEAD_MS);
+        retreatBackMs = arrivalTimeS(retreatFt, runnerProfile(m, mv.from)) * 1000;
+      }
       // basepathWaypoints' own ordinal math treats HOME as 0 - "before" every
       // other base - so an out-bound path whose forcedBase is HOME needs the
       // same end=4 wraparound a genuine score gets, or it reads as
@@ -8941,8 +9005,9 @@
       // or basepathWaypoints reads HOME's ordinal(0) <= their own and
       // renders no path at all. mv.scored (the CSS "score" flash below)
       // stays untouched - this runner didn't actually score.
+      var retreatFrac = clamp(retreatFt / BASE_DIST_FT, 0, 1);
       var path = useRetreat
-        ? [{ x: (from.x + assistBase.x) / 2, y: (from.y + assistBase.y) / 2 }]
+        ? [{ x: from.x + (assistBase.x - from.x) * retreatFrac, y: from.y + (assistBase.y - from.y) * retreatFrac }]
         : isOut
           ? (forcedBase ? basepathWaypoints(mv.from, forcedBase, forcedBase === "HOME") : [])
           : basepathWaypoints(mv.from, mv.to, mv.scored || mv.to === "HOME");
@@ -8981,7 +9046,8 @@
           y: from.y + (path[0].y - from.y) * leadoffFrac,
         };
       }
-      var legDurMs = isStealAdvance ? stealLegMs(m, mv.from) : runnerLegMs(m, mv.from, legs);
+      var legDurMs = useRetreat ? Math.round(retreatOutMs + retreatBackMs)
+        : isStealAdvance ? stealLegMs(m, mv.from) : runnerLegMs(m, mv.from, legs);
       // Stage 4: fold in this specific runner's own reconciler adjustment,
       // if throwSchedule's reconciliation decided one was needed to keep a
       // real out-throw's margin honest (runnerAdjMsByWho, above) - reads as
@@ -9032,12 +9098,19 @@
       // delayedStartMs when the row's delay flag is true - already shared
       // via mv.delay, since delay/retreat are per-row, not per-runner) -
       // reusing it here is what actually keeps them in sync, not just close.
+      // Alex's ask: a retreat runner breaks the instant the ball's off the
+      // bat, same beat any other force-reactive runner leaves on
+      // (RUNNER_LEAD_MS, matching retreatOutDistFt's own assumption) - not
+      // outDelay, which assumes the ball's already down and used to hold
+      // this runner motionless until roughly when the catch itself happens.
       var mvDelay = mv.delay
         ? delayedStartMs
-        : isOut
-          ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
-          : ((catchMs && !strandedSafe) ? catchMs + TAG_UP_MS
-              : ((stealOut && stealOut.caught) ? stealOutDelay : runDelay));
+        : useRetreat
+          ? RUNNER_LEAD_MS
+          : isOut
+            ? (forcedOnContact ? runDelay : (forcedBase ? outDelay : Math.max(outDelay, stealOutResolveMs)))
+            : ((catchMs && !strandedSafe) ? catchMs + TAG_UP_MS
+                : ((stealOut && stealOut.caught) ? stealOutDelay : runDelay));
       // Task 10: this runner's own no-passing start correction (trailLateBreak).
       mvDelay += passAdj ? passAdj.delayMs : 0;
       // stranded-to-dugout's own keyframe ignores --dur (a fixed 1700ms,
@@ -9079,8 +9152,16 @@
           // straight for the dugout from where they started, never running
           // toward a base at all, instead of a negative-time keyframe.
           var outAtRel = Math.max(0, outAtMsFor(forcedBase) - mvDelay);
+          // Alex's ask: the real breakpoint - how far through this run they'd
+          // reversed - not a flat 0.75 guess. retreatOutMs/retreatBackMs are
+          // the pre-retarget real split; a runnerAdjMsByWho stretch (rare -
+          // only when the fielding side's own ceiling still isn't enough)
+          // scales fullSprintMs on top, and this fraction rides along with
+          // it proportionally, same as the split itself would.
+          var retreatSplitMs = retreatOutMs + retreatBackMs;
           var pathPoints = useRetreat
-            ? [{ frac: 0.75, x: path[0].x, y: path[0].y }, { frac: 1, x: from.x, y: from.y }]
+            ? [{ frac: retreatSplitMs > 0 ? retreatOutMs / retreatSplitMs : 0, x: path[0].x, y: path[0].y },
+               { frac: 1, x: from.x, y: from.y }]
             : [{ frac: 1, x: path[path.length - 1].x, y: path[path.length - 1].y }];
           var motion = runnerOutMotionHtml(from.x, from.y, pathPoints, dugoutSvg.x, dugoutSvg.y,
             fullSprintMs, outAtRel, RN_OUT_WALK_MS);
@@ -9845,37 +9926,91 @@
   // lands on the inner <g class="wheel-dot ..."> instead, since a CSS
   // `transform` animation replaces (rather than composes with) an element's
   // own transform attribute - nesting keeps the two from fighting.
-  // r/circleClass (Alex's ask): reused at BALL_R with a "ball-body" class for
-  // the pitch ball and the flight ball's own marker (pitchBallHtml,
-  // ballFlightHtml, throwLineHtml's new moving throw-ball - all three want
-  // this exact baseball, sized/bordered identically), not just the wheel's
-  // own tiny WHEEL_DOT_R dot. Seam control points scale proportionally
-  // (r/WHEEL_DOT_R) rather than living as a second hand-tuned set of
-  // constants at the new size - same curve shape at any radius. Defaults
-  // reproduce the original wheel-only call exactly (r=WHEEL_DOT_R, no class).
+  // Real vector baseball (Alex's file, baseball1.svg - replaces the old
+  // plain circle + 2 hand-drawn seam curves). Three layers, same z-order as
+  // the source file: white body, red seam stitching, then a border shape on
+  // top - the border isn't a stroke, it's the source art's own ring (its
+  // outer circle with the body's own wavy silhouette cut out of it as a
+  // hole), so it's already exactly one layer wide with no separate outline
+  // to double up against. WHEEL_BALL_R0 is that source file's own circle
+  // radius (viewBox is 2x it square) - translate(-R0,-R0) centers the art on
+  // this file's usual origin-centered icon convention, scale(r/R0) brings it
+  // to whatever radius the caller wants (WHEEL_DOT_R for the wheel's own
+  // marker, BALL_R for the shared pitch/flight/throw ball - see the call
+  // sites below).
+  //
+  // The border layer's fill is `currentColor`, not a hardcoded hex, so a
+  // `color` set on circleClass's own CSS rule (or an ancestor's, for the
+  // hit/out/grounded-out states the flight ball needs) recolors just that
+  // layer - style.css's own job, not this function's. Alex's ask, this pass:
+  // no CSS `stroke` anywhere on top of this any more (the wheel marker's old
+  // .wheel-dot-def gray stroke and the flight ball's old .ball-body stroke
+  // both moved to `color` for the same reason) - exactly one border source.
+  var WHEEL_BALL_R0 = 761.47;
+  var WHEEL_BALL_WHITE_D = "M344.98,1165.13l-39.99-1.27c-10.41-.33-18.58-9.04-18.25-19.45.33-10.42,9.03-18.52,19.45-18.25l62.5,1.99c10.31-17.24,19.9-34.86,28.68-52.86l-39.89,4.43c-.71.08-1.41.12-2.11.12-9.48,0-17.65-7.13-18.72-16.78-1.15-10.35,6.31-19.67,16.66-20.83l61.98-6.89c7.64-18.51,14.52-37.33,20.57-56.46l-38.35,10.19c-1.62.43-3.25.64-4.86.64-8.34,0-15.97-5.58-18.22-14.02-2.68-10.07,3.32-20.39,13.38-23.07l59.94-15.93c4.85-19.43,8.87-39.13,12.09-59.04l-36.57,15.58c-2.41,1.03-4.92,1.51-7.38,1.51-7.33,0-14.31-4.3-17.36-11.47-4.08-9.58.38-20.66,9.96-24.74l57.05-24.3c1.98-19.92,3.11-40.03,3.45-60.29l-33.4,20.6c-3.09,1.91-6.51,2.81-9.88,2.81-6.33,0-12.51-3.18-16.07-8.96-5.47-8.86-2.71-20.49,6.15-25.95l52.64-32.47c-.87-20.42-2.55-40.68-5.09-60.73l-30.73,25.25c-3.51,2.88-7.75,4.29-11.96,4.29-5.45,0-10.86-2.35-14.58-6.89-6.61-8.05-5.45-19.93,2.6-26.54l47.81-39.28c-3.76-19.85-8.33-39.47-13.72-58.81l-27.33,30.05c-3.72,4.09-8.83,6.17-13.96,6.17-4.53,0-9.07-1.62-12.69-4.91-7.71-7.01-8.27-18.94-1.26-26.64l42.19-46.38c-6.57-18.94-13.96-37.57-22.12-55.87l-22.17,33.19c-3.64,5.44-9.61,8.38-15.7,8.38-3.6,0-7.24-1.03-10.46-3.18-8.66-5.79-10.99-17.5-5.21-26.16l34.52-51.67c-9.31-17.81-19.43-35.23-30.28-52.26l-17.27,36.28c-3.23,6.79-9.99,10.76-17.04,10.76-2.72,0-5.47-.59-8.09-1.83-9.4-4.48-13.4-15.73-8.92-25.14l26.75-56.2c-12.1-16.65-24.97-32.85-38.58-48.56l-15.54,38.65c-2.96,7.36-10.03,11.83-17.51,11.83-2.34,0-4.72-.44-7.03-1.37-9.66-3.89-14.35-14.87-10.46-24.53l19.61-48.78c-125.36,126.58-202.9,300.6-202.9,492.4,0,172.13,62.47,329.91,165.88,451.97,3.31-8.09,11.92-13.03,20.88-11.39l60.87,11.27c12.75-15.61,24.75-31.7,36.06-48.19ZM1169.79,1294.23c-8.64,0-16.43-5.97-18.39-14.76-2.27-10.17,4.13-20.25,14.3-22.52l40.49-9.03c-14.14-16.33-27.51-33.17-40.07-50.48l-59.87,9.52c-1,.16-2,.24-2.98.24-9.11,0-17.13-6.62-18.6-15.9-1.63-10.29,5.38-19.95,15.66-21.59l42.26-6.72c-12.01-18.66-23.18-37.78-33.4-57.36l-60.7.78h-.25c-10.3,0-18.72-8.28-18.86-18.62-.13-10.42,8.2-18.97,18.62-19.1l42.98-.55c-9.19-20.33-17.44-41.08-24.74-62.18l-59.59-8.17c-10.32-1.41-17.54-10.93-16.12-21.25,1.41-10.32,10.95-17.55,21.24-16.12l41.95,5.75c-5.95-21.02-10.94-42.37-15.03-63.98l-58.59-16.93c-10.01-2.89-15.77-13.34-12.88-23.35,2.89-10.01,13.36-15.78,23.35-12.88l41.5,11.99c-2.9-21.94-4.83-44.12-5.79-66.5l-55.8-24.67c-9.53-4.21-13.84-15.35-9.62-24.88,4.21-9.53,15.35-13.83,24.87-9.63l39.9,17.64c.25-22.56,1.43-44.95,3.64-67.11l-51.36-32.65c-8.79-5.59-11.38-17.24-5.8-26.03,5.59-8.79,17.24-11.39,26.04-5.8l36.41,23.15c3.43-21.99,7.84-43.71,13.18-65.13l-46.17-39.61c-7.91-6.78-8.82-18.69-2.04-26.6,6.79-7.9,18.7-8.81,26.6-2.03l32.78,28.13c6.61-21.31,14.23-42.27,22.74-62.85l-39.54-45.77c-6.81-7.88-5.94-19.79,1.94-26.6,7.88-6.81,19.79-5.94,26.6,1.94l28,32.41c9.61-19.93,20.13-39.44,31.54-58.49l-32.56-50.8c-5.62-8.77-3.07-20.43,5.7-26.06,8.77-5.62,20.43-3.07,26.05,5.7l23.16,36.13c12.35-18.21,25.51-35.96,39.56-53.16l-24.78-55.7c-4.24-9.52.05-20.66,9.56-24.9,9.5-4.23,20.66.04,24.9,9.56l17.59,39.52c4.7-5.15,9.49-10.24,14.35-15.28-124.6-114.01-290.42-183.67-472.21-183.67s-344.43,68.33-468.61,180.4l56.16-12.53c10.16-2.28,20.25,4.13,22.51,14.3,2.27,10.17-4.13,20.25-14.3,22.51l-40.49,9.03c14.14,16.33,27.51,33.17,40.07,50.48l59.87-9.51c10.3-1.66,19.95,5.38,21.59,15.66,1.64,10.29-5.38,19.95-15.66,21.59l-42.25,6.72c12.01,18.66,23.18,37.79,33.4,57.37l60.7-.78c.08,0,.17,0,.25,0,10.3,0,18.72,8.29,18.85,18.62.13,10.42-8.2,18.97-18.62,19.1l-42.98.55c9.19,20.34,17.45,41.08,24.74,62.19l59.6,8.17c10.32,1.42,17.54,10.93,16.12,21.25-1.3,9.45-9.38,16.3-18.66,16.3-.85,0-1.72-.06-2.59-.18l-41.94-5.75c5.95,21.02,10.94,42.37,15.03,63.97l58.59,16.93c10.01,2.89,15.77,13.35,12.88,23.35-2.39,8.26-9.92,13.63-18.11,13.63-1.73,0-3.49-.24-5.24-.75l-41.5-11.99c2.9,21.94,4.83,44.12,5.79,66.49l55.8,24.67c9.53,4.21,13.84,15.35,9.63,24.88-3.11,7.04-10.02,11.24-17.26,11.24-2.55,0-5.14-.52-7.62-1.62l-39.9-17.64c-.25,22.56-1.43,44.95-3.64,67.12l51.36,32.65c8.79,5.59,11.39,17.24,5.8,26.03-3.59,5.65-9.7,8.75-15.93,8.75-3.46,0-6.96-.95-10.1-2.95l-36.41-23.15c-3.43,21.98-7.84,43.71-13.18,65.13l46.17,39.61c7.91,6.78,8.82,18.69,2.03,26.6-3.73,4.35-9.01,6.58-14.32,6.58-4.35,0-8.71-1.49-12.27-4.54l-32.78-28.12c-6.61,21.31-14.22,42.27-22.73,62.84l39.55,45.77c6.81,7.88,5.94,19.79-1.94,26.6-3.57,3.08-7.95,4.59-12.32,4.59-5.29,0-10.55-2.21-14.28-6.53l-28-32.4c-9.61,19.93-20.13,39.44-31.54,58.49l32.56,50.8c5.62,8.77,3.07,20.43-5.7,26.05-3.15,2.02-6.68,2.99-10.16,2.99-6.21,0-12.29-3.07-15.9-8.69l-23.16-36.12c-12.35,18.21-25.52,35.96-39.56,53.16l24.79,55.69c4.24,9.51-.05,20.66-9.56,24.9-2.49,1.11-5.1,1.63-7.66,1.63-7.22,0-14.11-4.17-17.24-11.2l-17.59-39.52c-4.7,5.15-9.49,10.24-14.35,15.28,124.6,114.01,290.42,183.67,472.21,183.67s344.42-68.33,468.61-180.4l-56.16,12.53c-1.38.31-2.76.46-4.13.46ZM268.77,1258.45c3.85-4,7.65-8.03,11.4-12.1l-28.29-5.24c5.53,5.87,11.15,11.66,16.88,17.33ZM1258.74,1253.87c125.36-126.58,202.91-300.6,202.91-492.4,0-172.14-62.48-329.94-165.9-452-2.88,7.05-9.76,11.73-17.4,11.73-1.14,0-2.3-.1-3.46-.32l-60.86-11.27c-12.75,15.61-24.76,31.7-36.06,48.19l39.99,1.27c10.41.33,18.58,9.04,18.25,19.45-.33,10.21-8.7,18.26-18.84,18.26-.2,0-.41,0-.61,0l-62.5-1.99c-10.31,17.24-19.9,34.87-28.68,52.86l39.9-4.43c10.3-1.15,19.67,6.31,20.83,16.66,1.15,10.35-6.31,19.68-16.66,20.83l-61.98,6.89c-7.64,18.51-14.53,37.34-20.58,56.47l38.35-10.2c10.03-2.66,20.39,3.31,23.07,13.38,2.68,10.07-3.32,20.4-13.39,23.07l-59.94,15.93c-4.84,19.43-8.87,39.12-12.09,59.04l36.57-15.58c9.58-4.09,20.66.38,24.74,9.96,4.08,9.58-.38,20.66-9.96,24.74l-57.05,24.3c-1.98,19.92-3.11,40.03-3.45,60.29l33.4-20.61c8.88-5.47,20.49-2.71,25.96,6.15,5.47,8.86,2.72,20.48-6.15,25.95l-52.64,32.48c.87,20.42,2.55,40.68,5.09,60.73l30.73-25.25c8.04-6.61,19.93-5.45,26.54,2.6,6.61,8.05,5.45,19.93-2.6,26.54l-47.81,39.27c3.76,19.85,8.32,39.47,13.72,58.81l27.33-30.05c7.01-7.72,18.94-8.27,26.64-1.26,7.71,7.01,8.27,18.94,1.26,26.64l-42.19,46.38c6.57,18.94,13.96,37.57,22.12,55.87l22.17-33.19c5.79-8.66,17.5-11,26.16-5.21,8.66,5.79,11,17.5,5.21,26.16l-34.52,51.67c9.31,17.82,19.44,35.23,30.28,52.26l17.27-36.28c4.47-9.41,15.72-13.41,25.13-8.92,9.41,4.48,13.4,15.73,8.92,25.13l-26.75,56.2c12.1,16.66,24.97,32.85,38.59,48.56l15.54-38.66c3.88-9.66,14.87-14.36,24.53-10.46,9.66,3.89,14.35,14.87,10.46,24.53l-19.62,48.78ZM1254.16,264.48c-3.86,3.99-7.65,8.03-11.4,12.1l28.29,5.24c-5.53-5.87-11.16-11.66-16.88-17.34Z";
+  var WHEEL_BALL_SEAM_D = "M552.47,753.08l-55.8-24.67c-.96-22.37-2.9-44.55-5.79-66.49l41.5,11.99c1.75.51,3.51.75,5.24.75,8.18,0,15.72-5.37,18.11-13.63,2.89-10.01-2.88-20.46-12.88-23.35l-58.59-16.93c-4.09-21.6-9.07-42.95-15.03-63.97l41.94,5.75c.87.12,1.73.18,2.59.18,9.28,0,17.37-6.85,18.66-16.3,1.42-10.32-5.8-19.83-16.12-21.25l-59.6-8.17c-7.3-21.11-15.56-41.85-24.74-62.19l42.98-.55c10.42-.13,18.75-8.68,18.62-19.1-.13-10.33-8.55-18.62-18.85-18.62-.08,0-.16,0-.25,0l-60.7.78c-10.23-19.58-21.4-38.7-33.4-57.37l42.25-6.72c10.29-1.63,17.3-11.3,15.66-21.59-1.63-10.29-11.29-17.32-21.59-15.66l-59.87,9.51c-12.57-17.31-25.93-34.15-40.07-50.48l40.49-9.03c10.17-2.27,16.57-12.35,14.3-22.51-2.27-10.17-12.35-16.58-22.51-14.3l-56.16,12.53c-.75.67-1.51,1.33-2.25,2.01-.46.42-.9.84-1.35,1.26-6.96,6.37-13.78,12.88-20.48,19.52-.04.04-.09.09-.13.13-1.49,1.48-2.97,2.96-4.44,4.45l-19.61,48.78c-3.88,9.66.8,20.65,10.46,24.53,2.31.93,4.69,1.37,7.03,1.37,7.47,0,14.55-4.47,17.51-11.83l15.54-38.65c13.62,15.71,26.49,31.9,38.58,48.56l-26.75,56.2c-4.48,9.4-.48,20.66,8.92,25.14,2.62,1.25,5.38,1.83,8.09,1.83,7.05,0,13.81-3.97,17.04-10.76l17.27-36.28c10.84,17.03,20.97,34.45,30.28,52.26l-34.52,51.67c-5.79,8.66-3.46,20.37,5.21,26.16,3.22,2.15,6.86,3.18,10.46,3.18,6.09,0,12.06-2.94,15.7-8.38l22.17-33.19c8.16,18.3,15.54,36.93,22.12,55.87l-42.19,46.38c-7.01,7.71-6.44,19.63,1.26,26.64,3.61,3.29,8.15,4.91,12.69,4.91,5.12,0,10.24-2.08,13.96-6.17l27.33-30.05c5.4,19.34,9.96,38.96,13.72,58.81l-47.81,39.28c-8.05,6.61-9.21,18.5-2.6,26.54,3.73,4.54,9.14,6.89,14.58,6.89,4.21,0,8.45-1.4,11.96-4.29l30.73-25.25c2.54,20.05,4.22,40.31,5.09,60.73l-52.64,32.47c-8.86,5.47-11.62,17.09-6.15,25.95,3.56,5.78,9.74,8.96,16.07,8.96,3.38,0,6.8-.91,9.88-2.81l33.4-20.6c-.34,20.26-1.47,40.37-3.45,60.29l-57.05,24.3c-9.58,4.08-14.04,15.16-9.96,24.74,3.06,7.17,10.03,11.47,17.36,11.47,2.46,0,4.97-.49,7.38-1.51l36.57-15.58c-3.21,19.91-7.24,39.61-12.09,59.04l-59.94,15.93c-10.07,2.68-16.06,13.01-13.38,23.07,2.24,8.44,9.87,14.02,18.22,14.02,1.6,0,3.23-.21,4.86-.64l38.35-10.19c-6.05,19.13-12.93,37.96-20.57,56.46l-61.98,6.89c-10.35,1.15-17.81,10.48-16.66,20.83,1.07,9.65,9.24,16.78,18.72,16.78.7,0,1.4-.04,2.11-.12l39.89-4.43c-8.78,18-18.36,35.62-28.68,52.86l-62.5-1.99c-10.42-.27-19.12,7.84-19.45,18.25-.33,10.41,7.84,19.12,18.25,19.45l39.99,1.27c-11.3,16.49-23.3,32.57-36.06,48.19l-60.87-11.27c-8.96-1.64-17.58,3.3-20.88,11.39,8,9.44,16.24,18.68,24.72,27.69l28.29,5.24c-3.75,4.07-7.55,8.1-11.4,12.1,6.7,6.64,13.52,13.15,20.48,19.51,4.86-5.04,9.65-10.13,14.35-15.28l17.59,39.52c3.13,7.03,10.02,11.2,17.24,11.2,2.56,0,5.16-.52,7.66-1.63,9.52-4.24,13.8-15.38,9.56-24.9l-24.79-55.69c14.04-17.2,27.21-34.95,39.56-53.16l23.16,36.12c3.6,5.62,9.68,8.69,15.9,8.69,3.48,0,7.01-.97,10.16-2.99,8.77-5.62,11.32-17.29,5.7-26.05l-32.56-50.8c11.41-19.05,21.93-38.55,31.54-58.49l28,32.4c3.73,4.31,8.99,6.53,14.28,6.53,4.37,0,8.76-1.51,12.32-4.59,7.88-6.81,8.75-18.72,1.94-26.6l-39.55-45.77c8.51-20.58,16.12-41.53,22.73-62.84l32.78,28.12c3.56,3.05,7.92,4.54,12.27,4.54,5.31,0,10.59-2.23,14.32-6.58,6.78-7.91,5.87-19.81-2.03-26.6l-46.17-39.61c5.34-21.42,9.75-43.15,13.18-65.13l36.41,23.15c3.14,1.99,6.64,2.95,10.1,2.95,6.24,0,12.34-3.09,15.93-8.75,5.59-8.79,2.99-20.44-5.8-26.03l-51.36-32.65c2.2-22.16,3.39-44.55,3.64-67.12l39.9,17.64c2.48,1.1,5.07,1.62,7.62,1.62,7.24,0,14.14-4.19,17.26-11.24,4.21-9.53-.1-20.66-9.63-24.88ZM1274.88,320.89c1.16.21,2.32.32,3.46.32,7.64,0,14.52-4.68,17.4-11.73-7.99-9.43-16.22-18.66-24.69-27.65l-28.29-5.24c3.75-4.07,7.55-8.1,11.4-12.1-6.7-6.64-13.52-13.15-20.48-19.52-4.86,5.04-9.65,10.13-14.35,15.28l-17.59-39.52c-4.24-9.52-15.4-13.79-24.9-9.56-9.52,4.23-13.8,15.38-9.56,24.9l24.78,55.7c-14.04,17.2-27.21,34.94-39.56,53.16l-23.16-36.13c-5.62-8.77-17.29-11.32-26.05-5.7-8.77,5.62-11.32,17.29-5.7,26.06l32.56,50.8c-11.41,19.05-21.93,38.56-31.54,58.49l-28-32.41c-6.81-7.88-18.72-8.75-26.6-1.94-7.88,6.81-8.75,18.72-1.94,26.6l39.54,45.77c-8.51,20.58-16.12,41.53-22.74,62.85l-32.78-28.13c-7.9-6.78-19.8-5.87-26.6,2.03-6.78,7.91-5.87,19.81,2.04,26.6l46.17,39.61c-5.34,21.43-9.75,43.15-13.18,65.13l-36.41-23.15c-8.8-5.59-20.44-2.99-26.04,5.8-5.59,8.79-2.99,20.45,5.8,26.03l51.36,32.65c-2.2,22.16-3.39,44.55-3.64,67.11l-39.9-17.64c-9.53-4.21-20.66.09-24.87,9.63-4.21,9.53.1,20.66,9.62,24.88l55.8,24.67c.96,22.37,2.9,44.55,5.79,66.5l-41.5-11.99c-10-2.9-20.46,2.88-23.35,12.88-2.89,10.01,2.88,20.46,12.88,23.35l58.59,16.93c4.09,21.61,9.08,42.95,15.03,63.98l-41.95-5.75c-10.29-1.43-19.83,5.8-21.24,16.12-1.41,10.32,5.8,19.83,16.12,21.25l59.59,8.17c7.3,21.11,15.55,41.85,24.74,62.18l-42.98.55c-10.42.14-18.75,8.69-18.62,19.1.13,10.33,8.55,18.62,18.86,18.62h.25l60.7-.78c10.23,19.58,21.4,38.7,33.4,57.36l-42.26,6.72c-10.29,1.63-17.3,11.3-15.66,21.59,1.47,9.28,9.49,15.9,18.6,15.9.99,0,1.98-.08,2.98-.24l59.87-9.52c12.57,17.31,25.93,34.15,40.07,50.48l-40.49,9.03c-10.17,2.27-16.57,12.35-14.3,22.52,1.96,8.79,9.75,14.76,18.39,14.76,1.36,0,2.74-.15,4.13-.46l56.16-12.53c.75-.68,1.52-1.34,2.27-2.03.45-.41.89-.84,1.34-1.25,6.96-6.37,13.78-12.88,20.48-19.51.04-.04.09-.09.14-.13,1.49-1.48,2.97-2.96,4.44-4.45l19.62-48.78c3.89-9.66-.8-20.65-10.46-24.53-9.66-3.9-20.65.8-24.53,10.46l-15.54,38.66c-13.62-15.71-26.49-31.91-38.59-48.56l26.75-56.2c4.48-9.4.48-20.66-8.92-25.13-9.41-4.48-20.66-.49-25.13,8.92l-17.27,36.28c-10.84-17.03-20.97-34.45-30.28-52.26l34.52-51.67c5.79-8.66,3.45-20.37-5.21-26.16-8.66-5.79-20.37-3.45-26.16,5.21l-22.17,33.19c-8.16-18.3-15.54-36.93-22.12-55.87l42.19-46.38c7.01-7.7,6.45-19.63-1.26-26.64-7.7-7.01-19.63-6.46-26.64,1.26l-27.33,30.05c-5.4-19.34-9.96-38.96-13.72-58.81l47.81-39.27c8.05-6.61,9.21-18.5,2.6-26.54-6.62-8.05-18.51-9.21-26.54-2.6l-30.73,25.25c-2.54-20.05-4.22-40.31-5.09-60.73l52.64-32.48c8.86-5.47,11.62-17.09,6.15-25.95-5.47-8.86-17.08-11.62-25.96-6.15l-33.4,20.61c.34-20.26,1.47-40.37,3.45-60.29l57.05-24.3c9.58-4.08,14.04-15.16,9.96-24.74-4.08-9.58-15.16-14.05-24.74-9.96l-36.57,15.58c3.21-19.91,7.24-39.61,12.09-59.04l59.94-15.93c10.07-2.68,16.06-13.01,13.39-23.07-2.68-10.07-13.04-16.04-23.07-13.38l-38.35,10.2c6.05-19.13,12.93-37.96,20.58-56.47l61.98-6.89c10.36-1.15,17.81-10.48,16.66-20.83-1.15-10.35-10.53-17.81-20.83-16.66l-39.9,4.43c8.78-18,18.36-35.62,28.68-52.86l62.5,1.99c.2,0,.41,0,.61,0,10.14,0,18.51-8.05,18.84-18.26.33-10.41-7.84-19.12-18.25-19.45l-39.99-1.27c11.3-16.49,23.31-32.57,36.06-48.19l60.86,11.27Z";
+  var WHEEL_BALL_BORDER_D = "M761.47,0C341.59,0,0,341.59,0,761.47s341.59,761.47,761.47,761.47,761.47-341.59,761.47-761.47S1181.35,0,761.47,0ZM1258.74,1253.87c-1.47,1.49-2.95,2.97-4.44,4.45-.04.04-.09.09-.14.13-6.7,6.64-13.52,13.15-20.48,19.51-.45.41-.89.84-1.34,1.25-.75.68-1.51,1.35-2.27,2.03-124.18,112.07-288.56,180.4-468.61,180.4s-347.62-69.66-472.21-183.67c-6.96-6.37-13.78-12.88-20.48-19.51-5.73-5.68-11.35-11.46-16.88-17.33-8.48-9.01-16.72-18.24-24.72-27.69-103.41-122.06-165.88-279.84-165.88-451.97,0-191.8,77.54-365.82,202.9-492.4,1.48-1.49,2.96-2.98,4.44-4.45.04-.04.09-.09.13-.13,6.7-6.64,13.52-13.15,20.48-19.52.45-.42.9-.85,1.35-1.26.74-.68,1.5-1.34,2.25-2.01,124.18-112.07,288.56-180.4,468.61-180.4s347.62,69.66,472.21,183.67c6.96,6.37,13.78,12.88,20.48,19.52,5.73,5.68,11.35,11.46,16.88,17.34,8.47,9,16.7,18.22,24.69,27.65,103.42,122.06,165.9,279.86,165.9,452,0,191.8-77.55,365.82-202.91,492.4Z";
   function wheelBallIconSvg(r, circleClass) {
     var radius = r || WHEEL_DOT_R;
-    var k = radius / WHEEL_DOT_R;
+    var k = radius / WHEEL_BALL_R0;
     var cls = circleClass ? ' class="' + circleClass + '"' : "";
-    function sx(v) { return (v * k).toFixed(2); }
-    return '<circle' + cls + ' r="' + radius + '"></circle>' +
-      '<path class="wheel-dot-seam" d="M ' + sx(-2.4) + ',' + sx(-1.7) + ' Q ' + sx(-0.8) + ',0 ' +
-        sx(-2.4) + ',' + sx(1.7) + '"></path>' +
-      '<path class="wheel-dot-seam" d="M ' + sx(2.4) + ',' + sx(-1.7) + ' Q ' + sx(0.8) + ',0 ' +
-        sx(2.4) + ',' + sx(1.7) + '"></path>';
+    var xf = 'scale(' + k.toFixed(5) + ') translate(-' + WHEEL_BALL_R0 + ',-' + WHEEL_BALL_R0 + ')';
+    return '<g' + cls + ' transform="' + xf + '">' +
+      '<path class="wheel-ball-white" d="' + WHEEL_BALL_WHITE_D + '"></path>' +
+      '<path class="wheel-ball-seam" d="' + WHEEL_BALL_SEAM_D + '"></path>' +
+      '<path class="wheel-ball-border" d="' + WHEEL_BALL_BORDER_D + '"></path>' +
+    "</g>";
   }
 
-  // Drawn barrel-down (positive local y) so the caller's rotation can point
-  // that barrel straight out along the ring's radius - see wheelMarkerHtml.
-  // A single tapered silhouette (round knob, thin straight handle, angled
-  // shoulder, straight-sided barrel, rounded tip) rather than stacked
-  // primitives - those read as a lollipop/bowling pin at this size, this
-  // reads as a bat.
-  var WHEEL_BAT_PATH = "M0,-4.6C0.55,-4.6 0.55,-4.15 0.3,-3.9L0.35,-1.3L1.25,0.9L1.25,3.6" +
-    "C1.25,4.05 0.9,4.4 0.4,4.55C0.25,4.6 0.1,4.6 0,4.6C-0.1,4.6 -0.25,4.6 -0.4,4.55" +
-    "C-0.9,4.4 -1.25,4.05 -1.25,3.6L-1.25,0.9L-0.35,-1.3L-0.3,-3.9C-0.55,-4.15 -0.55,-4.6 0,-4.6Z";
+  // Real vector bat (Alex's file, baseball_bat3.svg) - replaces the old
+  // hand-drawn tapered silhouette, embedded verbatim (13 paths, wood grain
+  // and grip-wrap shading included) the same way wheelRunnerIconSvg below
+  // embeds running_shoe.svg. The source art is a long diagonal "swoosh"
+  // running from its own barrel tip (WHEEL_BAT_TIP_X/Y - the single
+  // farthest point in the whole drawing from the knob at its other end) to
+  // that knob, WHEEL_BAT_RAW_LEN apart; WHEEL_BAT_ROT_DEG rotates that
+  // tip->knob axis onto this file's own barrel-down (positive local y)
+  // convention - see wheelMarkerHtml's rotate(angleDeg+180), which points
+  // local +y straight out along the ring's radius.
+  //
+  // Placement is two radii, not a single pivot+length the way the old
+  // symmetric path worked (Alex's ask, this pass): the barrel's own outer
+  // tip lands WHEEL_BAT_TIP_OUT past the ring - the same radius the
+  // baseball marker's own outer edge sits at, WHEEL_DOT_R past its centre
+  // on the ring - so the two read as "the same distance out"; the knob
+  // lands WHEEL_BAT_HANDLE_IN in from the ring, a smidge inside the
+  // archetype band's own inner edge (WHEEL_BAND_R less its stroke's half
+  // width) rather than sitting on top of it. WHEEL_BAT_SCALE is sized off
+  // that total reach (tip-out + handle-in), and the extra translate(0,
+  // WHEEL_BAT_TIP_OUT) after the tip-pivoted rotate/scale shifts the whole
+  // bat out from "tip at the ring" to "tip past the ring" by that amount.
+  var WHEEL_BAT_TIP_X = 4100.81, WHEEL_BAT_TIP_Y = 139.46;
+  var WHEEL_BAT_RAW_LEN = 5697.08;
+  var WHEEL_BAT_ROT_DEG = 134.985;
+  var WHEEL_BAT_TIP_OUT = WHEEL_DOT_R;
+  var WHEEL_BAT_HANDLE_IN = 9.5;
+  var WHEEL_BAT_SCALE = (WHEEL_BAT_TIP_OUT + WHEEL_BAT_HANDLE_IN) / WHEEL_BAT_RAW_LEN;
+  var WHEEL_BAT_PATHS = [
+    ["#d2a76b", "M4100.81,139.46c160.77,160.77,177.73,291.34,99.93,369.12-292.29,292.18-596.1,575.91-1298.32,1202.6-506.99,452.47-1077.75,898.12-1490.1,1261.35-321,282.76-542.94,454.05-563.27,433.71l-15.02-15.02c-20.34-20.33,150.95-242.27,433.71-563.27,363.22-412.35,808.88-983.1,1261.34-1490.1C3155.78,635.63,3408.02,375.97,3731.69,39.53c54.6-56.75,194.88-74.32,369.12,99.93Z"],
+    ["#c69760", "M4100.81,139.46c-18.09-18.08-35.8-34.07-53.09-48.19,111.28,134.56,116.1,243.68,47.73,312.03-292.28,292.18-596.1,575.91-1298.32,1202.6-507,452.47-1042.56,989.33-1454.91,1352.55-101.5,89.41-199.57,159.53-278.02,224.12-175.16,135.59-244.07,194.75-230.17,208.66l15.02,15.02c20.33,20.33,242.27-150.95,563.27-433.71,412.35-363.22,983.1-808.88,1490.1-1261.35,702.22-626.69,1006.04-910.42,1298.32-1202.6,77.8-77.77,60.84-208.35-99.93-369.12Z"],
+    ["#3d3a37", "M1419.01,2963.59c-1.23,10.48-5.7,15.76-5.7,15.76,0,0-5.85,5.94-16.41,16.61-2.87,2.93-6.11,6.21-9.67,9.81-16.73,16.93-40.64,41.15-69.27,70.12-6.99,7.08-14.27,14.45-21.79,22.06l-.38.38c-3.13,3.17-6.3,6.39-9.52,9.64-.44.44-.87.89-1.32,1.34-46.41,46.97-100.93,102.16-155.76,157.61-.94.95-1.88,1.89-2.81,2.84-2.37,2.39-4.74,4.8-7.11,7.19-.99,1.01-1.99,2.01-2.98,3.02-57.65,58.3-114.97,116.19-162.81,164.47-1,1.02-2.01,2.02-3,3.03-2.34,2.36-4.66,4.7-6.95,7.01-1.05,1.05-2.08,2.1-3.11,3.12-28.39,28.65-52.89,53.29-71.3,71.77-24.76,24.84-56.17,56.8-91.53,93.05-.35.35-.69.71-1.05,1.07-2.95,3.03-5.93,6.07-8.93,9.17-.29.28-.57.58-.86.87-52.57,53.93-112.92,116.28-172.63,178.17-3.26,3.38-6.52,6.75-9.76,10.13-62.98,65.3-124.74,129.57-175.4,182.35-3.28,3.42-6.52,6.79-9.71,10.1-65.83,68.63-110.62,115.45-110.62,115.45l-.85-.85-60.26-60.26-117.97-117.97s14.76-13.89,39.86-37.53c4.54-4.26,9.4-8.86,14.59-13.73,44.13-41.61,110.86-104.59,184.04-173.96,4.64-4.41,9.32-8.84,14.01-13.3,59.47-56.42,122.48-116.36,180.58-172.05.61-.59,1.24-1.19,1.85-1.78,3.98-3.79,7.92-7.56,11.82-11.33.32-.3.64-.62.96-.92,62.49-59.94,118.28-114,156.49-152.06,1.83-1.83,3.73-3.71,5.68-5.66l1.49-1.49c3.65-3.63,7.48-7.44,11.48-11.45l1.67-1.67c38.95-38.82,93.94-93.77,153.82-153.65l23.2-23.2c47.94-47.95,98.02-98.05,144.81-144.87l14.75-14.75c3.57-3.58,7.13-7.13,10.64-10.67,48.4-48.4,91.92-91.95,123.98-124.05l5.05-5.06c2.55-2.54,5-5,7.36-7.37l5.72-5.72c23.54-23.56,37.45-37.49,37.45-37.49,0,0,32.38-29.04,97.71,36.3l17.53,17.53c9.7,9.7,17.33,18.67,23.3,26.96.1.14.2.27.3.41.51.71,1.01,1.42,1.49,2.12.39.56.77,1.11,1.14,1.66,8.11,12.04,12.66,22.47,14.96,31.31,2.15,8.19,2.36,14.98,1.73,20.41Z"],
+    ["#333130", "M1419.01,2963.59c-1.23,10.48-5.7,15.76-5.7,15.76,0,0-5.85,5.94-16.41,16.61-2.87,2.93-6.11,6.21-9.67,9.81-16.73,16.93-40.64,41.15-69.27,70.12-7.18,6.83-14.57,14.05-22.09,21.66-3.25,3.29-6.55,6.63-9.89,10.01-46.7,47.27-101.74,102.98-157.09,158.95-.76.76-1.51,1.53-2.26,2.29-2.55,2.58-5.11,5.16-7.65,7.75-.99,1.01-1.99,2.01-2.99,3.02-57.65,58.29-114.96,116.19-162.81,164.46-3.36,3.4-6.68,6.74-9.94,10.04-29.73,29.98-55.34,55.75-74.41,74.9-25.01,25.08-56.8,57.44-92.58,94.11-3.24,3.32-6.5,6.66-9.79,10.05-52.58,53.93-112.92,116.28-172.64,178.16-3.26,3.38-6.51,6.75-9.76,10.13-62.97,65.31-124.73,129.58-175.4,182.36-3.28,3.41-6.52,6.78-9.71,10.1-65.83,68.63-110.62,115.45-110.62,115.45l-.55-.45-35.81-29.25c-.82-.82-17.36-18.59-24.45-31.01-2.83-4.95-4.15-9.05-2.37-10.88,53.93-55.42,559.05-554.81,826.59-817.44,3.9-3.84,7.77-7.63,11.57-11.36,70.39-69.06,122.69-120.1,143.31-139.71,46.47-44.16,164.22-155.83,192.77-181.55.61.85,1.21,1.69,1.79,2.53.39.56.77,1.11,1.14,1.66,8.11,12.04,12.66,22.47,14.96,31.31,2.15,8.19,2.36,14.98,1.73,20.41Z"],
+    ["#d2a76b", "M289.4,4214.02c-24.5,24.5-62.52,30.66-103.63,20.72-1.87-.45-3.75-.94-5.63-1.46-36.44-10.05-74.91-32.52-108.27-65.87-33.36-33.36-55.83-71.84-65.87-108.27-.7-2.53-1.34-5.05-1.91-7.56-9.3-40.38-2.95-77.58,21.17-101.7,47.19-47.2,128.08-9.82,201.02,63.12,72.94,72.94,110.31,153.82,63.12,201.02Z"],
+    ["#c69c6a", "M218.23,4221.71c-11.3,11.3-25.12,13.02-32.46,13.03-1.87-.45-3.75-.94-5.63-1.46-36.44-10.05-74.91-32.52-108.27-65.87-33.36-33.36-55.83-71.84-65.87-108.27-.7-2.53-1.34-5.05-1.91-7.56.42-7.35,3.1-18.93,14.1-29.92,25.33-25.34,75.19-18.23,146.73,53.31,70.25,70.24,78.65,121.4,53.31,146.74Z"],
+    ["#231f20", "M584.36,3821.82c-29.7-22.97-64.85-44.18-111.6-62.13-32.36-12.41-90.83-29.53-124.72-34.27,4.64-4.41,9.32-8.84,14.01-13.3,30.55,5.42,84.74,20.32,119.33,34.57,53.53,22.05,87.52,43.09,112.74,65-3.26,3.38-6.52,6.75-9.76,10.13Z"],
+    ["#231f20", "M767.61,3632.65c-28.99-21.98-63.23-42.29-108.24-59.57-29.94-11.49-82.24-26.99-116.74-33.01.61-.59,1.24-1.18,1.85-1.78,3.97-3.8,7.91-7.56,11.82-11.33,31.33,6.31,79.82,20,111.69,33.12,51.35,21.15,84.71,41.38,109.6,62.33-.35.35-.69.71-1.05,1.07-2.95,3.03-5.93,6.07-8.93,9.17Z"],
+    ["#231f20", "M940.42,3457.6c-28.3-20.78-64.7-42.29-107.03-58.54-28.74-11.02-78.05-25.74-112.46-32.23,3.64-3.62,7.48-7.44,11.48-11.44l1.67-1.67c31.34,6.6,77.31,19.73,107.94,32.35,50.58,20.83,83.71,40.77,108.47,61.39-2.34,2.36-9.03,9.11-10.06,10.14Z"],
+    ["#231f20", "M1116.29,3279.97c-18.28-13.34-39.89-26.96-64.26-39.26-13.15-6.64-27.08-12.9-41.76-18.53-27.91-10.7-78-25.33-112.4-32.1l13.21-13.21c31.34,6.59,77.22,19.71,107.81,32.32,16.64,6.85,31.45,13.54,44.71,20.16,26.52,13.27,46.88,26.3,63.32,39.85-2.54,2.58-5.11,5.17-7.65,7.75-.99,1.01-1.99,2.01-2.98,3.02Z"],
+    ["#231f20", "M1284.95,3109.31c-17.69-12.72-40.12-27.46-62.67-38.85-13.15-6.64-27.08-12.91-41.76-18.53-25.87-9.92-77.54-24.71-112.35-32.21l2.48-2.48c3.57-3.57,7.13-7.13,10.64-10.66,31.85,7.22,79.67,20.74,107.85,32.36,16.63,6.85,31.44,13.54,44.71,20.16,24.45,12.24,45.86,26.46,61.94,39.23-3.13,3.17-6.3,6.38-9.52,9.63-.45.45-.87.89-1.32,1.34Z"],
+    ["#231f20", "M1419.01,2963.59c-17.12-12.13-38.13-25.74-59.27-36.42-13.15-6.64-27.08-12.91-41.76-18.53-24.73-9.49-73.04-23.41-107.66-31.17,2.54-2.54,5-5,7.36-7.38l5.72-5.72c31.71,7.43,76.37,20.22,103.2,31.28,16.63,6.85,31.44,13.54,44.71,20.16,17.06,8.53,32.65,18.04,45.97,27.36,2.15,8.19,2.36,14.98,1.73,20.41Z"],
+    ["#231f20", "M399.25,4014.28c-29.5-18.08-72.8-42.78-122.57-64.21-28.29-12.19-99.57-34.19-126.29-37.92,4.54-4.26,8.43-7.88,13.62-12.76,32.52,4.42,90.36,23.19,120.61,36.37,54.13,23.6,100.08,49.52,126.29,66.48-3.28,3.42-8.46,8.73-11.65,12.04Z"]
+  ];
   function wheelBatIconSvg() {
-    return '<path d="' + WHEEL_BAT_PATH + '"></path>';
+    var xf = "translate(0," + WHEEL_BAT_TIP_OUT + ") rotate(" + WHEEL_BAT_ROT_DEG + ") scale(" +
+      WHEEL_BAT_SCALE.toFixed(6) + ") translate(-" + WHEEL_BAT_TIP_X + ",-" + WHEEL_BAT_TIP_Y + ")";
+    return '<g transform="' + xf + '">' + WHEEL_BAT_PATHS.map(function (p) {
+      return '<path fill="' + p[0] + '" d="' + p[1] + '"></path>';
+    }).join("") + "</g>";
   }
 
   // Steal DIFF (Alex's ask): the "offense" role here is a runner breaking for
@@ -9953,10 +10088,23 @@
   // direction the actual diff went - so the real arc and the "expected
   // range for this result" reference both start from the same point and are
   // directly comparable, not just two numbers to cross-reference by hand.
-  function wheelBandArcHtml(startDeg, dirSign, lo, hi, mod) {
+  // colorHex (Alex's ask): the band now reads as the offensive team's own
+  // primary color rather than a fixed neutral tint - whichever team is
+  // batting when this play happened, not necessarily the team whose colors
+  // the rest of the page is currently themed around. Drawn as two stacked
+  // arcs at the same radius/sweep - a wider neutral one underneath, a
+  // narrower team-colored one on top - rather than a single stroked path
+  // with a filter/shadow, so the gray shows as a clean thin border on both
+  // edges of the band regardless of theme or team color. Falls back to the
+  // old neutral tint when a team has no resolved color on file (empty
+  // colorHex - CSS's own var() fallback below, not a JS branch here).
+  function wheelBandArcHtml(startDeg, dirSign, lo, hi, mod, colorHex) {
     var loDeg = dirSign * (lo / mod) * 360;
     var hiDeg = dirSign * (hi / mod) * 360;
-    return '<path class="wheel-band" d="' + wheelArcD(WHEEL_BAND_R, startDeg + loDeg, hiDeg - loDeg) + '"></path>';
+    var d = wheelArcD(WHEEL_BAND_R, startDeg + loDeg, hiDeg - loDeg);
+    var style = colorHex ? ' style="--band-color:' + escapeHtml(colorHex) + '"' : "";
+    return '<path class="wheel-band-border" d="' + d + '"></path>' +
+      '<path class="wheel-band"' + style + ' d="' + d + '"></path>';
   }
 
   /* v1/v2 are the two rolled values in narrative order (pitch-then-swing for
@@ -9977,9 +10125,14 @@
      45+frac*40) so the wheel's left/right reads the same way the resulting
      spray direction does, for either hand. offIcon/offColorHex (Alex's ask)
      swap the "off" role's marker from the default bat to a runner in a
-     team's own color, for a steal's DIFF wheel - see wheelMarkerHtml. */
+     team's own color, for a steal's DIFF wheel - see wheelMarkerHtml.
+     bandColorHex (Alex's ask) is the offensive team's own color for the
+     archetype band overlay - a separate value from offColorHex since a
+     batted-ball DIFF wheel's "off" marker stays the bat's fixed wood tones
+     (offColorHex only ever set for a steal's runner icon, which has no
+     band), but the band should always read as that team's color. */
   function wheelHtml(label, v1, v2, mod, cls1, cls2, centerBig, centerSmall, band, arcCls, pinTop, mirrored,
-                      offIcon, offColorHex, wheelPace) {
+                      offIcon, offColorHex, wheelPace, bandColorHex) {
     var deg1 = pinTop ? 0 : wheelAngleOf(v1, mod);
     var delta = signedCirc(v1, v2, mod);
     var deltaDeg = delta / mod * 360;
@@ -10000,7 +10153,7 @@
     var label2R = Math.max(wheelLabelRadius(label2Deg, v2), label1R + WHEEL_LABEL_STAGGER);
     var label1Pt = wheelPt(label1R, label1Deg);
     var label2Pt = wheelPt(label2R, label2Deg);
-    var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod) : "";
+    var bandHtml = band ? wheelBandArcHtml(deg1, deltaDeg >= 0 ? 1 : -1, band.lo, band.hi, mod, bandColorHex) : "";
     // --wheel-pace (Alex's ask, steals only - stealWheelPace): every timing
     // calc() in style.css's wheel rules divides by this alongside
     // --play-speed, so omitting it here (every non-steal caller) is
@@ -10062,7 +10215,7 @@
     return wheelHtml("DIFF", m.pitch, m.swing, 1000, "def", "off", String(m.diff),
       null,
       bandRow ? { lo: bandRow.lo, hi: bandRow.hi } : null,
-      wasOut ? "out" : "hit");
+      wasOut ? "out" : "hit", null, null, null, null, null, teamColor(m.off_team_abbr));
   }
   // SPRAY (labelled "HZ" internally until Alex's rename ask): batted balls
   // only (Alex's call) - `flight` truthy is exactly that gate (flightParams
