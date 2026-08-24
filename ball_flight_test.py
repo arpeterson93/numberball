@@ -703,7 +703,16 @@ def main() -> None:
                         runnerArrival = Math.max(runnerArrival, catchMs + KMFlight.TAG_UP_MS + KMFlight.runnerLegMs(a.m, mv.from, legs));
                     });
                     var lastEnd = Math.max.apply(null, schedule.map(t => t.endMs));
-                    return (lastEnd - runnerArrival) - KMFlight.MARGIN_POLICY.uncontested.minMs;
+                    // Round 3 Task 3: hustleRunner (delta>0/"land later" pool)
+                    // moves the runner's OWN rendered arrival earlier by its
+                    // ms - the true invariant is against that render-layer-
+                    // adjusted arrival, not the raw pre-hustle one.
+                    var hustleMs = 0;
+                    (schedule.adjustments || []).forEach(function (adj) {
+                        if (adj.knob === "hustleRunner") hustleMs += adj.ms;
+                    });
+                    var adjustedArrival = runnerArrival + hustleMs; // hustleMs is recorded negative
+                    return (lastEnd - adjustedArrival) - KMFlight.MARGIN_POLICY.uncontested.minMs;
                 }""",
                 {"before": before, "after": after, "runs": runs, "m": m, "flight": flight},
             )
@@ -1253,6 +1262,296 @@ def main() -> None:
         check("hard-hit 77deg roller: pitcher covers (1B honestly can't get back)", pfp["hardCoverage"], "P")
         check("hard-hit 77deg roller reads 3-1", pfp["hardNotation"], "3-1")
 
+        print("\nRound 3 Task 4/§13.3: the general per-leg receiver floor subsumes the")
+        print("deleted pitcher-cover-1B special case - the 3-1 PFP throw must still not")
+        print("visibly beat the pitcher's own token to the bag:")
+        pfp31 = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '000', obc_after: '000', runs: 0, diff: 250};
+                var sim = KMTraj.simulateFlight(110, 10, 32, 'R');
+                var flight = {
+                  ev: 110, la: 10, angle: 77, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, archetype: 'grounder', clearedFence: false,
+                };
+                KMFlight.resolveGrounderInterception(m, flight, 'R');
+                var moves = KMFlight.deriveRunnerMoves('000', '000', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                return {
+                  fielder: flight.fielder,
+                  coverage: KMFlight.firstBaseCoverage(m, flight),
+                  scheduleEndMs: schedule[schedule.length - 1].endMs,
+                  pitcherArrivalMs: KMFlight.pitcherCover1BArrivalMs(m),
+                  adjustments: schedule.adjustments.map(function (a) { return a.knob; }),
+                };
+            }"""
+        )
+        check("3-1 fixture: 1B still fields it", pfp31["fielder"], "1B")
+        check("3-1 fixture: pitcher still covers", pfp31["coverage"], "P")
+        check("general floor: throw's final endMs >= pitcher's own arrival at 1B (never beats the covering token)",
+              pfp31["scheduleEndMs"] >= pfp31["pitcherArrivalMs"] - 0.5, True)
+        print(f"  scheduleEndMs={pfp31['scheduleEndMs']:.1f} pitcherArrivalMs={pfp31['pitcherArrivalMs']:.1f} "
+              f"adjustments={pfp31['adjustments']}")
+
+        print("\nRound 3 Task 4: every leg's own ball must not beat its receiver's token")
+        print("(6-4-3 DP relay - SS fields, throws to 2B, relay to 1B):")
+        dp643 = page.evaluate(
+            """() => {
+                var m = {result: 'DP', outs_before: 0, outs_after: 2, obc_before: '001', obc_after: '000',
+                         runs: 0, throw_order: 's,f', diff: 250};
+                var sim = KMTraj.simulateFlight(85, -8, 20, 'R');
+                var flight = {
+                  ev: 85, la: -8, angle: 29, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, fielder: 'SS', archetype: 'grounder', clearedFence: false,
+                };
+                var moves = KMFlight.deriveRunnerMoves('001', '000', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                return {
+                  legs: schedule.map(function (leg) {
+                    var receiver = KMFlight.receiverForLeg(KMFlight.chainMoverPlan(m, flight, moves), leg);
+                    return {
+                      base: leg.base, pos: leg.pos, endMs: leg.endMs,
+                      receiverArrivalMs: receiver ? receiver.arrivalMs : null,
+                    };
+                  }),
+                };
+            }"""
+        )
+        for leg in dp643["legs"]:
+            if leg["receiverArrivalMs"] is None:
+                continue
+            ok = leg["endMs"] >= leg["receiverArrivalMs"] - 0.5
+            check(f"6-4-3 leg to {leg['base'] or leg['pos']}: ball (endMs={leg['endMs']:.1f}) doesn't beat "
+                  f"receiver (arrivalMs={leg['receiverArrivalMs']:.1f})", ok, True)
+
+        print("\nRound 3 Task 1 (§13.5): ballPassesDepthMs - real geometry, not a flat delay:")
+        depth_sim = page.evaluate("KMTraj.simulateFlight(95, 20, 20, 'R')")
+        depth_ft = 147.0
+        hand_t_ms = None
+        samples = depth_sim["samples"]
+        for i, s in enumerate(samples):
+            r = math.hypot(s["x"], s["y"])
+            if r >= depth_ft:
+                if i == 0:
+                    hand_t_ms = s["t"] * 1000
+                else:
+                    prev = samples[i - 1]
+                    prev_r = math.hypot(prev["x"], prev["y"])
+                    frac = 0 if r == prev_r else (depth_ft - prev_r) / (r - prev_r)
+                    hand_t_ms = (prev["t"] + (s["t"] - prev["t"]) * frac) * 1000
+                break
+        got_gate_ms = page.evaluate(
+            "(a) => KMFlight.ballPassesDepthMs({contactVel: a.sim.contactVel, samples: a.sim.samples, distance: a.sim.distance}, a.depth)",
+            {"sim": depth_sim, "depth": depth_ft},
+        )
+        check("air-phase crossing matches a hand-interpolated sample crossing (147ft)", got_gate_ms, hand_t_ms, tol=0.5)
+
+        print("\nRound 3 Task 1: covering-fielder startMs gate wired into chainMoverPlan -")
+        print("OF single, SS covers 2B (gated on real ball-passes-depth geometry):")
+        of_single_gate = page.evaluate(
+            """() => {
+                var sim = KMTraj.simulateFlight(95, 12, 20, 'R');
+                var flight = {
+                  ev: 95, la: 12, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, archetype: 'single', clearedFence: false,
+                };
+                KMFlight.resolveHitPickup(flight);
+                var m = {result: '1B', outs_before: 0, outs_after: 0, obc_before: '000', obc_after: '100',
+                         runs: 0, throw_order: 's', diff: 250};
+                var moves = KMFlight.deriveRunnerMoves('000', '100', 0);
+                var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                var ssEntry = plan && plan.filter(function (e) { return e.pos === 'SS'; })[0];
+                var anchor = ssEntry ? KMFlight.fielderStartAnchorFt('SS', flight, m) : null;
+                var handGate = anchor ? KMFlight.ballPassesDepthMs(flight, Math.hypot(anchor.x, anchor.y)) : null;
+                return {
+                  fielder: flight.fielder,
+                  ssStartMs: ssEntry ? ssEntry.startMs : null,
+                  handGate: handGate,
+                  fieldedMs: KMFlight.fieldedMs(flight),
+                };
+            }"""
+        )
+        print(f"  fielder={of_single_gate['fielder']} ssStartMs={of_single_gate['ssStartMs']} "
+              f"handGate={of_single_gate['handGate']} fieldedMs={of_single_gate['fieldedMs']}")
+        if of_single_gate["ssStartMs"] is not None and of_single_gate["handGate"] is not None:
+            expected = min(of_single_gate["handGate"], of_single_gate["fieldedMs"])
+            check("SS's own startMs equals the depth-gate (capped at fieldedMs)", of_single_gate["ssStartMs"], expected, tol=0.5)
+            check("the gate is a real positive delay, not start-at-contact (OF single, real depth to cross)",
+                  of_single_gate["ssStartMs"] > 0, True)
+        else:
+            print("  [skip] SS not in this fixture's chain plan (throw_order/coverage resolved differently)")
+
+        print("\nRound 3 Task 1: 6-4-3 DP - both middle infielders still start at 0")
+        print("(the ball never passes their own depth on a routine grounder):")
+        dp643_gate = page.evaluate(
+            """() => {
+                var m = {result: 'DP', outs_before: 0, outs_after: 2, obc_before: '001', obc_after: '000',
+                         runs: 0, throw_order: 's,f', diff: 250};
+                var sim = KMTraj.simulateFlight(85, -8, 20, 'R');
+                var flight = {
+                  ev: 85, la: -8, angle: 29, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, fielder: 'SS', archetype: 'grounder', clearedFence: false,
+                };
+                var moves = KMFlight.deriveRunnerMoves('001', '000', 0);
+                var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                return plan.map(function (e) { return {pos: e.pos, startMs: e.startMs}; });
+            }"""
+        )
+        for e in dp643_gate:
+            check(f"6-4-3 entry {e['pos']}: startMs stays 0 (ball never passes middle-infield depth)", e["startMs"], 0, tol=0.5)
+
+        print("\nAlex's report fix: a comebacker fielded well short of every coverer's own depth -")
+        print("ground-archetype coverers now skip ballPassesDepthMs entirely and get a flat")
+        print("INFIELD_COVER_BREAK_MS reaction beat instead (flight.fielder is already resolved,")
+        print("so a covering infielder reads it off the bat immediately):")
+        comebacker_gate = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '100', obc_after: '000',
+                         runs: 0, throw_order: 's', diff: 250};
+                var sim = KMTraj.simulateFlight(70, 0, 0, 'R');
+                var flight = {
+                  ev: 70, la: 0, angle: 45, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, archetype: 'grounder', clearedFence: false,
+                };
+                KMFlight.resolveGrounderInterception(m, flight, 'R');
+                var moves = KMFlight.deriveRunnerMoves('100', '000', 0);
+                var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                return {
+                  fielder: flight.fielder,
+                  entries: (plan || []).map(function (e) { return {pos: e.pos, startMs: e.startMs}; }),
+                };
+            }"""
+        )
+        print(f"  fielder={comebacker_gate['fielder']} entries={comebacker_gate['entries']}")
+        infield_cover_break_ms = page.evaluate("KMFlight.INFIELD_COVER_BREAK_MS")
+        for e in comebacker_gate["entries"]:
+            if e["pos"] == comebacker_gate["fielder"]:
+                continue
+            check(f"comebacker coverer {e['pos']}: flat INFIELD_COVER_BREAK_MS reaction beat, not the old depth gate",
+                  e["startMs"], infield_cover_break_ms, tol=0.5)
+
+        print("\nRound 3 Task 5 (§13.6): unassisted (3U) entry gets real 3-leg timing -")
+        print("glove and ball travel to the bag together:")
+        unassisted3u = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '000', obc_after: '000', runs: 0, diff: 250};
+                var sim = KMTraj.simulateFlight(80, 0, 32, 'R');
+                var flight = {
+                  ev: 80, la: 0, angle: 77, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, archetype: 'grounder', clearedFence: false,
+                };
+                KMFlight.resolveGrounderInterception(m, flight, 'R');
+                var moves = KMFlight.deriveRunnerMoves('000', '000', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                var entry = plan.filter(function (e) { return e.pos === flight.fielder && e.base !== null; })[0];
+                var scheduleLeg = schedule.filter(function (t) { return t.unassisted; })[0];
+                var legs = entry ? KMFlight.unassistedLegTiming(m, entry, schedule, flight) : null;
+                return {
+                  fielder: flight.fielder, coverage: KMFlight.firstBaseCoverage(m, flight),
+                  fieldedMs: KMFlight.fieldedMs(flight),
+                  scheduleLegDrawMs: scheduleLeg ? scheduleLeg.drawMs : null,
+                  legs: legs,
+                };
+            }"""
+        )
+        print(f"  fielder={unassisted3u['fielder']} coverage={unassisted3u['coverage']} "
+              f"fieldedMs={unassisted3u['fieldedMs']:.1f} scheduleLegDrawMs={unassisted3u['scheduleLegDrawMs']}")
+        if unassisted3u["coverage"] == unassisted3u["fielder"] and unassisted3u["legs"]:
+            legs = unassisted3u["legs"]
+            check("unassisted entry resolves to exactly 3 legs", len(legs), 3)
+            check("leg-3 (pickup->bag) duration equals the schedule's own unassisted leg drawMs (ball and glove travel together)",
+                  legs[2]["durMs"], unassisted3u["scheduleLegDrawMs"], tol=0.5)
+            check("leg-1 (anchor->pickup) duration is <= fieldedMs (never later than the ball being fielded)",
+                  legs[0]["durMs"] <= unassisted3u["fieldedMs"] + 0.5, True)
+            check("leg-2 (dwell at pickup) duration is non-negative", legs[1]["durMs"] >= -0.5, True)
+            check("leg-2 (dwell) is a zero-distance stop at the pickup point", legs[1]["distFt"], 0)
+        else:
+            print("  [skip] this fixture didn't resolve to a self-covering 1B (routine-vs-hard-roller boundary drifted)")
+
+        print("\nRound 3 Task 5: an injected large holdRelease is absorbed by the dwell leg,")
+        print("not by slowing leg-3's honest ball-paced run:")
+        unassisted3u_hold = page.evaluate(
+            """() => {
+                var m = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '000', obc_after: '000', runs: 0, diff: 250};
+                var sim = KMTraj.simulateFlight(80, 0, 32, 'R');
+                var flight = {
+                  ev: 80, la: 0, angle: 77, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, archetype: 'grounder', clearedFence: false,
+                };
+                KMFlight.resolveGrounderInterception(m, flight, 'R');
+                var moves = KMFlight.deriveRunnerMoves('000', '000', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                var entry = plan.filter(function (e) { return e.pos === flight.fielder && e.base !== null; })[0];
+                var scheduleLeg = schedule.filter(function (t) { return t.unassisted; })[0];
+                if (!scheduleLeg) return null;
+                var before = KMFlight.unassistedLegTiming(m, entry, schedule, flight);
+                // Inject an artificially large holdRelease onto the schedule leg
+                // (simulating what §4's floors could apply) and re-derive.
+                var injected = 900;
+                scheduleLeg.startMs += injected; scheduleLeg.endMs += injected;
+                var after = KMFlight.unassistedLegTiming(m, entry, schedule, flight);
+                return {
+                  before: before, after: after, injected: injected,
+                  drawMsUnchanged: scheduleLeg.drawMs,
+                };
+            }"""
+        )
+        if unassisted3u_hold:
+            b, a = unassisted3u_hold["before"], unassisted3u_hold["after"]
+            check("injecting a holdRelease grows the dwell leg by roughly the injected amount",
+                  a[1]["durMs"] - b[1]["durMs"], unassisted3u_hold["injected"], tol=1)
+            check("leg-3's own duration is untouched by the injected hold (still the ball's honest pace)",
+                  a[2]["durMs"], b[2]["durMs"], tol=0.5)
+        else:
+            print("  [skip] no unassisted leg on this fixture's schedule")
+
+        print("\nRound 3 follow-up: hustleRunner wired into throwRunnerAdjustmentMs -")
+        print("the render-side channel a hustled runner's own token reads (previously only")
+        print("runnerLateJump/stretchRunner were, so a hustled runner never visibly moved):")
+        hustle_wire = page.evaluate(
+            """() => {
+                var sim = KMTraj.simulateFlight(60, 3, 10, 'R');
+                var flight = {
+                  ev: 60, la: 3, distance: sim.distance,
+                  x: sim.landing.x, y: sim.landing.y,
+                  contactVel: sim.contactVel, samples: sim.samples, archetype: 'single', clearedFence: false,
+                };
+                KMFlight.resolveHitPickup(flight);
+                var m = {result: '1B', outs_before: 0, outs_after: 0, obc_before: '100', obc_after: '110',
+                         runs: 0, throw_order: 's', diff: 250, batter_spd: 1};
+                var moves = KMFlight.deriveRunnerMoves('100', '110', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var hustleAdj = (schedule.adjustments || []).filter(function (a) { return a.knob === 'hustleRunner'; })[0];
+                if (!hustleAdj) return null;
+                var got = KMFlight.throwRunnerAdjustmentMs(m, moves, flight, hustleAdj.who);
+                // Manual filter over the same adjustments array (all three
+                // render-facing knobs) - the correctness property
+                // throwRunnerAdjustmentMs must always match.
+                var expected = (schedule.adjustments || [])
+                  .filter(function (a) { return a.who === hustleAdj.who &&
+                    (a.knob === 'runnerLateJump' || a.knob === 'stretchRunner' || a.knob === 'hustleRunner'); })
+                  .reduce(function (s, a) { return s + a.ms; }, 0);
+                return { hustleMs: hustleAdj.ms, who: hustleAdj.who, got: got, expected: expected };
+            }"""
+        )
+        if hustle_wire:
+            print(f"  who={hustle_wire['who']} hustleMs={hustle_wire['hustleMs']} "
+                  f"throwRunnerAdjustmentMs={hustle_wire['got']}")
+            check("hustleRunner's negative ms is included in throwRunnerAdjustmentMs's total",
+                  hustle_wire["got"], hustle_wire["expected"], tol=0.5)
+            check("throwRunnerAdjustmentMs is actually negative here (the runner reads as faster, not zero)",
+                  hustle_wire["got"] < 0, True)
+        else:
+            print("  [skip] this fixture no longer produces a hustleRunner adjustment (pooling tuned since)")
+
         print("\nOF honest pursuit + read-delay sink (Task 5b):")
         ofpursuit = page.evaluate(
             """() => {
@@ -1471,12 +1770,15 @@ def main() -> None:
                 var safeArrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, '1B');
                 var schedule = KMFlight.throwSchedule(m, moves, flight);
                 var lastLeg = schedule[schedule.length - 1];
+                var hustleMs = 0;
+                (schedule.adjustments || []).forEach(function (adj) { if (adj.knob === "hustleRunner") hustleMs += adj.ms; });
                 return {
                   outLookupFound: outLookup != null,
                   safeLookupFrom: safeLookup && safeLookup.from,
                   safeArrival: Math.round(safeArrival),
                   lastLegOut: lastLeg.out,
                   lastLegEndMs: Math.round(lastLeg.endMs),
+                  hustleMs: hustleMs,
                   contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
                 };
             }"""
@@ -1485,8 +1787,11 @@ def main() -> None:
               hit_gap["outLookupFound"], False)
         check("the SAFE-side lookup finds the batter's own real move to 1B", hit_gap["safeLookupFrom"], "BATTER")
         check("the final leg reads as decorative (out: false), not a real out", hit_gap["lastLegOut"], False)
+        # Round 3 Task 3: hustleRunner (delta>0 pool) may move the runner's
+        # own rendered arrival earlier by its ms (recorded negative) - the
+        # true invariant reconciles against that adjusted arrival.
         check("the throw is reconciled: lands at least contestedSafe.minMs after the batter's real arrival",
-              (hit_gap["lastLegEndMs"] - hit_gap["safeArrival"]) >= hit_gap["contestedSafeMin"] - 1, True)
+              (hit_gap["lastLegEndMs"] - (hit_gap["safeArrival"] + hit_gap["hustleMs"])) >= hit_gap["contestedSafeMin"] - 1, True)
 
         print("\nMulti-scorer HOME target reconciles against the TRAILING runner, not the lead scorer (Task 1b, probe 0.3):")
         multi_scorer = page.evaluate(
@@ -1498,10 +1803,13 @@ def main() -> None:
                 var arrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, 'HOME');
                 var schedule = KMFlight.throwSchedule(m, moves, flight);
                 var lastLeg = schedule[schedule.length - 1];
+                var hustleMs = 0;
+                (schedule.adjustments || []).forEach(function (adj) { if (adj.knob === "hustleRunner") hustleMs += adj.ms; });
                 return {
                   mvFrom: mv && mv.from,
                   arrival: Math.round(arrival),
                   lastLegEndMs: Math.round(lastLeg.endMs),
+                  hustleMs: hustleMs,
                   contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
                 };
             }"""
@@ -1509,7 +1817,7 @@ def main() -> None:
         check("resolves to the trailing (2B, further-behind) runner, not the lead (3B) scorer",
               multi_scorer["mvFrom"], "2B")
         check("the throw lands at least contestedSafe.minMs after the TRAILING runner's arrival",
-              (multi_scorer["lastLegEndMs"] - multi_scorer["arrival"]) >= multi_scorer["contestedSafeMin"] - 1, True)
+              (multi_scorer["lastLegEndMs"] - (multi_scorer["arrival"] + multi_scorer["hustleMs"])) >= multi_scorer["contestedSafeMin"] - 1, True)
 
         print("\nFact-25 regression pin: a CF single with no recorded outs never renders as a forceOut (Task 1c):")
         fact25 = page.evaluate(
@@ -1523,11 +1831,14 @@ def main() -> None:
                 var schedule = KMFlight.throwSchedule(m, moves, flight);
                 var lastLeg = schedule[schedule.length - 1];
                 var arrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, '2B');
+                var hustleMs = 0;
+                (schedule.adjustments || []).forEach(function (adj) { if (adj.knob === "hustleRunner") hustleMs += adj.ms; });
                 return {
                   legOut: lastLeg.out,
                   legBase: lastLeg.base,
                   lastLegEndMs: Math.round(lastLeg.endMs),
                   arrival: Math.round(arrival),
+                  hustleMs: hustleMs,
                   contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
                 };
             }"""
@@ -1535,7 +1846,7 @@ def main() -> None:
         check("a plain CF single's own throw leg is never a forceOut", fact25["legOut"], False)
         check("the leg targets 2B (the advancing runner)", fact25["legBase"], "2B")
         check("it reconciles contestedSafe against the advancing runner's own arrival",
-              (fact25["lastLegEndMs"] - fact25["arrival"]) >= fact25["contestedSafeMin"] - 1, True)
+              (fact25["lastLegEndMs"] - (fact25["arrival"] + fact25["hustleMs"])) >= fact25["contestedSafeMin"] - 1, True)
 
         print("\nGrounder deadline compression - a fielding run never outruns fieldedMs (Task 5, facts 18/24):")
         deadline_grounder = page.evaluate(
@@ -1750,7 +2061,12 @@ def main() -> None:
                   MIN_GAP: KMFlight.RUNNER_MIN_GAP_ORD,
                   soloHasNoAdjustment: Object.keys(soloAdj).length === 0,
                   severeDelayMs: severeAdj.delayMs, severePaceScale: severeAdj.paceScale,
-                  RUNNER_LATE_JUMP_MAX_MS: 400, STRETCH_MAX_SCALE: 1.15,
+                  // Read the real constants rather than hardcoding a copy -
+                  // Stage 5 (fielding-reconciliation-audit plan 5.3) tunes
+                  // these from the corpus probe's own residual rate, and a
+                  // hardcoded expectation here would go stale every time.
+                  RUNNER_LATE_JUMP_MAX_MS: KMFlight.RUNNER_LATE_JUMP_MAX_MS,
+                  STRETCH_MAX_SCALE: 1 + KMFlight.STRETCH_RUNNER_MAX_FRAC,
                 };
             }"""
         )
@@ -1776,22 +2092,31 @@ def main() -> None:
                 var uncontestedMin = KMFlight.targetMarginMs("uncontested", 0);
 
                 // Verdict direction, out class: an honest throw that lands
-                // just past the required margin, by a deficit small enough
-                // for quickRelease's own THROW_DELAY_MS-sized budget to close
-                // outright, must be pulled forward until it beats the runner
-                // by exactly the class's own required margin.
+                // just past the required margin - Round 3 Task 3: the
+                // deficit is now POOLED across quickRelease/runnerLateJump/
+                // stretchRunner by equal utilization, not exhausted through
+                // quickRelease alone first.
                 var lateSchedule = [{base: "1B", startMs: 750, endMs: 850, drawMs: 100, out: true}];
                 var lateRunnerArrival = 1100; // targetMarginMs(forceOut,250)=300 -> required=800; deficit=50ms
                 var lateResult = KMFlight.reconcileThrowSchedule(lateSchedule, lateRunnerArrival, "forceOut", 250, true);
                 var lateFinal = lateSchedule[lateSchedule.length - 1];
+                var lateKnobMs = {};
+                lateResult.adjustments.forEach(function (a) { lateKnobMs[a.knob] = a.ms; });
 
                 // Verdict direction, safe class: an honest throw that ARRIVES
                 // TOO EARLY (beats a runner who's supposed to be safe) must be
-                // held until it lands at least minMs after the runner.
+                // held until it lands at least minMs after the runner's own
+                // RENDERED arrival - Round 3 Task 3: hustleRunner (pooled
+                // with slowThrow) may absorb part of the gap first, moving
+                // that rendered arrival earlier before holdRelease sizes the
+                // remainder.
                 var earlySchedule = [{base: "1B", startMs: 100, endMs: 300, drawMs: 200, out: false}];
                 var earlyRunnerArrival = 1000;
                 var earlyResult = KMFlight.reconcileThrowSchedule(earlySchedule, earlyRunnerArrival, "contestedSafe", 250, false);
                 var earlyFinal = earlySchedule[earlySchedule.length - 1];
+                var earlyKnobMs = {};
+                earlyResult.adjustments.forEach(function (a) { earlyKnobMs[a.knob] = a.ms; });
+                var earlyHustleMs = earlyKnobMs.hustleRunner || 0;
 
                 // Bounded knobs: a deficit far beyond what quickRelease (a tiny
                 // THROW_DELAY_MS sliver) + the runner-side bounds could ever
@@ -1810,8 +2135,8 @@ def main() -> None:
 
                 return {
                   minAt0: minAt0, maxAt500: maxAt500, midAt250: midAt250, uncontestedMin: uncontestedMin,
-                  lateFinalEnd: lateFinal.endMs, lateAdjKnob: lateResult.adjustments[0] && lateResult.adjustments[0].knob,
-                  earlyFinalEnd: earlyFinal.endMs, earlyAdjKnob: earlyResult.adjustments[0] && earlyResult.adjustments[0].knob,
+                  lateFinalEnd: lateFinal.endMs, lateKnobMs: lateKnobMs,
+                  earlyFinalEnd: earlyFinal.endMs, earlyKnobMs: earlyKnobMs, earlyHustleMs: earlyHustleMs,
                   hopelessKnobs: knobs, exactAdjCount: exactResult.adjustments.length,
                 };
             }"""
@@ -1820,15 +2145,284 @@ def main() -> None:
         check("targetMarginMs(forceOut, 500) equals the class's own maxMs", recon["maxAt500"], 450)
         check("targetMarginMs is monotone in |diff|", recon["midAt250"] > recon["minAt0"] and recon["midAt250"] < recon["maxAt500"], True)
         check("uncontested's own minMs is looser than forceOut's", recon["uncontestedMin"] > recon["minAt0"], True)
-        check("forceOut reconciliation: quickRelease closed the deficit exactly (required=800)",
-              recon["lateFinalEnd"], 800, tol=1)
-        check("forceOut reconciliation used the quickRelease knob (throw needed to be earlier)", recon["lateAdjKnob"], "quickRelease")
-        check("contestedSafe reconciliation: throw loses to runner by >= contestedSafe.minMs",
-              (recon["earlyFinalEnd"] - 1000) >= 150 - 0.5, True)
-        check("contestedSafe reconciliation used the holdRelease knob (throw needed to be later)", recon["earlyAdjKnob"], "holdRelease")
+        # Round 3 Task 3: the 50ms deficit is now pooled across quickRelease/
+        # runnerLateJump/stretchRunner by equal utilization (headrooms
+        # 60/400/165 -> u=50/625=0.08 -> shares ~4.8/32/13.2, summing back
+        # to the deficit exactly - allocateAcrossKnobs's own correctness
+        # property, re-derived here against a concrete fixture).
+        late_total = (850 - recon["lateFinalEnd"]) + recon["lateKnobMs"].get("runnerLateJump", 0) + recon["lateKnobMs"].get("stretchRunner", 0)
+        check("forceOut reconciliation: pooled quickRelease+runnerLateJump+stretchRunner closes the 50ms deficit exactly",
+              late_total, 50, tol=0.5)
+        check("forceOut reconciliation used all three pooled knobs (equal-utilization split, not sequential exhaustion)",
+              all(k in recon["lateKnobMs"] for k in ("quickRelease", "runnerLateJump", "stretchRunner")), True)
+        check("forceOut reconciliation: quickRelease's own share matches the proportional water-fill split (~4.8ms)",
+              recon["lateKnobMs"]["quickRelease"], 4.8, tol=0.5)
+        # earlyRunnerArrival's own RENDERED arrival is hustled earlier first
+        # (hustleRunner pooled with slowThrow, delta>0 path) - the honest
+        # invariant is against that adjusted arrival, not the original one.
+        check("contestedSafe reconciliation: throw loses to the runner's own rendered (hustle-adjusted) arrival by >= contestedSafe.minMs",
+              (recon["earlyFinalEnd"] - (1000 + recon["earlyHustleMs"])) >= 150 - 0.5, True)
+        check("contestedSafe reconciliation used the holdRelease knob (throw needed to be later)",
+              "holdRelease" in recon["earlyKnobMs"], True)
+        check("contestedSafe reconciliation also used hustleRunner (slowThrow has no headroom on this synthetic leg - no distFt/throwerPos - so the whole pool went to hustleRunner)",
+              "hustleRunner" in recon["earlyKnobMs"], True)
         check("an unclosable deficit surfaces as an explicit 'unresolved' adjustment, not silently absorbed",
               "unresolved" in recon["hopelessKnobs"], True)
         check("a schedule already exactly at its required margin is left untouched", recon["exactAdjCount"], 0)
+
+        print("\nRound 3 Task 3 (§13.8): allocateAcrossKnobs - equal-utilization water-fill:")
+        allocate_test = page.evaluate(
+            """() => {
+                // Worked example straight from the plan: 500ms deficit against
+                // headrooms {gaps:100, jump:400, stretch:300} -> u=0.625 ->
+                // per-knob shares 62.5/250/187.5, summing exactly to 500.
+                var worked = KMFlight.allocateAcrossKnobs(500, [
+                  {name: "gaps", headroomMs: 100, weight: 1},
+                  {name: "jump", headroomMs: 400, weight: 1},
+                  {name: "stretch", headroomMs: 300, weight: 1},
+                ]);
+                // Sum invariant, no saturation: totalMs <= total headroom.
+                var underCap = KMFlight.allocateAcrossKnobs(120, [
+                  {name: "a", headroomMs: 200, weight: 1},
+                  {name: "b", headroomMs: 300, weight: 1},
+                ]);
+                // Sum invariant, WITH saturation: totalMs > total headroom -
+                // every knob maxes out, sum == total headroom (the residual
+                // is left for the caller's own overflow knob).
+                var overCap = KMFlight.allocateAcrossKnobs(1000, [
+                  {name: "a", headroomMs: 50, weight: 1},
+                  {name: "b", headroomMs: 80, weight: 1},
+                ]);
+                // Weighted saturation (future-retune mechanism, not used at
+                // weight=1 this round): a higher-weighted knob reaches its
+                // own headroom first even though the other knob has far
+                // more room left - it saturates and drops out, the rest
+                // re-solves for u across what's left (still sums to
+                // totalMs, no relaxation of coverage).
+                var weighted = KMFlight.allocateAcrossKnobs(200, [
+                  {name: "tiny", headroomMs: 20, weight: 5},
+                  {name: "big", headroomMs: 500, weight: 1},
+                ]);
+                return {
+                  worked: worked, workedSum: worked.reduce((a, b) => a + b, 0),
+                  underCap: underCap, underCapSum: underCap.reduce((a, b) => a + b, 0),
+                  overCap: overCap, overCapSum: overCap.reduce((a, b) => a + b, 0),
+                  weighted: weighted, weightedSum: weighted.reduce((a, b) => a + b, 0),
+                };
+            }"""
+        )
+        check("worked example: gaps share ~62.5ms", allocate_test["worked"][0], 62.5, tol=0.5)
+        check("worked example: jump share ~250ms", allocate_test["worked"][1], 250, tol=0.5)
+        check("worked example: stretch share ~187.5ms", allocate_test["worked"][2], 187.5, tol=0.5)
+        check("worked example: shares sum exactly to the 500ms deficit", allocate_test["workedSum"], 500, tol=0.5)
+        check("under-cap: allocated sum equals totalMs exactly (no saturation)", allocate_test["underCapSum"], 120, tol=0.5)
+        check("over-cap: allocated sum equals the FULL headroom pool (both knobs saturate)", allocate_test["overCapSum"], 130, tol=0.5)
+        check("over-cap: knob a saturates at its own headroom (50)", allocate_test["overCap"][0], 50, tol=0.5)
+        check("over-cap: knob b saturates at its own headroom (80)", allocate_test["overCap"][1], 80, tol=0.5)
+        check("weighted saturation: the higher-weighted tiny knob saturates at its own headroom (20)",
+              allocate_test["weighted"][0], 20, tol=0.5)
+        check("weighted saturation: the big knob does NOT saturate (180 < its own 500 headroom)",
+              allocate_test["weighted"][1] < 500, True)
+        check("weighted saturation: shares still sum exactly to totalMs (200) despite one knob saturating early",
+              allocate_test["weightedSum"], 200, tol=0.5)
+
+        print("\nRound 3 Task 6 (§13.9): OF_THROW_SETUP_MS present on the hit AND tag paths,")
+        print("absent on infield throws; reclaimable by quickRelease:")
+        print("(schedule.setupMs is the direct, reconciliation-independent signal - the raw")
+        print("schedule[0].startMs can additionally be shifted later by unrelated margin/")
+        print("receiver-floor reconciliation, so that's checked as a floor, not an exact value)")
+        of_setup = page.evaluate(
+            """() => {
+                function ofSingle() {
+                  var sim = KMTraj.simulateFlight(95, 12, 20, 'R');
+                  var flight = {
+                    ev: 95, la: 12, distance: sim.distance,
+                    x: sim.landing.x, y: sim.landing.y,
+                    contactVel: sim.contactVel, samples: sim.samples, archetype: 'single', clearedFence: false,
+                  };
+                  KMFlight.resolveHitPickup(flight);
+                  return flight;
+                }
+                var flight = ofSingle();
+                var m = {result: '1B', outs_before: 0, outs_after: 0, diff: 250, throw_order: 's'};
+                var moves = KMFlight.deriveRunnerMoves('000', '100', 0);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var honestArrival = KMFlight.fielderBallArrivalMs(m, flight);
+                var floor = Math.max(KMFlight.fieldedMs(flight), honestArrival) + KMFlight.THROW_DELAY_MS + KMFlight.OF_THROW_SETUP_MS;
+
+                // Infield grounder - no OF setup add, unchanged to the ms.
+                var infSim = KMTraj.simulateFlight(85, -8, 20, 'R');
+                var infFlight = {
+                  ev: 85, la: -8, angle: 29, distance: infSim.distance,
+                  x: infSim.landing.x, y: infSim.landing.y,
+                  contactVel: infSim.contactVel, samples: infSim.samples, archetype: 'grounder', clearedFence: false,
+                };
+                var infM = {result: 'GO', outs_before: 0, outs_after: 1, obc_before: '000', obc_after: '000', runs: 0, diff: 250};
+                KMFlight.resolveGrounderInterception(infM, infFlight, 'R');
+                var infMoves = KMFlight.deriveRunnerMoves('000', '000', 0);
+                var infSchedule = KMFlight.throwSchedule(infM, infMoves, infFlight);
+
+                // Tag-throw path (sac fly) - same OF setup add.
+                var tagFlight = {archetype: 'fly_ball', clearedFence: false, hangMs: 4000, fielder: 'RF'};
+                var tagM = {result: 'SacF', outs_before: 0, outs_after: 1, obc_before: '100', obc_after: '000', runs: 1, throw_order: 'h', diff: 250};
+                var tagMoves = KMFlight.deriveRunnerMoves('100', '000', 1);
+                var tagSchedule = KMFlight.throwSchedule(tagM, tagMoves, tagFlight);
+
+                return {
+                  ofScheduleStart: schedule[0].startMs, ofFloor: floor, ofSetupMs: schedule.setupMs,
+                  infSetupMs: infSchedule.setupMs,
+                  tagSetupMs: tagSchedule.setupMs,
+                };
+            }"""
+        )
+        check("OF single: schedule[0].startMs >= fieldedMs/honest-arrival floor + THROW_DELAY_MS + OF_THROW_SETUP_MS",
+              of_setup["ofScheduleStart"] >= of_setup["ofFloor"] - 0.5, True)
+        check("OF single: schedule.setupMs records the applied OF_THROW_SETUP_MS", of_setup["ofSetupMs"], 500)
+        check("infield grounder: schedule.setupMs is 0 (no fielder is an outfielder)", of_setup["infSetupMs"], 0)
+        check("tag-throw (sac fly, OF fielder): schedule.setupMs records the applied OF_THROW_SETUP_MS", of_setup["tagSetupMs"], 500)
+
+        print("\nRound 3 Task 6: quickRelease can reclaim the OF setup (constructed delta<0 case):")
+        of_reclaim = page.evaluate(
+            """() => {
+                var schedule = [{base: '2B', startMs: 2000, endMs: 2100, drawMs: 100, out: true, distFt: 130, throwerPos: 'CF'}];
+                schedule.setupMs = KMFlight.OF_THROW_SETUP_MS;
+                var required = 1900; // needs to land 200ms earlier
+                var result = KMFlight.reconcileThrowSchedule(schedule, required + KMFlight.MARGIN_POLICY.forceOut.minMs, 'forceOut', 0, true);
+                var quickAdj = result.adjustments.filter(a => a.knob === 'quickRelease')[0];
+                return { quickMs: quickAdj ? quickAdj.ms : 0, finalEnd: schedule[0].endMs };
+            }"""
+        )
+        check("quickRelease's reclaimed amount can exceed plain THROW_DELAY_MS (OF setup adds real headroom)",
+              of_reclaim["quickMs"] > 60, True)
+
+        print("\nRound 3 Task 7 (§13.9): CUTOFF_TRANSFER_MS follows a position-leg receiver,")
+        print("a plain base-leg relay keeps THROW_STAGGER_MS:")
+        cutoff_gap = page.evaluate(
+            """() => {
+                // SS cutoff (position number 6), then home (base leg 'h') -
+                // the pause after the cutoff must be CUTOFF_TRANSFER_MS, not
+                // THROW_STAGGER_MS. THROW_ORDER_POSITION_NUMBER maps '6'->SS
+                // (standard scorekeeping numbers).
+                var m = {result: 'SacF', outs_before: 0, outs_after: 1, obc_before: '001', obc_after: '000', runs: 1,
+                         throw_order: '6h', diff: 250};
+                var flight = {archetype: 'fly_ball', clearedFence: false, hangMs: 4000, fielder: 'CF'};
+                var moves = KMFlight.deriveRunnerMoves('001', '000', 1);
+                var schedule = KMFlight.throwSchedule(m, moves, flight);
+                var targets = KMFlight.outThrowTargets(m, moves, flight);
+                var gaps = [];
+                for (var i = 1; i < schedule.length; i++) gaps.push(schedule[i].startMs - schedule[i - 1].endMs);
+                return { targetKinds: targets.map(t => t.kind), gaps: gaps };
+            }"""
+        )
+        print(f"  targetKinds={cutoff_gap['targetKinds']} gaps={cutoff_gap['gaps']}")
+        if len(cutoff_gap["gaps"]) >= 1 and cutoff_gap["targetKinds"][0] == "pos":
+            check("gap after the cutoff (position) leg equals CUTOFF_TRANSFER_MS (150)", cutoff_gap["gaps"][0], 150, tol=0.5)
+        else:
+            print("  [skip] this fixture's ThrowOrder didn't resolve to a cutoff-then-base chain")
+
+        print("\nRound 3 Task 8 (§13.10): a flat companion shadow under every thrown AND")
+        print("pitched ball - markup smoke test:")
+        shadow_markup = page.evaluate(
+            """() => {
+                var throwHtml = KMFlight.throwLineHtml(0, 0, 100, 0, "throw-line throw-out", 0, 500);
+                var pitchHtml = KMFlight.pitchBallHtml({result: "1B"}, {samples: [{x: 0, y: 2, z: 3}]}, 0);
+                function countClass(html, cls) {
+                  return (html.match(new RegExp('class="' + cls, "g")) || []).length;
+                }
+                return {
+                  throwShadowCount: countClass(throwHtml, "throw-ball-shadow"),
+                  pitchShadowCount: countClass(pitchHtml, "pitch-ball-shadow"),
+                  throwHasBall: throwHtml.indexOf("throw-ball-inner") !== -1,
+                  pitchHasBall: pitchHtml.indexOf("pitch-ball-inner") !== -1,
+                };
+            }"""
+        )
+        check("throwLineHtml markup contains exactly one throw-ball-shadow", shadow_markup["throwShadowCount"], 1)
+        check("pitchBallHtml markup contains exactly one pitch-ball-shadow", shadow_markup["pitchShadowCount"], 1)
+        check("throwLineHtml still renders the ball itself (shadow didn't replace it)", shadow_markup["throwHasBall"], True)
+        check("pitchBallHtml still renders the ball itself (shadow didn't replace it)", shadow_markup["pitchHasBall"], True)
+
+        print("\nRound 3 Task 2 (§13.7): floor-only reconciliation - an honestly-decisive")
+        print("play is left completely alone, even reading as a blowout:")
+        task2 = page.evaluate(
+            """() => {
+                // Decisive forceOut: honest end is 1.2s BEFORE the required
+                // margin point (more decisive than the band asks for) -
+                // pre-Task-2 this would have been HELD BACK toward the band
+                // (holdRelease/slowThrow); now it must be left alone.
+                var decisiveForceOut = [{base: "1B", startMs: 300, endMs: 500, drawMs: 200, out: true,
+                                          distFt: 130, throwerPos: "SS"}];
+                var decisiveResult = KMFlight.reconcileThrowSchedule(decisiveForceOut, 2000, "forceOut", 250, true);
+                var decisiveFinal = decisiveForceOut[decisiveForceOut.length - 1];
+
+                // Honestly-very-late uncontested (a decorative sac-fly throw
+                // that lands a full second past the comfortable-safe band) -
+                // pre-Task-2 this would have been pulled EARLIER toward the
+                // 400-600 band; now it must be left alone too.
+                var lateUncontested = [{base: "HOME", startMs: 1000, endMs: 2500, drawMs: 1500, out: false}];
+                var lateResult = KMFlight.reconcileThrowSchedule(lateUncontested, 1000, "uncontested", 250, false);
+                var lateFinal = lateUncontested[lateUncontested.length - 1];
+
+                // Near-tie forceOut (honest gap inside the band, deficit
+                // small enough for quickRelease's own THROW_DELAY_MS-sized
+                // budget to close outright) still widens exactly as before
+                // Task 2 - the compressing-direction skip must not swallow
+                // the genuine bang-bang correction case.
+                var nearTieForceOut = [{base: "1B", startMs: 600, endMs: 800, drawMs: 200, out: true,
+                                         distFt: 130, throwerPos: "SS"}];
+                var nearTieRunnerArrival = 1060; // targetMarginMs(forceOut,250)=300 -> required=760; deficit=40ms
+                var nearTieResult = KMFlight.reconcileThrowSchedule(nearTieForceOut, nearTieRunnerArrival, "forceOut", 250, true);
+                var nearTieFinal = nearTieForceOut[nearTieForceOut.length - 1];
+                var nearTieKnobMs = {};
+                nearTieResult.adjustments.forEach(function (a) { nearTieKnobMs[a.knob] = a.ms; });
+
+                // Wrong-side-winning contestedSafe: the honest throw beats
+                // the safe runner outright - must still be corrected (never
+                // skipped by the compressing check, which only applies to
+                // delta<0 for a safe class).
+                var wrongSideSafe = [{base: "1B", startMs: 100, endMs: 400, drawMs: 300, out: false}];
+                var wrongSideResult = KMFlight.reconcileThrowSchedule(wrongSideSafe, 500, "contestedSafe", 250, false);
+                var wrongSideFinal = wrongSideSafe[wrongSideSafe.length - 1];
+                var wrongSideHustleMs = 0;
+                wrongSideResult.adjustments.forEach(function (a) { if (a.knob === "hustleRunner") wrongSideHustleMs += a.ms; });
+
+                return {
+                  decisiveAdjCount: decisiveResult.adjustments.length, decisiveFinalEnd: decisiveFinal.endMs,
+                  lateAdjCount: lateResult.adjustments.length, lateFinalEnd: lateFinal.endMs,
+                  nearTieAdjCount: nearTieResult.adjustments.length, nearTieFinalEnd: nearTieFinal.endMs,
+                  nearTieKnobMs: nearTieKnobMs,
+                  wrongSideFinalEnd: wrongSideFinal.endMs, wrongSideHustleMs: wrongSideHustleMs,
+                  contestedSafeMin: KMFlight.MARGIN_POLICY.contestedSafe.minMs,
+                  contestedSafeMax: KMFlight.MARGIN_POLICY.contestedSafe.maxMs,
+                };
+            }"""
+        )
+        check("decisive forceOut: zero adjustments (left completely alone)", task2["decisiveAdjCount"], 0)
+        check("decisive forceOut: schedule's own endMs is untouched", task2["decisiveFinalEnd"], 500)
+        check("honestly-late uncontested: zero adjustments (not pulled toward the 400-600 band)", task2["lateAdjCount"], 0)
+        check("honestly-late uncontested: schedule's own endMs is untouched", task2["lateFinalEnd"], 2500)
+        check("near-tie forceOut still widens (compressing-skip doesn't swallow the genuine correction)",
+              task2["nearTieAdjCount"] > 0, True)
+        # Round 3 Task 3: the 40ms deficit is now pooled across
+        # quickRelease/runnerLateJump/stretchRunner (equal utilization),
+        # not exhausted through quickRelease alone - the correctness
+        # property is that schedule-shift + render-side knob shares sum
+        # back to the original deficit exactly.
+        near_tie_total = (800 - task2["nearTieFinalEnd"]) + task2["nearTieKnobMs"].get("runnerLateJump", 0) + task2["nearTieKnobMs"].get("stretchRunner", 0)
+        # tol widened from 0.5 (Stage 5, fielding-reconciliation-audit plan
+        # 5.3): three independent Math.round()s, one per pooled knob, each
+        # up to ~0.5ms off - RUNNER_LATE_JUMP_MAX_MS/STRETCH_RUNNER_MAX_FRAC's
+        # own Stage 5 retune shifted this fixture's exact headroom split
+        # enough to expose the accumulated rounding that was always possible
+        # here, previously masked by this fixture's own numbers happening to
+        # round cleanly under the old constants.
+        check("near-tie forceOut: pooled knobs close the 40ms deficit exactly", near_tie_total, 40, tol=1.5)
+        check("wrong-side-winning contestedSafe: throw still lands >= contestedSafe.minMs after the runner's own rendered (hustle-adjusted) arrival",
+              (task2["wrongSideFinalEnd"] - (500 + task2["wrongSideHustleMs"])) >= 150 - 0.5, True)
+        check("contestedSafe.minMs pinned at 150 (a future widening must be a deliberate test change)",
+              task2["contestedSafeMin"], 150)
+        check("contestedSafe.maxMs pinned at 450 (a future widening must be a deliberate test change)",
+              task2["contestedSafeMax"], 450)
 
         print("\nPer-position throw speed table (Task 9.3):")
         speed_pos = page.evaluate(
@@ -1847,7 +2441,8 @@ def main() -> None:
         check("an unknown/unspecified thrower falls back to 90mph (THROW_SPEED_MPH)",
               speed_pos["unknownMs"], speed_pos["ninetyMs"])
 
-        print("\nslowThrow reconciler knob - real mph, not just a held release (Task 9.4):")
+        print("\nslowThrow reconciler knob - real mph, not just a held release (Task 9.4),")
+        print("rewritten to Round 3 Task 3's pooled utilization semantics (§13.8):")
         slow_throw = page.evaluate(
             """() => {
                 var margin = KMFlight.targetMarginMs('contestedSafe', 250);
@@ -1855,21 +2450,27 @@ def main() -> None:
                 var pos = 'SS'; // mph 85, min 80, max 90
                 var naturalMph = KMFlight.THROW_SPEED_BY_POS[pos].mph;
                 var naturalDrawMs = distFt / (naturalMph * 1.46667) * 1000;
+                var floorDrawMs = distFt / (80 * 1.46667) * 1000;
+                var slowHeadroomMs = floorDrawMs - naturalDrawMs;
 
                 // In-range case: the needed mph (82) sits inside [min,max] -
-                // slowThrow alone should land exactly on the required time,
-                // no holdRelease needed at all.
+                // slowThrow has real headroom here, so Task 3 pools it with
+                // hustleRunner (equal utilization) instead of slowThrow
+                // closing the whole gap alone.
                 var neededMphA = 82;
                 var neededDrawMsA = distFt / (neededMphA * 1.46667) * 1000;
                 var scheduleA = [{base: '1B', startMs: 0, endMs: naturalDrawMs, drawMs: naturalDrawMs, out: false, distFt: distFt, throwerPos: pos}];
+                var deltaA = neededDrawMsA - naturalDrawMs;
                 var runnerArrivalA = neededDrawMsA - margin;
                 var resultA = KMFlight.reconcileThrowSchedule(scheduleA, runnerArrivalA, 'contestedSafe', 250, false);
                 var knobsA = resultA.adjustments.map(a => a.knob);
                 var slowAdjA = resultA.adjustments.filter(a => a.knob === 'slowThrow')[0];
+                var hustleAdjA = resultA.adjustments.filter(a => a.knob === 'hustleRunner')[0];
 
                 // Floor-bound case: the needed mph (50) is well below SS's own
-                // min (80) - slowThrow clamps to the floor, holdRelease closes
-                // the remainder on top of it.
+                // min (80), and beyond even the pooled slowThrow+hustleRunner
+                // headroom combined - both saturate at their own bound and
+                // holdRelease closes the residual on top.
                 var neededMphB = 50;
                 var neededDrawMsB = distFt / (neededMphB * 1.46667) * 1000;
                 var scheduleB = [{base: '1B', startMs: 0, endMs: naturalDrawMs, drawMs: naturalDrawMs, out: false, distFt: distFt, throwerPos: pos}];
@@ -1877,25 +2478,40 @@ def main() -> None:
                 var resultB = KMFlight.reconcileThrowSchedule(scheduleB, runnerArrivalB, 'contestedSafe', 250, false);
                 var knobsB = resultB.adjustments.map(a => a.knob);
                 var slowAdjB = resultB.adjustments.filter(a => a.knob === 'slowThrow')[0];
+                var hustleAdjB = resultB.adjustments.filter(a => a.knob === 'hustleRunner')[0];
 
                 return {
-                  finalEndA: scheduleA[0].endMs, requiredA: neededDrawMsA,
+                  deltaA: deltaA, slowHeadroomMs: slowHeadroomMs,
+                  finalEndA: scheduleA[0].endMs, naturalDrawMs: naturalDrawMs,
                   knobsA: knobsA, mphToA: slowAdjA && slowAdjA.mphTo,
+                  hustleMsA: hustleAdjA ? hustleAdjA.ms : 0,
                   knobsB: knobsB, mphToB: slowAdjB && slowAdjB.mphTo,
                   finalEndB: scheduleB[0].endMs, requiredB: neededDrawMsB,
+                  hustleMsB: hustleAdjB ? hustleAdjB.ms : 0,
+                  runnerHustleMaxMs: KMFlight.RUNNER_HUSTLE_MAX_MS,
                 };
             }"""
         )
-        check("in-range case: slowThrow alone lands exactly on the required time",
-              slow_throw["finalEndA"], slow_throw["requiredA"], tol=1)
-        check("in-range case: only slowThrow fired, no holdRelease needed",
-              slow_throw["knobsA"], ["slowThrow"])
-        check("in-range case: the recorded mphTo matches the needed mph (82)", slow_throw["mphToA"], 82)
+        check("in-range case: slowThrow has real headroom on this leg (distFt/throwerPos known, not unassisted)",
+              slow_throw["slowHeadroomMs"] > 0, True)
+        check("in-range case: hustleRunner joined the pool (nonzero slowThrow headroom shares the gap with it)",
+              "hustleRunner" in slow_throw["knobsA"], True)
+        check("in-range case: slowThrow also fired", "slowThrow" in slow_throw["knobsA"], True)
+        check("in-range case: no holdRelease needed (delta fits inside the pool's combined headroom)",
+              "holdRelease" not in slow_throw["knobsA"], True)
+        # Correctness property: schedule-shift (slowThrow's own contribution)
+        # plus the hustled ms together close the ORIGINAL delta exactly -
+        # the same total coverage sequential exhaustion used to guarantee,
+        # just split between the throw and the runner now.
+        in_range_total = (slow_throw["finalEndA"] - slow_throw["naturalDrawMs"]) + abs(slow_throw["hustleMsA"])
+        check("in-range case: pooled slowThrow+hustleRunner close the delta exactly", in_range_total, slow_throw["deltaA"], tol=1)
         check("floor-bound case: slowThrow clamps to the position's own floor (80)", slow_throw["mphToB"], 80)
-        check("floor-bound case: holdRelease closes the remainder on top of the floor",
+        check("floor-bound case: hustleRunner also saturates at its own bound (RUNNER_HUSTLE_MAX_MS)",
+              abs(slow_throw["hustleMsB"]), slow_throw["runnerHustleMaxMs"], tol=0.5)
+        check("floor-bound case: holdRelease closes the residual on top of both saturated knobs",
               "holdRelease" in slow_throw["knobsB"], True)
-        check("floor-bound case: the combined knobs still land exactly on the required time",
-              slow_throw["finalEndB"], slow_throw["requiredB"], tol=1)
+        check("floor-bound case: the combined knobs still land exactly on the hustle-adjusted required time",
+              slow_throw["finalEndB"], slow_throw["requiredB"] + slow_throw["hustleMsB"], tol=1)
 
         print("\nCatcher EYE -> steal-throw speed (Task 14.1):")
         eye_test = page.evaluate(
@@ -2029,6 +2645,719 @@ def main() -> None:
         if smoke:
             print(f"  sample count: {smoke['sampleCount']} (<=48 per Part 2.2)")
             check("samples count <= 48", smoke["sampleCount"] <= 48, True)
+
+        print("\nFielding-reconciliation audit, Stage 1 (6.4) - flight.fieldingAdjust")
+        print("consolidation, old chargeAnchorFt/infieldDepthPct properties retired:")
+        app_js_src = pathlib.Path("docs/js/app.js").read_text(encoding="utf-8")
+        check("flight.chargeAnchorFt no longer appears anywhere in app.js",
+              "flight.chargeAnchorFt" in app_js_src, False)
+        check("flight.infieldDepthPct no longer appears anywhere in app.js",
+              "flight.infieldDepthPct" in app_js_src, False)
+        migration = page.evaluate(
+            """() => {
+                var m = { result: "GO", batter_hand: "R" };
+                // A moderate grounder shallow enough that the honest charge-in
+                // race finds a genuine mid-roll crossing (never hits the dirt-
+                // edge fallback) - the "leeway never fires" case, so depthPct/
+                // cappedFallback should read their own defaults.
+                var flight = {
+                    archetype: "grounder", angle: 35, distance: 50,
+                    x: 50 * Math.sin((35 - 45) * Math.PI / 180), y: 50 * Math.cos((35 - 45) * Math.PI / 180),
+                    contactVel: { vx: -15, vy: -50, vz: -3 },
+                };
+                KMFlight.resolveGrounderInterception(m, flight, "R");
+                return {
+                    hasFieldingAdjust: !!flight.fieldingAdjust,
+                    hasAnchorFt: !!(flight.fieldingAdjust && flight.fieldingAdjust.anchorFt),
+                    depthPct: flight.fieldingAdjust && flight.fieldingAdjust.depthPct,
+                    cappedFallback: flight.fieldingAdjust && flight.fieldingAdjust.cappedFallback,
+                    hasLegacyCharge: "chargeAnchorFt" in flight,
+                    hasLegacyDepth: "infieldDepthPct" in flight,
+                };
+            }"""
+        )
+        check("resolveGrounderInterception populates flight.fieldingAdjust.anchorFt",
+              migration["hasFieldingAdjust"] and migration["hasAnchorFt"], True)
+        check("fieldingAdjust.depthPct defaults to 0 when the leeway never fires",
+              migration["depthPct"], 0)
+        check("fieldingAdjust.cappedFallback defaults to false when the leeway never fires",
+              migration["cappedFallback"], False)
+        check("no legacy flight.chargeAnchorFt property on the resolved flight",
+              migration["hasLegacyCharge"], False)
+        check("no legacy flight.infieldDepthPct property on the resolved flight",
+              migration["hasLegacyDepth"], False)
+
+        print("\nFielding-reconciliation audit, Stage 1 (6.4) - applyGrounderDeepSetup's")
+        print("bearing-then-depth sequencing is order-dependent, pinned against a hand-")
+        print("reimplementation of both the shipped order and the (unused) wrong order:")
+        seq = page.evaluate(
+            """() => {
+                // Grid-searched for maximum bearing-vs-depth divergence under
+                // WINNER_CHEAT_MAX_DEG's own small (3deg) cap - the ordering
+                // only ever matters by a few feet by construction (a bigger
+                // cap would make it matter more), so this fixture is chosen
+                // specifically to make that real, nonzero effect visible.
+                var trueAnchor = KMFlight.landingPoint(60, 10);
+                var capPoint = KMFlight.landingPoint(200, 20);
+                var flight = { x: 0, y: 0, contactVel: { vx: capPoint.x, vy: capPoint.y, vz: 0 } };
+                var intercept = { anchorFt: trueAnchor, alongFt: 200, atS: 2.5 };
+                var gp = { timeAt: function (x) { return Math.abs(x - 200) < 1e-6 ? 3.7 : null; } };
+
+                var shipped = KMFlight.applyGrounderDeepSetup({}, flight, intercept, gp, null, null);
+
+                // Hand-reimplementation of the SHIPPED order using only the exposed
+                // primitives: bearing first (off the TRUE anchor), depth off THAT
+                // bearing-adjusted dirt edge second - applyGrounderDeepSetup's own
+                // documented sequence.
+                var capPointFt = KMFlight.groundDirPoint(flight, intercept.alongFt);
+                var bearingFirst = KMFlight.capBearingTowardFt(intercept.anchorFt, capPointFt, KMFlight.WINNER_CHEAT_MAX_DEG);
+                var bearingFirstDeg = 45 + Math.atan2(bearingFirst.x, bearingFirst.y) * 180 / Math.PI;
+                var trueDepthFt = Math.hypot(intercept.anchorFt.x, intercept.anchorFt.y);
+                var capPointDepthFt = Math.hypot(capPointFt.x, capPointFt.y);
+                var rightOrderDepth = Math.max(trueDepthFt, Math.min(KMFlight.dirtEdgeFt(bearingFirstDeg), capPointDepthFt));
+                var rightOrder = KMFlight.landingPoint(rightOrderDepth, bearingFirstDeg);
+
+                // The (never-shipped) WRONG order: depth off the TRUE bearing's own
+                // dirt edge FIRST, bearing shifted second - built only to prove the
+                // two orders diverge on this fixture, never called by production code.
+                var trueAnchorDeg = 45 + Math.atan2(intercept.anchorFt.x, intercept.anchorFt.y) * 180 / Math.PI;
+                var wrongOrderDepth = Math.max(trueDepthFt, Math.min(KMFlight.dirtEdgeFt(trueAnchorDeg), capPointDepthFt));
+                var depthFirstAnchor = KMFlight.landingPoint(wrongOrderDepth, trueAnchorDeg);
+                var wrongOrder = KMFlight.capBearingTowardFt(depthFirstAnchor, capPointFt, KMFlight.WINNER_CHEAT_MAX_DEG);
+
+                return {
+                    shippedAnchor: shipped.anchorFt, shippedDepthPct: shipped.depthPct,
+                    shippedGroundTimeS: shipped.groundTimeS,
+                    rightOrder: rightOrder, wrongOrder: wrongOrder,
+                };
+            }"""
+        )
+        check("applyGrounderDeepSetup.anchorFt.x matches the hand-reimplemented shipped (bearing-then-depth) order",
+              seq["shippedAnchor"]["x"], seq["rightOrder"]["x"], tol=1e-6)
+        check("applyGrounderDeepSetup.anchorFt.y matches the hand-reimplemented shipped order",
+              seq["shippedAnchor"]["y"], seq["rightOrder"]["y"], tol=1e-6)
+        wrong_diff = abs(seq["shippedAnchor"]["x"] - seq["wrongOrder"]["x"]) + abs(seq["shippedAnchor"]["y"] - seq["wrongOrder"]["y"])
+        check("shipped bearing-then-depth order diverges from the (unused) depth-then-bearing order on this fixture",
+              wrong_diff > 0.5, True)
+        check("applyGrounderDeepSetup uses gp.timeAt's own resolved value for groundTimeS when it resolves",
+              seq["shippedGroundTimeS"], 3.7, tol=1e-6)
+
+        print("\nFielding-reconciliation audit, Stage 2 (6.1) - per-leg reconciliation")
+        print("sweep. A hand-built 2-leg DP schedule (1B runner forced out at 2B, batter")
+        print("forced out at 1B) with a real deficit on BOTH legs - the direct test that")
+        print("intermediate legs now get reconciled at all (pre-Stage-2 only the final")
+        print("leg ever did):")
+        dp_fixture = page.evaluate(
+            """() => {
+                var m = { result: "DP", diff: 250, outs_before: 0, outs_after: 2, obc_before: "001", obc_after: "000" };
+                var moves = KMFlight.deriveRunnerMoves("001", "000", 0);
+                var flight = { archetype: "grounder", fielder: "SS", clearedFence: false, groundTimeS: 0.5, hangMs: 0 };
+                // Deficits sized (post equal-split-by-side redesign, see the
+                // reconciler's own comment above reconcileLeg's delta<0 branch)
+                // so BOTH sides' pools engage AND speedThrow still fires on
+                // leg 1 - large enough that quickRelease/runnerLateJump/
+                // stretchRunner alone don't fully absorb it.
+                var schedule = [
+                    { base: "2B", startMs: 3600, endMs: 4581, drawMs: 981, out: true, throwerPos: "SS", distFt: 60 },
+                    { base: "1B", startMs: 4631, endMs: 6212, drawMs: 1581, out: true, throwerPos: "2B", distFt: 127 },
+                ];
+                var result = KMFlight.reconcileChain(schedule, m, flight, moves);
+                return {
+                    schedule: schedule, adjustments: result.adjustments, metas: result.metas,
+                    capByIdx: result.capByIdx, lastOutIdx: result.lastOutIdx,
+                    THROW_SPEED_SS: KMFlight.THROW_SPEED_BY_POS["SS"], THROW_SPEED_2B: KMFlight.THROW_SPEED_BY_POS["2B"],
+                };
+            }"""
+        )
+        check("both legs got their own reconcileChain meta entry (legIndex 0 and 1)",
+              sorted(mt["legIndex"] for mt in dp_fixture["metas"]), [0, 1])
+        check("leg 0 (intermediate, non-final) actually received adjustments - pre-Stage-2 it received none",
+              any(a["legIndex"] == 0 for a in dp_fixture["adjustments"]), True)
+        check("leg 1 (final) also received adjustments, independently of leg 0's own pass",
+              any(a["legIndex"] == 1 for a in dp_fixture["adjustments"]), True)
+        no_legindex = [a for a in dp_fixture["adjustments"] if a.get("legIndex") is None]
+        check("every adjustment (all knobs, both legs) carries a legIndex - debug traceability", len(no_legindex), 0)
+        # Per-runner attribution (6.1's DP two-runner pin): leg 0's forced
+        # runner is the 1B runner, leg 1's is the batter - runnerLateJump/
+        # stretchRunner must only ever be attributed to the leg's own runner.
+        leg0_runner_knobs = {a["who"] for a in dp_fixture["adjustments"]
+                              if a["legIndex"] == 0 and a["knob"] in ("runnerLateJump", "stretchRunner")}
+        leg1_runner_knobs = {a["who"] for a in dp_fixture["adjustments"]
+                              if a["legIndex"] == 1 and a["knob"] in ("runnerLateJump", "stretchRunner")}
+        check("leg 0's runner-side knobs are attributed only to the 1B runner", leg0_runner_knobs, {"1B"})
+        check("leg 1's runner-side knobs are attributed only to the BATTER", leg1_runner_knobs, {"BATTER"})
+        # Multi-pass speedThrow ceiling pin: both legs' speedThrow adjustments
+        # (if any) must never exceed their own thrower's own ceiling mph.
+        speed_adjs = [a for a in dp_fixture["adjustments"] if a["knob"] == "speedThrow"]
+        check("at least one speedThrow adjustment fired on this fixture (worth pinning)", len(speed_adjs) > 0, True)
+        ceilings = {"SS": dp_fixture["THROW_SPEED_SS"]["max"], "2B": dp_fixture["THROW_SPEED_2B"]["max"]}
+        over_ceiling = [a for a in speed_adjs if a["mphTo"] > ceilings[dp_fixture["schedule"][a["legIndex"]]["throwerPos"]]]
+        check("no speedThrow adjustment ever exceeds its own leg's thrower ceiling mph, across both passes",
+              len(over_ceiling), 0)
+        check("inter-leg gap (leg 1 start - leg 0 end) stays non-negative after both legs' own passes (invariant #11)",
+              dp_fixture["schedule"][1]["startMs"] - dp_fixture["schedule"][0]["endMs"] >= -0.5, True)
+        check("capByIdx carries one entry per real out leg (both legs here)",
+              sorted(int(k) for k in dp_fixture["capByIdx"].keys()), [0, 1])
+
+        print("\nFielding-reconciliation audit, Stage 2 (6.1) - floor-only pin: a later out")
+        print("leg that finds itself compressing (an even bigger blowout) after an earlier")
+        print("leg's own quickRelease shift must be left completely alone, not pulled back")
+        print("into the margin band:")
+        floor_only = page.evaluate(
+            """() => {
+                var m = { result: "DP", diff: 250, outs_before: 0, outs_after: 2, obc_before: "001", obc_after: "000" };
+                var moves = KMFlight.deriveRunnerMoves("001", "000", 0);
+                var flight = { archetype: "grounder", fielder: "SS", clearedFence: false, groundTimeS: 0.5, hangMs: 0 };
+                // leg 0: a real 150ms deficit, no throwerPos (isolates the
+                // water-fill pool's own quickRelease share, ~49ms here, as the
+                // sole schedule-moving contributor - deterministic, verified).
+                // leg 1: pre-correction delta is a small genuine deficit
+                // (NOT compressing) - after inheriting leg 0's whole-chain
+                // quickRelease sliver shift, it flips to compressing.
+                var schedule = [
+                    { base: "2B", startMs: 3636, endMs: 4036, drawMs: 400, out: true },
+                    { base: "1B", startMs: 4046, endMs: 4141, drawMs: 95, out: true },
+                ];
+                var gapPre = schedule[1].startMs - schedule[0].endMs;
+                var result = KMFlight.reconcileChain(schedule, m, flight, moves);
+                return {
+                    schedule: schedule, adjustments: result.adjustments, gapPre: gapPre,
+                    gapPost: schedule[1].startMs - schedule[0].endMs,
+                };
+            }"""
+        )
+        leg1_adjustments = [a for a in floor_only["adjustments"] if a["legIndex"] == 1]
+        check("leg 1's pre-existing gap to leg 0 was non-negative (a valid schedule to begin with)",
+              floor_only["gapPre"] >= 0, True)
+        check("leg 0 (the earlier leg) did receive its own correction",
+              any(a["legIndex"] == 0 for a in floor_only["adjustments"]), True)
+        check("leg 1 (now compressing after inheriting leg 0's shift) receives ZERO adjustments - floor-only",
+              len(leg1_adjustments), 0)
+        check("the gap between leg 0 and leg 1 is preserved exactly (both shifted together by quickRelease's sliver)",
+              floor_only["gapPost"], floor_only["gapPre"], tol=0.5)
+
+        print("\nFielding-reconciliation audit, Stage 2 (6.1) - suffix-hold pin: a final")
+        print("decorative/contestedSafe leg's own 'land later' hold must shift only the")
+        print("suffix after the last reconciled out leg, never reach back and re-time an")
+        print("out leg's own already-locked-in margin (the one genuine conflict the")
+        print("sequential model has - holdFromIdx is its complete resolution). Built on a")
+        print("fielder's-choice shape (lead runner forced out at 2B, batter safe at 1B):")
+        suffix_hold = page.evaluate(
+            """() => {
+                var m = { result: "FC", diff: 250, outs_before: 0, outs_after: 1 };
+                var moves = [{from: "1B", to: "OUT", scored: false}, {from: "BATTER", to: "1B", scored: false}];
+                var flight = { archetype: "grounder", fielder: "SS", clearedFence: false, groundTimeS: 0.5, hangMs: 0 };
+                // leg 0 (out, 2B): constructed to sit EXACTLY on its own
+                // required margin - zero slack, so any later shift at all
+                // would break it. leg 1 (safe, 1B, final, no throwerPos so
+                // slowThrow can't help): arrives 400ms too early, needing a
+                // real hold - big enough that hustleRunner's own 200ms cap
+                // can't cover it alone, forcing holdChainTo to actually fire.
+                var schedule = [
+                    { base: "2B", startMs: 3786, endMs: 3886, drawMs: 100, out: true },
+                    { base: "1B", startMs: 3936, endMs: 4086, drawMs: 150, out: false },
+                ];
+                var leg0EndBefore = schedule[0].endMs;
+                var result = KMFlight.reconcileChain(schedule, m, flight, moves);
+                return {
+                    schedule: schedule, adjustments: result.adjustments,
+                    leg0EndBefore: leg0EndBefore, capByIdx: result.capByIdx,
+                };
+            }"""
+        )
+        check("leg 0 (the earlier out leg, already exactly at its own margin) is completely untouched by leg 1's own later hold",
+              suffix_hold["schedule"][0]["endMs"], suffix_hold["leg0EndBefore"], tol=1e-6)
+        check("leg 1 (the final safe leg) did receive a holdRelease to close its own deficit",
+              any(a["legIndex"] == 1 and a["knob"] == "holdRelease" for a in suffix_hold["adjustments"]), True)
+        check("holdRelease's own adjustment is attributed to leg 1, not leg 0",
+              all(a["legIndex"] == 1 for a in suffix_hold["adjustments"] if a["knob"] == "holdRelease"), True)
+        check("capByIdx carries an entry only for the real out leg (leg 0), never the final safe leg",
+              sorted(int(k) for k in suffix_hold["capByIdx"].keys()), [0])
+
+        print("\nFielding-reconciliation audit, Stage 2 (6.1) - reconcileThrowSchedule")
+        print("back-compat wrapper: byte-for-byte reconcileLeg(schedule, last, ..., 0):")
+        wrapper_check = page.evaluate(
+            """() => {
+                var scheduleA = [{ base: "1B", startMs: 700, endMs: 850, drawMs: 150, out: true }];
+                var scheduleB = [{ base: "1B", startMs: 700, endMs: 850, drawMs: 150, out: true }];
+                var viaWrapper = KMFlight.reconcileThrowSchedule(scheduleA, 1300, "forceOut", 250, true, "1B");
+                var viaDirect = KMFlight.reconcileLeg(scheduleB, 0, 1300, "forceOut", 250, true, "1B", 0);
+                return {
+                    scheduleA: scheduleA, scheduleB: scheduleB,
+                    adjA: viaWrapper.adjustments, adjB: viaDirect.adjustments,
+                };
+            }"""
+        )
+        check("reconcileThrowSchedule produces the identical final schedule state as reconcileLeg(.., last, .., 0)",
+              wrapper_check["scheduleA"][0]["endMs"], wrapper_check["scheduleB"][0]["endMs"], tol=1e-9)
+        check("reconcileThrowSchedule produces the identical adjustments as its reconcileLeg equivalent",
+              [a["knob"] for a in wrapper_check["adjA"]], [a["knob"] for a in wrapper_check["adjB"]])
+
+        print("\nFielding-reconciliation audit, Stage 3 (6.3) - bidirectional pace knob.")
+        print("Real corpus-derived IF1B fixtures (docs/data/s01) whose honest charge race")
+        print("trips the 4.2 trigger (the race would beat the batter to first, meaning the")
+        print("downstream reconciler would otherwise have had to lean on slowThrow/")
+        print("holdRelease alone to sell the recorded hit):")
+        s01_km_fp = pathlib.Path("docs/data/s01/key_moments.json")
+        s01_meta_fp = pathlib.Path("docs/data/s01/meta.json")
+        if s01_km_fp.exists() and s01_meta_fp.exists():
+            s01_moments = json.loads(s01_km_fp.read_text(encoding="utf-8"))
+            s01_tables = json.loads(s01_meta_fp.read_text(encoding="utf-8"))["flight"]
+            page.evaluate("(t) => KMFlight.setProbeFlightTables(t)", s01_tables)
+            # Two verified real corpus moments whose honest charge race
+            # trips the trigger by different margins (10403048 barely,
+            # 10402043 more substantially). charge.min itself is read
+            # dynamically (Stage 5, plan 5.3, widened 0.75->0.60 off the
+            # probe's own real data) rather than hardcoded, so a future
+            # retune doesn't go stale here.
+            charge_min = page.evaluate("KMFlight.FIELDER_PACE_SCALE.charge.min")
+            for mid in ("10403048", "10402043"):
+                m = next((mm for mm in s01_moments if mm["moment_id"] == mid), None)
+                if not m:
+                    print(f"  [skip] moment {mid} not found in docs/data/s01/key_moments.json")
+                    continue
+                pace = page.evaluate(
+                    """(m) => {
+                        var flight = KMFlight.resolvePlayFlight(m);
+                        var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                        var schedule = KMFlight.throwSchedule(m, moves, flight);
+                        var lastLeg = schedule[schedule.length - 1];
+                        var arrival = KMFlight.safeRunnerArrivalMs(m, flight, moves, lastLeg.base);
+                        var marginSafe = KMFlight.targetMarginMs("contestedSafe", m.diff);
+                        var maxAlongFt = KMFlight.dirtEdgeFt(flight.angle) - flight.distance;
+                        var fieldedAlongFt = flight.fieldedDistFt - flight.distance;
+                        var honestGroundTimeS = flight.groundPath.timeAt(fieldedAlongFt);
+                        return {
+                            paceScale: flight.fieldingAdjust.paceScale, cappedFallback: flight.fieldingAdjust.cappedFallback,
+                            lastLegEndMs: lastLeg.endMs, arrival: arrival, marginSafe: marginSafe,
+                            fieldedAlongFt: fieldedAlongFt, maxAlongFt: maxAlongFt,
+                            groundTimeS: flight.groundTimeS, honestGroundTimeS: honestGroundTimeS,
+                        };
+                    }""",
+                    m,
+                )
+                print(f"  {mid}: paceScale={pace['paceScale']}")
+                check(f"{mid}: the slow-charge trigger actually fired (paceScale is set)",
+                      pace["paceScale"] is not None, True)
+                check(f"{mid}: paceScale within [charge.min, 1)",
+                      charge_min - 1e-9 <= pace["paceScale"] < 1, True)
+                check(f"{mid}: the play still renders as a hit - throw loses by >= contestedSafe floor",
+                      pace["lastLegEndMs"] - pace["arrival"] >= pace["marginSafe"] - 0.5, True)
+                check(f"{mid}: fielded point stays within maxAlongFt (never rolls past the dirt edge)",
+                      pace["fieldedAlongFt"] <= pace["maxAlongFt"] + 0.5, True)
+                check(f"{mid}: recorded groundTimeS is never earlier than the ball's own honest natural time there (no relabeling)",
+                      pace["groundTimeS"] >= pace["honestGroundTimeS"] - 0.5, True)
+                check(f"{mid}: the leeway block did NOT also fire (disjointness pin)",
+                      pace["cappedFallback"], False)
+        else:
+            print("  [skip] docs/data/s01 not found on disk")
+
+        print("\nFielding-reconciliation audit, Stage 3 (6.3) - disjointness pin (synthetic):")
+        print("a fixture engineered to trip the leeway block's own cappedFallback, with the")
+        print("outs gate also open (no new out) - the slow-charge knob must never fire")
+        print("alongside it:")
+        disjoint = page.evaluate(
+            """() => {
+                var m = { result: "GO", batter_hand: "R", outs_before: 0, outs_after: 0, diff: 250 };
+                var flight = {
+                    archetype: "grounder", angle: 35, distance: 90,
+                    x: 90 * Math.sin((35 - 45) * Math.PI / 180), y: 90 * Math.cos((35 - 45) * Math.PI / 180),
+                    contactVel: { vx: -30, vy: -70, vz: -3 },
+                };
+                KMFlight.resolveGrounderInterception(m, flight, "R");
+                return { fieldingAdjust: flight.fieldingAdjust };
+            }"""
+        )
+        check("the leeway block's own cappedFallback fired on this fixture (precondition)",
+              disjoint["fieldingAdjust"]["cappedFallback"], True)
+        check("the slow-charge knob did NOT also fire (paceScale stays unset) - disjointness pin",
+              disjoint["fieldingAdjust"].get("paceScale") is None, True)
+
+        print("\nFielding-reconciliation audit, Stage 3 (6.3) - a real GO/DP fixture asserts")
+        print("paceScale stays unset (outs never get slowed):")
+        if s01_km_fp.exists():
+            go_dp = next((mm for mm in s01_moments
+                          if mm["result"] in ("GO", "DP") and (mm.get("outs_after", 0) - mm.get("outs_before", 0)) >= 1), None)
+            if go_dp:
+                go_result = page.evaluate(
+                    """(m) => {
+                        var flight = KMFlight.resolvePlayFlight(m);
+                        return flight ? { archetype: flight.archetype, fieldingAdjust: flight.fieldingAdjust } : null;
+                    }""",
+                    go_dp,
+                )
+                if go_result:
+                    print(f"  {go_dp['moment_id']} ({go_dp['result']}): {go_result}")
+                    check("a real out play (GO/DP) never sets paceScale - the outs gate holds",
+                          go_result["fieldingAdjust"].get("paceScale") is None, True)
+                else:
+                    print("  [skip] no resolvable flight on the chosen GO/DP moment")
+            else:
+                print("  [skip] no GO/DP moment found in docs/data/s01")
+
+        print("\nFielding-reconciliation audit, Stage 4 (6.2) - coverage pool")
+        print("(reconcileCoverage): a covering fielder's own bounded, pooled, recorded")
+        print("correction, replacing the old silent/unbounded §4.3 deadline compression.")
+        print("SS covering 2B (34.7ft, natural run 2290ms raw incl. start delay):")
+        coverage = page.evaluate(
+            """() => {
+                var m = { result: "GO", diff: 250 };
+                var anchor = KMFlight.FIELDER_ANCHORS_FT.SS;
+                var baseFt = KMFlight.BASE_POS_FT["2B"];
+                var dist = Math.hypot(baseFt.x - anchor.x, baseFt.y - anchor.y);
+                var legs = [{ toSvg: { x: 0, y: 0 }, distFt: dist }];
+                var natPacing = KMFlight.fielderMovePacing(m, "SS", legs, 300, null, "run");
+                var naturalArrival = natPacing.delayMs + natPacing.totalMs;
+
+                function fixture(deficitMs) {
+                    var plan = [{
+                        pos: "SS", base: "2B", kind: "base", cutoffFt: null, anchor: anchor, legs: legs,
+                        startMs: 300, deadlineMs: null, profileKind: "run", arrivalMs: naturalArrival,
+                    }];
+                    var schedule = [{ base: "2B", kind: "base", startMs: 0, endMs: naturalArrival - deficitMs, drawMs: 100, out: true }];
+                    var result = KMFlight.reconcileCoverage(m, {}, plan, schedule);
+                    // Simulate fielderTokensHtml's own follow-up backstop pass (the
+                    // real §4.3 deadline compression, now against this already-eased
+                    // baseline) to verify the FULL invariant, not just the pool's own share.
+                    var backstop = KMFlight.fielderMovePacing(m, plan[0].pos, plan[0].legs, plan[0].startMs, schedule[0].endMs, plan[0].profileKind, plan[0].paceScaleOverride);
+                    return {
+                        entry: plan[0], adjustments: result.adjustments, legEndMs: schedule[0].endMs,
+                        backstopArrivalMs: backstop.delayMs + backstop.totalMs,
+                    };
+                }
+                return { naturalArrival: naturalArrival, small: fixture(100), huge: fixture(1000) };
+            }"""
+        )
+        small, huge = coverage["small"], coverage["huge"]
+        check("small deficit (100ms): the pool alone closes it - post-reconcileCoverage arrival <= leg's endMs",
+              small["entry"]["arrivalMs"] <= small["legEndMs"] + 0.5, True)
+        check("small deficit: no coverCompress needed (pool was enough)",
+              any(a["knob"] == "coverCompress" for a in small["adjustments"]), False)
+        check("coverEarlyBreak never pushes startMs below 0 (huge deficit saturates it exactly at 0)",
+              huge["entry"]["startMs"] >= -0.5, True)
+        check("fielderSprint never exceeds FIELDER_PACE_SCALE.run.max (huge deficit saturates exactly at max)",
+              huge["entry"]["paceScaleOverride"] <= 1.12 + 1e-6, True)
+        check("huge deficit (1000ms, exceeds the ~354ms combined pool): backstop.arrival still equals leg.endMs exactly - invariant #4 always holds",
+              huge["backstopArrivalMs"], huge["legEndMs"], tol=0.5)
+        check("huge deficit produces a recorded coverCompress adjustment (the honest backstop, not silent)",
+              any(a["knob"] == "coverCompress" and a["ms"] > 0 for a in huge["adjustments"]), True)
+
+        print("\nFielding-reconciliation audit, Stage 4 (6.2) - unassisted carry knobs")
+        print("(sprintCarry/easeCarry) inside reconcileLeg, sharing FIELDER_PACE_SCALE.run")
+        print("with reconcileCoverage's fielderSprint. 3B fielding a force at 3rd himself")
+        print("(65ft unassisted leg, natural jog 3111ms):")
+        carry = page.evaluate(
+            """() => {
+                var m = { result: "FC3rd", diff: 250 };
+                var distFt = 65;
+                var natMs = KMFlight.fielderLegDurationsMs(m, "3B", [{ distFt: distFt }], "run")[0];
+                var legEndMs0 = 500 + natMs;
+                function mkSchedule(isOut) {
+                    return [{ base: "3B", startMs: 500, endMs: legEndMs0, drawMs: natMs, out: isOut, throwerPos: "3B", distFt: distFt, unassisted: true }];
+                }
+                var margin = KMFlight.targetMarginMs(m.result === "FC3rd" ? "forceOut" : "forceOut", 250);
+                var marginOut = KMFlight.targetMarginMs("forceOut", 250);
+                var marginSafe = KMFlight.targetMarginMs("contestedSafe", 250);
+
+                // sprintCarry (fast, isOut=true, delta<0): a - a deficit past
+                // quickRelease's own 500ms sliver headroom (so the fielding
+                // side's own share actually reaches sprintCarry) but still
+                // fully closeable between the fielding and running sides'
+                // own equal shares (no unresolved); b - a much larger deficit,
+                // saturates sprintCarry at run.max exactly, honest residual
+                // reported once both sides' own real ceilings are exhausted.
+                // (Sized empirically post equal-split-by-side redesign - see
+                // reconcileLeg's own delta<0 branch comment - since quickRelease
+                // now only ever gets a fraction of a small deficit, not the
+                // whole thing.)
+                function runFast(runnerArrival) {
+                    var sched = mkSchedule(true);
+                    var res = KMFlight.reconcileLeg(sched, 0, runnerArrival, "forceOut", 250, true, "2B", 0, m);
+                    return { leg: sched[0], adjustments: res.adjustments };
+                }
+                var a = runFast(legEndMs0 - 1400 + marginOut);
+                var b = runFast(legEndMs0 - 2000 + marginOut);
+
+                // easeCarry (slow, isOut=false/contestedSafe, delta>0): c - small
+                // deficit, closes without a hold; d - large deficit, saturates at
+                // run.min exactly, holdRelease closes the honest remainder.
+                function runSlow(runnerArrival) {
+                    var sched = mkSchedule(false);
+                    var res = KMFlight.reconcileLeg(sched, 0, runnerArrival, "contestedSafe", 250, false, "2B", 0, m);
+                    return { leg: sched[0], adjustments: res.adjustments };
+                }
+                var c = runSlow(legEndMs0 - marginSafe + 100);
+                var d = runSlow(legEndMs0 - marginSafe + 900);
+
+                var maxMs = KMFlight.fielderLegDurationsMs(m, "3B", [{ distFt: distFt }], "run", KMFlight.FIELDER_PACE_SCALE.run.max)[0];
+                var minMs = KMFlight.fielderLegDurationsMs(m, "3B", [{ distFt: distFt }], "run", KMFlight.FIELDER_PACE_SCALE.run.min)[0];
+                return { natMs: natMs, maxMs: maxMs, minMs: minMs, a: a, b: b, c: c, d: d };
+            }"""
+        )
+        a, b, c, d, maxMs, minMs = carry["a"], carry["b"], carry["c"], carry["d"], carry["maxMs"], carry["minMs"]
+        check("sprintCarry (small deficit): leg closes without any 'unresolved' - the pace ceiling honestly allows it",
+              any(adj["knob"] == "unresolved" for adj in a["adjustments"]), False)
+        check("sprintCarry (small deficit): a real sprintCarry adjustment fired",
+              any(adj["knob"] == "sprintCarry" for adj in a["adjustments"]), True)
+        check("sprintCarry (large deficit): leg's drawMs never drops below the run.max ceiling's own ms",
+              b["leg"]["drawMs"] >= maxMs - 0.5, True)
+        check("sprintCarry (large deficit): drawMs saturates AT the ceiling exactly (fully used, not overshot)",
+              b["leg"]["drawMs"], maxMs, tol=1)
+        check("sprintCarry (large deficit): the honest excess surfaces as 'unresolved', not silently absorbed",
+              any(adj["knob"] == "unresolved" for adj in b["adjustments"]), True)
+        check("easeCarry (small deficit): leg closes with no holdRelease needed",
+              any(adj["knob"] == "holdRelease" for adj in c["adjustments"]), False)
+        check("easeCarry (small deficit): a real easeCarry adjustment fired",
+              any(adj["knob"] == "easeCarry" for adj in c["adjustments"]), True)
+        check("easeCarry (large deficit): leg's drawMs never exceeds the run.min floor's own ms",
+              d["leg"]["drawMs"] <= minMs + 0.5, True)
+        check("easeCarry (large deficit): drawMs saturates AT the floor exactly (fully used, not overshot)",
+              d["leg"]["drawMs"], minMs, tol=1)
+        check("easeCarry (large deficit): holdRelease closes the honest remainder on top of the saturated floor",
+              any(adj["knob"] == "holdRelease" for adj in d["adjustments"]), True)
+
+        print("\nFielding-reconciliation audit, Stage 6 - full corpus sweep: every real")
+        print("play's own out legs, through the exact production pipeline (resolvePlayFlight")
+        print("-> deriveRunnerMoves -> throwSchedule), asserting the two invariants that must")
+        print("ALWAYS hold - inter-leg gaps never negative (#11), and every out leg either")
+        print("beats its own runner by the margin floor OR is honestly flagged 'unresolved'")
+        print("(never silently violated) - tracking, not gating, the residual rate itself")
+        print("(tools/reconciliation_corpus_probe.py's own job, see Stage 5's findings):")
+        if meta_fp.exists() and real_plays:
+            # resolvePlayFlight reads data.meta.flight off the page's own module
+            # scope (not an argument) - the Stage 3 tests above pointed it at
+            # s01's own tables via setProbeFlightTables and never reset it, so
+            # this section (and the debug-panel smoke test after it) must
+            # explicitly repoint it at this feed's own real_tables first, or
+            # every play here silently resolves against the wrong season's
+            # EV/LA/distance bands.
+            page.evaluate("(t) => KMFlight.setProbeFlightTables(t)", real_tables)
+            corpus_sweep = page.evaluate(
+                """(a) => {
+                    var bad = [];
+                    var shapesSeen = {};
+                    var totalOutLegs = 0, unresolvedLegs = 0;
+                    a.plays.forEach(function (m) {
+                        try {
+                            var flight = KMFlight.resolvePlayFlight(m);
+                            if (!flight) return;
+                            var moves = KMFlight.deriveRunnerMoves(
+                                String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                            var schedule = KMFlight.throwSchedule(m, moves, flight);
+                            if (!schedule.length) return;
+                            var recorded = (m.outs_after || 0) - (m.outs_before || 0);
+                            if (recorded >= 2) shapesSeen[m.result + "|" + (m.throw_order || "(none)")] = true;
+
+                            for (var g = 1; g < schedule.length; g++) {
+                                if (schedule[g].startMs < schedule[g - 1].endMs - 0.5) {
+                                    bad.push(m.moment_id + ": negative gap at leg " + g + " (invariant #11)");
+                                }
+                            }
+
+                            var adjByLeg = {};
+                            (schedule.adjustments || []).forEach(function (adj) {
+                                if (adj.legIndex == null) return;
+                                (adjByLeg[adj.legIndex] = adjByLeg[adj.legIndex] || []).push(adj);
+                            });
+                            for (var i = 0; i < schedule.length; i++) {
+                                if (!schedule[i].out) continue;
+                                totalOutLegs++;
+                                var legAdj = adjByLeg[i] || [];
+                                if (legAdj.some(function (a) { return a.knob === "unresolved"; })) {
+                                    unresolvedLegs++;
+                                    continue;
+                                }
+                                var arrival = KMFlight.forcedOutRunnerArrivalMs(m, flight, moves, schedule[i].base);
+                                if (arrival == null) continue;
+                                // Fielding-reconciliation-audit follow-up: runnerLateJump/
+                                // stretchRunner now genuinely retarget this leg's own honest
+                                // runner arrival LATER (never just cosmetic), each bounded by
+                                // its own real cap - fold their recorded shares for THIS leg
+                                // back into the threshold (auditable from the adjustments
+                                // themselves, not re-derived), and verify each stayed within
+                                // its own bound while at it. applyReceiverFloors (Task 2,
+                                // section 2.5) may since have pushed the leg later still,
+                                // capped at MARGIN_POLICY.forceOut.minMs (the loosest honest
+                                // margin, capByIdx's own documented contract) off THIS
+                                // retargeted arrival, not the original one.
+                                var jumpMs = 0, stretchMs = 0;
+                                legAdj.forEach(function (a) {
+                                    if (a.knob === "runnerLateJump") jumpMs += a.ms;
+                                    if (a.knob === "stretchRunner") stretchMs += a.ms;
+                                });
+                                if (jumpMs > KMFlight.RUNNER_LATE_JUMP_MAX_MS + 0.5) {
+                                    bad.push(m.moment_id + ": leg " + i + " runnerLateJump (" + jumpMs +
+                                        "ms) exceeds RUNNER_LATE_JUMP_MAX_MS");
+                                }
+                                if (stretchMs > arrival * KMFlight.STRETCH_RUNNER_MAX_FRAC + 0.5) {
+                                    bad.push(m.moment_id + ": leg " + i + " stretchRunner (" + stretchMs +
+                                        "ms) exceeds STRETCH_RUNNER_MAX_FRAC of this runner's own arrival");
+                                }
+                                var retargetedArrival = arrival + jumpMs + stretchMs;
+                                var minMargin = KMFlight.MARGIN_POLICY.forceOut.minMs;
+                                if (schedule[i].endMs > retargetedArrival - minMargin + 0.5) {
+                                    bad.push(m.moment_id + ": leg " + i +
+                                        " silently violates even the loosest honest margin (not flagged unresolved)");
+                                }
+                            }
+                        } catch (e) {
+                            bad.push((m.moment_id || "?") + ": EXCEPTION " + e.message);
+                        }
+                    });
+                    return {
+                        bad: bad, shapeCount: Object.keys(shapesSeen).length,
+                        totalOutLegs: totalOutLegs, unresolvedLegs: unresolvedLegs,
+                    };
+                }""",
+                {"plays": real_plays, "tables": real_tables},
+            )
+            print(f"  swept {len(real_plays)} real plays, {corpus_sweep['shapeCount']} distinct multi-out "
+                  f"shapes, {corpus_sweep['totalOutLegs']} out legs")
+            check("no exceptions, no negative inter-leg gaps, every out leg's margin either "
+                  "holds or is honestly flagged unresolved (never silently violated)",
+                  len(corpus_sweep["bad"]), 0)
+            for bad in corpus_sweep["bad"][:10]:
+                print(f"    - {bad}")
+            total = corpus_sweep["totalOutLegs"]
+            pct = 100.0 * corpus_sweep["unresolvedLegs"] / total if total else 0.0
+            print(f"  unresolved rate on this feed: {corpus_sweep['unresolvedLegs']}/{total} ({pct:.2f}%) - "
+                  f"tracked here, not gated at the 0.5% floor (Stage 5's own still-open finding)")
+        else:
+            print("  [skip] no real feed data / meta.json found on disk")
+
+        print("\nFielding-reconciliation audit, Stage 6 - debug panel smoke test: sceneDebugHtml")
+        print("and fielderTokensHtml render without throwing on a real 2-leg DP, and the panel")
+        print("shows the per-leg content Stage 2/3/4 added (not just the old final-leg-only view):")
+        if meta_fp.exists() and real_plays:
+            dp_m = next((p for p in real_plays if p["result"] in ("DP", "DP21", "DP31")
+                         and (p.get("outs_after", 0) - p.get("outs_before", 0)) >= 2), None)
+            if dp_m:
+                panel = page.evaluate(
+                    """(a) => {
+                        var flight = KMFlight.resolvePlayFlight(a.m);
+                        if (!flight) return null;
+                        var moves = KMFlight.deriveRunnerMoves(
+                            String(a.m.obc_before || "000"), String(a.m.obc_after || "000"), a.m.runs || 0);
+                        var debugHtml = KMFlight.sceneDebugHtml(a.m, flight);
+                        var tokensHtml = KMFlight.fielderTokensHtml(a.m, flight, moves, 0);
+                        return { debugHtml: debugHtml, tokensHtml: tokensHtml };
+                    }""",
+                    {"m": dp_m},
+                )
+                check(f"sceneDebugHtml rendered real HTML for {dp_m['moment_id']} ({dp_m['result']}) with no exception",
+                      bool(panel and panel["debugHtml"] and len(panel["debugHtml"]) > 0), True)
+                check("the panel shows a per-leg 'Reconciliation verdict (leg N)' block (Stage 2, section 2.6), not just one",
+                      panel["debugHtml"].count("Reconciliation verdict (leg") >= 1, True)
+                check("the knobs table carries the new 'leg' column header (Stage 2, section 2.6)",
+                      "<th>leg</th>" in panel["debugHtml"], True)
+                check("fielderTokensHtml (which runs reconcileCoverage internally) rendered with no exception",
+                      bool(panel and panel["tokensHtml"] and len(panel["tokensHtml"]) > 0), True)
+            else:
+                print("  [skip] no 2-leg DP moment found in the live feed")
+        else:
+            print("  [skip] no real feed data / meta.json found on disk")
+
+        print("\nFielding-reconciliation audit, real-play report fix (round 2) -")
+        print("returnsAfterThrow: a fielder who fields the ball, throws it away, then")
+        print("must return to cover a base later in the same chain (KC@RC S13/Sess4,")
+        print("Jazzy Jeff batting, moment 130422032 - 1B fields, throws to 2B for the")
+        print("force, then must get back to cover 1B himself for the relay). Verifies")
+        print("both real-play reports: the token actually moves for the return trip")
+        print("(chainMoverPlan's own seen[] dedup used to silently drop it entirely),")
+        print("and it doesn't start moving until AFTER its own throw has released")
+        print("(the dwell - without it, the token visibly starts toward the bag while")
+        print("still supposedly fielding/throwing):")
+        # This moment lives in key_moments.json (the curated feed), not the
+        # plays_*.json files real_plays/real_tables were built from above -
+        # loaded directly here; real_tables (docs/data/meta.json) still
+        # applies, same current season.
+        km_fp = pathlib.Path("docs/data/key_moments.json")
+        return_cover_m = None
+        if km_fp.exists():
+            km_moments = json.loads(km_fp.read_text(encoding="utf-8"))
+            return_cover_m = next((p for p in km_moments if p["moment_id"] == "130422032"), None)
+        if return_cover_m:
+            rc = page.evaluate(
+                """(m) => {
+                    var flight = KMFlight.resolvePlayFlight(m);
+                    var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                    var schedule = KMFlight.throwSchedule(m, moves, flight);
+                    var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                    var coverage = KMFlight.reconcileCoverage(m, flight, plan, schedule);
+                    var entry = plan.filter(function (e) { return e.pos === "1B"; })[0];
+                    var legs = entry ? KMFlight.returnCoverLegTiming(m, entry, schedule, flight) : null;
+                    return {
+                        entry: entry, legs: legs, coverageAdjustments: coverage.adjustments,
+                        throwLeg0EndMs: schedule[0].endMs, receiveLegEndMs: schedule[schedule.length - 1].endMs,
+                    };
+                }""",
+                return_cover_m,
+            )
+            check("1B gets a real plan entry flagged returnsAfterThrow (chainMoverPlan's own seen[] dedup no longer silently drops it)",
+                  bool(rc["entry"] and rc["entry"].get("returnsAfterThrow")), True)
+            check("1B's plan entry has 2 legs (field, then cover) - chainMoverPlan's own raw build",
+                  len(rc["entry"]["legs"]) if rc["entry"] else 0, 2)
+            check("returnCoverLegTiming resolves 3 legs (field, dwell, cover)",
+                  len(rc["legs"]) if rc["legs"] else 0, 3)
+            if rc["legs"]:
+                leg1, leg2, leg3 = rc["legs"]
+                check("leg 2 (the dwell) has a real, positive duration - not a zero-time pass-through",
+                      leg2["durMs"] > 0, True)
+                check("the dwell ends exactly when 1B's own first throw actually releases (schedule[0].endMs) - "
+                      "he never starts toward the cover base before releasing his own throw",
+                      rc["entry"]["startMs"] + leg1["durMs"] + leg2["durMs"], rc["throwLeg0EndMs"], tol=1)
+                cum_arrival = rc["entry"]["startMs"] + leg1["durMs"] + leg2["durMs"] + leg3["durMs"]
+                check("1B's own token arrives at the bag by the time the relay throw actually lands (invariant #4)",
+                      cum_arrival <= rc["receiveLegEndMs"] + 0.5, True)
+            check("reconcileCoverage found a real deficit here and recorded it honestly (coverCompress) - "
+                  "not silently missed because chainMoverPlan's own pre-dwell arrivalMs looked comfortably early",
+                  any(a["knob"] == "coverCompress" for a in rc["coverageAdjustments"]), True)
+        else:
+            print("  [skip] moment 130422032 not found in the live feed")
+
+        # Alex's report: a non-ball-toucher infielder covering a base on a
+        # ground-archetype play (1B covering first while SS/2B/3B fields the
+        # grounder) broke way too late - the old ballPassesDepthMs gate is a
+        # pure radial-distance check with no sense of direction, so a
+        # grounder hit clear across the infield still eventually "passes"
+        # 1B's own depth (capped at fieldedMs), meaning 1B often didn't
+        # start moving until the OTHER fielder had ALREADY fielded the ball.
+        # Real moment 130424049 (KC@RC S13/Sess4, Barney Turbo batting - SS
+        # fields a routine grounder, 1B covers first unassisted): the old
+        # gate would have held 1B at the plate until ~844ms in (ball fielded
+        # at ~1253ms) - real baseball has 1B breaking the instant the ball's
+        # read off the bat as going to SS, with no cost to arriving early.
+        print("\nAlex's report fix: a non-ball-toucher covering infielder (1B covering first while")
+        print("SS/2B/3B fields the grounder) breaks immediately, not gated on ballPassesDepthMs -")
+        print("moment 130424049 (SS fields, 1B covers first):")
+        cover_break_m = next((p for p in km_moments if p["moment_id"] == "130424049"), None) if km_fp.exists() else None
+        if cover_break_m:
+            cb = page.evaluate(
+                """(m) => {
+                    var flight = KMFlight.resolvePlayFlight(m);
+                    var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                    var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                    var entry = plan.filter(function (e) { return e.pos === "1B"; })[0];
+                    var oldGateWouldBe = entry ? KMFlight.ballPassesDepthMs(flight, Math.hypot(entry.anchor.x, entry.anchor.y)) : null;
+                    return {
+                        fielder: flight.fielder, entryStartMs: entry ? entry.startMs : null,
+                        fieldedMs: KMFlight.fieldedMs(flight), oldGateWouldBe: oldGateWouldBe,
+                    };
+                }""",
+                cover_break_m,
+            )
+            print(f"  fielder={cb['fielder']} 1B startMs={cb['entryStartMs']} "
+                  f"fieldedMs={cb['fieldedMs']:.0f} old-gate-would-be={cb['oldGateWouldBe']}")
+            check("1B is a covering (non-ball-toucher) entry on this play", cb["fielder"] != "1B", True)
+            check("1B breaks on the flat INFIELD_COVER_BREAK_MS reaction beat",
+                  cb["entryStartMs"], infield_cover_break_ms, tol=0.5)
+            check("1B now breaks well before the ball is even fielded elsewhere (the reported bug's own symptom)",
+                  cb["entryStartMs"] < cb["fieldedMs"] - 200, True)
+            check("the old radial depth gate would have held 1B far later than the new flat reaction beat "
+                  "(confirms this play actually exercises the fixed code path, not a no-op)",
+                  cb["oldGateWouldBe"] > cb["entryStartMs"] + 200, True)
+        else:
+            print("  [skip] moment 130424049 not found in the live feed")
 
         browser.close()
 
