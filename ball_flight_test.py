@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -2932,6 +2933,7 @@ def main() -> None:
                             lastLegEndMs: lastLeg.endMs, arrival: arrival, marginSafe: marginSafe,
                             fieldedAlongFt: fieldedAlongFt, maxAlongFt: maxAlongFt,
                             groundTimeS: flight.groundTimeS, honestGroundTimeS: honestGroundTimeS,
+                            adjustments: schedule.adjustments,
                         };
                     }""",
                     m,
@@ -2941,8 +2943,18 @@ def main() -> None:
                       pace["paceScale"] is not None, True)
                 check(f"{mid}: paceScale within [charge.min, 1)",
                       charge_min - 1e-9 <= pace["paceScale"] < 1, True)
+                # hustleRunner (reconcileLeg's own delta>0 pool) moves the
+                # runner's own internal required-arrival target earlier by its
+                # recorded ms (always <= 0) before holdRelease closes the
+                # remainder exactly - safeRunnerArrivalMs above is the honest,
+                # pre-hustle arrival, so it has to be folded back in here or
+                # this check compares against a target the schedule itself
+                # was never actually reconciled against (surfaced once the
+                # retreat step above started making hustleRunner fire on
+                # plays that used to need charge-easing alone).
+                hustle_ms = sum(a["ms"] for a in pace["adjustments"] if a["knob"] == "hustleRunner")
                 check(f"{mid}: the play still renders as a hit - throw loses by >= contestedSafe floor",
-                      pace["lastLegEndMs"] - pace["arrival"] >= pace["marginSafe"] - 0.5, True)
+                      pace["lastLegEndMs"] - pace["arrival"] - hustle_ms >= pace["marginSafe"] - 0.5, True)
                 check(f"{mid}: fielded point stays within maxAlongFt (never rolls past the dirt edge)",
                       pace["fieldedAlongFt"] <= pace["maxAlongFt"] + 0.5, True)
                 check(f"{mid}: recorded groundTimeS is never earlier than the ball's own honest natural time there (no relabeling)",
@@ -3358,6 +3370,268 @@ def main() -> None:
                   cb["oldGateWouldBe"] > cb["entryStartMs"] + 200, True)
         else:
             print("  [skip] moment 130424049 not found in the live feed")
+
+        # Alex's ask: INFIELD_GLOVE_REACH_FT widened how often applyChargeEase's
+        # own paceScale (bottoming out at charge.min) still isn't enough to
+        # make a real infield-single/bunt-hit play look plausible - before this,
+        # the reconciler fell straight through to leaning on slowThrow/
+        # hustleRunner/holdRelease downstream, which for several real corpus
+        # plays meant a multi-second holdRelease (the fielder just standing on
+        # the ball). The retreat step (capBearingAwayFromFt + depth pushed
+        # toward the dirt edge, mirroring applyGrounderDeepSetup's own leeway
+        # in reverse) gives the reconciler a more honest lever first. Real
+        # moment 130117037 (current feed): before the retreat step existed,
+        # this play needed a 1741ms holdRelease; verify the retreat now fires
+        # and that holdRelease drops sharply as a result.
+        print("\nAlex's ask: applyChargeEase's own retreat step (position pushed away from")
+        print("the ball when charge.min pace alone isn't enough) - moment 130117037:")
+        retreat_m = next((p for p in real_plays if str(p.get("moment_id") or p.get("play_num")) == "130117037"), None)
+        if retreat_m:
+            rt = page.evaluate(
+                """(m) => {
+                    var flight = KMFlight.resolvePlayFlight(m);
+                    var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                    var schedule = KMFlight.throwSchedule(m, moves, flight);
+                    var maxAlongFt = KMFlight.dirtEdgeFt(flight.angle) - flight.distance;
+                    var fieldedAlongFt = flight.fieldedDistFt - flight.distance;
+                    return {
+                        paceScale: flight.fieldingAdjust.paceScale,
+                        chargeRetreat: !!flight.fieldingAdjust.chargeRetreat,
+                        depthPct: flight.fieldingAdjust.depthPct,
+                        adjustments: schedule.adjustments,
+                        fieldedAlongFt: fieldedAlongFt, maxAlongFt: maxAlongFt,
+                    };
+                }""",
+                retreat_m,
+            )
+            hold_ms = next((a["ms"] for a in rt["adjustments"] if a["knob"] == "holdRelease"), 0)
+            print(f"  paceScale={rt['paceScale']} chargeRetreat={rt['chargeRetreat']} depthPct={rt['depthPct']} "
+                  f"holdRelease={hold_ms} fieldedAlongFt={rt['fieldedAlongFt']:.1f} maxAlongFt={rt['maxAlongFt']:.1f}")
+            charge_min_now = page.evaluate("KMFlight.FIELDER_PACE_SCALE.charge.min")
+            check("charge pace is maxed at charge.min before the retreat step even considers firing",
+                  rt["paceScale"], charge_min_now, tol=1e-9)
+            check("the retreat step actually fired (charge.min alone wasn't enough)",
+                  rt["chargeRetreat"], True)
+            check("depthPct lands in [0, 1] - a real bounded retreat, not an unbounded shove",
+                  0 <= rt["depthPct"] <= 1, True)
+            check("holdRelease dropped from the pre-retreat 1741ms this exact play used to need",
+                  hold_ms < 1741, True)
+            check("Alex's ask: the retreated fielder still genuinely fields the ball short of the dirt "
+                  "edge - never retreated so far the ball would just cap there untouched",
+                  rt["fieldedAlongFt"] < rt["maxAlongFt"] - 0.5, True)
+        else:
+            print("  [skip] moment 130117037 not found in the live feed")
+
+        print("\ncapBearingAwayFromFt is the exact mirror of capBearingTowardFt - same clamped")
+        print("step magnitude, opposite rotation direction:")
+        mirror = page.evaluate(
+            """() => {
+                var anchor = {x: 30, y: 130};
+                var target = {x: 60, y: 140};
+                var toward = KMFlight.capBearingTowardFt(anchor, target, 3);
+                var away = KMFlight.capBearingAwayFromFt(anchor, target, 3);
+                function deg(p) { return 45 + Math.atan2(p.x, p.y) * 180 / Math.PI; }
+                var anchorDeg = deg(anchor);
+                return {
+                    towardStepDeg: deg(toward) - anchorDeg,
+                    awayStepDeg: deg(away) - anchorDeg,
+                    towardDepth: Math.hypot(toward.x, toward.y),
+                    awayDepth: Math.hypot(away.x, away.y),
+                    anchorDepth: Math.hypot(anchor.x, anchor.y),
+                };
+            }"""
+        )
+        check("capBearingAwayFromFt steps the same magnitude as capBearingTowardFt, opposite sign",
+              mirror["awayStepDeg"], -mirror["towardStepDeg"], tol=1e-6)
+        check("capBearingAwayFromFt never changes depth - bearing only",
+              mirror["awayDepth"], mirror["anchorDepth"], tol=1e-9)
+
+        # Alex's report: an infield_single up the middle (Ornn Mistborn, GHG@ACP
+        # S13/Sess4, bot 1, moment 130417007) rested at the exact dirt-edge
+        # cap with the fielder still parked at their raw default anchor - the
+        # leeway/sprint-retry block above used to read flight.archetype ===
+        # "grounder" only, the one place left that hadn't been widened
+        # alongside maxAlongFt/applyChargeEase when bunt/infield_single were
+        # unified into the same "no genuine crossing" race. Verify the widened
+        # gate now pulls the fielder's anchor toward the ball for this exact
+        # archetype too.
+        print("\nAlex's report fix: infield_single/bunt now get the same leeway/sprint-retry")
+        print("treatment as grounder when the honest race never finds a genuine crossing -")
+        print("moment 130417007 (GHG@ACP S13/Sess4, Ornn Mistborn, IF1B up the middle):")
+        plays04_fp = pathlib.Path("docs/data/plays_04.json")
+        if plays04_fp.exists():
+            plays04 = json.loads(plays04_fp.read_text(encoding="utf-8"))
+            ornn_m = next((p for p in plays04 if p["moment_id"] == "130417007"), None)
+            if ornn_m:
+                og = page.evaluate(
+                    """(m) => {
+                        var flight = KMFlight.resolvePlayFlight(m);
+                        var maxAlongFt = KMFlight.dirtEdgeFt(flight.angle) - flight.distance;
+                        var fieldedAlongFt = flight.fieldedDistFt - flight.distance;
+                        var defaultAnchorDepth = Math.hypot(
+                            KMFlight.FIELDER_ANCHORS_FT[flight.fielder].x,
+                            KMFlight.FIELDER_ANCHORS_FT[flight.fielder].y);
+                        var actualAnchorDepth = Math.hypot(
+                            flight.fieldingAdjust.anchorFt.x, flight.fieldingAdjust.anchorFt.y);
+                        var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                        var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                        var entry = plan.filter(function (e) { return e.pos === flight.fielder; })[0];
+                        return {
+                            archetype: flight.archetype, fielder: flight.fielder,
+                            cappedFallback: flight.fieldingAdjust.cappedFallback,
+                            fieldedAlongFt: fieldedAlongFt, maxAlongFt: maxAlongFt,
+                            defaultAnchorDepth: defaultAnchorDepth, actualAnchorDepth: actualAnchorDepth,
+                            entryArrivalMs: entry ? entry.arrivalMs : null,
+                            entryDeadlineMs: entry ? entry.deadlineMs : null,
+                        };
+                    }""",
+                    ornn_m,
+                )
+                print(f"  archetype={og['archetype']} fielder={og['fielder']} cappedFallback={og['cappedFallback']} "
+                      f"defaultAnchorDepth={og['defaultAnchorDepth']:.1f} actualAnchorDepth={og['actualAnchorDepth']:.1f} "
+                      f"entryArrivalMs={og['entryArrivalMs']} entryDeadlineMs={og['entryDeadlineMs']}")
+                check("this play is the infield_single archetype (not plain grounder) - the exact "
+                      "archetype the old gate excluded", og["archetype"], "infield_single")
+                check("the leeway fired (cappedFallback true) - infield_single now goes through the "
+                      "same block a comparable groundout already did", og["cappedFallback"], True)
+                check("the fielder's own anchor moved meaningfully closer to the ball's actual line "
+                      "than their raw default position", og["actualAnchorDepth"] > og["defaultAnchorDepth"] + 10, True)
+                # Unlike applyChargeEase's own retreat step (which must never
+                # push a fielder so far the ball caps untouched), this leeway
+                # runs precisely BECAUSE the ball is already resting at the
+                # dirt edge (isCappedFallback's own definition) - it never
+                # moves the ball's own rest point, only pulls the fielder's
+                # anchor closer to that already-fixed point. Resting exactly
+                # AT maxAlongFt here is correct, not a bug.
+                check("fielded point never rolls past the dirt edge (it's expected to sit exactly on it here)",
+                      og["fieldedAlongFt"] <= og["maxAlongFt"] + 0.5, True)
+                check("the glove's own computed arrival is comfortably before the ball actually stops rolling",
+                      og["entryArrivalMs"] < og["entryDeadlineMs"] - 50, True)
+            else:
+                print("  [skip] moment 130417007 not found in docs/data/plays_04.json")
+        else:
+            print("  [skip] docs/data/plays_04.json not found on disk")
+
+        # Alex's report: on this same DP31 (Tor Tilla, POR@RLY S13/Sess4, top 2,
+        # moment 130418010 - 3B fields deep, touches 3rd for the first force
+        # out, throws to 1st for the second), the batter visibly beat the
+        # throw to first "by quite a bit." throwSchedule's own reconciliation
+        # DID retarget the batter (runnerLateJump/stretchRunner, keyed "BATTER"
+        # in schedule.adjustments) - but sceneFieldHtml's own !batterReached
+        # fallback (used whenever resolveRunnerMoves's raw data, preferred over
+        # deriveRunnerMoves, never lists an explicit BATTER move - exactly this
+        # play's shape) rendered the batter's out-to-first sprint via a plain
+        # runnerLegMs(m,"BATTER",1) call that never read that adjustment at
+        # all. The token reached the base early (69.9% through the animation)
+        # and idled there until the out actually registered (89.3%) - visibly
+        # "beats the throw and waits." Verify the retargeting now reaches this
+        # render path: no more early-arrival plateau.
+        print("\nAlex's report fix: the batter's own !batterReached render path now folds in")
+        print("runnerAdjMsByWho too, not just the main moves.map() loop - moment 130418010")
+        print("(Tor Tilla DP31, 3B fields deep + touches 3rd + throws to 1st):")
+        tortilla_m = next((p for p in plays04 if p.get("moment_id") == "130418010"), None) if plays04_fp.exists() else None
+        if tortilla_m:
+            scene_html = page.evaluate("(m) => KMFlight.playSceneHtml({play: m})", tortilla_m)
+            batter_match = re.search(r'class="rn out-to-first batter"[^>]*animation-name:(rnOut\d+)', scene_html)
+            check("the batter's own out-to-first token exists in the rendered scene", bool(batter_match), True)
+            if batter_match:
+                anim_name = batter_match.group(1)
+                kf_match = re.search(r"@keyframes " + re.escape(anim_name) + r" \{(.*?)\}\s*</style>", scene_html, re.S)
+                check(f"found the {anim_name} keyframe block", bool(kf_match), True)
+                if kf_match:
+                    stops = re.findall(r"translate\(([\d.]+)px,([\d.]+)px\)", kf_match.group(1))
+                    print(f"  {anim_name} stops: {stops}")
+                    # The old bug's own tell: two CONSECUTIVE stops landing on
+                    # the exact same point (arrived early at frac X, held
+                    # there until the real out at frac Y > X). A healthy
+                    # retargeted run goes straight from the box to the base
+                    # to the dugout - no repeated point in a row.
+                    has_dup_hold = any(stops[i] == stops[i + 1] for i in range(len(stops) - 1))
+                    check("no early-arrival hold (no two consecutive keyframe stops at the same point) - "
+                          "the batter no longer reaches the base early and waits for the out",
+                          has_dup_hold, False)
+        else:
+            print("  [skip] moment 130418010 not found in docs/data/plays_04.json")
+
+        # Alex's report (same play, same session): the ball visibly ran ahead
+        # of the 3B glove during the carry to third - "doesn't visually
+        # appear in the glove... the ball is ahead of the glove." Root cause:
+        # unassistedLegTiming's own leg1 (the fielding portion) was capped at
+        # the HONEST fieldedMs(flight), but the out-reconciler's own
+        # quickRelease/sprintCarry had already pulled this leg's own
+        # schedule.startMs meaningfully earlier (a legitimate, non-edge-case
+        # outcome for a tight force out) - the ball marker (throwHtml, which
+        # reads schedule.startMs directly) started moving toward third before
+        # the glove's own render had even finished reaching the pickup point.
+        # Verify the glove now reaches the pickup point, and third base, at
+        # the exact same absolute moments the ball marker does.
+        print("\nAlex's report fix: the 3B glove's own carry-to-third timing now exactly")
+        print("matches the ball marker's own (unassistedLegTiming capped at the reconciled")
+        print("schedule.startMs, not the honest fieldedMs) - moment 130418010:")
+        if tortilla_m:
+            sync_check = page.evaluate(
+                """(m) => {
+                    var flight = KMFlight.resolvePlayFlight(m);
+                    var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                    var schedule = KMFlight.throwSchedule(m, moves, flight);
+                    var plan = KMFlight.chainMoverPlan(m, flight, moves);
+                    var entry = plan.filter(function (e) { return e.pos === flight.fielder; })[0];
+                    var legs = KMFlight.unassistedLegTiming(m, entry, schedule, flight);
+                    return {
+                        entryStartMs: entry.startMs, legs: legs,
+                        scheduleStartMs: schedule[0].startMs, scheduleEndMs: schedule[0].endMs,
+                    };
+                }""",
+                tortilla_m,
+            )
+            leg1, leg2, leg3 = sync_check["legs"]
+            gloveReachesPickupMs = sync_check["entryStartMs"] + leg1["durMs"] + leg2["durMs"]
+            gloveArrivesMs = gloveReachesPickupMs + leg3["durMs"]
+            print(f"  glove reaches pickup at {gloveReachesPickupMs}ms (ball departs at {sync_check['scheduleStartMs']}ms), "
+                  f"glove arrives at base at {gloveArrivesMs}ms (ball arrives at {sync_check['scheduleEndMs']}ms)")
+            check("the glove reaches the pickup point at the exact moment the ball marker departs for third",
+                  gloveReachesPickupMs, sync_check["scheduleStartMs"], tol=1)
+            check("the glove arrives at third base at the exact moment the ball marker does",
+                  gloveArrivesMs, sync_check["scheduleEndMs"], tol=1)
+
+        # Alex's report (same play): "the ball teleports a bit into the
+        # glove." Root cause: ballArcHtml's own handoffMs only ever drove the
+        # fade-out timing - the ball's own keyframe SAMPLES (and the CSS
+        # --dur built from them) still ran the full honest roll
+        # (fieldedMs(flight)), regardless of whether a following throw's own
+        # startMs (handoffMs) landed earlier. Invisible as long as a handoff
+        # could only ever land AFTER the honest roll finished - not true once
+        # unassistedLegTiming's own fix (this same report) lets an out-
+        # reconciler's quickRelease pull a carry's departure earlier than
+        # fieldedMs. When it does, the rolling ball used to fade out mid-roll
+        # while a separate throw-ball simultaneously appeared at the TRUE
+        # rest point ahead of it. Verify the roll now compresses (ground
+        # phase only) to finish exactly at the handoff moment instead.
+        print("\nAlex's report fix: the rolling ball's own animation compresses to finish")
+        print("exactly at the handoff moment, not mid-roll - moment 130418010:")
+        if tortilla_m:
+            teleport_check = page.evaluate(
+                """(m) => {
+                    var flight = KMFlight.resolvePlayFlight(m);
+                    var moves = KMFlight.deriveRunnerMoves(String(m.obc_before || "000"), String(m.obc_after || "000"), m.runs || 0);
+                    var throwSched = KMFlight.throwSchedule(m, moves, flight);
+                    var handoffMs = throwSched.length ? Math.min.apply(null, throwSched.map(function (t) { return t.startMs; })) : null;
+                    var arc = KMFlight.ballArcHtml(m, flight, handoffMs);
+                    return {
+                        handoffMs: handoffMs, fieldedMs: KMFlight.fieldedMs(flight),
+                        arcTotalMs: arc.totalS * 1000, arcEndPt: arc.endPt,
+                    };
+                }""",
+                tortilla_m,
+            )
+            print(f"  handoffMs={teleport_check['handoffMs']} honestFieldedMs={teleport_check['fieldedMs']} "
+                  f"arc.totalS(ms)={teleport_check['arcTotalMs']}")
+            check("the honest fieldedMs is genuinely later than the handoff here (precondition - "
+                  "confirms this play actually exercises the compression, not a no-op)",
+                  teleport_check["fieldedMs"] > teleport_check["handoffMs"] + 50, True)
+            check("the ball's own animation duration compresses to match the handoff moment exactly, "
+                  "not the honest (later) fieldedMs",
+                  teleport_check["arcTotalMs"], teleport_check["handoffMs"], tol=1)
 
         browser.close()
 

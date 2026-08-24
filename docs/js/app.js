@@ -1332,6 +1332,12 @@
       // panel against real plays now, not a separate calibration pass.
       { group: "Fielding leeway", key: "winnerCheatMaxDeg", label: "WINNER_CHEAT_MAX_DEG", unit: "deg", step: 1, min: 0, def: 3,
         get: function () { return WINNER_CHEAT_MAX_DEG; }, set: function (v) { WINNER_CHEAT_MAX_DEG = v; } },
+      { group: "Fielding leeway", key: "infieldGloveReach", label: "INFIELD_GLOVE_REACH_FT", unit: "ft", step: 0.5, min: 0, def: 3,
+        get: function () { return INFIELD_GLOVE_REACH_FT; }, set: function (v) { INFIELD_GLOVE_REACH_FT = v; } },
+      { group: "Fielding leeway", key: "infieldSprintAccel", label: "INFIELD_CHARGE_SPRINT_ACCEL_FT_S2", unit: "ft/s2", step: 0.1, min: 0, def: 14.4,
+        get: function () { return INFIELD_CHARGE_SPRINT_ACCEL_FT_S2; }, set: function (v) { INFIELD_CHARGE_SPRINT_ACCEL_FT_S2 = v; } },
+      { group: "Fielding leeway", key: "infieldSprintTop", label: "INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S", unit: "ft/s", step: 0.5, min: 0, def: 24,
+        get: function () { return INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S; }, set: function (v) { INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S = v; } },
       // Task 4, section 4.1: FIELDER_PACE_SCALE's six bounds - starting
       // guesses, eyeballed here the same way WINNER_CHEAT_MAX_DEG is.
       { group: "Pace scale - charge", key: "paceChargeMin", label: "min", unit: "%", step: 1, min: 0, def: 60,
@@ -3074,6 +3080,14 @@
   // against real plays - tune this one number if it reads as too much or
   // too little.
   var WINNER_CHEAT_MAX_DEG = 3;
+  // Alex's ask: an infielder's body doesn't have to stand exactly where the
+  // ball ends up - a glove (and a short dive) covers real lateral ground.
+  // Feeds reachAdjustedDistFt below, wherever an infield candidate races the
+  // ball (chargeInIntercept, applyChargeEase's own re-race, the positioning
+  // hierarchy's sprint retry) - outfield candidates (resolveSinglePickup's
+  // own OF race, sharing the same chargeInIntercept) pass 0 instead, unchanged.
+  // Starting guess (Alex's own number), not yet eyeballed against real plays.
+  var INFIELD_GLOVE_REACH_FT = 3;
   // Task 4 (fielding-reconciliation-audit plan), section 4.1: per-profile-
   // kind bounded pace range, the movement-speed sibling of THROW_SPEED_BY_
   // POS - multiplicative around each player's own spdPaceScale'd base pace
@@ -3106,6 +3120,32 @@
     run:     { min: 0.80, max: 1.12 },   // 27 ft/s base -> ~30.2 ft/s max, elite-sprint territory
     pursuit: { min: 0.85, max: 1.10 },
   };
+  // Alex's ask: a fielder's body doesn't have to be standing exactly where
+  // the ball ends up - a glove (and a short dive) covers real ground to
+  // either side. Modeled as lateral only, not "closer/farther": the ball's
+  // own ground path is a straight line (groundDirPoint's own fixed
+  // direction) for the whole race, so the perpendicular distance from any
+  // fixed anchor to that line is a single constant, not something that
+  // changes with alongFt - decompose the anchor-to-ball vector into along-
+  // the-line (a real depth/timing requirement no amount of reach substitutes
+  // for - being in the right spot at the right moment is still a running
+  // problem) and perpendicular-to-it (side-to-side, where a glove/dive
+  // genuinely closes the last few feet without needing footwork there),
+  // and only discount the perpendicular part. reachFt 0 (outfielders,
+  // chargeInIntercept's own OF-candidate race) reproduces the original
+  // undiscounted hypot distance exactly - the same vector through an
+  // orthogonal basis change, not an approximation.
+  function reachAdjustedDistFt(flight, anchor, p, reachFt) {
+    var vx = flight.contactVel.vx, vy = flight.contactVel.vy;
+    var sh = Math.hypot(vx, vy) || 1;
+    var dirX = vx / sh, dirY = vy / sh;
+    var ax = anchor.x - p.x, ay = anchor.y - p.y;
+    var alongComp = ax * dirX + ay * dirY;
+    var perpX = ax - alongComp * dirX, perpY = ay - alongComp * dirY;
+    var perpDist = Math.hypot(perpX, perpY);
+    var effPerpDist = Math.max(0, perpDist - (reachFt || 0));
+    return Math.hypot(alongComp, effPerpDist);
+  }
   // CHARGE_REACTION_S only applies once a fielder actually has to move
   // (distFt>0) - a fielder whose own real static anchor happens to sit
   // exactly on the ball's path doesn't need to "recognize and break"
@@ -3117,18 +3157,20 @@
   // 65mph "grounder" the camped 2B was standing right on top of still
   // ended up "fielded" 130ft past his own depth, because the race never
   // credited him with blocking it as it arrived.
-  function chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS) {
+  function chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS, accelFtPerS2, reachFt) {
     var p = groundDirPoint(flight, alongFt);
-    var distFt = Math.hypot(p.x - anchor.x, p.y - anchor.y);
+    var distFt = reachAdjustedDistFt(flight, anchor, p, reachFt);
     // Re-based on the shared primitive (Task 3.1): the charge race now
     // accelerates instead of running at a flat top speed - a deliberate
     // behavior change (slightly lengthens short charges, more honest to
-    // real fielder motion). accelFtPerS2 defaults to FIELDER_ACCEL_FT_S2
-    // via arrivalTimeS/accelTimeS. reactionS (Task 6): per-position
+    // real fielder motion). accelFtPerS2 (positioning hierarchy's own sprint
+    // retry, resolveGrounderInterception below): per-race override, defaults
+    // to FIELDER_ACCEL_FT_S2 when omitted - every existing caller keeps
+    // today's behavior unchanged. reactionS (Task 6): per-position
     // override - defaults to the shared CHARGE_REACTION_S when omitted.
     return arrivalTimeS(distFt, {
       topSpeedFtPerS: ftPerS || FIELDER_CHARGE_FT_PER_S,
-      accelFtPerS2: FIELDER_ACCEL_FT_S2,
+      accelFtPerS2: accelFtPerS2 || FIELDER_ACCEL_FT_S2,
       reactionS: reactionS == null ? CHARGE_REACTION_S : reactionS
     });
   }
@@ -3170,9 +3212,9 @@
   // every fielder's distance to the ball's full, un-intercepted ~225ft
   // natural roll instead - a wildly wrong "who fields it" answer for what
   // should have been an instant comebacker out.
-  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt, ftPerS, reactionS) {
+  function fielderInterceptS(anchor, flight, gp, maxAlongFt, knownAlongFt, ftPerS, reactionS, accelFtPerS2, reachFt) {
     var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
-    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS) - gp.timeAt(alongFt); }
+    function h(alongFt) { return chargeFielderArriveS(anchor, flight, alongFt, ftPerS, reactionS, accelFtPerS2, reachFt) - gp.timeAt(alongFt); }
     if (h(0) <= 0) return { alongFt: 0, atS: gp.timeAt(0) };
     if (knownAlongFt != null && knownAlongFt > 0 && knownAlongFt <= restFt && h(knownAlongFt) <= 0) {
       var lo0 = 0, hi0 = knownAlongFt;
@@ -3198,7 +3240,7 @@
       }
       prevAlong = along;
     }
-    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt, ftPerS, reactionS) };
+    return { alongFt: restFt, atS: chargeFielderArriveS(anchor, flight, restFt, ftPerS, reactionS, accelFtPerS2, reachFt) };
   }
   // Races every plausible infielder's own charge-in (above) and returns
   // whichever actually gets there first - "who fields it" and "how long does
@@ -3252,7 +3294,8 @@
       // No analytically-known crossing point anymore (that only existed for
       // the old reprojected camped anchor, at distFt=0) - every candidate
       // now races the general coarse-grid scan.
-      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, null, ftPerS, reactionS);
+      var reachFt = OUTFIELD_POSITIONS[pos] ? 0 : INFIELD_GLOVE_REACH_FT;
+      var result = fielderInterceptS(anchor, flight, gp, maxAlongFt, null, ftPerS, reactionS, null, reachFt);
       if (!best || result.atS < best.atS) best = { pos: pos, alongFt: result.alongFt, atS: result.atS, anchorFt: anchor };
     });
     return best;
@@ -3295,6 +3338,19 @@
     var deltaDeg = ((targetDeg - anchorDeg + 540) % 360) - 180; // shortest signed turn, (-180,180]
     var step = Math.max(-maxDeg, Math.min(maxDeg, deltaDeg));
     return landingPoint(depth, anchorDeg + step);
+  }
+  // Mirror of capBearingTowardFt (applyChargeEase's own retreat step below,
+  // Alex's ask): same shortest-signed-turn read of which way the ball
+  // actually is, capped at the same maxDeg, just stepped the OPPOSITE
+  // direction - away from the ball's own bearing instead of toward it.
+  function capBearingAwayFromFt(anchor, targetFt, maxDeg) {
+    var depth = Math.hypot(anchor.x, anchor.y);
+    if (depth <= 0) return anchor;
+    var anchorDeg = 45 + Math.atan2(anchor.x, anchor.y) * 180 / Math.PI;
+    var targetDeg = 45 + Math.atan2(targetFt.x, targetFt.y) * 180 / Math.PI;
+    var deltaDeg = ((targetDeg - anchorDeg + 540) % 360) - 180;
+    var step = Math.max(-maxDeg, Math.min(maxDeg, deltaDeg));
+    return landingPoint(depth, anchorDeg - step);
   }
   // Task 1 audit, section 1.2: the depth/bearing leeway block extracted
   // verbatim (no behavior change) from resolveGrounderInterception, plus one
@@ -3402,6 +3458,7 @@
     var basePace = OUTFIELD_POSITIONS[pos] ? OF_CHARGE_FT_PER_S : FIELDER_CHARGE_FT_PER_S;
     var ftPerS = basePace * spdPaceScale(fielderSpd(m, pos));
     var reactionS = pos === "P" ? PITCHER_CHARGE_REACTION_S : CHARGE_REACTION_S;
+    var reachFt = OUTFIELD_POSITIONS[pos] ? 0 : INFIELD_GLOVE_REACH_FT;
 
     // 40-step grid from scale=1 (exclusive - already known triggered) down
     // to charge.min, stopping at the first (largest, least-slowdown) scale
@@ -3420,11 +3477,72 @@
       // ftPerS can still only ever push alongFt further along restFt's own
       // bound, never past it, so maxAlongFt's own dirt-edge cap holds
       // automatically, same as the honest race.
-      var eased = fielderInterceptS(anchorFt, flight, gp, maxAlongFt, null, ftPerS * scale, reactionS);
+      var eased = fielderInterceptS(anchorFt, flight, gp, maxAlongFt, null, ftPerS * scale, reactionS, null, reachFt);
       bestFieldedFt = eased.alongFt; bestGroundTimeS = eased.atS; bestScale = scale;
       if (!triggeredAt(eased.alongFt, eased.atS)) break;
     }
-    return { fieldedFt: bestFieldedFt, groundTimeS: bestGroundTimeS, paceScale: bestScale };
+
+    // Alex's ask: charge.min alone isn't always enough (INFIELD_GLOVE_REACH_FT
+    // widened how often it isn't) - the reconciler used to fall straight
+    // through to leaning on slowThrow/hustleRunner/holdRelease downstream,
+    // which for a real chunk of plays meant a multi-second holdRelease (the
+    // fielder just standing on the ball) to make the arithmetic work. A more
+    // honest lever first: retreat the fielder's own TRUE starting position
+    // away from the ball too, mirroring applyGrounderDeepSetup's own leeway
+    // in reverse. Bearing: capBearingAwayFromFt, same WINNER_CHEAT_MAX_DEG
+    // cap, rotated away from the ball's line instead of toward it. Depth:
+    // Alex's own correction - this trigger only ever fires because the
+    // ball's fielded point is SHALLOWER than the fielder's true depth (that
+    // shallowness is exactly why the honest charge converts it too easily),
+    // so playing shallower would only move the anchor TOWARD the fielded
+    // point, shrinking the gap further - backwards. "Away" here means
+    // deeper, the exact same [trueDepth, dirtEdge] room the close leeway
+    // already uses (dirtEdgeFt is a real physical boundary either
+    // direction), just never capped at the ball's own point the way the
+    // close leeway is - going past it is the whole point here.
+    // One combined scalar t (0 = the true anchor, 1 = the full bearing/depth
+    // retreat) sweeps both together, same "smallest honest correction"
+    // shape as the pace grid above - stops at the first t that resolves the
+    // trigger at the already-maxed charge.min pace (retreating position
+    // further doesn't reopen the pace question). Falls through to the full
+    // t=1 retreat if nothing along the grid ever flips it, same as the pace
+    // grid's own fallback - UNLESS that would mean the retreated fielder no
+    // longer genuinely catches the ball before it's fielderInterceptS's own
+    // restFt boundary (Alex's ask): an infield single/bunt still has to
+    // visibly get fielded by a real glove before the ball's own trail comes
+    // to rest at the dirt edge, never a ball that just rolls out there
+    // untouched - that would be a genuinely different (and wrong) kind of
+    // play. isGenuine mirrors resolveGrounderInterception's own
+    // isCappedFallback check (same restFt, same -1e-6 tolerance) - the very
+    // first honest race that got this play into applyChargeEase at all was
+    // already a genuine crossing (cappedFallback's own disjointness
+    // guard), so the loop only ever needs to watch for retreating PAST
+    // that, never needs a special t=0 case.
+    var retreatAnchorFt = null, retreatDepthPct = null, retreatApplied = false;
+    if (triggeredAt(bestFieldedFt, bestGroundTimeS)) {
+      retreatApplied = true;
+      var trueDepthFt = Math.hypot(anchorFt.x, anchorFt.y);
+      var fieldedPtForBearing = groundDirPoint(flight, bestFieldedFt);
+      var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
+      var retreatSteps = 40;
+      for (var ri = 1; ri <= retreatSteps; ri++) {
+        var t = ri / retreatSteps;
+        var away = capBearingAwayFromFt(anchorFt, fieldedPtForBearing, WINNER_CHEAT_MAX_DEG * t);
+        var awayDeg = 45 + Math.atan2(away.x, away.y) * 180 / Math.PI;
+        var retreatDepthFt = trueDepthFt + (dirtEdgeFt(awayDeg) - trueDepthFt) * t;
+        var retreatAnchor = landingPoint(retreatDepthFt, awayDeg);
+        var retreated = fielderInterceptS(retreatAnchor, flight, gp, maxAlongFt, null, ftPerS * bestScale, reactionS, null, reachFt);
+        var isGenuine = retreated.alongFt < restFt - 1e-6;
+        if (!isGenuine) break; // any further and the ball would cap at the dirt edge untouched - keep the last genuine step instead
+        bestFieldedFt = retreated.alongFt; bestGroundTimeS = retreated.atS;
+        retreatAnchorFt = retreatAnchor; retreatDepthPct = t;
+        if (!triggeredAt(retreated.alongFt, retreated.atS)) break;
+      }
+    }
+    return {
+      fieldedFt: bestFieldedFt, groundTimeS: bestGroundTimeS, paceScale: bestScale,
+      retreatAnchorFt: retreatAnchorFt, retreatDepthPct: retreatDepthPct, retreatApplied: retreatApplied,
+    };
   }
   function resolveGrounderInterception(m, flight, hand) {
     var hzPos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
@@ -3550,12 +3668,52 @@
       // already fast enough keeps its own natural, uncompressed pace - this
       // only ever tightens the deadline, never loosens it below what the
       // ball's own physics already requires.
-      if (flight.archetype === "grounder" && isCappedFallback) {
-        var deepSetup = applyGrounderDeepSetup(m, flight, intercept, gp, maxAlongFt, raceRestFt);
-        groundTimeS = deepSetup.groundTimeS;
-        flight.fieldingAdjust.anchorFt = deepSetup.anchorFt;
-        flight.fieldingAdjust.depthPct = deepSetup.depthPct;
-        flight.fieldingAdjust.cappedFallback = true;
+      // Alex's report (Ornn Mistborn, GHG@ACP S13/Sess4, bot 1 - IF1B up the
+      // middle): this used to read flight.archetype === "grounder" only,
+      // the one remaining place in this whole leeway/sprint-retry block that
+      // hadn't been widened alongside maxAlongFt/applyChargeEase when bunt/
+      // infield_single were unified into this same race (both above use
+      // GROUND_ARCHETYPES already). An infield_single racing this exact
+      // "no genuine crossing" path got no leeway and no sprint retry at
+      // all - just the raw default anchor and honest charge pace, leaning
+      // entirely on fielderMovePacing's own uncapped deadline compression to
+      // sell the glove reaching a ball that, by definition, this fielder
+      // never actually caught up to. Its own archetype name implies a real
+      // fielding attempt happened, same as a comparable groundout - it
+      // deserves the same leeway/speed treatment, not less.
+      if (GROUND_ARCHETYPES[flight.archetype] && isCappedFallback) {
+        // Positioning hierarchy step 1 (Alex's ask): before ever bending
+        // this fielder's own starting position, try a bounded, realistic
+        // sprint from their TRUE anchor - INFIELD_CHARGE_SPRINT_*'s own
+        // comment has the derivation. Same winning fielder/anchor the honest
+        // race above already picked; this only asks "how much further could
+        // THIS fielder stretch," not "who would a faster-capped race have
+        // picked instead." Flat cap, not spdPaceScale'd further - it's
+        // already the realistic ceiling every infielder shares.
+        var winnerReactionS = pos === "P" ? PITCHER_CHARGE_REACTION_S : CHARGE_REACTION_S;
+        var winnerReachFt = OUTFIELD_POSITIONS[pos] ? 0 : INFIELD_GLOVE_REACH_FT;
+        var sprint = fielderInterceptS(intercept.anchorFt, flight, gp, maxAlongFt, null,
+          INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S, winnerReactionS, INFIELD_CHARGE_SPRINT_ACCEL_FT_S2, winnerReachFt);
+        var sprintCapped = sprint.alongFt >= raceRestFt - 1e-6;
+        if (!sprintCapped) {
+          // The sprint alone gets there - real position, real (faster,
+          // still bounded) pace, no leeway needed. flight.fieldingAdjust
+          // stays at its just-initialized default (anchorFt: the true
+          // anchor, depthPct: 0, cappedFallback: false) except this flag,
+          // which chainMoverPlan reads to render the matching "chargeSprint"
+          // curve instead of the honest "charge" one - the glove's own run
+          // has to move at the same pace that decided this timing, not a
+          // slower one visibly failing to keep up with its own deadline.
+          fieldedFt = sprint.alongFt;
+          groundTimeS = sprint.atS;
+          flight.fieldingAdjust.sprintCapped = true;
+        } else {
+          var deepSetup = applyGrounderDeepSetup(m, flight, intercept, gp, maxAlongFt, raceRestFt);
+          groundTimeS = deepSetup.groundTimeS;
+          flight.fieldingAdjust.anchorFt = deepSetup.anchorFt;
+          flight.fieldingAdjust.depthPct = deepSetup.depthPct;
+          flight.fieldingAdjust.cappedFallback = true;
+        }
       }
       // Task 4 (fielding-reconciliation-audit plan), section 4.2: the slow
       // direction, applied INSIDE the fielding race itself [Alex,
@@ -3579,6 +3737,21 @@
           fieldedFt = chargeEase.fieldedFt;
           groundTimeS = chargeEase.groundTimeS;
           flight.fieldingAdjust.paceScale = chargeEase.paceScale;
+          // The retreat step (applyChargeEase's own comment has the full
+          // rationale): reuses anchorFt/depthPct exactly the way the close
+          // leeway does - "deeper" reads the same downstream either way
+          // (sceneField's fielderStartAnchorFt plays the rest of the infield
+          // back the same percentage), so no new field is needed for other
+          // infielders to pick this up. chargeRetreat is its own flag purely
+          // so a downstream reader (the debug panel, the corpus probe) can
+          // tell this apart from the close leeway's own cappedFallback case -
+          // disjoint by construction, this branch only ever runs when
+          // cappedFallback is already false.
+          if (chargeEase.retreatApplied && chargeEase.retreatAnchorFt) {
+            flight.fieldingAdjust.anchorFt = chargeEase.retreatAnchorFt;
+            flight.fieldingAdjust.depthPct = chargeEase.retreatDepthPct;
+            flight.fieldingAdjust.chargeRetreat = true;
+          }
         }
       }
     }
@@ -4825,6 +4998,41 @@
   function ballArcHtml(m, flight, handoffMs) {
     var series = flightSampleSeries(flight);
     var totalS = series.totalS > 0 ? series.totalS : 1e-6;
+    // Alex's report (Tor Tilla, POR@RLY S13/Sess4, top 2, DP31): "the ball
+    // teleports a bit into the glove." handoffMs only ever drove the fade
+    // timing (movementRule below) - it never touched these samples' own
+    // timeline, which always ran the ball's full honest roll (totalS,
+    // flight.groundTimeS) regardless. That was invisible as long as a
+    // handoff could only ever land AFTER the honest roll finished (every
+    // throw leg's own startMs used to be fieldedMs(flight)+THROW_DELAY_MS
+    // at the earliest) - but the out-reconciler's own quickRelease/
+    // sprintCarry can legitimately pull an unassisted leg's own departure
+    // earlier than that now (unassistedLegTiming's own fix, same report).
+    // When it does, this ball was still fading out mid-roll while the
+    // separate throw-ball (movingFielderTokenHtml's own carry leg,
+    // synced to that same earlier departure) already appeared at the
+    // TRUE rest point ahead of it - one ball vanishing short of where the
+    // other one picks up reads as a teleport. Compress only the GROUND
+    // phase's own timeline (never the air phase - a fielding-side speed
+    // knob has nothing to say about how long the ball was actually in the
+    // air) so the roll visually finishes at its real rest point by the
+    // handoff moment instead of getting cut off partway there - same
+    // "generic deadline compression" shape used everywhere else in this
+    // file, just applied to the ball's own samples instead of a token's.
+    var hangS = flight.hangS || 0;
+    if (handoffMs != null && handoffMs / 1000 < totalS && handoffMs / 1000 > hangS) {
+      var availableGroundS = handoffMs / 1000 - hangS;
+      var naturalGroundS = totalS - hangS;
+      var groundScale = naturalGroundS > 0 ? availableGroundS / naturalGroundS : 1;
+      series = {
+        totalS: handoffMs / 1000,
+        samples: series.samples.map(function (s) {
+          if (s.t <= hangS) return s;
+          return { t: hangS + (s.t - hangS) * groundScale, x: s.x, y: s.y, z: s.z };
+        }),
+      };
+      totalS = series.totalS;
+    }
     var projected = series.samples.map(function (s) { return projectFt(s.x, s.y, s.z); });
     // Same samples' real (x,y), ground-projected (z forced to 0, ftToSvg's
     // own definition) - the shadow's own path along the ground, separate
@@ -4951,6 +5159,7 @@
       endPt: projected[projected.length - 1], startPt: projected[0],
       shadowEndPt: shadowPts[shadowPts.length - 1],
       shadowEndScale: shadowScaleAt(series.samples[series.samples.length - 1].z, apexFt),
+      totalS: totalS,
     };
   }
 
@@ -4996,7 +5205,6 @@
     // keyframe's own 100% stop) already projects to the true fielded point,
     // not the landing point, so the fix is purely the duration, not a
     // missing visual.
-    var dur = fieldedMs(flight);
     // Alex's report: "only one baseball on the field at a time" - when a real
     // throw follows (throwSchedule, the same pure function throwHtml itself
     // calls - TAG_THROW_ARCHETYPES' decorative sac-fly throw counts too, it's
@@ -5006,6 +5214,14 @@
     var throwSched = throwSchedule(m, moves, flight);
     var handoffMs = throwSched.length ? Math.min.apply(null, throwSched.map(function (t) { return t.startMs; })) : null;
     var arc = ballArcHtml(m, flight, handoffMs);
+    // Alex's report (Tor Tilla DP31, "teleports into the glove"): dur used to
+    // be an independent fieldedMs(flight) call, honest and uncompressed even
+    // when ballArcHtml's own samples (arc.totalS) had just compressed the
+    // ground phase to finish by an earlier handoff - the CSS animation-
+    // duration and the keyframe percentages built against it MUST agree, or
+    // a keyframe's own "X% of the way through" lands at the wrong real ms.
+    // arc.totalS is now the single source both read.
+    var dur = Math.round(arc.totalS * 1000);
     var fdelay = seqDelay || 0;
     var handoffVar = handoffMs != null ? ";--handoff:" + (handoffMs + fdelay) + "ms" : "";
     var moveVars = "--tx:" + arc.endPt.x.toFixed(1) + "px;--ty:" + arc.endPt.y.toFixed(1) + "px;--dur:" + dur + "ms;--fdelay:" + fdelay + "ms" + handoffVar;
@@ -5501,6 +5717,28 @@
   // after - so the two constants are read together, not tuned separately.
   var OF_PURSUIT_ACCEL_FT_S2 = 10.2;
   var OF_PURSUIT_TOP_SPEED_FT_PER_S = 26.4;
+  // Alex's ask (fielding-reconciliation-audit plan, positioning hierarchy):
+  // when even the honest per-player charge race can't intercept a grounder
+  // before the dirt edge, resolveGrounderInterception used to reach straight
+  // for bending the fielder's own starting position (the bearing/depth
+  // leeway below). Real infielders' starting spots are close to fixed, so
+  // the more honest first lever is a genuinely faster closing sprint from
+  // their TRUE anchor, not a moved one - this is that sprint's own bounded
+  // top speed/acceleration, a flat ceiling every infielder shares (NOT
+  // spdPaceScale'd further - this IS the realistic cap, not a per-player
+  // base to scale up past). Alex's own spec: a quick-twitch reaction
+  // covering 20ft in 1.666s from a standstill. Solving pure d=(1/2)at^2 over
+  // that short a window (same fitting approach RUNNER_ACCEL_FT_S2 used,
+  // short enough no real fielder has leveled off toward top speed yet) gives
+  // ~14.41ft/s2, rounded to 14.4; pairing it with a 24ft/s top speed lands
+  // the accel-to-top-speed transition at almost exactly that same 20ft/
+  // 1.667s mark (24^2/(2*14.4) = 20.0ft) - self-consistent, not just close.
+  // Same shared accelTimeS/arrivalTimeS shape every other fielder/runner
+  // motion in this file already uses (fielderProfile's "chargeSprint" kind
+  // below, resolveGrounderInterception's own sprint-retry step) - only the
+  // values are new, not the curve.
+  var INFIELD_CHARGE_SPRINT_ACCEL_FT_S2 = 14.4;
+  var INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S = 24;
   function accelTimeS(distFt, topSpeedFtPerS, accelFtPerS2) {
     var accel = accelFtPerS2 || FIELDER_ACCEL_FT_S2;
     if (distFt <= 0) return 0;
@@ -5554,11 +5792,14 @@
   // Fielder motion profiles, built off the existing per-position/per-kind
   // constants so each keeps its exact current meaning as a profile
   // parameter, not a formula fork. kind: "charge" (infield charge-in, 16
-  // base, FIELDER_ACCEL_FT_S2) | "pursuit" (OF fly-ball routing, its own
+  // base, FIELDER_ACCEL_FT_S2) | "chargeSprint" (positioning hierarchy step
+  // 1's own bounded sprint retry, INFIELD_CHARGE_SPRINT_*'s own comment -
+  // NOT spdPaceScale'd, a flat cap every infielder shares, not a per-player
+  // base to scale past) | "pursuit" (OF fly-ball routing, its own
   // Statcast-fit top speed/accel above, reaction OUTFIELDER_REACT_MS) |
   // "run" (fielder token pace, 27 base, RUNNER_ACCEL_FT_S2 - same rate and
-  // ramp a runner sprints at). All scaled by this fielder's own
-  // spdPaceScale(fielderSpd(m,pos)).
+  // ramp a runner sprints at). Every other kind is scaled by this fielder's
+  // own spdPaceScale(fielderSpd(m,pos)).
   // paceScaleOverride (optional, Task 3/4 - fielding-reconciliation-audit
   // plan's reconcileCoverage/sprintCarry/easeCarry): a further multiplier
   // on top of this fielder's own spdPaceScale'd base pace, bounded by
@@ -5566,20 +5807,32 @@
   // (defaults to 1, today's behavior unchanged).
   function fielderProfile(m, pos, kind, paceScaleOverride) {
     var base = kind === "pursuit" ? OF_PURSUIT_TOP_SPEED_FT_PER_S
+      : kind === "chargeSprint" ? INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S
       : kind === "charge" ? FIELDER_CHARGE_FT_PER_S
       : RUNNER_SPRINT_FT_PER_S;
     var accel = kind === "pursuit" ? OF_PURSUIT_ACCEL_FT_S2
+      : kind === "chargeSprint" ? INFIELD_CHARGE_SPRINT_ACCEL_FT_S2
       : kind === "charge" ? FIELDER_ACCEL_FT_S2
       : RUNNER_ACCEL_FT_S2;
     // Task 6: a charging pitcher gets the same longer reaction the race
     // itself uses (chargeInIntercept) - any other profile consumer agrees
-    // with the race instead of quietly picturing a faster break.
+    // with the race instead of quietly picturing a faster break. The sprint
+    // retry shares "charge"'s own reaction convention (position-aware, not
+    // part of what the 20ft/1.666s spec measures - that's movement only).
     var reactionS = kind === "run" ? 0
       : kind === "pursuit" ? OUTFIELDER_REACT_MS / 1000
-      : (kind === "charge" && pos === "P") ? PITCHER_CHARGE_REACTION_S
+      : ((kind === "charge" || kind === "chargeSprint") && pos === "P") ? PITCHER_CHARGE_REACTION_S
       : CHARGE_REACTION_S;
+    // chargeSprint's own base is already the flat realistic ceiling - never
+    // multiplied by this fielder's own spdPaceScale (a per-player speed a
+    // fast fielder could otherwise stack on top of the cap, defeating the
+    // point of capping it at all). paceScaleOverride still applies on top
+    // (Stage 3/4's own pooled knobs never target this kind today, but
+    // there's no reason to special-case it out if one ever does).
     return {
-      topSpeedFtPerS: base * spdPaceScale(fielderSpd(m, pos)) * (paceScaleOverride || 1),
+      topSpeedFtPerS: kind === "chargeSprint"
+        ? base * (paceScaleOverride || 1)
+        : base * spdPaceScale(fielderSpd(m, pos)) * (paceScaleOverride || 1),
       accelFtPerS2: accel,
       reactionS: reactionS
     };
@@ -6018,7 +6271,14 @@
       // (or, worse, before the ball's own trail had legitimately gotten
       // there first). Every other ball-toucher (a caught fly, an outfield
       // pursuit hit) is untouched.
+      // "chargeSprint" (positioning hierarchy step 1, INFIELD_CHARGE_SPRINT_*'s
+      // own comment): resolveGrounderInterception's sprint retry decided
+      // this play's timing at the faster, still-bounded sprint pace instead
+      // of the honest controlled-charge one - the glove's own rendered run
+      // has to move at that same pace, not the slower "charge" curve that
+      // would visibly fail to keep up with its own deadline.
       var profileKind = (e.pos === flight.fielder && ofPursuitApplies(m, flight)) ? "pursuit"
+        : (e.pos === flight.fielder && flight.fieldingAdjust && flight.fieldingAdjust.sprintCapped) ? "chargeSprint"
         : (e.pos === flight.fielder && GROUND_ARCHETYPES[flight.archetype]) ? "charge" : "run";
       // Task 1 (§5): a covering/receiving fielder (never the ball-toucher,
       // whose own read-delay/pursuit machinery above is untouched) doesn't
@@ -6089,7 +6349,20 @@
     if (!leg) return e.legs;
     var fieldLeg = e.legs[0], bagLeg = e.legs[1];
     var naturalMs = fielderLegDurationsMs(m, e.pos, [fieldLeg], e.profileKind)[0];
-    var leg1Dur = Math.max(0, Math.min(naturalMs, fieldedMs(flight) - e.startMs));
+    // Alex's report (Tor Tilla, POR@RLY S13/Sess4, top 2, DP31 - 3B fields
+    // deep, touches 3rd for the first out, throws to 1st for the second):
+    // capping leg1 at the HONEST fieldedMs(flight) used to leave the glove's
+    // own render out of sync with the schedule whenever the out-reconciler's
+    // own quickRelease/sprintCarry pulled leg.startMs meaningfully EARLIER
+    // than fieldedMs (a real, not edge-case, outcome for a tight force out) -
+    // the ball marker (throwHtml, which reads leg.startMs directly) would
+    // already be moving toward the base before the glove's own leg1 had even
+    // finished, reading as "the ball is ahead of the glove" instead of
+    // carried inside it. leg.startMs is always >= fieldedMs(flight) in the
+    // honest (no quickRelease) case (base = fieldedMs+THROW_DELAY_MS), so
+    // this is never a tighter cap than before there - only ever loosens it
+    // to match a genuinely sped-up departure.
+    var leg1Dur = Math.max(0, Math.min(naturalMs, leg.startMs - e.startMs));
     var leg2Dur = Math.max(0, leg.startMs - (e.startMs + leg1Dur));
     var leg3Dur = leg.drawMs;
     return [
@@ -6121,7 +6394,13 @@
     if (!throwLeg) return e.legs;
     var fieldLeg = e.legs[0], coverLeg = e.legs[1];
     var naturalFieldMs = fielderLegDurationsMs(m, e.pos, [fieldLeg], e.profileKind)[0];
-    var leg1Dur = Math.max(0, Math.min(naturalFieldMs, fieldedMs(flight) - e.startMs));
+    // Same fix as unassistedLegTiming's own sibling case (Alex's report,
+    // Tor Tilla DP31): cap leg1 against this fielder's own first throw's
+    // reconciled startMs, not the honest fieldedMs(flight) - a quickRelease/
+    // speedThrow adjustment on that first throw can pull its own departure
+    // meaningfully earlier than the honest fielding time, and the glove's
+    // render has to track that same departure, not a slower honest one.
+    var leg1Dur = Math.max(0, Math.min(naturalFieldMs, throwLeg.startMs - e.startMs));
     var leg2Dur = Math.max(0, throwLeg.endMs - (e.startMs + leg1Dur));
     var leg3Dur = fielderLegDurationsMs(m, e.pos, [{ distFt: coverLeg.distFt }], "run", e.paceScaleOverride)[0];
     // Final honest backstop, mirroring reconcileCoverage's own recorded
@@ -8274,8 +8553,12 @@
     resolveGrounderInterception: resolveGrounderInterception, resolveSinglePickup: resolveSinglePickup,
     chargeInIntercept: chargeInIntercept, fielderInterceptS: fielderInterceptS,
     applyGrounderDeepSetup: applyGrounderDeepSetup, capBearingTowardFt: capBearingTowardFt,
+    capBearingAwayFromFt: capBearingAwayFromFt,
     applyChargeEase: applyChargeEase, FIELDER_PACE_SCALE: FIELDER_PACE_SCALE,
     WINNER_CHEAT_MAX_DEG: WINNER_CHEAT_MAX_DEG,
+    INFIELD_GLOVE_REACH_FT: INFIELD_GLOVE_REACH_FT,
+    setInfieldGloveReachFt: function (v) { INFIELD_GLOVE_REACH_FT = v; },
+    reachAdjustedDistFt: reachAdjustedDistFt,
     FIELDER_CHARGE_FT_PER_S: FIELDER_CHARGE_FT_PER_S, CHARGE_REACTION_S: CHARGE_REACTION_S,
     CHARGE_CANDIDATE_POSITIONS: CHARGE_CANDIDATE_POSITIONS,
     PITCHER_CHARGE_REACTION_S: PITCHER_CHARGE_REACTION_S,
@@ -8300,6 +8583,7 @@
     throwOrderCandidateKeys: throwOrderCandidateKeys,
     fieldingChain: fieldingChain, fieldingChainDetail: fieldingChainDetail, involvedPositions: involvedPositions,
     fielderLabelHasResult: fielderLabelHasResult, ballFlightHtml: ballFlightHtml,
+    ballArcHtml: ballArcHtml,
     ballResultLabelHtml: ballResultLabelHtml,
     fielderNameLabelsHtml: fielderNameLabelsHtml, onDeckRunnerLabelsHtml: onDeckRunnerLabelsHtml,
     fieldingNotation: fieldingNotation,
@@ -8315,6 +8599,10 @@
     HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE, PITCHER_MIDDLE_EV_MAX_MPH: PITCHER_MIDDLE_EV_MAX_MPH,
     fielderSpd: fielderSpd, spdPaceScale: spdPaceScale,
     accelTimeS: accelTimeS, FIELDER_ACCEL_FT_S2: FIELDER_ACCEL_FT_S2,
+    INFIELD_CHARGE_SPRINT_ACCEL_FT_S2: INFIELD_CHARGE_SPRINT_ACCEL_FT_S2,
+    INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S: INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S,
+    setInfieldChargeSprintAccelFtS2: function (v) { INFIELD_CHARGE_SPRINT_ACCEL_FT_S2 = v; },
+    setInfieldChargeSprintTopSpeedFtPerS: function (v) { INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S = v; },
     accelDistForTimeS: accelDistForTimeS, idleDriftLeg: idleDriftLeg,
     arrivalTimeS: arrivalTimeS, legDurationsMs: legDurationsMs,
     fielderProfile: fielderProfile, throwProfile: throwProfile,
@@ -8880,6 +9168,24 @@
     // needs a batter token to show its handedness in.
     if (!batterReached && (m.result != null || m.is_on_deck)) {
       var h = SCENE_BASES.HOME;
+      // Alex's report (Tor Tilla, POR@RLY S13/Sess4, DP31): this whole
+      // !batterReached block predates runnerAdjMsByWho/runnerPassAdjByWho
+      // (Stage 4/Task 10) and never read either - a play whose raw
+      // runner_moves never lists an explicit BATTER entry (this DP31's own
+      // shape: 1B->2B safe, 2B->OUT at 3rd, no separate batter move in the
+      // raw data - resolveRunnerMoves prefers m.runner_moves verbatim when
+      // present, same as runnerForOutTarget's own "BATTER" fallback already
+      // has to reach for) rendered the batter's out-to-first sprint at their
+      // honest, unretargeted pace, completely bypassing whatever
+      // runnerLateJump/stretchRunner throwSchedule's own reconciliation
+      // decided was needed to keep the force-out at first honest. Visually:
+      // the batter reaches the bag well before the throw actually arrives
+      // and just stands there waiting - "beats the throw by quite a bit,"
+      // even though the schedule's own adjustments correctly retargeted
+      // them. Same fold-in the main moves.map() loop below already does for
+      // every other runner (legDurMs/passAdj) - just needed here too.
+      var batterLegMs = Math.max(1, runnerLegMs(m, "BATTER", 1) + (runnerAdjMsByWho["BATTER"] || 0));
+      if (runnerPassAdjByWho["BATTER"]) batterLegMs *= runnerPassAdjByWho["BATTER"].paceScale;
       if (m.is_on_deck || noPa.indexOf(m.result) !== -1) {
         // Alex's ask: a stolen base attempt, a balk, or the on-deck
         // placeholder still has a batter standing in their box the whole
@@ -8900,10 +9206,10 @@
         var fcVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--tx:" + fc1.x + "px;--ty:" + fc1.y + "px;" +
                      "--p1x:" + fc1.x + "px;--p1y:" + fc1.y + "px;" +
-                     "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + runnerLegMs(m, "BATTER", 1) + "ms";
+                     "--rdelay:" + (runDelay + seqDelay) + "ms;--dur:" + batterLegMs + "ms";
         tokens += '<g class="rn legs1 batter" style="' + fcVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
-        maxArrival = Math.max(maxArrival, runDelay + runnerLegMs(m, "BATTER", 1));
+        maxArrival = Math.max(maxArrival, runDelay + batterLegMs);
       } else if (flight) {
         // 6b: runs to first on the normal basepath, cut short (or held
         // waiting at the bag) exactly at the real out moment, THEN turns
@@ -8918,7 +9224,7 @@
         var batterOutAtAbs = outAtMsFor("1B") + seqDelay;
         var batterOutAtRel = Math.max(0, outAtMsFor("1B") - runDelay);
         var batterMotion = runnerOutMotionHtml(batterBoxSvg.x, batterBoxSvg.y, [{ frac: 1, x: p1.x, y: p1.y }],
-          dugoutSvg.x, dugoutSvg.y, runnerLegMs(m, "BATTER", 1), batterOutAtRel, RN_OUT_WALK_MS);
+          dugoutSvg.x, dugoutSvg.y, batterLegMs, batterOutAtRel, RN_OUT_WALK_MS);
         var voVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--p1x:" + p1.x + "px;--p1y:" + p1.y + "px;" +
                      "--tx:" + dugoutSvg.x + "px;--ty:" + dugoutSvg.y + "px;" +
