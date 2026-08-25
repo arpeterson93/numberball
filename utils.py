@@ -2634,8 +2634,8 @@ def _radial_recency_figure(
                 gridcolor="rgba(128,128,128,0.2)",
             ),
         ),
-        height=480,
-        margin=dict(l=30, r=30, t=50, b=20),
+        height=380,
+        margin=dict(l=30, r=30, t=36, b=10),
         showlegend=False,
     )
     return fig
