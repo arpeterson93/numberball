@@ -2631,7 +2631,7 @@ def radial_recent_pitches_chart(
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
-            hole=0.04,
+            hole=0.08,
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
