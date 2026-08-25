@@ -2177,6 +2177,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                               title=f"Last {_actual_pitches_p} Pitches - Radial View"),
             width="stretch", key="p_radial",
         )
+        _actual_deltas_p = len(df_p_pred["pitch_circ_delta"].dropna().tail(n_pitches)) if not df_p_pred.empty else 0
+        st.plotly_chart(
+            utils.radial_recent_deltas_chart(df_p_pred, n=n_pitches, delta_col="pitch_circ_delta",
+                                             title=f"Last {_actual_deltas_p} Pitch Deltas - Radial View"),
+            width="stretch", key="p_radial_delta",
+        )
 
         # rebind so all sections below are ITD
         df_p = df_p_pred

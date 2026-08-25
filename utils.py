@@ -2584,28 +2584,22 @@ def last_n_combined_chart(
     return fig
 
 
-def radial_recent_pitches_chart(
-    df: pd.DataFrame,
-    n: int = 20,
-    value_col: str = "pitch",
-    title: str = "Recent Pitches - Radial View",
+def _radial_recency_figure(
+    theta: list[float],
+    hover: list[str],
+    title: str,
+    tickvals: list[float],
+    ticktext: list[str],
 ) -> go.Figure:
-    """Doughnut-style polar scatter: value sets angle (1-1000, clockwise from 12
-    o'clock, matching zone_polar's convention), recency sets both radius and color
-    (oldest at the center, newest at the rim). A thin hole keeps the center open.
+    """Shared doughnut-style polar scatter: recency sets both radius and color
+    (oldest at the center, newest at the rim, blue-white-red matching zone_heatmap).
+    A thin hole keeps the center open. theta/hover must already be angle-mapped
+    for the caller's value domain; tickvals/ticktext supply the spoke labels.
     """
-    vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
-    n_actual = len(vals)
+    n_actual = len(theta)
     if n_actual == 0:
         return go.Figure()
-
-    theta = [v * 360.0 / 1000.0 for v in vals]
     r = list(range(1, n_actual + 1))
-    hover = [
-        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
-        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-        for i, v in enumerate(vals)
-    ]
 
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -2625,9 +2619,6 @@ def radial_recent_pitches_chart(
         text=hover, hoverinfo="text",
     ))
 
-    slice_starts = list(range(0, 1000, 100))
-    tickvals = [v * 360.0 / 1000.0 for v in slice_starts]
-    ticktext = [str(v) if v else "1000" for v in slice_starts]
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
@@ -2648,6 +2639,52 @@ def radial_recent_pitches_chart(
         showlegend=False,
     )
     return fig
+
+
+def radial_recent_pitches_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    value_col: str = "pitch",
+    title: str = "Recent Pitches - Radial View",
+) -> go.Figure:
+    """Value sets angle (1-1000, clockwise from 12 o'clock, matching zone_polar's
+    convention); recency sets radius and color. See _radial_recency_figure."""
+    vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
+    n_actual = len(vals)
+    theta = [v * 360.0 / 1000.0 for v in vals]
+    hover = [
+        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
+        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+        for i, v in enumerate(vals)
+    ]
+
+    slice_starts = list(range(0, 1000, 100))
+    tickvals = [v * 360.0 / 1000.0 for v in slice_starts]
+    ticktext = [str(v) if v else "1000" for v in slice_starts]
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+
+
+def radial_recent_deltas_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    delta_col: str = "pitch_circ_delta",
+    title: str = "Recent Deltas - Radial View",
+) -> go.Figure:
+    """Signed delta (-500..+500) sets angle: 0 at 12 o'clock, positive deltas sweep
+    clockwise, negative deltas sweep counterclockwise, both meeting at +/-500 on the
+    bottom spoke. Recency sets radius and color. See _radial_recency_figure."""
+    vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
+    n_actual = len(vals)
+    theta = [d * 180.0 / 500.0 for d in vals]
+    hover = [
+        f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+        for i, d in enumerate(vals)
+    ]
+
+    tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
+    tickvals = [d * 180.0 / 500.0 for d in tick_deltas]
+    ticktext = ["±500" if d == -500 else str(d) for d in tick_deltas]
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
 
 
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
