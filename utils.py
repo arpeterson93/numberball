@@ -2625,8 +2625,9 @@ def radial_recent_pitches_chart(
         text=hover, hoverinfo="text",
     ))
 
-    tickvals = list(range(0, 1000, 100))
-    ticktext = [str(v + 1) for v in tickvals]
+    slice_starts = list(range(0, 1000, 100))
+    tickvals = [v * 360.0 / 1000.0 for v in slice_starts]
+    ticktext = [str(v + 1) for v in slice_starts]
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
