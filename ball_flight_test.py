@@ -2656,7 +2656,14 @@ def main() -> None:
               "flight.infieldDepthPct" in app_js_src, False)
         migration = page.evaluate(
             """() => {
-                var m = { result: "GO", batter_hand: "R" };
+                // outs_before/outs_after must reflect a real out here (as any
+                // actual GO always does) - omitting them left this fixture
+                // reading (0||0)<=(0||0) as true, which spuriously satisfied
+                // resolveGrounderInterception's own no-out chargeEase gate
+                // (meant only for the infield_single/bunt HIT case) and let
+                // applyChargeEase's retreat step fire a nonzero depthPct here
+                // too, unrelated to what this check is actually pinning.
+                var m = { result: "GO", batter_hand: "R", outs_before: 0, outs_after: 1 };
                 // A moderate grounder shallow enough that the honest charge-in
                 // race finds a genuine mid-roll crossing (never hits the dirt-
                 // edge fallback) - the "leeway never fires" case, so depthPct/
@@ -3632,6 +3639,73 @@ def main() -> None:
             check("the ball's own animation duration compresses to match the handoff moment exactly, "
                   "not the honest (later) fieldedMs",
                   teleport_check["arcTotalMs"], teleport_check["handoffMs"], tol=1)
+
+        # Alex's ask: a runner doubled off a caught line drive (LODP/LOTP)
+        # needs to break at contact, reverse exactly at the real catch
+        # moment, and the fielding side must be genuinely reconciled against
+        # that real retreat-arrival - not the three gaps found investigating
+        # this: mvDelay used outDelay (assumes the ball's already down,
+        # holding the runner motionless until roughly the catch itself),
+        # the reversal was a fixed cosmetic 75%-of-duration breakpoint with
+        # no connection to ballTravelMs, and the schedule leg was never
+        # raced against the runner at all (runnerArrivalMs stayed null -
+        # forcedOutRunnerArrivalMs's own ordinal math rejects a same-base
+        # "advance" outright). Real moment 130121014 (Anna De Neko, LODP -
+        # 2B breaks toward 3rd on the liner, 2B fielder catches it and
+        # throws to SS covering 2nd for the second out).
+        print("\nAlex's ask: LODP/LOTP retreat runners now break at contact, reverse at the")
+        print("real catch moment, and get genuinely reconciled against the fielding side -")
+        print("moment 130121014 (Anna De Neko, LODP):")
+        plays01_fp = pathlib.Path("docs/data/plays_01.json")
+        if plays01_fp.exists():
+            plays01 = json.loads(plays01_fp.read_text(encoding="utf-8"))
+            lodp_m = next((p for p in plays01 if p.get("moment_id") == "130121014"), None)
+            if lodp_m:
+                lr = page.evaluate(
+                    """(m) => {
+                        var flight = KMFlight.resolvePlayFlight(m);
+                        var moves = KMFlight.resolveRunnerMoves(m);
+                        var mv = KMFlight.runnerForOutTarget(m, moves, "2B");
+                        var outDist = KMFlight.retreatOutDistFt(m, flight, mv);
+                        var arrival = KMFlight.retreatRunnerArrivalMs(m, flight, moves, "2B");
+                        var schedule = KMFlight.throwSchedule(m, moves, flight);
+                        var margin = KMFlight.MARGIN_POLICY.forceOut.minMs;
+                        return {
+                            mv: mv, outDist: outDist, arrival: arrival,
+                            ballTravelMs: KMFlight.ballTravelMs(flight),
+                            leg0EndMs: schedule[0].endMs, marginFloor: margin,
+                        };
+                    }""",
+                    lodp_m,
+                )
+                print(f"  outDist={lr['outDist']:.1f}ft ballTravelMs={lr['ballTravelMs']:.0f} "
+                      f"arrival={lr['arrival']:.0f} leg0EndMs={lr['leg0EndMs']:.0f}")
+                check("runnerForOutTarget resolves the real retreat move (mv.retreat true)",
+                      lr["mv"]["retreat"], True)
+                check("the runner breaks for real distance during the air time - more than a token "
+                      "few feet, less than the full 90ft to the next base",
+                      0 < lr["outDist"] < 90, True)
+                check("retreatRunnerArrivalMs now returns a real number (this leg used to skip "
+                      "reconciliation entirely - runnerArrivalMs stayed null)",
+                      lr["arrival"] is not None, True)
+                check("the fielding side (ball + covering fielder) genuinely beats the runner back "
+                      "to the base by at least the loosest permissible margin",
+                      lr["arrival"] - lr["leg0EndMs"] >= lr["marginFloor"] - 0.5, True)
+
+                scene_html = page.evaluate("(m) => KMFlight.playSceneHtml({play: m})", lodp_m)
+                retreat_match = re.search(r'class="rn out-retreat"[^>]*style="([^"]*)"', scene_html)
+                check("the retreat runner's own token renders in the scene", bool(retreat_match), True)
+                if retreat_match:
+                    vars_str = retreat_match.group(1)
+                    rdelay_match = re.search(r"--rdelay:([\d.]+)ms", vars_str)
+                    check("the runner's own render-start (rdelay minus the play's shared seqDelay) is "
+                          "a contact-based reaction beat, not the old outDelay (which would be well "
+                          "over 2000ms for this play)",
+                          float(rdelay_match.group(1)) < 1000 if rdelay_match else None, True)
+            else:
+                print("  [skip] moment 130121014 not found in docs/data/plays_01.json")
+        else:
+            print("  [skip] docs/data/plays_01.json not found on disk")
 
         browser.close()
 

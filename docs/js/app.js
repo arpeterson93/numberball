@@ -3498,10 +3498,12 @@
     // to charge.min, stopping at the first (largest, least-slowdown) scale
     // where the eased race no longer trips the trigger - the smallest
     // honest correction that closes the gap. Falls through to charge.min
-    // itself if nothing along the grid ever flips it.
+    // itself if nothing along the grid ever flips it (subject to the
+    // genuineness guard below).
     var range = FIELDER_PACE_SCALE.charge;
     var steps = 40;
-    var bestFieldedFt = honestFieldedFt, bestGroundTimeS = honestGroundTimeS, bestScale = range.min;
+    var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
+    var bestFieldedFt = honestFieldedFt, bestGroundTimeS = honestGroundTimeS, bestScale = 1;
     for (var i = 1; i <= steps; i++) {
       var scale = 1 - (1 - range.min) * (i / steps);
       // trajectory.js null-tolerance (the established gp.timeAt(x) != null
@@ -3512,6 +3514,23 @@
       // bound, never past it, so maxAlongFt's own dirt-edge cap holds
       // automatically, same as the honest race.
       var eased = fielderInterceptS(anchorFt, flight, gp, maxAlongFt, null, ftPerS * scale, reactionS, null, reachFt);
+      // Real report (O'R'lyeh Auto Parts, HFX@RLY S13/Sess2, bot 5 - IF1B up
+      // the middle): unguarded, this grid can slow the fielder down past the
+      // point where they genuinely catch the moving ball at all - once
+      // ftPerS*scale is too slow to close the gap anywhere inside restFt,
+      // fielderInterceptS falls through to its own {alongFt: restFt, atS:
+      // chargeFielderArriveS(...)} fallback (the fielder's own arrival time
+      // AT the dirt edge, not a real interception of the ball in motion).
+      // That fallback's atS is naturally late - slow fielder, long walk -
+      // so it always reads as "safe" and the loop below happily locks it in,
+      // rendering as a glove that never touches the ball until it's already
+      // dead at the dirt's edge. Same isGenuine guard the retreat loop below
+      // already uses (same restFt, same -1e-6 tolerance): stop slowing
+      // further and keep the last genuine step instead, leaving the retreat
+      // loop (which has its own genuine escape hatch) or downstream
+      // slowThrow/holdRelease to close whatever gap remains.
+      var isGenuine = eased.alongFt < restFt - 1e-6;
+      if (!isGenuine) break;
       bestFieldedFt = eased.alongFt; bestGroundTimeS = eased.atS; bestScale = scale;
       if (!triggeredAt(eased.alongFt, eased.atS)) break;
     }
@@ -3557,7 +3576,6 @@
       retreatApplied = true;
       var trueDepthFt = Math.hypot(anchorFt.x, anchorFt.y);
       var fieldedPtForBearing = groundDirPoint(flight, bestFieldedFt);
-      var restFt = maxAlongFt != null ? Math.min(maxAlongFt, gp.restFt) : gp.restFt;
       var retreatSteps = 40;
       for (var ri = 1; ri <= retreatSteps; ri++) {
         var t = ri / retreatSteps;
