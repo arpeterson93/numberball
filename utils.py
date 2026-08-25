@@ -2603,16 +2603,6 @@ def _radial_recency_figure(
     r_max = n_actual * 1.05
 
     fig = go.Figure()
-    # Manual spokes so the 0 deg one can be omitted (angularaxis gridlines are all-or-nothing).
-    for tv in tickvals:
-        if abs(tv % 360.0) < 1e-6:
-            continue
-        fig.add_trace(go.Scatterpolar(
-            r=[0, r_max], theta=[tv, tv], mode="lines",
-            line=dict(color="rgba(128,128,128,0.3)", width=1),
-            hoverinfo="skip", showlegend=False,
-        ))
-
     fig.add_trace(go.Scatterpolar(
         r=r, theta=theta, mode="markers",
         marker=dict(
@@ -2637,10 +2627,10 @@ def _radial_recency_figure(
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
-                showgrid=False,
+                gridcolor="rgba(128,128,128,0.3)",
             ),
             radialaxis=dict(
-                showticklabels=False, ticks="",
+                showticklabels=False, ticks="", showline=False,
                 range=[0, r_max],
                 gridcolor="rgba(128,128,128,0.2)",
             ),
