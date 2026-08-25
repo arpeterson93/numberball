@@ -2684,7 +2684,7 @@ def radial_recent_deltas_chart(
 
     tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
     tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
-    ticktext = ["±500" if d == -500 else str(d) for d in tick_deltas]
+    ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
     return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
 
 
