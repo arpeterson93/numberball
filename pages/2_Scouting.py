@@ -2172,6 +2172,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             width="stretch", key="p_last_n",
         )
 
+        st.plotly_chart(
+            utils.radial_recent_pitches_chart(df_p_pred, n=n_pitches, value_col="pitch",
+                                              title=f"Last {_actual_pitches_p} Pitches - Radial View"),
+            width="stretch", key="p_radial",
+        )
+
         # rebind so all sections below are ITD
         df_p = df_p_pred
         _p_total = len(df_p)

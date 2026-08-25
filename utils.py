@@ -2584,6 +2584,71 @@ def last_n_combined_chart(
     return fig
 
 
+def radial_recent_pitches_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    value_col: str = "pitch",
+    title: str = "Recent Pitches - Radial View",
+) -> go.Figure:
+    """Doughnut-style polar scatter: value sets angle (1-1000, clockwise from 12
+    o'clock, matching zone_polar's convention), recency sets both radius and color
+    (oldest at the center, newest at the rim). A thin hole keeps the center open.
+    """
+    vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
+    n_actual = len(vals)
+    if n_actual == 0:
+        return go.Figure()
+
+    theta = [v * 360.0 / 1000.0 for v in vals]
+    r = list(range(1, n_actual + 1))
+    hover = [
+        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
+        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+        for i, v in enumerate(vals)
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=r, theta=theta, mode="markers",
+        marker=dict(
+            size=10,
+            color=r,
+            colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+            line=dict(color="rgba(80,80,80,0.6)", width=1),
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Recency", side="right"),
+                tickvals=[1, n_actual], ticktext=["Oldest", "Newest"],
+                thickness=14, len=0.7,
+            ),
+        ),
+        text=hover, hoverinfo="text",
+    ))
+
+    tickvals = list(range(0, 1000, 100))
+    ticktext = [str(v + 1) for v in tickvals]
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        polar=dict(
+            hole=0.04,
+            angularaxis=dict(
+                direction="clockwise", rotation=90,
+                tickmode="array", tickvals=tickvals, ticktext=ticktext,
+                gridcolor="rgba(128,128,128,0.3)",
+            ),
+            radialaxis=dict(
+                showticklabels=False, ticks="",
+                range=[0, n_actual * 1.05],
+                gridcolor="rgba(128,128,128,0.2)",
+            ),
+        ),
+        height=480,
+        margin=dict(l=30, r=30, t=50, b=20),
+        showlegend=False,
+    )
+    return fig
+
+
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
     for result, lo, hi in (ranges or RESULT_RANGES):
         if lo <= diff <= hi:
