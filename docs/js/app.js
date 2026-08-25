@@ -6970,11 +6970,36 @@
 
   // Whether a runner leaving fromBase is genuinely forced to the next base,
   // from the base-occupancy rule itself (obcBefore), not from the play's
-  // result code: 1B is always forced (the batter always fills it behind
-  // them); 2B only if 1B was occupied too; 3B only if both 1B and 2B were -
-  // the force has to chain unbroken all the way back to the batter.
+  // result code: BATTER is always forced to 1B (they're not on a base at
+  // all yet - there's nowhere else for them to be); 1B is always forced
+  // likewise (the batter always fills it behind them); 2B only if 1B was
+  // occupied too; 3B only if both 1B and 2B were - the force has to chain
+  // unbroken all the way back to the batter.
+  //
+  // Alex's report (King Kruul 3U, S13/Sess4 HFX@GRZ top 1): this fell
+  // through to the final `return false` for "BATTER" - the one fromBase
+  // every FORCE_TIMING_RESULTS caller actually needs handled, and the one
+  // every call site (forcedOutRunnerArrivalMs, runnerMoveTiming,
+  // sceneFieldHtml's own moves-loop, sceneDebugBatterTiming) already passes
+  // through as mv.from without a special case, silently assuming this
+  // returned true. It didn't - a batter-runner forced to first was timed
+  // against outDelay (ballTravelMs+OUT_BEAT_MS, the tag-up/wait-for-the-
+  // fielding beat every OTHER out-bound runner uses) instead of runDelay
+  // (leaves on contact, same beat a safe runner gets) - roughly 800ms too
+  // late on a typical grounder. forcedOutRunnerArrivalMs fed that inflated
+  // number into the reconciler's own margin math, while sceneFieldHtml's
+  // separate !batterReached render path built the batter's own token off
+  // the honest (correct) runDelay-based duration - two different "how long
+  // until the batter reaches first" numbers for the same play, with the
+  // reconciler's own quickRelease/runnerLateJump/stretchRunner adjustments
+  // solved against the wrong (later) one. The runner's own token still
+  // finished its real run at the honest time, well before the throw's own
+  // (correctly reconciled) arrival - runnerOutMotionHtml's runtime floor
+  // (its own "held at bag Xms past their own honest arrival" console.warn)
+  // caught exactly this, silently, on every affected play: the runner
+  // visibly stood at the bag before the fielder/ball ever got there.
   function isForcedRunner(fromBase, obcBefore) {
-    if (fromBase === "1B") return true;
+    if (fromBase === "BATTER" || fromBase === "1B") return true;
     if (fromBase === "2B") return obcBefore.charAt(2) === "1";
     if (fromBase === "3B") return obcBefore.charAt(1) === "1" && obcBefore.charAt(2) === "1";
     return false;
@@ -11825,7 +11850,14 @@
      the play that was clicked instead of starting from the top - and opens
      paused, since the point is to look at this one play, not watch the rest
      of the game auto-advance past it. */
-  function openReplayAtPlay(gameCode, session, playNum, btn) {
+  // autoplay (Alex's ask): a deep link (?game=.../handleDeepLink, below)
+  // opens straight into playback instead of the paused-by-default state
+  // every other entry point here still gets - someone opening a shared
+  // link is watching cold, not mid-browse on a specific play they clicked
+  // to go inspect, so starting paused just adds an extra tap. Defaults to
+  // false (today's behavior, unchanged) so the in-app "jump to play"
+  // click (data-jump-game, wireControls below) still opens paused.
+  function openReplayAtPlay(gameCode, session, playNum, btn, autoplay) {
     if (session == null || isNaN(session)) {
       toast("Could not determine which session this play belongs to.");
       return;
@@ -11840,12 +11872,12 @@
         if (target === -1 && s.kind === "play" && s.play.play_num === playNum) target = i;
       });
       replay.index = -1;
-      replay.paused = true;
+      replay.paused = !autoplay;
       // A stale leftover from a previous paused session must not leak into
       // this one - setReplayPaused's resume path falls back to it directly.
       replay.remaining = 0;
-      $("replay-pause-hint").hidden = false;
-      $("replay-card").classList.add("paused");
+      $("replay-pause-hint").hidden = !!autoplay;
+      $("replay-card").classList.toggle("paused", !autoplay);
       // The modal itself opens right away (immediate feedback that the click
       // registered), but the play mounts a beat later - mounting it in the
       // same tick the modal becomes visible let the scene's animation clock
@@ -13456,7 +13488,7 @@
     if (!link) return;
     var playNum = link.play ? Number(link.code) * 1000 + link.play : null;
     function open() {
-      openReplayAtPlay(link.code, link.session, playNum, null);
+      openReplayAtPlay(link.code, link.session, playNum, null, true);
     }
     if (link.season === season.current) {
       open();

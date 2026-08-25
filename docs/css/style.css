@@ -2058,7 +2058,15 @@ html[data-km-debug="1"] .km-tuning-panel{
    (the diamond SVG, the wheels) already scales off percentages/viewBox, so
    this is only the outer caps plus a few font sizes that were fixed in px. */
 @media (min-width: 900px){
-  .catchup-card{max-width:min(92vw,1080px);height:min(90vh,820px);}
+  /* 820 (was 90vh/820px) still clipped a fixed-height game's own FINAL
+     recap banner (sceneRecapHtml) on a genuinely tall screen, where the
+     820px hard cap kicks in well before 90vh would - Alex's report: a
+     finished game's last slide needed to scroll a few px to see the whole
+     card even with plenty of unused space below the modal. Bumped both the
+     ceiling and the vh fraction so a tall display actually uses more of
+     its own height instead of hitting the same fixed cap every other
+     screen does. */
+  .catchup-card{max-width:min(92vw,1080px);height:min(92vh,880px);}
   /* Was capped down to 350 for a stretch (a short/wide window could make
      the whole slide taller than the card, forcing a vertical scroll that
      chopped the scorebug off the top) - back to its full native size
