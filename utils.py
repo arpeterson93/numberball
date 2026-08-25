@@ -2605,7 +2605,7 @@ def _radial_recency_figure(
     fig.add_trace(go.Scatterpolar(
         r=r, theta=theta, mode="markers",
         marker=dict(
-            size=10,
+            size=6.7,
             color=r,
             colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
             line=dict(color="rgba(80,80,80,0.6)", width=1),
