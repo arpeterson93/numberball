@@ -145,7 +145,8 @@ def _qs_mln_plays() -> tuple[int, list[str]]:
             seen_pitcher[gc].add(pitcher_name)
 
         rows.append({
-            **{k: v for k, v in play.items() if k not in ("game_code", "away", "home")},
+            **{k: v for k, v in play.items()
+               if k not in ("game_code", "away", "home") and not k.startswith("_")},
             "game_code":    gc,
             "season":       season,
             "game_type":    "live",
