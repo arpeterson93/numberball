@@ -905,6 +905,72 @@ def compute_leverage_re24(
     return compute_leverage(ranges, remaining, outs, obc, batting_lead)
 
 
+def compute_play_leverage(df: pd.DataFrame) -> pd.Series:
+    """Leverage Index entering each row's play, via compute_leverage_re24 - the
+    pre-play game state (inning/half/outs/obc/score), not a matchup-specific
+    calc, so it works for any historical pitcher/batter without stadium-sheet
+    ranges. Mirrors the same remaining/batting_lead formula used for the live
+    matchup's own Leverage caption. NaN wherever a required column is missing
+    or the (outs, obc) situation has no RE24 entry.
+    """
+    need = ("inning", "half", "outs", "obc", "home_score", "away_score")
+    if not all(c in df.columns for c in need):
+        return pd.Series(np.nan, index=df.index)
+
+    def _row_leverage(r) -> float:
+        if (pd.isna(r["inning"]) or pd.isna(r["outs"]) or not r["obc"]
+                or pd.isna(r["home_score"]) or pd.isna(r["away_score"])):
+            return np.nan
+        half_l = str(r["half"]).lower()
+        league = str(r["league"]) if "league" in r.index and pd.notna(r.get("league")) else "MLN"
+        remaining = remaining_half_innings(int(r["inning"]), half_l, game_innings(league))
+        lead = ((int(r["home_score"]) - int(r["away_score"])) if half_l == "bottom"
+                else (int(r["away_score"]) - int(r["home_score"])))
+        li = compute_leverage_re24(remaining, int(r["outs"]), str(r["obc"]), lead)
+        return li if li is not None else np.nan
+
+    return df.apply(_row_leverage, axis=1)
+
+
+def filter_by_prior_context(
+    df: pd.DataFrame,
+    prev_pitch_bucket: tuple[int, int] | None = None,
+    prev_abs_delta_bucket: tuple[int, int] | None = None,
+    prev_result_cat: str | None = None,
+    leverage_bucket: str | None = None,
+    leverage_threshold: float = 1.5,
+) -> pd.DataFrame:
+    """Keep only rows matching every active condition, id-sorted.
+
+    prev_pitch_bucket/prev_abs_delta_bucket/prev_result_cat look at the row
+    immediately BEFORE each one (what the pitcher just threw/what just
+    happened), so a row with no predecessor is dropped once any of those three
+    is active. leverage_bucket looks at the row's OWN leverage (the stakes it
+    was thrown into, from a '_leverage' column - see compute_play_leverage),
+    not its predecessor's.
+    """
+    d = df.sort_values("id").reset_index(drop=True)
+    keep = pd.Series(True, index=d.index)
+
+    if prev_pitch_bucket is not None:
+        lo, hi = prev_pitch_bucket
+        keep &= pd.to_numeric(d["pitch"], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_abs_delta_bucket is not None:
+        lo, hi = prev_abs_delta_bucket
+        keep &= pd.to_numeric(d["pitch_circ_delta"], errors="coerce").shift(1).abs().between(lo, hi)
+
+    if prev_result_cat is not None:
+        prev_cat = d["result"].shift(1).map(lambda r: seq_result_category(r) if pd.notna(r) else None)
+        keep &= (prev_cat == prev_result_cat)
+
+    if leverage_bucket is not None and "_leverage" in d.columns:
+        keep &= (d["_leverage"] < leverage_threshold) if leverage_bucket == "low" \
+                else (d["_leverage"] >= leverage_threshold)
+
+    return d[keep]
+
+
 def compute_game_wp_series(
     plays: list[dict],
     game: dict,

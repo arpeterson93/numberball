@@ -2174,16 +2174,92 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             width="stretch", key="p_last_n",
         )
 
+        # ── context filters for the radial views ────────────────────────────────
+        with st.expander("Context Filters", expanded=True):
+            st.caption("Condition both radial views below on what led into each historical pitch. "
+                       "Active filters combine together.")
+            _pf_sorted_p    = df_p_pred.sort_values("id") if not df_p_pred.empty else df_p_pred
+            _pf_pitches_p   = _pf_sorted_p["pitch"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_abs_delta_p = _pf_sorted_p["pitch_circ_delta"].dropna().abs().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
+
+            _cfp1, _cfp2 = st.columns(2)
+            with _cfp1:
+                _cf_pitch_on_p = st.toggle("Previous pitch range", key="ctx_pitch_on_p", value=False)
+                _cf_pitch_bucket_p = None
+                if _cf_pitch_on_p:
+                    _cf_pitch_w_p = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
+                                                      value=200, key="ctx_pitch_w_p")
+                    _cf_pitch_def_p = _pf_pitches_p[-1] if _pf_pitches_p else 500
+                    _cf_pitch_val_p = st.number_input(
+                        "Previous pitch value", min_value=1, max_value=1000, value=_cf_pitch_def_p,
+                        step=1, key=f"ctx_pitch_v_p_{tab_p_pitcher}",
+                    )
+                    _cf_pi_idx = (int(_cf_pitch_val_p) - 1) // _cf_pitch_w_p
+                    _cf_pitch_bucket_p = (_cf_pi_idx * _cf_pitch_w_p + 1,
+                                          min((_cf_pi_idx + 1) * _cf_pitch_w_p, 1000))
+                    st.caption(f"Bucket: {_cf_pitch_bucket_p[0]}-{_cf_pitch_bucket_p[1]}")
+
+                _cf_result_on_p = st.toggle("Previous result", key="ctx_result_on_p", value=False)
+                _cf_result_cat_p = None
+                if _cf_result_on_p:
+                    _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
+                                        if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
+                    _cf_result_cat_p = st.selectbox(
+                        "Previous result category", utils.SEQ_RESULT_CATEGORIES,
+                        index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
+                    )
+
+            with _cfp2:
+                _cf_delta_on_p = st.toggle("Previous |Δ| range", key="ctx_delta_on_p", value=False)
+                _cf_delta_bucket_p = None
+                if _cf_delta_on_p:
+                    _cf_delta_w_p = st.select_slider("Bucket size (Δ)", options=[25, 50, 100, 125, 250, 500],
+                                                      value=100, key="ctx_delta_w_p")
+                    _cf_delta_def_p = _pf_abs_delta_p[-1] if _pf_abs_delta_p else 100
+                    _cf_delta_val_p = st.number_input(
+                        "Previous |Δ| value", min_value=0, max_value=500, value=_cf_delta_def_p,
+                        step=1, key=f"ctx_delta_v_p_{tab_p_pitcher}",
+                    )
+                    _n_cf_bkts_p = 500 // _cf_delta_w_p
+                    _cf_di_idx = min(max(0, (int(_cf_delta_val_p) - 1) // _cf_delta_w_p
+                                         if _cf_delta_val_p > 0 else 0), _n_cf_bkts_p - 1)
+                    _cf_delta_bucket_p = (_cf_di_idx * _cf_delta_w_p, (_cf_di_idx + 1) * _cf_delta_w_p)
+                    st.caption(f"Bucket: {_cf_delta_bucket_p[0]}-{_cf_delta_bucket_p[1]}")
+
+                _cf_leverage_label_p = st.radio(
+                    "Leverage entering the play", ["Off", "Low (<1.5)", "High (≥1.5)"],
+                    horizontal=True, key="ctx_leverage_p",
+                )
+                _cf_leverage_bucket_p = {"Off": None, "Low (<1.5)": "low", "High (≥1.5)": "high"}[_cf_leverage_label_p]
+
+            _cf_active_p = any([_cf_pitch_bucket_p, _cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
+            if _cf_active_p and not df_p_pred.empty:
+                _df_ctx_p = df_p_pred.copy()
+                if _cf_leverage_bucket_p is not None:
+                    _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
+                _df_radial_p = utils.filter_by_prior_context(
+                    _df_ctx_p,
+                    prev_pitch_bucket=_cf_pitch_bucket_p,
+                    prev_abs_delta_bucket=_cf_delta_bucket_p,
+                    prev_result_cat=_cf_result_cat_p,
+                    leverage_bucket=_cf_leverage_bucket_p,
+                )
+                st.caption(f"{len(_df_radial_p)} matching historical instance(s).")
+            else:
+                _df_radial_p = df_p_pred
+
+        _actual_pitches_radial_p = len(_df_radial_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
         st.plotly_chart(
-            utils.radial_recent_pitches_chart(df_p_pred, n=n_pitches, value_col="pitch",
-                                              title=f"Last {_actual_pitches_p} Pitches - Radial View"),
+            utils.radial_recent_pitches_chart(_df_radial_p, n=n_pitches, value_col="pitch",
+                                              title=f"Last {_actual_pitches_radial_p} Pitches - Radial View"),
             width="stretch", key="p_radial",
         )
-        _actual_deltas_p = len(df_p_pred["pitch_circ_delta"].dropna().tail(n_pitches)) if not df_p_pred.empty else 0
+        _actual_deltas_radial_p = len(_df_radial_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
         _center_deltas_p = st.session_state.get("p_radial_delta_center", False)
         st.plotly_chart(
-            utils.radial_recent_deltas_chart(df_p_pred, n=n_pitches, delta_col="pitch_circ_delta",
-                                             title=f"Last {_actual_deltas_p} Pitch Deltas - Radial View",
+            utils.radial_recent_deltas_chart(_df_radial_p, n=n_pitches, delta_col="pitch_circ_delta",
+                                             title=f"Last {_actual_deltas_radial_p} Pitch Deltas - Radial View",
                                              center_on_prev=_center_deltas_p),
             width="stretch", key="p_radial_delta",
         )
