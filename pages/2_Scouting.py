@@ -2183,14 +2183,41 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _pf_abs_delta_p = _pf_sorted_p["pitch_circ_delta"].dropna().abs().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
+            # Pre-read each widget's current (or preset-default) value from
+            # session_state so the toggle label can show it before the widget
+            # itself renders further down - Streamlit keeps a widget's state
+            # keyed across reruns even on runs where it isn't drawn.
+            _cf_pitch_def_p  = _pf_pitches_p[-1] if _pf_pitches_p else 500
+            _cf_pitch_w_pre  = st.session_state.get("ctx_pitch_w_p", 200)
+            _cf_pitch_v_pre  = st.session_state.get(f"ctx_pitch_v_p_{tab_p_pitcher}", _cf_pitch_def_p)
+            _cf_pitch_i_pre  = (int(_cf_pitch_v_pre) - 1) // _cf_pitch_w_pre
+            _cf_pitch_lbl_p  = (f"Prev pitch ({_cf_pitch_i_pre * _cf_pitch_w_pre + 1}-"
+                               f"{min((_cf_pitch_i_pre + 1) * _cf_pitch_w_pre, 1000)})")
+
+            _cf_delta_def_p  = _pf_abs_delta_p[-1] if _pf_abs_delta_p else 100
+            _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_p", 100)
+            _cf_delta_v_pre  = st.session_state.get(f"ctx_delta_v_p_{tab_p_pitcher}", _cf_delta_def_p)
+            _cf_delta_n_pre  = 500 // _cf_delta_w_pre
+            _cf_delta_i_pre  = min(max(0, (int(_cf_delta_v_pre) - 1) // _cf_delta_w_pre
+                                       if _cf_delta_v_pre > 0 else 0), _cf_delta_n_pre - 1)
+            _cf_delta_lbl_p  = (f"Prev |Δ| ({_cf_delta_i_pre * _cf_delta_w_pre}-"
+                               f"{(_cf_delta_i_pre + 1) * _cf_delta_w_pre})")
+
+            _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
+                                if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
+            _cf_result_pre_p = st.session_state.get("ctx_result_v_p", _cf_result_def_p)
+            _cf_result_lbl_p = f"Prev result ({_cf_result_pre_p})"
+
+            _cf_leverage_pre_p = st.session_state.get("ctx_leverage_p", "Off")
+            _cf_leverage_lbl_p = f"Leverage ({_cf_leverage_pre_p.split(' ')[0]})"
+
             _cfp1, _cfp2 = st.columns(2)
             with _cfp1:
-                _cf_pitch_on_p = st.toggle("Previous pitch range", key="ctx_pitch_on_p", value=False)
+                _cf_pitch_on_p = st.toggle(_cf_pitch_lbl_p, key="ctx_pitch_on_p", value=False)
                 _cf_pitch_bucket_p = None
                 if _cf_pitch_on_p:
                     _cf_pitch_w_p = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
                                                       value=200, key="ctx_pitch_w_p")
-                    _cf_pitch_def_p = _pf_pitches_p[-1] if _pf_pitches_p else 500
                     _cf_pitch_val_p = st.number_input(
                         "Previous pitch value", min_value=1, max_value=1000, value=_cf_pitch_def_p,
                         step=1, key=f"ctx_pitch_v_p_{tab_p_pitcher}",
@@ -2198,14 +2225,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _cf_pi_idx = (int(_cf_pitch_val_p) - 1) // _cf_pitch_w_p
                     _cf_pitch_bucket_p = (_cf_pi_idx * _cf_pitch_w_p + 1,
                                           min((_cf_pi_idx + 1) * _cf_pitch_w_p, 1000))
-                    st.caption(f"Bucket: {_cf_pitch_bucket_p[0]}-{_cf_pitch_bucket_p[1]}")
 
-                _cf_delta_on_p = st.toggle("Previous |Δ| range", key="ctx_delta_on_p", value=False)
+                _cf_delta_on_p = st.toggle(_cf_delta_lbl_p, key="ctx_delta_on_p", value=False)
                 _cf_delta_bucket_p = None
                 if _cf_delta_on_p:
                     _cf_delta_w_p = st.select_slider("Bucket size (Δ)", options=[25, 50, 100, 125, 250, 500],
                                                       value=100, key="ctx_delta_w_p")
-                    _cf_delta_def_p = _pf_abs_delta_p[-1] if _pf_abs_delta_p else 100
                     _cf_delta_val_p = st.number_input(
                         "Previous |Δ| value", min_value=0, max_value=500, value=_cf_delta_def_p,
                         step=1, key=f"ctx_delta_v_p_{tab_p_pitcher}",
@@ -2214,22 +2239,20 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _cf_di_idx = min(max(0, (int(_cf_delta_val_p) - 1) // _cf_delta_w_p
                                          if _cf_delta_val_p > 0 else 0), _n_cf_bkts_p - 1)
                     _cf_delta_bucket_p = (_cf_di_idx * _cf_delta_w_p, (_cf_di_idx + 1) * _cf_delta_w_p)
-                    st.caption(f"Bucket: {_cf_delta_bucket_p[0]}-{_cf_delta_bucket_p[1]}")
 
             with _cfp2:
-                _cf_result_on_p = st.toggle("Previous result", key="ctx_result_on_p", value=False)
+                _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
                 _cf_result_cat_p = None
                 if _cf_result_on_p:
-                    _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
-                                        if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
                     _cf_result_cat_p = st.selectbox(
                         "Previous result category", utils.SEQ_RESULT_CATEGORIES,
                         index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
                     )
 
+                st.markdown(f"**{_cf_leverage_lbl_p}**")
                 _cf_leverage_label_p = st.radio(
                     "Leverage entering the play", ["Off", "Low (<1.5)", "High (≥1.5)"],
-                    horizontal=True, key="ctx_leverage_p",
+                    horizontal=True, key="ctx_leverage_p", label_visibility="collapsed",
                 )
                 _cf_leverage_bucket_p = {"Off": None, "Low (<1.5)": "low", "High (≥1.5)": "high"}[_cf_leverage_label_p]
 
