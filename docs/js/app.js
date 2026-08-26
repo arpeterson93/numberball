@@ -11697,21 +11697,26 @@
     });
   }
 
-  /* Ascending on purpose, the reverse of the feed's own "most important at
-     the top" sort (sorted() above) - a slideshow plays forward in time and
-     builds toward a finale, so the oldest/least dramatic play leads and the
-     most recent/most dramatic one closes the show. */
-  function filteredPlaysOrdered(orderBy) {
+  /* Time defaults to chronological (oldest leads, most recent closes the
+     show) - the reverse of the feed's own "most important at the top" sort
+     (sorted() above), so a Time slideshow plays forward and builds toward
+     a finale. WPA and Leverage instead default to their feed order (most
+     dramatic leads), since the value itself carries the drama regardless
+     of when the play happened. Either way, flipping the feed's sort chip
+     to "asc" (away from its own "desc" default) flips the slideshow order
+     too, so the two stay in sync. */
+  function filteredPlaysOrdered(orderBy, sortDir) {
     var rows = pool().filter(matches).slice();
+    var dirMul = sortDir === "asc" ? -1 : 1;
     if (orderBy === "wpa") {
-      rows.sort(function (a, b) { return Math.abs(a.wpa || 0) - Math.abs(b.wpa || 0); });
+      rows.sort(function (a, b) { return dirMul * (Math.abs(b.wpa || 0) - Math.abs(a.wpa || 0)); });
     } else if (orderBy === "leverage") {
-      rows.sort(function (a, b) { return (a.leverage || 0) - (b.leverage || 0); });
+      rows.sort(function (a, b) { return dirMul * ((b.leverage || 0) - (a.leverage || 0)); });
     } else {
       rows.sort(function (a, b) {
         var ta = a.timestamp || "", tb = b.timestamp || "";
-        if (ta !== tb) return ta < tb ? -1 : 1;
-        return a.play_num - b.play_num;
+        if (ta !== tb) return dirMul * (ta < tb ? -1 : 1);
+        return dirMul * (a.play_num - b.play_num);
       });
     }
     return rows;
@@ -11722,8 +11727,8 @@
   // the time this line runs (assigned earlier in execution order).
   window.KMFlight.filteredPlaysOrdered = filteredPlaysOrdered;
 
-  function openFilteredPlaysSlideshow(orderBy) {
-    var rows = filteredPlaysOrdered(orderBy);
+  function openFilteredPlaysSlideshow(orderBy, sortDir) {
+    var rows = filteredPlaysOrdered(orderBy, sortDir);
     if (!rows.length) { toast("No plays match these filters."); return; }
     // Ribbon context can reach into any game a filtered play belongs to, not
     // just whichever sessions happen to be loaded for the current filter -
@@ -12669,7 +12674,7 @@
     var filteredBtn = $("play-filtered-btn");
     if (filteredBtn) {
       filteredBtn.addEventListener("click", function () {
-        openFilteredPlaysSlideshow(filters.sort);
+        openFilteredPlaysSlideshow(filters.sort, filters.sortDir);
       });
     }
   }
