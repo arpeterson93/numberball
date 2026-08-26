@@ -2275,14 +2275,16 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         _actual_pitches_radial_p = len(_df_radial_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
         st.plotly_chart(
             utils.radial_recent_pitches_chart(_df_radial_p, n=n_pitches, value_col="pitch",
-                                              title=f"Last {_actual_pitches_radial_p} Pitches - Radial View"),
+                                              title=f"Last {_actual_pitches_radial_p} Pitches"),
             width="stretch", key="p_radial",
         )
         _actual_deltas_radial_p = len(_df_radial_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
         _center_deltas_p = st.session_state.get("p_radial_delta_center", False)
+        _deltas_radial_title_p = (f"Last {_actual_deltas_radial_p} Implied Pitches" if _center_deltas_p
+                                  else f"Last {_actual_deltas_radial_p} Deltas")
         st.plotly_chart(
             utils.radial_recent_deltas_chart(_df_radial_p, n=n_pitches, delta_col="pitch_circ_delta",
-                                             title=f"Last {_actual_deltas_radial_p} Pitch Deltas - Radial View",
+                                             title=_deltas_radial_title_p,
                                              center_on_prev=_center_deltas_p),
             width="stretch", key="p_radial_delta",
         )
