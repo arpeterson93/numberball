@@ -2119,8 +2119,17 @@ html[data-km-debug="1"] .km-tuning-panel{
    vertical room per pane) - and the card itself claims nearly the whole
    viewport rather than leaving a visible margin top/bottom. */
 .live-grid-modal{padding:6px;}
+/* height's own px ceiling used to sit at 1120 - fine on a typical landscape
+   monitor (98vh rarely gets there) but binding on nearly ANY portrait one,
+   since portrait height starts out taller than a landscape monitor's width
+   ever is. Alex's report: on a large portrait screen the card (and every
+   pane's field svg inside it, via the cqh-derived width math below) stayed
+   condensed well short of the room actually available. Raised to match the
+   width ceiling's own number (1980) - same "generous sanity cap, basically
+   never the binding constraint" role width already had, now symmetric
+   instead of quietly favoring landscape. */
 .live-grid-card{
-  background:var(--card);border-radius:12px;width:100%;height:min(98vh,1120px);
+  background:var(--card);border-radius:12px;width:100%;height:min(98vh,1980px);
   max-width:min(98vw,1980px);position:relative;overflow:hidden;
   box-shadow:0 10px 40px var(--shadow);
 }
