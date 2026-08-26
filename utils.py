@@ -2686,8 +2686,7 @@ def radial_recent_deltas_chart(
     center_on_prev=True re-maps each delta onto the most recent actual pitch value
     (last_pitch + delta, wrapped on the 1-1000 wheel), switching the spokes to the
     same fixed absolute grid as radial_recent_pitches_chart. Each point then reads
-    as an implied next-pitch value, and a star marks where the last pitch itself
-    sits on that wheel.
+    as an implied next-pitch value, on the same scale as that chart for comparison.
     """
     vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
@@ -2715,19 +2714,7 @@ def radial_recent_deltas_chart(
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
 
-    fig = _radial_recency_figure(theta, hover, title, tickvals, ticktext)
-    if anchor is not None and n_actual > 0:
-        r_max = n_actual * 1.05
-        fig.add_trace(go.Scatterpolar(
-            r=[r_max], theta=[anchor * 360.0 / 1000.0], mode="markers+text",
-            marker=dict(symbol="star", size=14, color="#f0ad4e",
-                        line=dict(color="rgba(0,0,0,0.6)", width=1)),
-            text=[f"Prev: {anchor}"], textposition="top center", textfont=dict(size=10),
-            hovertext=[f"Previous pitch: {anchor}"], hoverinfo="text",
-            showlegend=False,
-        ))
-        fig.update_layout(polar=dict(radialaxis=dict(range=[0, r_max * 1.18])))
-    return fig
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
 
 
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
