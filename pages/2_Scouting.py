@@ -2200,17 +2200,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                           min((_cf_pi_idx + 1) * _cf_pitch_w_p, 1000))
                     st.caption(f"Bucket: {_cf_pitch_bucket_p[0]}-{_cf_pitch_bucket_p[1]}")
 
-                _cf_result_on_p = st.toggle("Previous result", key="ctx_result_on_p", value=False)
-                _cf_result_cat_p = None
-                if _cf_result_on_p:
-                    _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
-                                        if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
-                    _cf_result_cat_p = st.selectbox(
-                        "Previous result category", utils.SEQ_RESULT_CATEGORIES,
-                        index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
-                    )
-
-            with _cfp2:
                 _cf_delta_on_p = st.toggle("Previous |Δ| range", key="ctx_delta_on_p", value=False)
                 _cf_delta_bucket_p = None
                 if _cf_delta_on_p:
@@ -2226,6 +2215,17 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                          if _cf_delta_val_p > 0 else 0), _n_cf_bkts_p - 1)
                     _cf_delta_bucket_p = (_cf_di_idx * _cf_delta_w_p, (_cf_di_idx + 1) * _cf_delta_w_p)
                     st.caption(f"Bucket: {_cf_delta_bucket_p[0]}-{_cf_delta_bucket_p[1]}")
+
+            with _cfp2:
+                _cf_result_on_p = st.toggle("Previous result", key="ctx_result_on_p", value=False)
+                _cf_result_cat_p = None
+                if _cf_result_on_p:
+                    _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
+                                        if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
+                    _cf_result_cat_p = st.selectbox(
+                        "Previous result category", utils.SEQ_RESULT_CATEGORIES,
+                        index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
+                    )
 
                 _cf_leverage_label_p = st.radio(
                     "Leverage entering the play", ["Off", "Low (<1.5)", "High (≥1.5)"],
