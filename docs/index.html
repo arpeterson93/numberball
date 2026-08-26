@@ -236,9 +236,9 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>
     </button>
     <div class="sort-chip-row" id="sort-chips">
-      <button type="button" class="chip active" data-sort="chrono">Time ↓</button>
-      <button type="button" class="chip" data-sort="wpa">WPA</button>
-      <button type="button" class="chip" data-sort="leverage"><span class="lbl-long">Leverage</span><span class="lbl-short">LI</span></button>
+      <button type="button" class="chip active" data-sort="chrono">Time<span class="chip-arrow">↓</span></button>
+      <button type="button" class="chip" data-sort="wpa">WPA<span class="chip-arrow"></span></button>
+      <button type="button" class="chip" data-sort="leverage"><span class="lbl-long">Leverage</span><span class="lbl-short">LI</span><span class="chip-arrow"></span></button>
     </div>
   </div>
   </div>
@@ -284,6 +284,16 @@
            panel. -->
       <!-- Manual "Refresh now" removed (Alex's ask) - the data now updates
            on its own often enough that a manual trigger is redundant. -->
+      <!-- Debug mode: shows the reconciler's own knob math (throwSchedule's
+           per-leg schedule, the class/margin/runner-arrival verdict it
+           reconciled against, and every knob it actually applied) inline
+           under each play slide - app.js's wireDebugModeToggle/
+           syncDebugModeButton own this button by id. -->
+      <div class="settings-row">
+        <span>Debug mode</span>
+        <button type="button" class="chip" id="debug-mode-toggle"
+          title="Show reconciler knob math under each play" aria-label="Toggle debug mode" aria-pressed="false">Off</button>
+      </div>
       <!-- Same methodology panel the replay modal's own (i) button opens
            (app.js's wireMethodology binds both) - reachable from here too
            since Settings is available any time, not just mid-replay. -->
