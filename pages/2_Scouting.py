@@ -2208,8 +2208,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_result_pre_p = st.session_state.get("ctx_result_v_p", _cf_result_def_p)
             _cf_result_lbl_p = f"Prev result ({_cf_result_pre_p})"
 
-            _cf_leverage_pre_p = st.session_state.get("ctx_leverage_p", "Off")
-            _cf_leverage_lbl_p = f"Leverage ({_cf_leverage_pre_p.split(' ')[0]})"
+            _cf_cur_leverage_p = None
+            if not _pf_sorted_p.empty:
+                _cf_lev_last_p = utils.compute_play_leverage(_pf_sorted_p.tail(1))
+                if not _cf_lev_last_p.empty and pd.notna(_cf_lev_last_p.iloc[0]):
+                    _cf_cur_leverage_p = float(_cf_lev_last_p.iloc[0])
+            _cf_leverage_lbl_p = (f"Leverage ({_cf_cur_leverage_p:.2f})" if _cf_cur_leverage_p is not None
+                                  else "Leverage (n/a)")
 
             _cfp1, _cfp2 = st.columns(2)
             with _cfp1:
