@@ -2178,10 +2178,17 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             width="stretch", key="p_radial",
         )
         _actual_deltas_p = len(df_p_pred["pitch_circ_delta"].dropna().tail(n_pitches)) if not df_p_pred.empty else 0
+        _center_deltas_p = st.session_state.get("p_radial_delta_center", False)
         st.plotly_chart(
             utils.radial_recent_deltas_chart(df_p_pred, n=n_pitches, delta_col="pitch_circ_delta",
-                                             title=f"Last {_actual_deltas_p} Pitch Deltas - Radial View"),
+                                             title=f"Last {_actual_deltas_p} Pitch Deltas - Radial View",
+                                             center_on_prev=_center_deltas_p),
             width="stretch", key="p_radial_delta",
+        )
+        st.toggle(
+            "Map onto previous pitch", key="p_radial_delta_center", value=False,
+            help="Shows each recent delta applied to the last actual pitch, on the 1-1000 "
+                 "pitch scale - i.e. the implied next pitch given the spread of recent deltas.",
         )
 
         # rebind so all sections below are ITD

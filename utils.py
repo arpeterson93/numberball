@@ -2642,6 +2642,14 @@ def _radial_recency_figure(
     return fig
 
 
+def _pitch_value_ticks() -> tuple[list[float], list[str]]:
+    """Fixed absolute 1-1000 wheel spokes (every 100), labeled at slice boundaries."""
+    slice_starts = list(range(0, 1000, 100))
+    tickvals = [v * 360.0 / 1000.0 for v in slice_starts]
+    ticktext = [str(v) if v else "1000" for v in slice_starts]
+    return tickvals, ticktext
+
+
 def radial_recent_pitches_chart(
     df: pd.DataFrame,
     n: int = 20,
@@ -2659,9 +2667,7 @@ def radial_recent_pitches_chart(
         for i, v in enumerate(vals)
     ]
 
-    slice_starts = list(range(0, 1000, 100))
-    tickvals = [v * 360.0 / 1000.0 for v in slice_starts]
-    ticktext = [str(v) if v else "1000" for v in slice_starts]
+    tickvals, ticktext = _pitch_value_ticks()
     return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
 
 
@@ -2669,23 +2675,59 @@ def radial_recent_deltas_chart(
     df: pd.DataFrame,
     n: int = 20,
     delta_col: str = "pitch_circ_delta",
+    value_col: str = "pitch",
     title: str = "Recent Deltas - Radial View",
+    center_on_prev: bool = False,
 ) -> go.Figure:
     """Signed delta (-500..+500) sets angle: 0 at 12 o'clock, positive deltas sweep
     clockwise, negative deltas sweep counterclockwise, both meeting at +/-500 on the
-    bottom spoke. Recency sets radius and color. See _radial_recency_figure."""
+    bottom spoke. Recency sets radius and color. See _radial_recency_figure.
+
+    center_on_prev=True re-maps each delta onto the most recent actual pitch value
+    (last_pitch + delta, wrapped on the 1-1000 wheel), switching the spokes to the
+    same fixed absolute grid as radial_recent_pitches_chart. Each point then reads
+    as an implied next-pitch value, and a star marks where the last pitch itself
+    sits on that wheel.
+    """
     vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
-    theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
-    hover = [
-        f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-        for i, d in enumerate(vals)
-    ]
 
-    tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
-    tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
-    ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+    anchor = None
+    if center_on_prev:
+        pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
+        anchor = int(pitch_vals.iloc[-1]) if not pitch_vals.empty else None
+
+    if anchor is not None:
+        implied = [((anchor + d - 1) % 1000) + 1 for d in vals]
+        theta = [v * 360.0 / 1000.0 for v in implied]
+        hover = [
+            f"{v} (prev {anchor} {d:+d})<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+            for i, (v, d) in enumerate(zip(implied, vals))
+        ]
+        tickvals, ticktext = _pitch_value_ticks()
+    else:
+        theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
+        hover = [
+            f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+            for i, d in enumerate(vals)
+        ]
+        tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
+        tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
+        ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
+
+    fig = _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+    if anchor is not None and n_actual > 0:
+        r_max = n_actual * 1.05
+        fig.add_trace(go.Scatterpolar(
+            r=[r_max], theta=[anchor * 360.0 / 1000.0], mode="markers+text",
+            marker=dict(symbol="star", size=14, color="#f0ad4e",
+                        line=dict(color="rgba(0,0,0,0.6)", width=1)),
+            text=[f"Prev: {anchor}"], textposition="top center", textfont=dict(size=10),
+            hovertext=[f"Previous pitch: {anchor}"], hoverinfo="text",
+            showlegend=False,
+        ))
+        fig.update_layout(polar=dict(radialaxis=dict(range=[0, r_max * 1.18])))
+    return fig
 
 
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
