@@ -511,10 +511,12 @@ _all_player_names    = sorted(set(_pid_recent_name.values()) | _names_no_pid)
 _p_by_sid = {p["s_id"]: p for p in _all_players if p.get("s_id")}
 _p_by_pid = {str(pid): row for pid, row in _pid_recent_row.items()}
 
-# Build abbrev -> team_name from DB; latest season overwrites earlier for same abbrev
+# Build abbrev -> full team name from DB; latest season overwrites earlier for same
+# abbrev. team_name only holds the nickname (e.g. "Kitties") - name/full_team hold
+# the full "City Nickname" form that plays.def_team/off_team actually store.
 _teams_by_season     = sorted(_load_all_teams_data(), key=lambda t: t.get("season") or 0)
 _abbrev_to_team_name = {
-    t["abbrev"]: (t.get("team_name") or t["abbrev"])
+    t["abbrev"]: (t.get("name") or t.get("full_team") or t.get("team_name") or t["abbrev"])
     for t in _teams_by_season if t.get("abbrev")
 }
 _team_name_to_abbrev = {v: k for k, v in _abbrev_to_team_name.items()}
