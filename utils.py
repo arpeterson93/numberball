@@ -2770,21 +2770,26 @@ def _implied_pitch_points(
     n: int,
     delta_col: str = "pitch_circ_delta",
     value_col: str = "pitch",
+    anchor: int | None = None,
 ) -> tuple[list[float], list[str]]:
-    """Each of the last n deltas re-mapped onto df's most recent actual value
-    (last_val + delta, wrapped on the 1-1000 wheel) - the implied-next-pitch
+    """Each of the last n deltas re-mapped onto an anchor actual pitch value
+    (anchor + delta, wrapped on the 1-1000 wheel) - the implied-next-pitch
     points shared by radial_recent_deltas_chart's center_on_prev mode and
-    radial_combined_chart. Returns ([], []) if there's no delta history or no
-    actual value to anchor to.
+    radial_combined_chart. If anchor isn't given, falls back to df's own most
+    recent actual value - pass the caller's true most-recent (pre-context-
+    filter) pitch explicitly when df has itself been filtered down, so the
+    anchor doesn't silently drift to whatever pitch survived the filter.
+    Returns ([], []) if there's no delta history or no anchor available.
     """
     vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
     if n_actual == 0:
         return [], []
-    pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
-    if pitch_vals.empty:
-        return [], []
-    anchor = int(pitch_vals.iloc[-1])
+    if anchor is None:
+        pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
+        if pitch_vals.empty:
+            return [], []
+        anchor = int(pitch_vals.iloc[-1])
     implied = [((anchor + d - 1) % 1000) + 1 for d in vals]
     theta = [v * 360.0 / 1000.0 for v in implied]
     hover = [
@@ -2801,6 +2806,7 @@ def radial_recent_deltas_chart(
     value_col: str = "pitch",
     title: str = "Recent Deltas - Radial View",
     center_on_prev: bool = False,
+    anchor: int | None = None,
 ) -> go.Figure:
     """Signed delta (-500..+500) sets angle: 0 at 12 o'clock, positive deltas sweep
     clockwise, negative deltas sweep counterclockwise, both meeting at +/-500 on the
@@ -2810,9 +2816,12 @@ def radial_recent_deltas_chart(
     (last_pitch + delta, wrapped on the 1-1000 wheel), switching the spokes to the
     same fixed absolute grid as radial_recent_pitches_chart. Each point then reads
     as an implied next-pitch value, on the same scale as that chart for comparison.
+    anchor overrides that "most recent" value - pass the caller's true unfiltered
+    most-recent pitch when df has been narrowed by a context filter, so filtering
+    doesn't change which pitch the deltas are anchored to.
     """
     if center_on_prev:
-        theta, hover = _implied_pitch_points(df, n, delta_col, value_col)
+        theta, hover = _implied_pitch_points(df, n, delta_col, value_col, anchor=anchor)
         tickvals, ticktext = _pitch_value_ticks()
     else:
         vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
@@ -2836,6 +2845,7 @@ def radial_combined_chart(
     value_col: str = "pitch",
     delta_col: str = "pitch_circ_delta",
     title: str = "Recent Combined - Radial View",
+    anchor: int | None = None,
 ) -> go.Figure:
     """Overlays radial_recent_pitches_chart's actual-pitch points (from
     df_pitches) with the implied-next-pitch points radial_recent_deltas_chart
@@ -2846,7 +2856,9 @@ def radial_combined_chart(
     _radial_recency_figure) computed independently, so a sparser group's
     points simply don't reach as far out as a fuller group's; circles mark
     actual pitches, diamonds mark implied ones. The background slice ring
-    reflects both groups combined.
+    reflects both groups combined. anchor overrides the implied group's
+    "most recent pitch" - pass the caller's true unfiltered most-recent pitch
+    when df_deltas has been narrowed by a context filter.
     """
     vals = df_pitches[df_pitches[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
     n_a = len(vals)
@@ -2857,7 +2869,7 @@ def radial_combined_chart(
         for i, v in enumerate(vals)
     ]
 
-    theta_b, hover_b = _implied_pitch_points(df_deltas, n, delta_col, value_col)
+    theta_b, hover_b = _implied_pitch_points(df_deltas, n, delta_col, value_col, anchor=anchor)
     n_b = len(theta_b)
 
     if n_a == 0 and n_b == 0:

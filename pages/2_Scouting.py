@@ -2298,10 +2298,16 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         _center_deltas_p = st.session_state.get("p_radial_delta_center", False)
         _deltas_radial_title_p = (f"Last {_actual_deltas_radial_p} Implied Pitches" if _center_deltas_p
                                   else f"Last {_actual_deltas_radial_p} Deltas")
+        # True most-recent pitch, from the unfiltered df - context filters can
+        # drop this pitcher's actual last pitch from _df_radial_deltas_p, but
+        # implied-pitch points should still anchor to it, not to whatever's
+        # last in the filtered subset.
+        _pf_true_anchor_p = _pf_pitches_p[-1] if _pf_pitches_p else None
         st.plotly_chart(
             utils.radial_recent_deltas_chart(_df_radial_deltas_p, n=n_pitches, delta_col="pitch_circ_delta",
                                              title=_deltas_radial_title_p,
-                                             center_on_prev=_center_deltas_p),
+                                             center_on_prev=_center_deltas_p,
+                                             anchor=_pf_true_anchor_p),
             width="stretch", key="p_radial_delta",
         )
         st.toggle(
@@ -2313,7 +2319,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         st.plotly_chart(
             utils.radial_combined_chart(_df_radial_pitches_p, _df_radial_deltas_p, n=n_pitches,
                                         value_col="pitch", delta_col="pitch_circ_delta",
-                                        title=f"Last {_actual_combined_radial_p} Combined"),
+                                        title=f"Last {_actual_combined_radial_p} Combined",
+                                        anchor=_pf_true_anchor_p),
             width="stretch", key="p_radial_combined",
         )
 
