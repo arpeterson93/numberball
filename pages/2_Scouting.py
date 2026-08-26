@@ -2261,34 +2261,45 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 )
                 _cf_leverage_bucket_p = {"Off": None, "Low (<1.5)": "low", "High (≥1.5)": "high"}[_cf_leverage_label_p]
 
-            _cf_active_p = any([_cf_pitch_bucket_p, _cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
-            if _cf_active_p and not df_p_pred.empty:
+            # Previous pitch range only narrows the Pitches radial; previous |Δ|
+            # range only narrows the Deltas radial - previous result and leverage
+            # are shared context, so they narrow both.
+            _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
+            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
+            if (_cf_active_pitches_p or _cf_active_deltas_p) and not df_p_pred.empty:
                 _df_ctx_p = df_p_pred.copy()
                 if _cf_leverage_bucket_p is not None:
                     _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
-                _df_radial_p = utils.filter_by_prior_context(
+                _df_radial_pitches_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_pitch_bucket=_cf_pitch_bucket_p,
+                    prev_result_cat=_cf_result_cat_p,
+                    leverage_bucket=_cf_leverage_bucket_p,
+                ) if _cf_active_pitches_p else _df_ctx_p
+                _df_radial_deltas_p = utils.filter_by_prior_context(
+                    _df_ctx_p,
                     prev_abs_delta_bucket=_cf_delta_bucket_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
-                )
-                st.caption(f"{len(_df_radial_p)} matching historical instance(s).")
+                ) if _cf_active_deltas_p else _df_ctx_p
+                st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} "
+                          "matching historical instance(s).")
             else:
-                _df_radial_p = df_p_pred
+                _df_radial_pitches_p = df_p_pred
+                _df_radial_deltas_p  = df_p_pred
 
-        _actual_pitches_radial_p = len(_df_radial_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
+        _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
-            utils.radial_recent_pitches_chart(_df_radial_p, n=n_pitches, value_col="pitch",
+            utils.radial_recent_pitches_chart(_df_radial_pitches_p, n=n_pitches, value_col="pitch",
                                               title=f"Last {_actual_pitches_radial_p} Pitches"),
             width="stretch", key="p_radial",
         )
-        _actual_deltas_radial_p = len(_df_radial_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_p.empty else 0
+        _actual_deltas_radial_p = len(_df_radial_deltas_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_deltas_p.empty else 0
         _center_deltas_p = st.session_state.get("p_radial_delta_center", False)
         _deltas_radial_title_p = (f"Last {_actual_deltas_radial_p} Implied Pitches" if _center_deltas_p
                                   else f"Last {_actual_deltas_radial_p} Deltas")
         st.plotly_chart(
-            utils.radial_recent_deltas_chart(_df_radial_p, n=n_pitches, delta_col="pitch_circ_delta",
+            utils.radial_recent_deltas_chart(_df_radial_deltas_p, n=n_pitches, delta_col="pitch_circ_delta",
                                              title=_deltas_radial_title_p,
                                              center_on_prev=_center_deltas_p),
             width="stretch", key="p_radial_delta",
