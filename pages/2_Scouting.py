@@ -2309,6 +2309,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             help="Shows each recent delta applied to the last actual pitch, on the 1-1000 "
                  "pitch scale - i.e. the implied next pitch given the spread of recent deltas.",
         )
+        _actual_combined_radial_p = max(_actual_pitches_radial_p, _actual_deltas_radial_p)
+        st.plotly_chart(
+            utils.radial_combined_chart(_df_radial_pitches_p, _df_radial_deltas_p, n=n_pitches,
+                                        value_col="pitch", delta_col="pitch_circ_delta",
+                                        title=f"Last {_actual_combined_radial_p} Combined"),
+            width="stretch", key="p_radial_combined",
+        )
 
         # rebind so all sections below are ITD
         df_p = df_p_pred

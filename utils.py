@@ -2650,6 +2650,31 @@ def last_n_combined_chart(
     return fig
 
 
+def _slice_counts(all_theta: list[float]) -> list[int]:
+    """How many of the given (already angle-mapped) points fall in each of the
+    ten fixed 36-degree slices, indexed from the 12-o'clock spoke clockwise."""
+    counts = [0] * 10
+    for t in all_theta:
+        counts[int((t % 360.0) // 36.0) % 10] += 1
+    return counts
+
+
+def _slice_background_trace(all_theta: list[float], r_max: float) -> go.Barpolar:
+    """Ring of 10 background wedges, one per fixed 36-degree slice, colored by
+    how many of the given points fall in each slice - blue (fewest) -> white
+    (mid) -> red (most), scoped to this trace's own min/max only. Low alpha:
+    a subtle backdrop, not competing with the dots drawn on top of it."""
+    counts = _slice_counts(all_theta)
+    lo, hi = min(counts), max(counts)
+    colors = [_freq_bwr_color(c, lo, hi, alpha=0.22) for c in counts]
+    thetas = [i * 36.0 + 18.0 for i in range(10)]
+    return go.Barpolar(
+        r=[r_max] * 10, theta=thetas, width=[36.0] * 10,
+        marker=dict(color=colors, line=dict(width=0)),
+        base=0, hoverinfo="skip", showlegend=False,
+    )
+
+
 def _radial_recency_figure(
     theta: list[float],
     hover: list[str],
@@ -2661,6 +2686,8 @@ def _radial_recency_figure(
     (oldest at the center, newest at the rim, blue-white-red matching zone_heatmap).
     A thin hole keeps the center open. theta/hover must already be angle-mapped
     for the caller's value domain; tickvals/ticktext supply the spoke labels.
+    A background wedge ring (see _slice_background_trace) shows how the plotted
+    points are distributed across the ten slices.
     """
     n_actual = len(theta)
     if n_actual == 0:
@@ -2669,6 +2696,7 @@ def _radial_recency_figure(
     r_max = n_actual * 1.05
 
     fig = go.Figure()
+    fig.add_trace(_slice_background_trace(theta, r_max))
     fig.add_trace(go.Scatterpolar(
         r=r, theta=theta, mode="markers",
         marker=dict(
@@ -2737,6 +2765,35 @@ def radial_recent_pitches_chart(
     return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
 
 
+def _implied_pitch_points(
+    df: pd.DataFrame,
+    n: int,
+    delta_col: str = "pitch_circ_delta",
+    value_col: str = "pitch",
+) -> tuple[list[float], list[str]]:
+    """Each of the last n deltas re-mapped onto df's most recent actual value
+    (last_val + delta, wrapped on the 1-1000 wheel) - the implied-next-pitch
+    points shared by radial_recent_deltas_chart's center_on_prev mode and
+    radial_combined_chart. Returns ([], []) if there's no delta history or no
+    actual value to anchor to.
+    """
+    vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
+    n_actual = len(vals)
+    if n_actual == 0:
+        return [], []
+    pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
+    if pitch_vals.empty:
+        return [], []
+    anchor = int(pitch_vals.iloc[-1])
+    implied = [((anchor + d - 1) % 1000) + 1 for d in vals]
+    theta = [v * 360.0 / 1000.0 for v in implied]
+    hover = [
+        f"{v} (prev {anchor} {d:+d})<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+        for i, (v, d) in enumerate(zip(implied, vals))
+    ]
+    return theta, hover
+
+
 def radial_recent_deltas_chart(
     df: pd.DataFrame,
     n: int = 20,
@@ -2754,23 +2811,12 @@ def radial_recent_deltas_chart(
     same fixed absolute grid as radial_recent_pitches_chart. Each point then reads
     as an implied next-pitch value, on the same scale as that chart for comparison.
     """
-    vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
-    n_actual = len(vals)
-
-    anchor = None
     if center_on_prev:
-        pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
-        anchor = int(pitch_vals.iloc[-1]) if not pitch_vals.empty else None
-
-    if anchor is not None:
-        implied = [((anchor + d - 1) % 1000) + 1 for d in vals]
-        theta = [v * 360.0 / 1000.0 for v in implied]
-        hover = [
-            f"{v} (prev {anchor} {d:+d})<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-            for i, (v, d) in enumerate(zip(implied, vals))
-        ]
+        theta, hover = _implied_pitch_points(df, n, delta_col, value_col)
         tickvals, ticktext = _pitch_value_ticks()
     else:
+        vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
+        n_actual = len(vals)
         theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
         hover = [
             f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
@@ -2781,6 +2827,91 @@ def radial_recent_deltas_chart(
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
 
     return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+
+
+def radial_combined_chart(
+    df_pitches: pd.DataFrame,
+    df_deltas: pd.DataFrame,
+    n: int = 20,
+    value_col: str = "pitch",
+    delta_col: str = "pitch_circ_delta",
+    title: str = "Recent Combined - Radial View",
+) -> go.Figure:
+    """Overlays radial_recent_pitches_chart's actual-pitch points (from
+    df_pitches) with the implied-next-pitch points radial_recent_deltas_chart
+    would show in center_on_prev mode (from df_deltas) - always mapped onto
+    the most recent actual pitch, regardless of that chart's own toggle.
+
+    Each group keeps its own recency-based radius/color (see
+    _radial_recency_figure) computed independently, so a sparser group's
+    points simply don't reach as far out as a fuller group's; circles mark
+    actual pitches, diamonds mark implied ones. The background slice ring
+    reflects both groups combined.
+    """
+    vals = df_pitches[df_pitches[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
+    n_a = len(vals)
+    theta_a = [v * 360.0 / 1000.0 for v in vals]
+    hover_a = [
+        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
+        f"{n_a - i} pitch{'es' if n_a - i != 1 else ''} ago"
+        for i, v in enumerate(vals)
+    ]
+
+    theta_b, hover_b = _implied_pitch_points(df_deltas, n, delta_col, value_col)
+    n_b = len(theta_b)
+
+    if n_a == 0 and n_b == 0:
+        return go.Figure()
+
+    r_max = max(n_a, n_b, 1) * 1.05
+    marker_base = dict(
+        size=6.7,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        line=dict(color="rgba(80,80,80,0.6)", width=1),
+    )
+
+    fig = go.Figure()
+    fig.add_trace(_slice_background_trace(theta_a + theta_b, r_max))
+    if n_a:
+        fig.add_trace(go.Scatterpolar(
+            r=list(range(1, n_a + 1)), theta=theta_a, mode="markers", name="Actual",
+            marker=dict(
+                **marker_base, symbol="circle", color=list(range(1, n_a + 1)),
+                showscale=True,
+                colorbar=dict(title=dict(text="Recency", side="right"),
+                              tickvals=[1, n_a], ticktext=["Oldest", "Newest"],
+                              thickness=14, len=0.7),
+            ),
+            text=hover_a, hoverinfo="text", showlegend=True,
+        ))
+    if n_b:
+        fig.add_trace(go.Scatterpolar(
+            r=list(range(1, n_b + 1)), theta=theta_b, mode="markers", name="Implied",
+            marker=dict(**marker_base, symbol="diamond", color=list(range(1, n_b + 1)), showscale=False),
+            text=hover_b, hoverinfo="text", showlegend=True,
+        ))
+
+    tickvals, ticktext = _pitch_value_ticks()
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        polar=dict(
+            hole=0.08,
+            angularaxis=dict(
+                direction="clockwise", rotation=90,
+                tickmode="array", tickvals=tickvals, ticktext=ticktext,
+                gridcolor="rgba(128,128,128,0.3)",
+            ),
+            radialaxis=dict(
+                showticklabels=False, ticks="", showline=False,
+                range=[0, r_max],
+                gridcolor="rgba(128,128,128,0.2)",
+            ),
+        ),
+        height=380,
+        margin=dict(l=30, r=30, t=36, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
 
 
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
