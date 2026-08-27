@@ -13055,36 +13055,20 @@
       "</tbody></table>";
   }
 
-  // Nickname only (drops the city/region prefix) - Alex's ask: the
-  // Pitching tab's mobile header line is tight for space alongside its own
-  // stat line, so "Baldur's Gate Beholders" needs to read as just
-  // "Beholders" there. A plain last-word split gets every one of this
-  // league's 16 franchises right except the one two-word nickname below
-  // (checked against the full roster in meta.json) - not worth a general
-  // heuristic for a single, permanent exception.
-  var TEAM_NICKNAME_OVERRIDES = { "Aruba Sea Serpents": "Sea Serpents" };
-  function teamNickname(fullName) {
-    if (TEAM_NICKNAME_OVERRIDES[fullName]) return TEAM_NICKNAME_OVERRIDES[fullName];
-    var words = (fullName || "").trim().split(/\s+/);
-    return words[words.length - 1] || fullName;
-  }
-
   // Logo + full team name (not the acronym), once above that team's whole
   // section (Alex's ask - replaces the separate "XXX BATTING"/"XXX
   // PITCHING" acronym labels; the pitching table right underneath needs no
-  // label of its own, it's already read as part of this same team).
+  // label of its own, it's already read as part of this same team). Full
+  // name always, both tabs, any screen size - the Pitching tab's own stat
+  // line used to compete for space on this same line on mobile (hence a
+  // now-removed nickname-only fallback there), but it now drops to its own
+  // row underneath instead, so the name never needs shortening.
   // extraHtml (optional) sits at the header row's own right edge - the
-  // Pitching tab uses it for that team's summed pitching line. shortenOnMobile
-  // (Pitching tab only) swaps to the nickname-only span on a small screen,
-  // same full/short toggle technique the batting lineup names already use.
-  function scorecardTeamHeaderHtml(abbr, extraHtml, shortenOnMobile) {
+  // Pitching tab uses it for that team's summed pitching line.
+  function scorecardTeamHeaderHtml(abbr, extraHtml) {
     var fullName = (data.meta.teams[abbr] || {}).name || abbr;
-    var nameHtml = shortenOnMobile
-      ? '<span class="sc-team-name-full">' + escapeHtml(fullName) + "</span>" +
-        '<span class="sc-team-name-short">' + escapeHtml(teamNickname(fullName)) + "</span>"
-      : "<span>" + escapeHtml(fullName) + "</span>";
     return '<div class="sc-team-header">' + teamLogoImg(abbr, "sc-team-header-logo") +
-      nameHtml + (extraHtml || "") + "</div>";
+      "<span>" + escapeHtml(fullName) + "</span>" + (extraHtml || "") + "</div>";
   }
 
   // Bold number + small unit label (Alex's reference image's own stat-line
@@ -13189,7 +13173,7 @@
     });
     var totalsIp = Math.floor(totals.outs / 3) + "." + (totals.outs % 3);
     return scorecardTeamHeaderHtml(abbr,
-      pitchStatLineHtml(totalsIp, totals.bf, totals.h, totals.r, totals.bb, totals.k), true) +
+      pitchStatLineHtml(totalsIp, totals.bf, totals.h, totals.r, totals.bb, totals.k)) +
       '<div class="sc-pitch-team">' +
         stints.map(function (s) { return pitcherSectionHtml(box, oppAbbr, s); }).join("") +
       "</div>";

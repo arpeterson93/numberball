@@ -2439,10 +2439,6 @@ html[data-km-debug="1"] .km-tuning-panel{
 }
 .sc-team-header:first-child{margin-top:0;}
 .sc-team-header-logo{width:24px;height:24px;object-fit:contain;flex-shrink:0;}
-/* Nickname-only swap is Pitching-tab-only and mobile-only (Alex's ask) -
-   the Batting tab's header never renders a .sc-team-name-short span at
-   all, so it always keeps the full name regardless of screen size. */
-.sc-team-name-short{display:none;}
 /* The Pitching tab's team-wide stat line rides the same header row, pinned
    to its far right (Alex's ask - the reference image's own "3 ARMS" spot,
    just our own IP/H/ER/BB/K totals there instead). */
@@ -2677,8 +2673,6 @@ html[data-km-debug="1"] .km-tuning-panel{
 @media (max-width:600px){
   .lineup-name-full{display:none;}
   .lineup-name-short{display:inline;}
-  .sc-team-name-full{display:none;}
-  .sc-team-name-short{display:inline;}
   /* The fixed-width, right-anchored stat columns that keep the team-total
      and per-pitcher lines aligned on desktop (Alex's ask) don't have room
      to sit inline with the name here - they'd either get clipped or force
