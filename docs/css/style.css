@@ -2470,10 +2470,16 @@ html[data-km-debug="1"] .km-tuning-panel{
   width:36px;text-align:right;
 }
 .sc-pitch-stat b{font-size:13px;font-weight:800;color:var(--text);margin-right:1px;}
-.sc-pitch-inning{display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);padding:8px 0;}
+/* More top/bottom breathing room per inning row (Alex's ask) - one row's
+   batter names were sitting too close to the next row's diamonds. */
+.sc-pitch-inning{display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);padding:14px 0;}
 .sc-pitch-inning:last-child{border-bottom:none;}
 .sc-pitch-inning-label{width:36px;flex-shrink:0;font-weight:800;color:var(--muted);font-size:11px;padding-top:8px;}
-.sc-pitch-batters{display:flex;flex-wrap:wrap;flex:1;}
+/* row-gap matters most on mobile (Alex's ask) - a bat-around inning's
+   boxes wrap to a second/third line there far more often than they ever
+   need to on a wide desktop screen, and with no gap of its own a wrapped
+   line's names sat right on top of the next line's diamonds. */
+.sc-pitch-batters{display:flex;flex-wrap:wrap;flex:1;row-gap:14px;}
 .sc-pitch-box{
   display:flex;flex-direction:column;align-items:center;gap:2px;
   width:90px;flex-shrink:0;padding:4px 2px 6px;
@@ -2491,7 +2497,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 .sc-pitch-batter-name{
   font-size:10.5px;font-weight:600;color:var(--text);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:100%;
-  line-height:14px;flex-shrink:0;
+  flex-shrink:0;
 }
 
 /* Batting/Pitching tab switcher (Alex's ask) - sits right beneath the
