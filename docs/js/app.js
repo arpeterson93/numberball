@@ -14997,7 +14997,7 @@
 
   // ── boot ────────────────────────────────────────────────────────────────────
 
-  // ── deep links: ?game=130419&play=34 ────────────────────────────────────────
+  // ── deep links: ?game=130419&play=34, or ?game=130419&view=scorecard ───────
   //
   // Read-only input, parsed once at boot - no pushState/history management in
   // v1 (plan Stage 4 item 4), so closing the replay modal just leaves the
@@ -15018,7 +15018,14 @@
     var playRaw = params.get("play");
     var play = playRaw ? parseInt(playRaw.replace(/\D/g, ""), 10) : null;
     if (play != null && isNaN(play)) play = null;
-    return { code: code, season: gameSeason, session: session, play: play };
+    // &view=scorecard opens straight to the Scorecard modal instead of the
+    // Replay one (Alex's ask) - always lands on its Batting tab, same as
+    // any other fresh open (renderScorecard/openScorecard already default
+    // there). Anything else (missing, "replay", a typo) keeps the original
+    // replay-deep-link behavior so an existing shared link never changes
+    // what it does.
+    var view = params.get("view") === "scorecard" ? "scorecard" : "replay";
+    return { code: code, season: gameSeason, session: session, play: play, view: view };
   }
 
   // Runs after boot's own load has rendered the normal page underneath -
@@ -15031,7 +15038,11 @@
     if (!link) return;
     var playNum = link.play ? Number(link.code) * 1000 + link.play : null;
     function open() {
-      openReplayAtPlay(link.code, link.session, playNum, null, true);
+      if (link.view === "scorecard") {
+        openScorecard(link.code, link.session);
+      } else {
+        openReplayAtPlay(link.code, link.session, playNum, null, true);
+      }
     }
     if (link.season === season.current) {
       open();
