@@ -2499,6 +2499,10 @@ html[data-km-debug="1"] .km-tuning-panel{
      the lineup cell itself also asks for the full 62px. */
   min-height:62px;
 }
+/* Now Batting highlight (Alex's ask) - color-mix produces a solid, fully
+   opaque result (unlike an rgba() background, which would let content
+   scrolling underneath this sticky/frozen cell show through it). */
+.sc-lineup.now-batting{background:color-mix(in srgb, var(--card) 65%, rgb(var(--now-batting-rgb)) 35%);}
 .lineup-slot{font-weight:800;color:var(--muted);text-align:center;}
 .lineup-entries{display:flex;flex-direction:column;gap:3px;}
 .lineup-entry{

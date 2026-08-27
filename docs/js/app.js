@@ -12819,10 +12819,19 @@
       // substitute's first play gets a vertical colored bar instead (below)
       // rather than the whole lineup row taking a border color.
       var nowBattingStint = stints.filter(function (s) { return s.nowBatting; })[0];
-      var nowBattingStyle = "";
+      var nowBattingCls = "", nowBattingStyle = "";
       if (nowBattingStint) {
         var rgb = hexToRgb((data.meta.teams[team.abbr] || {}).primary_hex);
-        if (rgb) nowBattingStyle = ' style="background:rgba(' + rgb.r + "," + rgb.g + "," + rgb.b + ',0.35)"';
+        if (rgb) {
+          // An rgba() background here would make the frozen lineup column
+          // see-through - other cells sliding underneath it while scrolling
+          // horizontally would show through the tint (Alex's report). The
+          // CSS below mixes this color into --card itself instead
+          // (color-mix, still opaque), so the sticky cell stays fully
+          // covering no matter what scrolls past beneath it.
+          nowBattingCls = " now-batting";
+          nowBattingStyle = ' style="--now-batting-rgb:' + rgb.r + "," + rgb.g + "," + rgb.b + '"';
+        }
       }
       var entries = stints.map(function (stint, i) {
         var posLabel = stint.posStart === stint.posEnd ? stint.posStart : (stint.posStart + "/" + stint.posEnd);
@@ -12832,7 +12841,7 @@
           '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(lastNameOf(stint.name)) + "</span>" +
           "</div>";
       }).join("");
-      rows += '<div class="sc-cell sc-lineup"' + nowBattingStyle + '>' +
+      rows += '<div class="sc-cell sc-lineup' + nowBattingCls + '"' + nowBattingStyle + '>' +
         '<span class="lineup-slot">' + (slotIdx + 1) + "</span>" +
         '<div class="lineup-entries">' + entries + "</div>" +
         "</div>";
