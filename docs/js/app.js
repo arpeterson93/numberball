@@ -12410,7 +12410,18 @@
       runs += p.runs || 0;
       if (HIT_RESULTS[p.result]) hits++;
     });
-    return { runs: runs, hits: hits, lob: lob };
+    // Runs/hits already happened - real regardless of how the rest of the
+    // half plays out. LOB is different: it's only meaningful once the half
+    // is actually over (3rd out recorded) - a runner "on base right now" in
+    // the CURRENT, still-live half-inning of an in-progress game might yet
+    // score or be doubled off before the half ends, so showing today's
+    // partial count as if it were final would be misleading (Alex's ask).
+    // null here (not 0) means "not decided yet" - the renderer shows a dash
+    // instead of a number, and the linescore's own running LOB total skips
+    // it rather than treating null as a real 0.
+    var last = halfPlays[halfPlays.length - 1];
+    var isComplete = !!(last && last.is_half_inning_final);
+    return { runs: runs, hits: hits, lob: isComplete ? lob : null };
   }
 
   // Mini diamond geometry (home bottom-centre) - centre points for the 4
@@ -12748,6 +12759,25 @@
     return parts[parts.length - 1] || fullName || "";
   }
 
+  // Caps the mobile column's own width (Alex's ask): up to 18 characters
+  // shows in full (that's the widest this column ever sizes itself for -
+  // see computeMobileBatterColWidth below, which measures this same
+  // truncated text, not the raw last name), anything longer is cut to the
+  // first 15 characters plus an ellipsis rather than growing the column
+  // further for one unusually long name. Same 18/15 split the live grid's
+  // own matchup labels already use (LIVE_GRID_MU_NAME_FULL_MAX/
+  // LIVE_GRID_MU_NAME_TRUNCATE_AT, further down this file) - reusing those
+  // constants instead of a second hardcoded 18/15 pair, though this keeps
+  // its own lastNameOf (suffix-aware - "...Jr. Jr. Jr." - unlike
+  // liveGridLastName's plainer last-whitespace-token split) since that's
+  // what this feature already needed.
+  function mobileLastName(fullName) {
+    var last = lastNameOf(fullName);
+    return last.length > LIVE_GRID_MU_NAME_FULL_MAX
+      ? last.slice(0, LIVE_GRID_MU_NAME_TRUNCATE_AT) + "…"
+      : last;
+  }
+
   function subBorderClass(subType) {
     if (subType === "pinch-hitter") return " sub-ph";
     if (subType === "pinch-runner") return " sub-pr";
@@ -12777,7 +12807,7 @@
     [awayOrder, homeOrder].forEach(function (order) {
       order.forEach(function (stints) {
         stints.forEach(function (stint) {
-          var w = measureTextWidth(lastNameOf(stint.name));
+          var w = measureTextWidth(mobileLastName(stint.name));
           if (w > maxNameW) maxNameW = w;
         });
       });
@@ -12844,7 +12874,7 @@
         return '<div class="lineup-entry' + subBorderClass(stint.subType) + '">' +
           '<span class="lineup-pos">' + escapeHtml(posLabel || "") + '</span>' +
           '<span class="lineup-name lineup-name-full" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(stint.name || "") + "</span>" +
-          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(lastNameOf(stint.name)) + "</span>" +
+          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(mobileLastName(stint.name)) + "</span>" +
           "</div>";
       }).join("");
       rows += '<div class="sc-cell sc-lineup' + nowBattingCls + '"' + nowBattingStyle + '>' +
@@ -12915,7 +12945,7 @@
         return '<div class="sc-cell sc-totals">' +
           '<span class="sc-totals-col"><b>' + t.runs + '</b><i>R</i></span>' +
           '<span class="sc-totals-col"><b>' + t.hits + '</b><i>H</i></span>' +
-          '<span class="sc-totals-col"><b>' + t.lob + '</b><i>LOB</i></span>' +
+          '<span class="sc-totals-col"><b>' + (t.lob == null ? "-" : t.lob) + '</b><i>LOB</i></span>' +
           "</div>";
       }).join("") +
       ["ab", "r", "h", "rbi", "bb", "so"].map(function (k) {
@@ -13011,7 +13041,10 @@
       Object.keys(box.halfTotals).forEach(function (key) {
         if (key.substring(key.indexOf("-") + 1) === half) {
           totalR += box.halfTotals[key].runs; totalH += box.halfTotals[key].hits;
-          totalLob += box.halfTotals[key].lob;
+          // The current, still-live half-inning's lob is null (not a real
+          // 0) until it actually ends - skip it rather than let it corrupt
+          // the running total with a number that hasn't happened yet.
+          if (box.halfTotals[key].lob != null) totalLob += box.halfTotals[key].lob;
         }
       });
       return "<tr><td class=\"ls-team\">" + teamLogoImg(abbr, "ls-logo") + escapeHtml(abbr) + "</td>" + cells +
