@@ -12205,9 +12205,15 @@
     stints.forEach(function (stint) {
       var outs = 0, bf = 0, h = 0, r = 0, bb = 0, k = 0;
       stint.plays.forEach(function (p) {
+        // Outs always count toward IP, genuine turn or not - a caught
+        // stealing is a real out the pitcher gets credit for even though
+        // it's not a new batter faced (Alex's report: Ant Man's IP was
+        // short by exactly one out, a CS2 in the 2nd inning that this loop
+        // used to skip entirely since it returned before ever reaching the
+        // outs tally below).
+        outs += Math.max(0, (p.outs_after || 0) - (p.outs_before || 0));
         if (!isGenuineTurn(p)) return;
         bf++;
-        outs += Math.max(0, (p.outs_after || 0) - (p.outs_before || 0));
         if (HIT_RESULTS[p.result]) h++;
         if (WALK_RESULTS[p.result]) bb++;
         if (STRIKEOUT_RESULTS[p.result]) k++;
@@ -13010,8 +13016,13 @@
       Math.floor(totals.outs / 3) + "." + (totals.outs % 3) + "</td><td>" + totals.bf +
       "</td><td>" + totals.h + "</td><td>" + totals.r + "</td><td>" + totals.bb +
       "</td><td>" + totals.k + "</td></tr>";
+    // Labeled ER, not R (Alex's ask) - the underlying count is still every
+    // run charged while that pitcher was in the game, same as before; this
+    // league's data has no earned/unearned distinction to actually split
+    // the two (key_moments_build.py doesn't export it), so this is a
+    // relabel, not a new/different number.
     return '<table class="sc-pitchers"><thead><tr><th>PITCHER</th><th>IP</th><th>BF</th><th>H</th>' +
-      "<th>R</th><th>BB</th><th>K</th></tr></thead><tbody>" + rows + totalsRow + "</tbody></table>";
+      "<th>ER</th><th>BB</th><th>K</th></tr></thead><tbody>" + rows + totalsRow + "</tbody></table>";
   }
 
   // Classic inning-by-inning linescore (runs per inning) plus total R/H
