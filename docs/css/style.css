@@ -2439,6 +2439,59 @@ html[data-km-debug="1"] .km-tuning-panel{
 }
 .sc-team-header:first-child{margin-top:0;}
 .sc-team-header-logo{width:24px;height:24px;object-fit:contain;flex-shrink:0;}
+/* Nickname-only swap is Pitching-tab-only and mobile-only (Alex's ask) -
+   the Batting tab's header never renders a .sc-team-name-short span at
+   all, so it always keeps the full name regardless of screen size. */
+.sc-team-name-short{display:none;}
+/* The Pitching tab's team-wide stat line rides the same header row, pinned
+   to its far right (Alex's ask - the reference image's own "3 ARMS" spot,
+   just our own IP/H/ER/BB/K totals there instead). */
+.sc-team-header .sc-pitch-line{margin-left:auto;}
+
+/* ---- Pitching tab: one section per pitcher, rows down by inning, that
+   inning's batters faced across in order (Alex's ask, modeled on a
+   caughtlooking.app-style scorecard) - reuses the exact same .batter-box/
+   .bb-diamond markup the Batting tab's grid already renders per play, just
+   grouped differently (by pitcher + inning, not by batting-order slot),
+   with the batter's own last name added underneath since there's no
+   separate lineup column here to carry it. */
+.sc-pitch-pitcher{margin:0 0 20px;}
+.sc-pitch-pitcher-head{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  border-bottom:2px solid var(--border-hover);padding-bottom:6px;margin-bottom:2px;
+}
+.sc-pitch-name{font-size:14px;font-weight:800;color:var(--text);}
+/* Fixed per-stat width (not just auto-sized to that row's own digits) is
+   what makes the team-total line and every pitcher's own line underneath
+   read as one aligned column per stat (Alex's ask) - both this line and
+   each pitcher's line are already pinned to the same right edge of their
+   own (equal-width) row, so equal-width chips are all it takes for IP/BF/
+   H/ER/BB/K to stack straight down regardless of how many digits any one
+   row's value happens to have. */
+.sc-pitch-line{display:flex;gap:10px;flex-shrink:0;}
+.sc-pitch-stat{
+  font-size:10px;font-weight:700;color:var(--muted);white-space:nowrap;
+  width:36px;text-align:right;
+}
+.sc-pitch-stat b{font-size:13px;font-weight:800;color:var(--text);margin-right:1px;}
+.sc-pitch-inning{display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);padding:8px 0;}
+.sc-pitch-inning:last-child{border-bottom:none;}
+.sc-pitch-inning-label{width:36px;flex-shrink:0;font-weight:800;color:var(--muted);font-size:11px;padding-top:8px;}
+.sc-pitch-batters{display:flex;flex-wrap:wrap;flex:1;}
+.sc-pitch-box{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  width:90px;flex-shrink:0;padding:4px 2px 6px;
+}
+.sc-pitch-box .batter-box{min-height:58px;}
+.sc-pitch-batter-name{
+  font-size:10.5px;font-weight:600;color:var(--text);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%;
+}
+
+/* Batting/Pitching tab switcher (Alex's ask) - sits right beneath the
+   linescore, above either tab's own content. Reuses the site's existing
+   .chip toggle look rather than inventing a new control. */
+.sc-tabs{display:flex;justify-content:center;gap:8px;margin:0 0 16px;}
 
 /* Linescore - classic inning-by-inning runs, plus total R/H (Alex's ask) -
    sits above the two full batting grids. */
@@ -2600,18 +2653,6 @@ html[data-km-debug="1"] .km-tuning-panel{
 .sc-totals-col b{font-weight:800;font-size:12px;}
 .sc-totals-col i{font-style:normal;font-size:8px;color:var(--muted);font-weight:700;}
 
-.sc-pitchers{border-collapse:collapse;font-size:12px;margin-bottom:4px;}
-.sc-pitchers th{
-  text-align:center;color:var(--muted);font-size:11px;font-weight:800;letter-spacing:0.2px;
-  border-bottom:1px solid var(--border);padding:4px 6px;
-}
-.sc-pitchers td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:center;}
-/* Wide enough by default for a long name plus its decision label (e.g.
-   "Gracie Mlodzianowski-Cwej SV") without wrapping (Alex's ask). */
-.sc-pitchers th:first-child,.sc-pitchers td:first-child{text-align:left;min-width:230px;}
-.sc-pitchers tr.relief{border-left:3px solid transparent;}
-.sc-pitchers-totals{font-weight:800;}
-.sc-pitchers-totals td{border-bottom:none;}
 .pitch-decision{color:var(--muted);font-weight:800;font-size:10px;}
 
 /* Pitching-change color palette - cycled per team (assignPitchColors,
@@ -2629,24 +2670,28 @@ html[data-km-debug="1"] .km-tuning-panel{
 .sc-box.pitch-color-2{border-top-color:var(--gold) !important;}
 .sc-box.pitch-color-3{border-top-color:var(--green) !important;}
 .sc-box.pitch-color-4{border-top-color:var(--blue) !important;}
-.sc-pitchers tr.pitch-color-0{border-left-color:var(--navy) !important;}
-.sc-pitchers tr.pitch-color-1{border-left-color:var(--red-dark) !important;}
-.sc-pitchers tr.pitch-color-2{border-left-color:var(--gold) !important;}
-.sc-pitchers tr.pitch-color-3{border-left-color:var(--green) !important;}
-.sc-pitchers tr.pitch-color-4{border-left-color:var(--blue) !important;}
 
 /* Small screen (Alex's ask, same 600px breakpoint the rest of the site
    already uses) - last-name-only in the batting table's cramped sticky
-   name column, and the pitchers' table's own name column drops its desktop
-   min-width so the whole table fits the screen instead of forcing a
-   sideways scroll (its numeric columns stay centred and readable at this
-   size regardless). */
+   name column. */
 @media (max-width:600px){
   .lineup-name-full{display:none;}
   .lineup-name-short{display:inline;}
-  .sc-pitchers{width:100%;font-size:11px;}
-  .sc-pitchers th,.sc-pitchers td{padding:4px 3px;}
-  .sc-pitchers th:first-child,.sc-pitchers td:first-child{min-width:0;}
+  .sc-team-name-full{display:none;}
+  .sc-team-name-short{display:inline;}
+  /* The fixed-width, right-anchored stat columns that keep the team-total
+     and per-pitcher lines aligned on desktop (Alex's ask) don't have room
+     to sit inline with the name here - they'd either get clipped or force
+     the whole modal body into its own horizontal scroll (Alex's report).
+     Dropping the stat line to its own full-width row instead means every
+     row's stat line starts at the same left edge, which keeps the columns
+     just as aligned, only reading left-to-right now instead of pinned to
+     the right. */
+  .sc-team-header,.sc-pitch-pitcher-head{flex-wrap:wrap;row-gap:2px;}
+  .sc-team-header .sc-pitch-line,.sc-pitch-pitcher-head .sc-pitch-line{
+    margin-left:0;width:100%;justify-content:flex-start;
+  }
+  .sc-pitch-stat{width:32px;text-align:left;}
   /* Only ever assigned here - .sc-grid's own grid-template-columns reads
      --sc-batter-col with a 230px fallback, so any screen wider than this
      query never sees it defined at all (app.js only ever sets the raw

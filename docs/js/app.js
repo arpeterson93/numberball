@@ -13001,34 +13001,6 @@
     return null;
   }
 
-  function pitchersTableHtml(box, teamKey) {
-    var stints = box[teamKey].pitching;
-    var rows = stints.map(function (s, i) {
-      var colorIdx = box.pitchColors[s.pitcherId != null ? String(s.pitcherId) : s.name];
-      var decision = box.decisions[s.pitcherId];
-      return '<tr class="' + (i > 0 ? "pitch-color-" + colorIdx + " relief" : "") + '">' +
-        "<td>" + escapeHtml(s.name || "") + (decision ? ' <span class="pitch-decision">' + decision + "</span>" : "") + "</td>" +
-        "<td>" + s.ip + "</td><td>" + s.bf + "</td><td>" + s.h + "</td><td>" + s.r +
-        "</td><td>" + s.bb + "</td><td>" + s.k + "</td></tr>";
-    }).join("");
-    var totals = { outs: 0, bf: 0, h: 0, r: 0, bb: 0, k: 0 };
-    stints.forEach(function (s) {
-      totals.outs += s.outs; totals.bf += s.bf; totals.h += s.h;
-      totals.r += s.r; totals.bb += s.bb; totals.k += s.k;
-    });
-    var totalsRow = '<tr class="sc-pitchers-totals"><td>TOTALS</td><td>' +
-      Math.floor(totals.outs / 3) + "." + (totals.outs % 3) + "</td><td>" + totals.bf +
-      "</td><td>" + totals.h + "</td><td>" + totals.r + "</td><td>" + totals.bb +
-      "</td><td>" + totals.k + "</td></tr>";
-    // Labeled ER, not R (Alex's ask) - the underlying count is still every
-    // run charged while that pitcher was in the game, same as before; this
-    // league's data has no earned/unearned distinction to actually split
-    // the two (key_moments_build.py doesn't export it), so this is a
-    // relabel, not a new/different number.
-    return '<table class="sc-pitchers"><thead><tr><th>PITCHER</th><th>IP</th><th>BF</th><th>H</th>' +
-      "<th>ER</th><th>BB</th><th>K</th></tr></thead><tbody>" + rows + totalsRow + "</tbody></table>";
-  }
-
   // Classic inning-by-inning linescore (runs per inning) plus total R/H
   // columns - a blank cell (not "0") for a half-inning with no halfTotals
   // entry at all, i.e. genuinely not played yet, vs. an actual 0.
@@ -13083,34 +13055,172 @@
       "</tbody></table>";
   }
 
+  // Nickname only (drops the city/region prefix) - Alex's ask: the
+  // Pitching tab's mobile header line is tight for space alongside its own
+  // stat line, so "Baldur's Gate Beholders" needs to read as just
+  // "Beholders" there. A plain last-word split gets every one of this
+  // league's 16 franchises right except the one two-word nickname below
+  // (checked against the full roster in meta.json) - not worth a general
+  // heuristic for a single, permanent exception.
+  var TEAM_NICKNAME_OVERRIDES = { "Aruba Sea Serpents": "Sea Serpents" };
+  function teamNickname(fullName) {
+    if (TEAM_NICKNAME_OVERRIDES[fullName]) return TEAM_NICKNAME_OVERRIDES[fullName];
+    var words = (fullName || "").trim().split(/\s+/);
+    return words[words.length - 1] || fullName;
+  }
+
   // Logo + full team name (not the acronym), once above that team's whole
   // section (Alex's ask - replaces the separate "XXX BATTING"/"XXX
   // PITCHING" acronym labels; the pitching table right underneath needs no
   // label of its own, it's already read as part of this same team).
-  function scorecardTeamHeaderHtml(abbr) {
+  // extraHtml (optional) sits at the header row's own right edge - the
+  // Pitching tab uses it for that team's summed pitching line. shortenOnMobile
+  // (Pitching tab only) swaps to the nickname-only span on a small screen,
+  // same full/short toggle technique the batting lineup names already use.
+  function scorecardTeamHeaderHtml(abbr, extraHtml, shortenOnMobile) {
     var fullName = (data.meta.teams[abbr] || {}).name || abbr;
+    var nameHtml = shortenOnMobile
+      ? '<span class="sc-team-name-full">' + escapeHtml(fullName) + "</span>" +
+        '<span class="sc-team-name-short">' + escapeHtml(teamNickname(fullName)) + "</span>"
+      : "<span>" + escapeHtml(fullName) + "</span>";
     return '<div class="sc-team-header">' + teamLogoImg(abbr, "sc-team-header-logo") +
-      "<span>" + escapeHtml(fullName) + "</span></div>";
+      nameHtml + (extraHtml || "") + "</div>";
+  }
+
+  // Bold number + small unit label (Alex's reference image's own stat-line
+  // style) - shared between a team's summed pitching line and each
+  // pitcher's own line so the two read consistently.
+  function pitchStatChipHtml(value, label) {
+    return '<span class="sc-pitch-stat"><b>' + value + "</b>" + label + "</span>";
+  }
+
+  function pitchStatLineHtml(ip, bf, h, r, bb, k) {
+    return '<span class="sc-pitch-line">' +
+      pitchStatChipHtml(ip, "IP") + pitchStatChipHtml(bf, "BF") + pitchStatChipHtml(h, "H") +
+      pitchStatChipHtml(r, "ER") + pitchStatChipHtml(bb, "BB") + pitchStatChipHtml(k, "K") +
+      "</span>";
+  }
+
+  function scorecardBattingBodyHtml(box) {
+    // Pitching now lives entirely on its own tab (Alex's ask) - this tab is
+    // just the two teams' batting grids, back to back.
+    return (
+      scorecardTeamHeaderHtml(box.awayAbbr) +
+      teamGridHtml(box, "away") +
+      scorecardTeamHeaderHtml(box.homeAbbr) +
+      teamGridHtml(box, "home")
+    );
+  }
+
+  // 1 -> "1ST", 2 -> "2ND", 3 -> "3RD", 4 -> "4TH", 11 -> "11TH", 21 ->
+  // "21ST" - the row label down the Pitching tab's per-pitcher innings.
+  function ordinalInningLabel(n) {
+    var mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return n + "TH";
+    switch (n % 10) {
+      case 1: return n + "ST";
+      case 2: return n + "ND";
+      case 3: return n + "RD";
+      default: return n + "TH";
+    }
+  }
+
+  // This stint's plate appearances, grouped by inning in the order they
+  // happened - a caught-stealing or similar non-genuine-turn play has no
+  // batter's-box cell of its own here either (same rule the batting grid's
+  // own columns already follow), it's just not a batter faced.
+  function pitcherInningGroups(stint) {
+    var groups = [], byInning = {};
+    stint.plays.forEach(function (p) {
+      if (!isGenuineTurn(p)) return;
+      if (!byInning[p.inning]) {
+        byInning[p.inning] = { inning: p.inning, plays: [] };
+        groups.push(byInning[p.inning]);
+      }
+      byInning[p.inning].plays.push(p);
+    });
+    return groups;
+  }
+
+  // Same batter's-box diamond the batting grid uses (Alex's ask - keep
+  // that same style, just regrouped by inning/pitcher instead of by
+  // batting-order slot), with the batter's own last name underneath since
+  // there's no separate lineup column here to carry it. teamHex is the
+  // BATTING side's own color (the offense, same as the batting grid passes
+  // for this exact same play) - the pitcher's own team has no bearing on
+  // how a scored run's base path is colored.
+  function pitchBatterBoxHtml(box, oppAbbr, play) {
+    var teamHex = (data.meta.teams[oppAbbr] || {}).primary_hex;
+    return '<div class="sc-pitch-box">' +
+      batterBoxHtml(play, box.outNumber[play.play_num], box.runnerPaths[play.play_num], teamHex) +
+      '<div class="sc-pitch-batter-name">' + escapeHtml(lastNameOf(play.batter_name || "")) + "</div>" +
+      "</div>";
+  }
+
+  function pitchInningRowHtml(box, oppAbbr, group) {
+    return '<div class="sc-pitch-inning">' +
+      '<div class="sc-pitch-inning-label">' + ordinalInningLabel(group.inning) + "</div>" +
+      '<div class="sc-pitch-batters">' +
+        group.plays.map(function (p) { return pitchBatterBoxHtml(box, oppAbbr, p); }).join("") +
+      "</div></div>";
+  }
+
+  function pitcherSectionHtml(box, oppAbbr, stint) {
+    var decision = box.decisions[stint.pitcherId];
+    var groups = pitcherInningGroups(stint);
+    return '<div class="sc-pitch-pitcher">' +
+      '<div class="sc-pitch-pitcher-head">' +
+        '<span class="sc-pitch-name">' + escapeHtml(stint.name || "") +
+          (decision ? ' <span class="pitch-decision">' + decision + "</span>" : "") +
+        "</span>" +
+        pitchStatLineHtml(stint.ip, stint.bf, stint.h, stint.r, stint.bb, stint.k) +
+      "</div>" +
+      groups.map(function (g) { return pitchInningRowHtml(box, oppAbbr, g); }).join("") +
+      "</div>";
+  }
+
+  function pitchingTeamHtml(box, teamKey) {
+    var abbr = teamKey === "away" ? box.awayAbbr : box.homeAbbr;
+    var oppAbbr = teamKey === "away" ? box.homeAbbr : box.awayAbbr;
+    var stints = box[teamKey].pitching;
+    var totals = { outs: 0, bf: 0, h: 0, r: 0, bb: 0, k: 0 };
+    stints.forEach(function (s) {
+      totals.outs += s.outs; totals.bf += s.bf; totals.h += s.h; totals.r += s.r; totals.bb += s.bb; totals.k += s.k;
+    });
+    var totalsIp = Math.floor(totals.outs / 3) + "." + (totals.outs % 3);
+    return scorecardTeamHeaderHtml(abbr,
+      pitchStatLineHtml(totalsIp, totals.bf, totals.h, totals.r, totals.bb, totals.k), true) +
+      '<div class="sc-pitch-team">' +
+        stints.map(function (s) { return pitcherSectionHtml(box, oppAbbr, s); }).join("") +
+      "</div>";
+  }
+
+  function scorecardPitchingBodyHtml(box) {
+    return pitchingTeamHtml(box, "away") + pitchingTeamHtml(box, "home");
   }
 
   function scorecardBodyHtml(box) {
-    // Each team's own pitching sits right under that same team's batting
-    // (Alex's ask) - a self-contained "everything about this team" section,
-    // rather than grouping both teams' pitching together at the bottom.
+    var battingActive = scorecard.activeTab !== "pitching";
     return (
       linescoreHtml(box) +
-      scorecardTeamHeaderHtml(box.awayAbbr) +
-      teamGridHtml(box, "away") +
-      pitchersTableHtml(box, "away") +
-      scorecardTeamHeaderHtml(box.homeAbbr) +
-      teamGridHtml(box, "home") +
-      pitchersTableHtml(box, "home")
+      '<div class="sc-tabs">' +
+        '<button type="button" class="chip sc-tab' + (battingActive ? " active" : "") +
+          '" data-scorecard-tab="batting">Batting</button>' +
+        '<button type="button" class="chip sc-tab' + (battingActive ? "" : " active") +
+          '" data-scorecard-tab="pitching">Pitching</button>' +
+      "</div>" +
+      '<div id="scorecard-batting-pane"' + (battingActive ? "" : " hidden") + ">" +
+        scorecardBattingBodyHtml(box) +
+      "</div>" +
+      '<div id="scorecard-pitching-pane"' + (battingActive ? " hidden" : "") + ">" +
+        scorecardPitchingBodyHtml(box) +
+      "</div>"
     );
   }
 
   // ---- open/close/refresh ----
 
-  var scorecard = { open: false, gameCode: null, session: null, refreshTimer: null, lastBox: null };
+  var scorecard = { open: false, gameCode: null, session: null, refreshTimer: null, lastBox: null, activeTab: "batting" };
   var scorecardZoomResizeTimer = null;
   var SCORECARD_REFRESH_MS = 5 * 60 * 1000; // matches the live grid's own cron-aligned cadence
 
@@ -13241,6 +13351,11 @@
       toast("Could not determine which session this game belongs to.");
       return;
     }
+    // Always the Batting tab on a fresh open (Alex's "always start at the
+    // top" convention below, extended to the tab choice too) - only a
+    // same-game live-refresh re-render should ever preserve whichever tab
+    // the viewer was already reading.
+    scorecard.activeTab = "batting";
     ensureSessionPlaysLoaded(session).then(function () {
       var plays = gamePlaysFor(session, gameCode);
       renderScorecard(gameCode, session, plays);
@@ -13294,6 +13409,22 @@
     $("scorecard-body").innerHTML = "";
   }
 
+  // Just toggles which pane/tab-button is visible/active - no re-render,
+  // no rebuilding the box score. The just-shown-again Batting pane's mobile
+  // zoom-to-fit gets recomputed since it was un-measurable (0 width) while
+  // display:none hid it - a live-refresh or a resize that happened while
+  // the Pitching tab was showing would otherwise leave it stale.
+  function switchScorecardTab(tab) {
+    if (tab !== "batting" && tab !== "pitching") return;
+    scorecard.activeTab = tab;
+    Array.prototype.forEach.call(document.querySelectorAll("#scorecard-body [data-scorecard-tab]"), function (btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-scorecard-tab") === tab);
+    });
+    $("scorecard-batting-pane").hidden = tab !== "batting";
+    $("scorecard-pitching-pane").hidden = tab !== "pitching";
+    if (tab === "batting") applyMobileScorecardZoom();
+  }
+
   function wireScorecard() {
     var modal = $("scorecard-modal");
     if (!modal) return;
@@ -13302,6 +13433,10 @@
     document.addEventListener("keydown", function (e) {
       if (modal.hidden) return;
       if (e.key === "Escape") closeScorecard();
+    });
+    modal.addEventListener("click", function (e) {
+      var tabBtn = e.target.closest("[data-scorecard-tab]");
+      if (tabBtn) { switchScorecardTab(tabBtn.getAttribute("data-scorecard-tab")); return; }
     });
     modal.addEventListener("click", function (e) {
       var cell = e.target.closest("[data-play]");
