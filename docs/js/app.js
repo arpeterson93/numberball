@@ -13068,7 +13068,16 @@
     }
     var headCells = "";
     for (var i = 1; i <= box.maxInning; i++) headCells += "<th>" + i + "</th>";
-    return '<table class="sc-linescore"><thead><tr><th></th>' + headCells +
+    // The <col>s do nothing at all on their own at this table's default
+    // auto layout (desktop just sizes columns to content, as always) - only
+    // the mobile media query below turns on table-layout:fixed, at which
+    // point .ls-col-team's own width becomes the one fixed column and every
+    // other (unspecified-width) <col> shares the remainder equally, however
+    // many innings that ends up being (Alex's ask: the linescore should
+    // never need its own horizontal scroll to be read on a phone).
+    var colGroup = "<colgroup><col class=\"ls-col-team\">" +
+      new Array(box.maxInning + 3).fill("<col>").join("") + "</colgroup>";
+    return '<table class="sc-linescore">' + colGroup + '<thead><tr><th></th>' + headCells +
       "<th>R</th><th>H</th><th>LOB</th></tr></thead><tbody>" +
       rowFor(box.awayAbbr, "top") + rowFor(box.homeAbbr, "bottom") +
       "</tbody></table>";
@@ -13121,30 +13130,42 @@
     return box.columns.filter(function (c) { return c.half === half && c.plays.length > 0; }).length;
   }
 
-  // Zooms each team's mobile batting grid out just far enough that the
+  // Shrinks each team's mobile batting grid out just far enough that the
   // batter column plus its real (played-into) innings fit the screen width
   // without scrolling - "you can always zoom in, but you can't really zoom
-  // out" was Alex's complaint about the previous always-100% default.
-  // Uses CSS `zoom`, not `transform:scale()`: scale() only repaints smaller
-  // in place and leaves the element's actual layout/scroll size at its
-  // pre-transform size, so scrolling past the shrunk-looking content just
-  // reveals genuinely blank space rather than the next (also shrunk) stub
-  // column - confirmed by isolated repro. `zoom` instead recomputes layout
-  // as if every length were scaled, so the scrollable range shrinks to
-  // match what's actually painted (any not-yet-played stub column beyond
-  // the real ones stays reachable by scroll, just at the same reduced
-  // scale) and .sc-grid-scroll's height naturally follows too - no manual
-  // height patch-up needed, and the existing sticky-column fix keeps
-  // working under it (also confirmed by isolated repro).
+  // out" was Alex's complaint about the previous always-100% default, and
+  // "top priority is visibility of the batter column - names shouldn't be
+  // squished/cut off" is the harder requirement this version is built
+  // around. Uses `transform:scale()`, not CSS `zoom`: an earlier version
+  // used zoom (it recomputes layout, so the scrollable range shrinks to
+  // match what's painted, unlike scale()), but some browsers floor a
+  // computed font-size for legibility regardless of ambient zoom - and
+  // that floor kicked in for every bit of small text in the grid (names,
+  // headers, stat totals), leaving them full-size and overflowing/clipped
+  // inside their now-tiny cells (Alex's report). A plain paint-time
+  // transform has no such floor (confirmed via computed-style inspection
+  // and a high-DPI screenshot), so it's the only mechanism that reliably
+  // keeps every bit of text legible and correctly sized down.
+  //
+  // The tradeoff transform brings back: its scroll range still reflects
+  // the grid's PRE-transform (full, real+stub) layout size, so naively
+  // leaving the wrapper scrollable would let a scroll gesture reveal
+  // genuinely blank paint past the visually-shrunk real content (confirmed
+  // by isolated repro). Since text fidelity is the priority here and there
+  // was never a real ask to keep stub (not-yet-played) columns reachable
+  // at this reduced scale, the wrapper's horizontal scroll is simply
+  // switched off while shrunk - the default view already shows exactly
+  // the real content, nothing more to scroll to. Its height is pinned to
+  // match the scaled-down size too, since transform doesn't shrink layout
+  // height either and would otherwise leave a blank gap below the grid.
   function applyMobileScorecardZoom(box) {
     var scrolls = document.querySelectorAll("#scorecard-body .sc-grid-scroll");
     if (!window.matchMedia("(max-width:600px)").matches) {
       Array.prototype.forEach.call(scrolls, function (wrap) {
         var grid = wrap.querySelector(".sc-grid");
-        if (grid) {
-          grid.style.zoom = "";
-          grid.style.removeProperty("--sc-mobile-scale");
-        }
+        if (grid) grid.style.transform = "";
+        wrap.style.height = "";
+        wrap.style.overflowX = "";
       });
       return;
     }
@@ -13152,19 +13173,22 @@
       var wrap = scrolls[idx];
       var grid = wrap && wrap.querySelector(".sc-grid");
       if (!wrap || !grid) return;
+      grid.style.transform = ""; // reset before measuring the true unscaled height
+      var naturalHeight = grid.offsetHeight;
       var targetWidth = box.mobileBatterColWidth +
         scorecardRealColumnCount(box, teamKey) * INNING_COL_WIDTH +
         STAT_COL_COUNT * STAT_COL_WIDTH;
       var available = wrap.clientWidth;
       var scale = available > 0 ? Math.min(1, available / targetWidth) : 1;
-      grid.style.zoom = scale < 1 ? String(scale) : "";
-      // Consumed by style.css to cancel-then-retransform .bb-result/
-      // .bb-out-wrap specifically (their own small font doesn't reliably
-      // shrink under plain `zoom` - see the CSS comment there). Always set
-      // to the real scale (even 1) rather than removed at scale===1, so
-      // that CSS's var(...,1) fallback isn't the only thing standing
-      // between a stale scale value and a freshly-unzoomed grid.
-      grid.style.setProperty("--sc-mobile-scale", String(scale));
+      if (scale < 1) {
+        grid.style.transformOrigin = "top left";
+        grid.style.transform = "scale(" + scale + ")";
+        wrap.style.height = Math.ceil(naturalHeight * scale) + "px";
+        wrap.style.overflowX = "hidden";
+      } else {
+        wrap.style.height = "";
+        wrap.style.overflowX = "";
+      }
     });
   }
 

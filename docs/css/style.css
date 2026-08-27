@@ -2658,24 +2658,16 @@ html[data-km-debug="1"] .km-tuning-panel{
      with these exact numbers. */
   .sc-lineup{grid-template-columns:14px 1fr;gap:2px;}
   .lineup-entry{gap:2px;padding-left:2px;}
-  /* .bb-result / .bb-out-wrap's own small font doesn't reliably shrink
-     along with the rest of the grid under the mobile zoom-to-fit below
-     (Alex's report: the result tag and the out-circle's number stayed
-     full-size while everything else around them shrank) - some browsers
-     floor a computed font-size for legibility regardless of ambient
-     `zoom`, and that floor doesn't apply to a plain paint-time transform.
-     Cancelling the ambient zoom on just these two (zoom:1/scale) and
-     re-applying the identical shrink via transform sidesteps it - same
-     visual result everywhere else, but immune to that floor for the tiny
-     text. --sc-mobile-scale is set inline per grid by
-     applyMobileScorecardZoom, right alongside the zoom it's cancelling. */
-  .bb-result{
-    zoom:calc(1 / var(--sc-mobile-scale, 1));
-    transform:scale(var(--sc-mobile-scale, 1));transform-origin:top left;
-  }
-  .bb-out-wrap{
-    zoom:calc(1 / var(--sc-mobile-scale, 1));
-    transform:scale(var(--sc-mobile-scale, 1));transform-origin:bottom right;
-  }
+  /* Fixed layout so the linescore never needs its own horizontal scroll to
+     be read on a phone (Alex's ask), no matter how many innings a given
+     game has - .ls-col-team is the one fixed-width column, and every other
+     (unspecified) <col> the colGroup in linescoreHtml emits shares
+     whatever width remains equally, however many of them there are. */
+  .sc-linescore{table-layout:fixed;width:100%;font-size:10px;}
+  .sc-linescore th,.sc-linescore td{padding:3px 1px;overflow:hidden;}
+  .sc-linescore th{font-size:9px;}
+  .sc-linescore .ls-col-team{width:54px;}
+  .sc-linescore .ls-team{gap:3px;}
+  .ls-logo{width:14px;height:14px;}
 }
 
