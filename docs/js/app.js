@@ -13089,7 +13089,8 @@
 
   // ---- open/close/refresh ----
 
-  var scorecard = { open: false, gameCode: null, session: null, refreshTimer: null };
+  var scorecard = { open: false, gameCode: null, session: null, refreshTimer: null, lastBox: null };
+  var scorecardZoomResizeTimer = null;
   var SCORECARD_REFRESH_MS = 5 * 60 * 1000; // matches the live grid's own cron-aligned cadence
 
   // Logo + abbreviation on each side of "@" (Alex's ask), same teamLogoImg
@@ -13106,6 +13107,61 @@
     var n = box.columns.filter(function (c) { return c.half === half; }).length;
     return BATTER_COL_WIDTH + n * INNING_COL_WIDTH + STAT_COL_COUNT * STAT_COL_WIDTH;
   }
+
+  // Columns with real plays in them so far, excluding the empty stub
+  // columns groupHalfInnings pads out to the scheduled inning count (Alex's
+  // ask: the mobile default view should fit the batter column plus exactly
+  // what the game has actually played into, not the whole scheduled grid).
+  function scorecardRealColumnCount(box, teamKey) {
+    var half = teamKey === "away" ? "top" : "bottom";
+    return box.columns.filter(function (c) { return c.half === half && c.plays.length > 0; }).length;
+  }
+
+  // Zooms each team's mobile batting grid out just far enough that the
+  // batter column plus its real (played-into) innings fit the screen width
+  // without scrolling - "you can always zoom in, but you can't really zoom
+  // out" was Alex's complaint about the previous always-100% default.
+  // Uses CSS `zoom`, not `transform:scale()`: scale() only repaints smaller
+  // in place and leaves the element's actual layout/scroll size at its
+  // pre-transform size, so scrolling past the shrunk-looking content just
+  // reveals genuinely blank space rather than the next (also shrunk) stub
+  // column - confirmed by isolated repro. `zoom` instead recomputes layout
+  // as if every length were scaled, so the scrollable range shrinks to
+  // match what's actually painted (any not-yet-played stub column beyond
+  // the real ones stays reachable by scroll, just at the same reduced
+  // scale) and .sc-grid-scroll's height naturally follows too - no manual
+  // height patch-up needed, and the existing sticky-column fix keeps
+  // working under it (also confirmed by isolated repro).
+  function applyMobileScorecardZoom(box) {
+    var scrolls = document.querySelectorAll("#scorecard-body .sc-grid-scroll");
+    if (!window.matchMedia("(max-width:600px)").matches) {
+      Array.prototype.forEach.call(scrolls, function (wrap) {
+        var grid = wrap.querySelector(".sc-grid");
+        if (grid) grid.style.zoom = "";
+      });
+      return;
+    }
+    ["away", "home"].forEach(function (teamKey, idx) {
+      var wrap = scrolls[idx];
+      var grid = wrap && wrap.querySelector(".sc-grid");
+      if (!wrap || !grid) return;
+      var targetWidth = box.mobileBatterColWidth +
+        scorecardRealColumnCount(box, teamKey) * INNING_COL_WIDTH +
+        STAT_COL_COUNT * STAT_COL_WIDTH;
+      var available = wrap.clientWidth;
+      var scale = available > 0 ? Math.min(1, available / targetWidth) : 1;
+      grid.style.zoom = scale < 1 ? String(scale) : "";
+    });
+  }
+
+  function scheduleScorecardZoomResize() {
+    if (!scorecard.open || !scorecard.lastBox) return;
+    window.clearTimeout(scorecardZoomResizeTimer);
+    scorecardZoomResizeTimer = window.setTimeout(function () {
+      applyMobileScorecardZoom(scorecard.lastBox);
+    }, 150);
+  }
+  window.addEventListener("resize", scheduleScorecardZoomResize);
 
   function renderScorecard(gameCode, session, plays) {
     var box = buildBoxScore(gameCode, session, plays);
@@ -13128,6 +13184,8 @@
     var gridWidth = Math.max(teamGridDesktopWidth(box, "away"), teamGridDesktopWidth(box, "home"));
     var chrome = 18 * 2 + 2 + 24; // .scorecard-body padding + .sc-grid-scroll border + breathing room
     $("scorecard-card").style.maxWidth = "min(97vw, " + Math.min(1800, gridWidth + chrome) + "px)";
+    scorecard.lastBox = box;
+    applyMobileScorecardZoom(box);
   }
 
   function clearScorecardRefreshTimer() {
@@ -13146,6 +13204,13 @@
       scorecard.gameCode = gameCode;
       scorecard.session = session;
       $("scorecard-modal").hidden = false;
+      // renderScorecard just measured .sc-grid-scroll's width for the
+      // mobile zoom-to-fit above, but the modal was still hidden at that
+      // point (display:none reports a 0 clientWidth) - redo it now that
+      // the modal is actually visible. Only needed here, on a fresh open;
+      // a live-refresh re-render calls renderScorecard directly while the
+      // modal is already showing, so its own measurement is already good.
+      applyMobileScorecardZoom(scorecard.lastBox);
       // Always start at the top for a freshly-opened scorecard (Alex's ask)
       // - a live-refresh re-render (renderScorecard called directly, not
       // through here) never touches scroll position, so mid-session
