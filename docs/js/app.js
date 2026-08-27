@@ -690,6 +690,14 @@
       escapeHtml(g.away_team_abbr) + " at " + escapeHtml(g.home_team_abbr) + '">' +
       '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
       "</button>";
+    // Scorecard entry point - same icon-badge family as replayBtn, opens the
+    // full box score instead of the play-by-play animation.
+    var scorecardBtn = '<button type="button" class="tile-scorecard-btn" data-scorecard="' +
+      escapeHtml(g.game_code) + '" title="Scorecard" aria-label="Scorecard for ' +
+      escapeHtml(g.away_team_abbr) + " at " + escapeHtml(g.home_team_abbr) + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M17 3a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>' +
+      "</button>";
     var selected = filters.selectedGame === g.game_code ? " selected" : "";
 
     // Once final, the inning-indicator is redundant with the FINAL badge -
@@ -741,7 +749,7 @@
         // riding together above the bar so the replay button stops colliding
         // with the scorebug in the tile's top-right. A finished game drops
         // the pill and the row centres on the two buttons alone.
-        '<div class="sb-actions">' + gameLink + levBadge + replayBtn + "</div>" +
+        '<div class="sb-actions">' + gameLink + levBadge + scorecardBtn + replayBtn + "</div>" +
       "</div>" +
     "</div>";
   }
@@ -11619,6 +11627,12 @@
     paused: false,
     startedAt: 0,
     remaining: 0,
+    // Set only when opened from a scorecard cell (openReplayAtPlay's
+    // returnTo param) - {gameCode, session} to reopen on the Back control.
+    // Every other entry point leaves this null, and the plain X/Escape/
+    // backdrop close paths never look at it, so they keep closing to
+    // nothing exactly as before this feature existed.
+    returnTo: null,
   };
 
   /* Same lazy-fetch-and-cache shape as loadAllSessions()/ensurePlaysLoaded(),
@@ -11842,6 +11856,7 @@
       return;
     }
     if (btn) btn.classList.add("loading");
+    replay.returnTo = null;
     loadGameReplay(gameCode, session).then(function (plays) {
       if (btn) btn.classList.remove("loading");
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
@@ -11850,6 +11865,7 @@
       replay.paused = false;
       $("replay-pause-hint").hidden = true;
       $("replay-card").classList.remove("paused");
+      $("replay-back").hidden = true;
       $("replay-modal").hidden = false;
       showReplaySlide(0);
     }).catch(function () {
@@ -11880,12 +11896,13 @@
   // to go inspect, so starting paused just adds an extra tap. Defaults to
   // false (today's behavior, unchanged) so the in-app "jump to play"
   // click (data-jump-game, wireControls below) still opens paused.
-  function openReplayAtPlay(gameCode, session, playNum, btn, autoplay) {
+  function openReplayAtPlay(gameCode, session, playNum, btn, autoplay, returnTo) {
     if (session == null || isNaN(session)) {
       toast("Could not determine which session this play belongs to.");
       return;
     }
     if (btn) btn.classList.add("loading");
+    replay.returnTo = returnTo || null;
     loadGameReplay(gameCode, session).then(function (plays) {
       if (btn) btn.classList.remove("loading");
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
@@ -11901,6 +11918,7 @@
       replay.remaining = 0;
       $("replay-pause-hint").hidden = !!autoplay;
       $("replay-card").classList.toggle("paused", !autoplay);
+      $("replay-back").hidden = !replay.returnTo;
       // The modal itself opens right away (immediate feedback that the click
       // registered), but the play mounts a beat later - mounting it in the
       // same tick the modal becomes visible let the scene's animation clock
@@ -11923,6 +11941,1212 @@
     exitFullscreenIfActive();
     $("replay-modal").hidden = true;
     $("replay-slide").innerHTML = "";
+  }
+
+  // Back control (only present when replay.returnTo is set - see
+  // openReplayAtPlay/wireReplay) - closes the replay and reopens the
+  // scorecard it came from, instead of closing to nothing.
+  function backToScorecardFromReplay() {
+    var returnTo = replay.returnTo;
+    closeReplay();
+    if (!returnTo) return;
+    // The scorecard modal never actually closed (wireScorecard's cell click
+    // just hides it, keeping its content/refresh timer alive underneath) -
+    // re-show it as-is rather than re-fetching, unless something else (a
+    // second scorecard opened, or it was closed outright) changed under it.
+    if (scorecard.open && scorecard.gameCode === returnTo.gameCode && scorecard.session === returnTo.session) {
+      $("scorecard-modal").hidden = false;
+    } else {
+      openScorecard(returnTo.gameCode, returnTo.session);
+    }
+  }
+
+  // ── Scorecard: traditional batting-order x half-inning box score for one
+  //    game (Alex's ask, modeled on caughtlooking.app's MLB gameday
+  //    scorecard). Numberball has no real pitch-by-pitch tracking (one JSON
+  //    row per plate appearance, not per pitch) - so several reference-site
+  //    columns simply have no source data and are left out rather than
+  //    faked: pitch sequence, pitch counts/P(S), pitcher handedness, jersey
+  //    numbers, a season-to-date batting slash line or running ERA (no such
+  //    feed is baked into this pipeline), and E (the result-code taxonomy in
+  //    key_moments_build.py has no error/misplay code at all). RBI is
+  //    approximated as the play's own `runs` (no explicit RBI field exists);
+  //    pitcher decisions (W/L/S/H) are a simplified heuristic, not the
+  //    official rulebook. The baserunning diamond in each batter's box only
+  //    ever shows THAT play's own runner_moves (a runner's later legs render
+  //    in whichever later play actually advanced them, not pre-drawn into
+  //    the box where they first reached) - simpler than the reference
+  //    site's full forward-chained path, and clearly a v1 simplification.
+  //
+  //    Live games source their batting order from the same Lineups tab the
+  //    existing fielding-position feature already reads (Path A) - baked
+  //    into each non-final scoreboard tile's own `lineup_rows` by
+  //    key_moments_build.py, never fetched by the browser directly. A
+  //    completed game has no such feed (Decision 1 in utils.py's
+  //    reconstruct_defense_timeline - never trust Lineups past the final
+  //    out even if the tab still shows the game) and instead infers its
+  //    order from the plays themselves (Path B, client-side here).
+
+  var BATTING_SLOTS = 9;
+  var PITCH_CHANGE_COLORS = 5; // pitch-color-0..4 classes in style.css, cycled per team
+
+  // Grid column widths, shared between the CSS grid-template-columns string
+  // and the numeric total-width math below (modal sizing, the sticky-column
+  // fix) so the two never drift apart.
+  var BATTER_COL_WIDTH = 230;
+  var INNING_COL_WIDTH = 94;
+  var STAT_COL_WIDTH = 40;
+  var STAT_COL_COUNT = 6;
+
+  // Mirrors utils.py's _is_genuine_turn - this JSON has no play_type field,
+  // but every steal-attempt/caught-stealing row already carries one of these
+  // result codes and no other row type does, so the result code alone is a
+  // safe stand-in for "was this a real turn through the batting order."
+  // Sourced from the existing STEAL_SAFE_CODES/STEAL_CAUGHT_CODES (app.js
+  // above) rather than a fresh guess - KCS excluded from the caught set on
+  // purpose, since it's also a real strikeout (the batter's own turn), not
+  // just a steal attempt.
+  var NON_TURN_RESULTS = { Balk: 1 };
+  Object.keys(STEAL_SAFE_CODES).forEach(function (k) { NON_TURN_RESULTS[k] = 1; });
+  Object.keys(STEAL_CAUGHT_CODES).forEach(function (k) { if (k !== "KCS") NON_TURN_RESULTS[k] = 1; });
+  function isGenuineTurn(play) { return !NON_TURN_RESULTS[play.result]; }
+
+  // Reached base on a hit or a walk (reference spec: bold label) - mirrors
+  // key_moments_build.py's HIT_CODES plus BB/IBB. HIT_RESULTS alone (no BB)
+  // is also the team H total and the batter AB/H column. WALK_RESULTS/
+  // STRIKEOUT_RESULTS reused as-is from the existing play-scene code above
+  // (STRIKEOUT_RESULTS already includes KCS, a strikeout that also caught a
+  // runner stealing - still a real SO for the batter).
+  var HIT_RESULTS = {
+    "1B": 1, "IF1B": 1, "2B": 1, "3B": 1, "HR": 1, "1BWH": 1, "1BWH2": 1, "2BWH": 1, "B1B": 1, "B1BWH": 1,
+  };
+  var REACHED_BASE_RESULTS = { "BB": 1, "IBB": 1 };
+  Object.keys(HIT_RESULTS).forEach(function (k) { REACHED_BASE_RESULTS[k] = 1; });
+  var SAC_RESULTS = { "SacF": 1, "DSacF": 1, "SacB": 1 };
+
+  function splitPlayNum(playNum) {
+    var n = Number(playNum);
+    return [Math.floor(n / 1000), n % 1000];
+  }
+
+  // ---- defense-position lookup (client-side counterpart to utils.py's
+  //      lineup_alignment_at, built off the same per-play `defense` dict
+  //      Path B already bakes into every play - just cross-referenced by
+  //      name here since that dict never carries player ids). ----
+
+  function teamDefenseSnapshots(teamAbbr, plays) {
+    var out = [];
+    plays.forEach(function (p) {
+      if (p.def_team_abbr !== teamAbbr || !p.defense) return;
+      var byPos = {};
+      Object.keys(p.defense).forEach(function (pos) {
+        var entry = p.defense[pos];
+        if (entry && entry[0]) byPos[pos] = entry[0];
+      });
+      out.push({ seq: splitPlayNum(p.play_num)[1], byPos: byPos });
+    });
+    return out;
+  }
+
+  // Position held by `name` as of `seq` - the closest snapshot at or before
+  // it, or (for a leadoff batter with no defensive half-inning yet) the
+  // closest one after. Null (rendered as DH) when the name never shows up
+  // in this team's own defense dict at all.
+  function positionForNameAt(snapshots, name, seq) {
+    if (!name) return null;
+    var before = null, after = null;
+    snapshots.forEach(function (s) {
+      if (s.seq <= seq) { if (!before || s.seq > before.seq) before = s; }
+      else if (!after || s.seq < after.seq) after = s;
+    });
+    var snap = before || after;
+    if (!snap) return null;
+    for (var pos in snap.byPos) {
+      if (snap.byPos[pos] === name) return pos;
+    }
+    return null;
+  }
+
+  // ---- batting order ----
+
+  // Which slot (0-8) a given genuine-turn play falls into for its own
+  // batting team - Nth turn mod 9, the one piece of this whole feature that
+  // is true regardless of data source (live Lineups feed or inferred),
+  // since it is just how batting orders work. Keyed by play_num.
+  function slotByPlayNumFor(teamAbbr, plays) {
+    var map = {}, i = 0;
+    plays.forEach(function (p) {
+      if (p.off_team_abbr !== teamAbbr || !isGenuineTurn(p)) return;
+      map[p.play_num] = i % BATTING_SLOTS;
+      i++;
+    });
+    return map;
+  }
+
+  // Completed-game batting order: inferred the same way utils.py's
+  // reconstruct_defense_timeline counts slots internally (Nth genuine turn
+  // mod 9) - just keyed by slot here instead of discarded in favor of
+  // position (utils.py:9329 throws the slot index away). A same-slot run of
+  // plays by the same batter name is one stint; a name change starts a new
+  // one (name, not id, matching the only identity the `defense` dict itself
+  // offers for cross-referencing position below).
+  function inferBattingOrder(teamAbbr, plays) {
+    var slotMap = slotByPlayNumFor(teamAbbr, plays);
+    var defenseSnaps = teamDefenseSnapshots(teamAbbr, plays);
+    var slots = [];
+    for (var i = 0; i < BATTING_SLOTS; i++) slots.push([]);
+    plays.forEach(function (p) {
+      var slot = slotMap[p.play_num];
+      if (slot == null) return;
+      var seq = splitPlayNum(p.play_num)[1];
+      var stints = slots[slot];
+      var last = stints[stints.length - 1];
+      if (!last || last.name !== p.batter_name) {
+        stints.push({ name: p.batter_name, startSeq: seq, endSeq: seq });
+      } else {
+        last.endSeq = seq;
+      }
+    });
+    slots.forEach(function (stints) {
+      stints.forEach(function (stint) {
+        stint.posStart = positionForNameAt(defenseSnaps, stint.name, stint.startSeq) || "DH";
+        stint.posEnd = positionForNameAt(defenseSnaps, stint.name, stint.endSeq) || "DH";
+      });
+    });
+    return slots;
+  }
+
+  // Live-game batting order: the Lineups tab already encodes stint
+  // boundaries directly - each row is a slot assignment event, sorted by
+  // Row (key_moments_build.py's lineup_rows_by_game export, sourced from
+  // utils.py's read_lineups_from_sheet) - so this just groups and sorts,
+  // no inference needed. `seq` here is that row's own "as of this play"
+  // marker, directly comparable to a play's own seq (splitPlayNum).
+  function liveBattingOrderFromRows(teamAbbr, lineupRows) {
+    var slots = [];
+    for (var i = 0; i < BATTING_SLOTS; i++) slots.push([]);
+    var bySlot = {};
+    (lineupRows || []).forEach(function (r) {
+      if (r.team !== teamAbbr || r.pos === "P" || r.order_slot == null) return;
+      (bySlot[r.order_slot] = bySlot[r.order_slot] || []).push(r);
+    });
+    Object.keys(bySlot).forEach(function (slotKey) {
+      var slot = Number(slotKey);
+      if (slot < 1 || slot > BATTING_SLOTS) return;
+      var rows = bySlot[slotKey].slice().sort(function (a, b) { return (a.row || 0) - (b.row || 0); });
+      slots[slot - 1] = rows.map(function (r, i) {
+        var next = rows[i + 1];
+        return {
+          name: r.player_name, startSeq: r.seq == null ? 0 : r.seq,
+          endSeq: next && next.seq != null ? next.seq : Infinity,
+          posStart: r.pos, posEnd: r.pos,
+        };
+      });
+    });
+    return slots;
+  }
+
+  // First seq (within this team's own plays) at which `name` shows up as a
+  // batter, as a runner, or in the defense dict - used to classify how a
+  // mid-slot substitution happened. Best-effort: no field in this data says
+  // "this was a pinch-hit" outright.
+  function firstAppearanceSeqs(teamAbbr, plays, defenseSnaps, name) {
+    var asBatter = null, asRunner = null, asDefense = null;
+    plays.forEach(function (p) {
+      if (p.off_team_abbr !== teamAbbr) return;
+      var seq = splitPlayNum(p.play_num)[1];
+      if (p.batter_name === name && (asBatter == null || seq < asBatter)) asBatter = seq;
+      if (p.runner_name === name && (asRunner == null || seq < asRunner)) asRunner = seq;
+    });
+    defenseSnaps.forEach(function (s) {
+      for (var pos in s.byPos) {
+        if (s.byPos[pos] === name && (asDefense == null || s.seq < asDefense)) asDefense = s.seq;
+      }
+    });
+    return { asBatter: asBatter, asRunner: asRunner, asDefense: asDefense };
+  }
+
+  // "pinch-hitter" (blue, left border): debuts this game by batting, right
+  // at this stint's own start. "pinch-runner" (grey, right border): debuts
+  // as a runner before ever batting. "defensive-replacement" (grey, side
+  // depends on inning half): anything else - debuts only in the field.
+  function classifySubEntry(teamAbbr, plays, defenseSnaps, name, stintStartSeq) {
+    var first = firstAppearanceSeqs(teamAbbr, plays, defenseSnaps, name);
+    if (first.asRunner != null && first.asRunner <= stintStartSeq &&
+        (first.asBatter == null || first.asRunner < first.asBatter)) {
+      return "pinch-runner";
+    }
+    if (first.asBatter != null && first.asBatter === stintStartSeq) return "pinch-hitter";
+    return "defensive-replacement";
+  }
+
+  function annotateSubTypes(teamAbbr, plays, order) {
+    var defenseSnaps = teamDefenseSnapshots(teamAbbr, plays);
+    order.forEach(function (stints) {
+      stints.forEach(function (stint, i) {
+        if (i > 0) stint.subType = classifySubEntry(teamAbbr, plays, defenseSnaps, stint.name, stint.startSeq);
+      });
+    });
+  }
+
+  // ---- pitching stints/decisions ----
+
+  function buildPitchingStints(teamAbbr, plays) {
+    var stints = [];
+    plays.forEach(function (p) {
+      if (p.def_team_abbr !== teamAbbr) return;
+      var last = stints[stints.length - 1];
+      if (!last || last.pitcherId !== p.pitcher_id) {
+        stints.push({ pitcherId: p.pitcher_id, name: p.pitcher_name, startPlayNum: p.play_num, plays: [p] });
+      } else {
+        last.plays.push(p);
+      }
+    });
+    stints.forEach(function (stint) {
+      var outs = 0, bf = 0, h = 0, r = 0, bb = 0, k = 0;
+      stint.plays.forEach(function (p) {
+        if (!isGenuineTurn(p)) return;
+        bf++;
+        outs += Math.max(0, (p.outs_after || 0) - (p.outs_before || 0));
+        if (HIT_RESULTS[p.result]) h++;
+        if (WALK_RESULTS[p.result]) bb++;
+        if (STRIKEOUT_RESULTS[p.result]) k++;
+        r += p.runs || 0;
+      });
+      stint.outs = outs;
+      stint.ip = Math.floor(outs / 3) + "." + (outs % 3);
+      stint.bf = bf; stint.h = h; stint.r = r; stint.bb = bb; stint.k = k;
+    });
+    return stints;
+  }
+
+  // Simplified decisions (W/L/S/H) - NOT the official rulebook (no starter-
+  // innings minimum, no exact save conditions). Winning/losing pitcher = the
+  // pitcher of the winning/losing team on the mound at the moment the
+  // winning team's lead margin turns positive for the last time and never
+  // returns to zero or below. A reliever who finishes a win they didn't
+  // themselves earn gets a Save; any other reliever who leaves with their
+  // team still ahead gets a Hold.
+  function computeDecisions(plays, awayAbbr, homeAbbr, awayStints, homeStints) {
+    var last = plays[plays.length - 1];
+    if (!last || !last.is_game_final || last.away_score === last.home_score) return {};
+    var winnerIsHome = last.home_score > last.away_score;
+    var winnerAbbr = winnerIsHome ? homeAbbr : awayAbbr;
+    var loserAbbr = winnerIsHome ? awayAbbr : homeAbbr;
+
+    var decidingIdx = -1;
+    var awayScore = 0, homeScore = 0;
+    plays.forEach(function (p, i) {
+      if (p.away_score != null) awayScore = p.away_score;
+      if (p.home_score != null) homeScore = p.home_score;
+      var margin = winnerIsHome ? homeScore - awayScore : awayScore - homeScore;
+      if (margin <= 0) decidingIdx = -1;
+      else if (decidingIdx === -1) decidingIdx = i;
+    });
+    if (decidingIdx === -1) return {}; // shouldn't happen once the game is final, but don't guess
+
+    function pitcherOfRecordFor(teamAbbr, atOrBeforeIdx) {
+      for (var i = Math.min(atOrBeforeIdx, plays.length - 1); i >= 0; i--) {
+        if (plays[i].def_team_abbr === teamAbbr) return plays[i].pitcher_id;
+      }
+      return null;
+    }
+    var winId = pitcherOfRecordFor(winnerAbbr, decidingIdx);
+    var lossId = pitcherOfRecordFor(loserAbbr, decidingIdx);
+
+    var decisions = {}; // pitcherId -> "W"/"L"/"SV"/"H"
+    if (winId != null) decisions[winId] = "W";
+    if (lossId != null) decisions[lossId] = "L";
+
+    var winnerStints = winnerIsHome ? homeStints : awayStints;
+    var finisher = winnerStints[winnerStints.length - 1];
+    if (finisher && finisher.pitcherId !== winId && decisions[finisher.pitcherId] == null) {
+      decisions[finisher.pitcherId] = "SV";
+    }
+    winnerStints.forEach(function (s) {
+      if (s.pitcherId !== winId && s !== finisher && decisions[s.pitcherId] == null) {
+        decisions[s.pitcherId] = "H";
+      }
+    });
+    return decisions;
+  }
+
+  function assignPitchColors(awayStints, homeStints) {
+    var map = {};
+    [awayStints, homeStints].forEach(function (stints) {
+      stints.forEach(function (s, i) {
+        map[s.pitcherId != null ? String(s.pitcherId) : s.name] = i % PITCH_CHANGE_COLORS;
+      });
+    });
+    return map;
+  }
+
+  // ---- batting stats ----
+
+  function battingStatsFor(teamAbbr, plays) {
+    var stats = {};
+    function statsFor(name) {
+      return stats[name] || (stats[name] = { ab: 0, h: 0, r: 0, rbi: 0, bb: 0, so: 0 });
+    }
+    plays.forEach(function (p) {
+      if (p.off_team_abbr !== teamAbbr || !isGenuineTurn(p) || !p.batter_name) return;
+      var s = statsFor(p.batter_name);
+      if (!WALK_RESULTS[p.result] && !SAC_RESULTS[p.result]) s.ab++;
+      if (HIT_RESULTS[p.result]) s.h++;
+      if (STRIKEOUT_RESULTS[p.result]) s.so++;
+      if (WALK_RESULTS[p.result]) s.bb++;
+      s.rbi += p.runs || 0;
+    });
+    // Runs scored: the batter's own run (runner_moves "BATTER" -> scored)
+    // plus scoring_names (last names only - key_moments_build.py's
+    // _scoring_names) matched back to a full name already known above.
+    // Best-effort - a teammate sharing that last name could double-count,
+    // and a pinch-runner who never had their own plate appearance this game
+    // has no row here to credit at all.
+    plays.forEach(function (p) {
+      if (p.off_team_abbr !== teamAbbr) return;
+      (p.runner_moves || []).forEach(function (mv) {
+        if (mv.from === "BATTER" && mv.scored && stats[p.batter_name]) stats[p.batter_name].r++;
+      });
+      (p.scoring_names || []).forEach(function (lastName) {
+        Object.keys(stats).forEach(function (name) {
+          if (name !== p.batter_name && name.split(" ").slice(-1)[0] === lastName) stats[name].r++;
+        });
+      });
+    });
+    return stats;
+  }
+
+  // ---- half-inning columns, totals, runner-path tracing, diamond rendering ----
+
+  // Splits into a second column whenever more than 9 genuine turns happen in
+  // one half-inning (reference spec: bat-around innings get a second
+  // column), then pads out to `configuredInnings` (data.meta.innings) with
+  // empty stub columns for whichever half-innings haven't happened yet in
+  // an in-progress game (Alex's ask) - a completed game's own real innings
+  // already meet or exceed that floor so the padding is a no-op for those.
+  // `outNumber` is keyed by play_num, continuous across a split.
+  function groupHalfInnings(plays, configuredInnings) {
+    var halves = [];
+    var cur = null;
+    plays.forEach(function (p) {
+      var key = p.inning + "-" + p.half;
+      if (!cur || cur.key !== key) {
+        cur = { key: key, inning: p.inning, half: p.half, plays: [] };
+        halves.push(cur);
+      }
+      cur.plays.push(p);
+    });
+
+    // outNumber[play_num] is an array, not a single number - a double or
+    // triple play records more than one out on the very same play (Alex's
+    // ask: show them side by side, "1 2" or "1 2 3", not just the final
+    // count).
+    var outNumber = {};
+    var halfTotals = {};
+    var runnerPaths = {};
+    halves.forEach(function (h) {
+      var count = 0;
+      h.plays.forEach(function (p) {
+        var made = (p.outs_after || 0) - (p.outs_before || 0);
+        if (made > 0) {
+          var nums = [];
+          for (var n = count + 1; n <= count + made; n++) nums.push(n);
+          count += made;
+          outNumber[p.play_num] = nums;
+        }
+      });
+      var traced = computeRunnerPaths(h.plays, outNumber);
+      halfTotals[h.inning + "-" + h.half] = halfInningTotals(h.plays, traced.lob);
+      Object.keys(traced.paths).forEach(function (playNum) { runnerPaths[playNum] = traced.paths[playNum]; });
+      // A caught-stealing (or similar) out has no batter's-box cell of its
+      // own to show its out-circle in (isGenuineTurn excludes it) - folded
+      // into the runner's own originating box instead, alongside the same
+      // box's orange "out" base marker (Alex's ask). Never done for an out
+      // that happens ON a genuine turn (a double play's lead-runner-out) -
+      // that one already gets its circle for free above, in the current
+      // play's own cell, right next to the batter's own out circle.
+      Object.keys(traced.extraOutNumbers).forEach(function (playNum) {
+        outNumber[playNum] = (outNumber[playNum] || []).concat(traced.extraOutNumbers[playNum]);
+      });
+    });
+
+    var columns = [];
+    halves.forEach(function (h) {
+      var colPlays = [], turns = 0;
+      h.plays.forEach(function (p) {
+        colPlays.push(p);
+        if (isGenuineTurn(p) && ++turns % BATTING_SLOTS === 0) {
+          columns.push({ inning: h.inning, half: h.half, plays: colPlays, isLastOfHalf: false });
+          colPlays = [];
+        }
+      });
+      if (colPlays.length || !columns.length || columns[columns.length - 1].half !== h.half ||
+          columns[columns.length - 1].inning !== h.inning) {
+        columns.push({ inning: h.inning, half: h.half, plays: colPlays, isLastOfHalf: false });
+      }
+      columns[columns.length - 1].isLastOfHalf = true;
+      columns[columns.length - 1].fullHalfPlays = h.plays;
+    });
+
+    var maxInning = configuredInnings || 6;
+    halves.forEach(function (h) { if (h.inning > maxInning) maxInning = h.inning; });
+    ["top", "bottom"].forEach(function (half) {
+      for (var i = 1; i <= maxInning; i++) {
+        var exists = columns.some(function (c) { return c.inning === i && c.half === half; });
+        if (!exists) {
+          columns.push({ inning: i, half: half, plays: [], isLastOfHalf: true, fullHalfPlays: [] });
+        }
+      }
+    });
+    columns.sort(function (a, b) { return a.inning - b.inning; });
+
+    return { columns: columns, outNumber: outNumber, halfTotals: halfTotals, runnerPaths: runnerPaths, maxInning: maxInning };
+  }
+
+  function halfInningTotals(halfPlays, lob) {
+    var runs = 0, hits = 0;
+    halfPlays.forEach(function (p) {
+      runs += p.runs || 0;
+      if (HIT_RESULTS[p.result]) hits++;
+    });
+    return { runs: runs, hits: hits, lob: lob };
+  }
+
+  // Mini diamond geometry (home bottom-centre) - centre points for the 4
+  // rotated-square base markers (same rotate-45 technique key_moments_build.
+  // py's _diamond_svg already uses for the plain on-base scorebug). No
+  // connecting basepath lines (Alex's ask). BASE_SEQUENCE/BASE_INDEX give
+  // the fixed diamond order (start -> 1B -> 2B -> 3B -> scored-at-home) used
+  // both to backfill bases a runner passed through without their own
+  // recorded move, and to place a leg's label along the correct fixed edge
+  // regardless of how far the underlying play's own from/to actually
+  // jumped. Square size (BOX_BASE_SIZE) and point spacing both sized larger
+  // per Alex's ask for bigger bases with a more noticeable gap between them
+  // - viewBox/`.bb-diamond` below are sized to match with margin to spare,
+  // so the rotated squares never clip.
+  var BOX_DIAMOND_PT = { HOME: [16, 29], "1B": [28, 17], "2B": [16, 5], "3B": [4, 17] };
+  var BOX_BASE_SIZE = 12;
+  var BASE_ORDER = ["1B", "2B", "3B", "HOME"];
+  var BASE_LABELS = { "1B": 1, "2B": 1, "3B": 1, "HOME": 1 };
+  var BASE_SEQUENCE = ["HOME", "1B", "2B", "3B", "HOME"];
+  var BASE_INDEX = { "1B": 1, "2B": 2, "3B": 3, "HOME": 4 };
+  var DIAMOND_CENTER = [16, 17];
+
+  // A putout's `to` is just the sentinel "OUT" - `assist` names the base the
+  // runner was thrown out advancing toward (a force/tag base, which for this
+  // data happens to share its label with the fielding-position notation -
+  // "2B" meaning "out at second" here), falling back to the base they left
+  // from if assist isn't a recognizable base label.
+  function outDestBase(mv) { return BASE_LABELS[mv.assist] ? mv.assist : mv.from; }
+
+  // Traces each runner's FULL path forward through the REST of their half-
+  // inning (every subsequent play, steal attempts included even though those
+  // don't get their own batter's-box cell) - keyed by the play_num of
+  // whichever batter's own box originated that runner, so that batter's own
+  // diamond can show their entire eventual journey (reference spec item 5:
+  // "an outlined base means they advanced on a subsequent play"), not just
+  // what happened on their own single play. `runner_moves` carries no player
+  // identity, only base labels - `occupants` tracks who's currently on each
+  // base (by originating play_num) so a later play's own from/to pair can be
+  // attributed back to the right batter's box. Each leg records fromIdx so
+  // baseStatuses can backfill every base actually passed through, not just
+  // the named destination.
+  function computeRunnerPaths(halfPlays, outNumber) {
+    var paths = {};
+    var occupants = {};
+    var extraOutNumbers = {};
+    halfPlays.forEach(function (p) {
+      // All of this play's own moves look up origins against the state as
+      // of BEFORE this play (occupants, read but not yet mutated below) -
+      // a double with a runner already on 2nd scoring on the same play has
+      // two moves in one array ("BATTER"->2B and "2B"->HOME), and the
+      // second one must resolve against who was really on 2nd already, not
+      // against the batter's own just-computed 2B move earlier in the same
+      // array. Updates/clears are batched and applied only once every move
+      // in this play has been attributed.
+      var clears = [], updates = {};
+      (p.runner_moves || []).forEach(function (mv) {
+        if (mv.from === mv.to) return; // held - no leg
+        var isOut = mv.to === "OUT";
+        // A non-scoring advance recorded on the very play that ends the
+        // half-inning is moot for anyone but the batter themselves reaching
+        // base (Alex's ask) - there's no further play this half for it to
+        // matter to, so it's not credited as a safe/outlined arrival. The
+        // batter's own "BATTER"->base move is never skipped here - that's
+        // the box's own headline result, always real regardless of outs.
+        if (p.is_half_inning_final && !isOut && !mv.scored && mv.from !== "BATTER") return;
+        var originPlayNum = mv.from === "BATTER" ? p.play_num : occupants[mv.from];
+        if (originPlayNum == null) return; // bad/incomplete data - don't guess
+        var base = isOut ? outDestBase(mv) : mv.to;
+        var fromIdx = mv.from === "BATTER" ? 0 : BASE_INDEX[mv.from];
+        var toIdx = BASE_INDEX[base];
+        if (fromIdx == null || toIdx == null) return;
+        (paths[originPlayNum] = paths[originPlayNum] || []).push({
+          fromIdx: fromIdx, toIdx: toIdx,
+          own: originPlayNum === p.play_num, out: isOut, scored: !!mv.scored,
+          resultShort: scorecardShortResult(p.result),
+        });
+        // This out has no batter's-box cell of its own to show an out
+        // circle in (a caught stealing, say - isGenuineTurn excludes it) -
+        // folded into the runner's own originating box instead. Never done
+        // when the out happened on a genuine turn (e.g. a double play's
+        // lead-runner-out) - that already gets its circle for free in the
+        // current play's own cell (outNumber above already lists every out
+        // made on that play), so adding it here too would double it up.
+        if (isOut && originPlayNum !== p.play_num && !isGenuineTurn(p)) {
+          var nums = (outNumber && outNumber[p.play_num]) || [];
+          if (nums.length) {
+            (extraOutNumbers[originPlayNum] = extraOutNumbers[originPlayNum] || []).push.apply(
+              extraOutNumbers[originPlayNum], nums);
+          }
+        }
+        if (mv.from !== "BATTER") clears.push(mv.from);
+        if (!isOut && mv.to !== "HOME") updates[mv.to] = originPlayNum;
+      });
+      clears.forEach(function (b) { delete occupants[b]; });
+      Object.keys(updates).forEach(function (b) { occupants[b] = updates[b]; });
+    });
+    // Left on base = whoever's still occupying a base once every play in the
+    // half-inning has been processed (occupants only ever holds 1B/2B/3B -
+    // HOME is never added to it, see the `mv.to !== "HOME"` guard above, so
+    // a scored runner already isn't in here; an out runner was cleared when
+    // their move was processed) - exactly "stranded at the moment of the
+    // 3rd out," the standard LOB definition. NOT sourced from the play
+    // data's own obc_after: key_moments_build.py always zeroes that to
+    // "000" on the play that ends a half-inning regardless of who was
+    // really left standing, so it can't answer this question at all.
+    return { paths: paths, lob: Object.keys(occupants).length, extraOutNumbers: extraOutNumbers };
+  }
+
+  // Final status per base for one runner's path - "own" (this play, white
+  // fill), "later" (a subsequent play, black fill/thick white outline), or
+  // "out" (orange fill, the final base only - every base safely passed
+  // through on the way there still gets its normal own/later fill, per
+  // Alex's ask). Every base between a leg's fromIdx and toIdx is backfilled
+  // with that leg's own/later state (e.g. a double white-fills both 1B and
+  // 2B, even though only 2B has its own recorded move) - only the actual
+  // destination (toIdx) gets a label, and only for a "later" leg (never the
+  // runner's own initiating play - that's already the box's own headline
+  // result badge).
+  function baseStatuses(path) {
+    var status = {};
+    (path || []).forEach(function (leg) {
+      var state = leg.out ? "out" : (leg.own ? "own" : "later");
+      var fillState = leg.own ? "own" : "later"; // never "out" for a passed-through base
+      for (var idx = leg.fromIdx + 1; idx <= leg.toIdx; idx++) {
+        var base = BASE_SEQUENCE[idx];
+        var isDest = idx === leg.toIdx;
+        status[base] = {
+          state: isDest ? state : fillState,
+          label: (isDest && !leg.own) ? leg.resultShort : null,
+        };
+      }
+    });
+    return status;
+  }
+
+  // Places a leg's label along the fixed diamond edge leading into `base`
+  // (not a straight line from the leg's true, possibly much earlier, origin
+  // - reference spec: labels sit along one of the 4 real basepaths),
+  // centred on that edge, offset outward away from the diamond's centre,
+  // and rotated parallel to it.
+  function legLabelTransform(base) {
+    var idx = BASE_INDEX[base];
+    var a = BOX_DIAMOND_PT[BASE_SEQUENCE[idx - 1]], b = BOX_DIAMOND_PT[BASE_SEQUENCE[idx]];
+    var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    var dx = b[0] - a[0], dy = b[1] - a[1];
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var px = -(dy / len), py = dx / len; // unit perpendicular
+    if (px * (DIAMOND_CENTER[0] - mx) + py * (DIAMOND_CENTER[1] - my) > 0) { px = -px; py = -py; }
+    var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (angle > 90 || angle < -90) angle += 180; // keep the text upright
+    return { x: mx + px * 12, y: my + py * 12, angle: angle };
+  }
+
+  // scoredHex: this runner's own team primary_hex, passed only when their
+  // path actually crosses home (Alex's ask - a scored-run cell should draw
+  // the eye). Own (reached on their own hit) becomes a solid fill in that
+  // color; later (advanced on a teammate's subsequent at-bat) becomes an
+  // outline in that color instead - own/later stay visually distinct, just
+  // recolored from the default white-fill/black-fill-white-outline scheme.
+  function diamondMarkupForPlay(path, scoredHex) {
+    var status = baseStatuses(path);
+    var rgb = scoredHex ? hexToRgb(scoredHex) : null;
+    var parts = [];
+    var half = BOX_BASE_SIZE / 2;
+    BASE_ORDER.forEach(function (base) {
+      var pt = BOX_DIAMOND_PT[base];
+      var st = status[base];
+      var state = st ? st.state : "empty";
+      var styleAttr = "";
+      if (rgb && state === "own") {
+        // White border around the solid team-color fill (Alex's ask) - same
+        // stroke-width as the "later" state's own team-color border below,
+        // not the plain (non-scored) "own" state's thinner 1px default.
+        styleAttr = ' style="fill:rgb(' + rgb.r + "," + rgb.g + "," + rgb.b + ');stroke:#fff;stroke-width:2"';
+      } else if (rgb && state === "later") {
+        styleAttr = ' style="fill:#fff;stroke:rgb(' + rgb.r + "," + rgb.g + "," + rgb.b + ')"';
+      }
+      parts.push('<rect class="bb-base ' + state + '"' + styleAttr + ' x="' + (pt[0] - half) +
+        '" y="' + (pt[1] - half) + '" width="' + BOX_BASE_SIZE + '" height="' + BOX_BASE_SIZE +
+        '" rx="1.5" transform="rotate(45 ' + pt[0] + " " + pt[1] + ')"/>');
+      if (st && st.label) {
+        var t = legLabelTransform(base);
+        parts.push('<text class="bb-leg-label" x="' + t.x.toFixed(1) + '" y="' + t.y.toFixed(1) +
+          '" transform="rotate(' + t.angle.toFixed(1) + " " + t.x.toFixed(1) + " " + t.y.toFixed(1) + ')">' +
+          escapeHtml(st.label) + "</text>");
+      }
+    });
+    return parts.join("");
+  }
+
+  // Scorecard-only shorthand simplification (Alex's ask) - result_short
+  // (key_moments_build.py) keeps IF1B distinct from 1B for the full replay's
+  // own labeling, but this cramped a cell's own corner badge (and, applied
+  // below, a leg label along another runner's basepath) for no real benefit
+  // here, so it's simplified one step further just in this view.
+  var SCORECARD_SHORT_OVERRIDES = { "IF1B": "1B" };
+  // SB2/SB3/SB4/SB32/SB42/SB43/SB432 -> "SB", CS2/CS3/CS4 -> "CS" (Alex's
+  // ask - drop the base number whenever one's folded into the code) -
+  // covers every STEAL_SAFE_CODES/STEAL_CAUGHT_CODES variant (app.js
+  // ~8486) without hardcoding each one.
+  var SCORECARD_BASE_NUMBER = /^(SB|CS)\d+$/;
+  function scorecardShortResult(result) {
+    if (SCORECARD_SHORT_OVERRIDES[result]) return SCORECARD_SHORT_OVERRIDES[result];
+    if (SCORECARD_BASE_NUMBER.test(result)) return result.replace(/\d+$/, "");
+    return (data.meta.result_short || {})[result] || result;
+  }
+
+  function resultLabelForPlay(play) {
+    var notation = null;
+    try { notation = playFieldingNotation(play); } catch (e) { notation = null; }
+    if (notation) return notation;
+    return scorecardShortResult(play.result) || "";
+  }
+
+  function batterBoxHtml(play, outNums, path, teamHex) {
+    var reached = !!REACHED_BASE_RESULTS[play.result];
+    var rbis = play.runs || 0;
+    var fullLabel = (data.meta.result_labels || {})[play.result] || play.result || "";
+    var scoredRun = (path || []).some(function (leg) { return leg.scored; });
+    return '<button type="button" class="batter-box' + (reached ? " reached" : "") +
+      '" data-play="' + play.play_num + '" title="' + escapeHtml(fullLabel) + '">' +
+      '<span class="bb-result">' + escapeHtml(resultLabelForPlay(play)) + "</span>" +
+      // Extra room on the left (minX -18, same right/top/bottom margin as
+      // before) rather than a symmetric box - Alex's ask: the diamond (and
+      // its leg-labels, which sit outside the 2B/3B corner toward this
+      // same left side) needed more clearance so a longer subsequent-
+      // advancement label like "FCG64" has room to read without clipping.
+      // Nudged a few px further right still on a later pass.
+      // Width bumped to 59 (was 54) to restore the right-edge margin that
+      // shifting minX to -18 (for more room on the left) had eaten into -
+      // 1B's own right edge was clipping by about half a unit (Alex's
+      // report) since minX moved left without the box growing to match.
+      '<svg class="bb-diamond" viewBox="-18 -7 59 48" aria-hidden="true">' +
+        diamondMarkupForPlay(path, scoredRun ? teamHex : null) +
+      "</svg>" +
+      (rbis > 0 ? '<span class="bb-rbi">' + new Array(rbis + 1).join("&bull;") + "</span>" : "") +
+      // A double/triple play's out circles sit side by side (Alex's ask) -
+      // "1 2" or "1 2 3", not just the final count. Three at once is rare
+      // enough (real triple plays) that it's fine if they crowd the corner
+      // a little rather than reworking the whole cell's layout for it.
+      (outNums && outNums.length ? '<span class="bb-out-wrap">' +
+        outNums.map(function (n) { return '<span class="bb-out">' + n + "</span>"; }).join("") +
+        "</span>" : "") +
+      "</button>";
+  }
+
+  // ---- assembly ----
+
+  function scoreboardTileFor(session, gameCode) {
+    var games = (data.meta.games || {})[String(session)] || [];
+    for (var i = 0; i < games.length; i++) {
+      if (games[i].game_code === gameCode) return games[i];
+    }
+    return null;
+  }
+
+  function buildBoxScore(gameCode, session, plays) {
+    if (!plays.length) return null;
+    var first = plays[0], last = plays[plays.length - 1];
+    var awayAbbr = first.away_team_abbr, homeAbbr = first.home_team_abbr;
+    var isFinal = !!last.is_game_final;
+    var tile = scoreboardTileFor(session, gameCode);
+    var lineupRows = (!isFinal && tile && tile.lineup_rows) || null;
+
+    // The synthetic "Now Batting" placeholder (_next_batter_moment in
+    // key_moments_build.py, is_on_deck: true) has no result/runner_moves of
+    // its own yet - it's not a real turn, so it's pulled out before any of
+    // the below (isGenuineTurn would otherwise happily treat a null result
+    // as a genuine one and hand it an empty batter's-box cell). Alex's ask:
+    // special-cased instead as a highlight on the batting lineup row itself.
+    var onDeckPlay = null;
+    plays = plays.filter(function (p) {
+      if (p.is_on_deck) { onDeckPlay = p; return false; }
+      return true;
+    });
+    if (!plays.length) return null;
+
+    function orderFor(teamAbbr) {
+      var order = lineupRows ? liveBattingOrderFromRows(teamAbbr, lineupRows) : inferBattingOrder(teamAbbr, plays);
+      annotateSubTypes(teamAbbr, plays, order);
+      if (onDeckPlay && onDeckPlay.off_team_abbr === teamAbbr) {
+        order.forEach(function (stints) {
+          var lastStint = stints[stints.length - 1];
+          if (lastStint && lastStint.name === onDeckPlay.batter_name) lastStint.nowBatting = true;
+        });
+      }
+      return order;
+    }
+
+    // Each team's OWN pitching stints (def_team_abbr === that team) - a
+    // team's batting grid needs the OPPOSING team's stints for its pitching-
+    // change markers (pitchChangeMarkerFor below), which is why these get
+    // cross-referenced by oppAbbr there rather than swapped here.
+    var awayPitching = buildPitchingStints(awayAbbr, plays);
+    var homePitching = buildPitchingStints(homeAbbr, plays);
+    var decisions = computeDecisions(plays, awayAbbr, homeAbbr, awayPitching, homePitching);
+
+    var grouped = groupHalfInnings(plays, data.meta.innings);
+    var awayOrder = orderFor(awayAbbr), homeOrder = orderFor(homeAbbr);
+
+    return {
+      gameCode: gameCode, session: session, isFinal: isFinal,
+      awayAbbr: awayAbbr, homeAbbr: homeAbbr,
+      away: {
+        abbr: awayAbbr, order: awayOrder, battingStats: battingStatsFor(awayAbbr, plays),
+        pitching: awayPitching, slotByPlayNum: slotByPlayNumFor(awayAbbr, plays),
+      },
+      home: {
+        abbr: homeAbbr, order: homeOrder, battingStats: battingStatsFor(homeAbbr, plays),
+        pitching: homePitching, slotByPlayNum: slotByPlayNumFor(homeAbbr, plays),
+      },
+      columns: grouped.columns, outNumber: grouped.outNumber, halfTotals: grouped.halfTotals,
+      runnerPaths: grouped.runnerPaths, maxInning: grouped.maxInning,
+      decisions: decisions, pitchColors: assignPitchColors(awayPitching, homePitching),
+      // Same width for both teams (Alex's ask) - the wider of the two names.
+      mobileBatterColWidth: computeMobileBatterColWidth(awayOrder, homeOrder),
+    };
+  }
+
+  // ---- rendering ----
+
+  // Small-screen last-name-only display for the batting table (Alex's ask -
+  // the sticky name column is cramped on mobile; the pitchers' table keeps
+  // full names regardless of screen size). Strips trailing suffix tokens
+  // first ("Steve Hofbardozzi Jr. Jr. Jr." -> "Hofbardozzi", not "Jr.") -
+  // a self-contained heuristic, not sourced from the same last_name this
+  // league's own data pipeline computes server-side (key_moments_build.py's
+  // _player_view), since that's never exported for an arbitrary lineup name
+  // here, only for whoever a specific play's own battter/pitcher/catcher/
+  // runner happens to be.
+  var NAME_SUFFIXES = { "jr": 1, "jr.": 1, "sr": 1, "sr.": 1, "ii": 1, "iii": 1, "iv": 1, "v": 1 };
+  function lastNameOf(fullName) {
+    var parts = (fullName || "").trim().split(/\s+/);
+    while (parts.length > 1 && NAME_SUFFIXES[parts[parts.length - 1].toLowerCase()]) parts.pop();
+    return parts[parts.length - 1] || fullName || "";
+  }
+
+  function subBorderClass(subType) {
+    if (subType === "pinch-hitter") return " sub-ph";
+    if (subType === "pinch-runner") return " sub-pr";
+    if (subType === "defensive-replacement") return " sub-def";
+    return "";
+  }
+
+  // Small-screen name-column width (Alex's ask: narrow the frozen Batter
+  // column on mobile to only as wide as the longest last name actually
+  // appearing in THIS game, looking across both teams so both grids share
+  // one width). Canvas measureText, not a character-count guess - font
+  // string matches .lineup-name-short's actual rendered font (600 weight,
+  // inherited 12px from .sc-grid, this site's global Arial stack).
+  var LINEUP_NAME_FONT = "600 12px Arial, \"Helvetica Neue\", Helvetica, sans-serif";
+  var _measureCanvas = null;
+  function measureTextWidth(text) {
+    if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
+    var ctx = _measureCanvas.getContext("2d");
+    ctx.font = LINEUP_NAME_FONT;
+    return ctx.measureText(text).width;
+  }
+
+  // slot number + its gap + the entry's own pos sub-column + its gap +
+  // measured name width + a little safety padding, clamped to a sane range.
+  function computeMobileBatterColWidth(awayOrder, homeOrder) {
+    var maxNameW = 0;
+    [awayOrder, homeOrder].forEach(function (order) {
+      order.forEach(function (stints) {
+        stints.forEach(function (stint) {
+          var w = measureTextWidth(lastNameOf(stint.name));
+          if (w > maxNameW) maxNameW = w;
+        });
+      });
+    });
+    var width = 20 + 4 + 34 + 4 + maxNameW + 10;
+    return Math.max(90, Math.min(170, Math.round(width)));
+  }
+
+  function teamGridHtml(box, teamKey) {
+    var team = box[teamKey];
+    var half = teamKey === "away" ? "top" : "bottom";
+    var columns = box.columns.filter(function (c) { return c.half === half; });
+    var oppKey = teamKey === "away" ? "home" : "away";
+    var oppAbbr = box[oppKey].abbr;
+
+    // A bat-around's continuation column shares its inning number with the
+    // one before it (Alex's ask) - labeled "4b" (then "4c" ... in the
+    // vanishingly rare case of a third column) so the two don't just show
+    // the same bare number twice.
+    var inningSeen = {};
+    var inningLabels = columns.map(function (c) {
+      var n = (inningSeen[c.inning] = (inningSeen[c.inning] || 0) + 1);
+      return n === 1 ? String(c.inning) : c.inning + String.fromCharCode(97 + n - 1);
+    });
+
+    var head = '<div class="sc-cell sc-head sc-lineup-head">BATTER</div>' +
+      inningLabels.map(function (label) { return '<div class="sc-cell sc-head">' + label + "</div>"; }).join("") +
+      '<div class="sc-cell sc-head">AB</div><div class="sc-cell sc-head">R</div>' +
+      '<div class="sc-cell sc-head">H</div><div class="sc-cell sc-head">RBI</div>' +
+      '<div class="sc-cell sc-head">BB</div><div class="sc-cell sc-head">K</div>';
+
+    var rows = "";
+    team.order.forEach(function (stints, slotIdx) {
+      if (!stints.length) return;
+
+      // One row per SLOT, not per stint (Alex's ask) - every player who's
+      // occupied this slot gets their own stacked position/name line inside
+      // the same lineup cell, and whichever inning cell holds a
+      // substitute's first play gets a vertical colored bar instead (below)
+      // rather than the whole lineup row taking a border color.
+      var nowBattingStint = stints.filter(function (s) { return s.nowBatting; })[0];
+      var nowBattingStyle = "";
+      if (nowBattingStint) {
+        var rgb = hexToRgb((data.meta.teams[team.abbr] || {}).primary_hex);
+        if (rgb) nowBattingStyle = ' style="background:rgba(' + rgb.r + "," + rgb.g + "," + rgb.b + ',0.35)"';
+      }
+      var entries = stints.map(function (stint, i) {
+        var posLabel = stint.posStart === stint.posEnd ? stint.posStart : (stint.posStart + "/" + stint.posEnd);
+        return '<div class="lineup-entry' + subBorderClass(stint.subType) + '">' +
+          '<span class="lineup-pos">' + escapeHtml(posLabel || "") + '</span>' +
+          '<span class="lineup-name lineup-name-full" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(stint.name || "") + "</span>" +
+          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(lastNameOf(stint.name)) + "</span>" +
+          "</div>";
+      }).join("");
+      rows += '<div class="sc-cell sc-lineup"' + nowBattingStyle + '>' +
+        '<span class="lineup-slot">' + (slotIdx + 1) + "</span>" +
+        '<div class="lineup-entries">' + entries + "</div>" +
+        "</div>";
+
+      // A slot's stints never overlap in time (one replaces the other), so
+      // trying every stint against each column and taking whichever one
+      // actually has a play there is safe - at most one ever will.
+      var debutMarked = {};
+      columns.forEach(function (col) {
+        var play = null, stintIdx = -1;
+        for (var si = 0; si < stints.length && !play; si++) {
+          var found = col.plays.find(function (p) {
+            return p.batter_name === stints[si].name && team.slotByPlayNum[p.play_num] === slotIdx &&
+              splitPlayNum(p.play_num)[1] >= stints[si].startSeq && splitPlayNum(p.play_num)[1] <= stints[si].endSeq;
+          });
+          if (found) { play = found; stintIdx = si; }
+        }
+        if (!play) { rows += '<div class="sc-cell sc-box-empty"></div>'; return; }
+        // The vertical bar marks only the substitute's very first plate
+        // appearance in the slot, not every subsequent play of theirs too.
+        var subCls = "";
+        if (stintIdx > 0 && !debutMarked[stintIdx]) {
+          debutMarked[stintIdx] = true;
+          subCls = subBorderClass(stints[stintIdx].subType);
+        }
+        var changeColor = pitchChangeMarkerFor(box, oppAbbr, play);
+        var cellCls = "sc-cell sc-box" + subCls + (changeColor != null ? " pitch-change pitch-color-" + changeColor : "");
+        rows += '<div class="' + cellCls + '">' +
+          batterBoxHtml(play, box.outNumber[play.play_num], box.runnerPaths[play.play_num],
+            (data.meta.teams[team.abbr] || {}).primary_hex) + "</div>";
+      });
+
+      // Combined AB/R/H/RBI/BB/K across every stint in the slot - one row,
+      // one total, for the whole game.
+      var slotTotal = { ab: 0, r: 0, h: 0, rbi: 0, bb: 0, so: 0 };
+      stints.forEach(function (st) {
+        var s = team.battingStats[st.name];
+        if (s) Object.keys(slotTotal).forEach(function (k) { slotTotal[k] += s[k]; });
+      });
+      rows += ["ab", "r", "h", "rbi", "bb", "so"].map(function (k) {
+        return '<div class="sc-cell sc-stat">' + slotTotal[k] + "</div>";
+      }).join("");
+    });
+
+    // Team-wide AB/R/H/RBI/BB/K (Alex's ask) - summed once across every
+    // distinct batter's own battingStats row, not per-slot like the lineup
+    // rows' own stat columns above (those total one slot's stints; this
+    // totals the whole team).
+    var teamTotals = { ab: 0, r: 0, h: 0, rbi: 0, bb: 0, so: 0 };
+    Object.keys(team.battingStats).forEach(function (name) {
+      var s = team.battingStats[name];
+      Object.keys(teamTotals).forEach(function (k) { teamTotals[k] += s[k]; });
+    });
+
+    var totalsRow = '<div class="sc-cell sc-lineup-head">TOTALS</div>' +
+      columns.map(function (c) {
+        if (!c.isLastOfHalf) return '<div class="sc-cell sc-totals"></div>';
+        var t = box.halfTotals[c.inning + "-" + c.half];
+        if (!t) return '<div class="sc-cell sc-totals"></div>'; // not played yet - blank, not 0
+        // Labeled R/H/LOB (Alex's ask - unlabeled numbers read as ambiguous,
+        // easy to mistake for the R/H/E a real MLB scorecard shows instead;
+        // this league has no error code at all, so LOB is the real 3rd
+        // stat here) - repeated per inning, matching the reference site's
+        // own per-inning-cell R/H/LOB/E quadrant.
+        return '<div class="sc-cell sc-totals">' +
+          '<span class="sc-totals-col"><b>' + t.runs + '</b><i>R</i></span>' +
+          '<span class="sc-totals-col"><b>' + t.hits + '</b><i>H</i></span>' +
+          '<span class="sc-totals-col"><b>' + t.lob + '</b><i>LOB</i></span>' +
+          "</div>";
+      }).join("") +
+      ["ab", "r", "h", "rbi", "bb", "so"].map(function (k) {
+        return '<div class="sc-cell sc-stat sc-stat-total">' + teamTotals[k] + "</div>";
+      }).join("");
+
+    // The Batter column is a CSS var, not a bare px literal, so the mobile
+    // media query (style.css) can substitute a narrower per-game value
+    // (box.mobileBatterColWidth) on a small screen without any of this
+    // markup changing - --sc-batter-col is only ever assigned inside that
+    // query, so the var() fallback (230px) is what every other screen size
+    // actually uses.
+    var battersColVar = "var(--sc-batter-col, " + BATTER_COL_WIDTH + "px)";
+    var colTemplate = battersColVar + " " +
+      columns.map(function () { return INNING_COL_WIDTH + "px"; }).join(" ") +
+      (" " + STAT_COL_WIDTH + "px").repeat(STAT_COL_COUNT);
+    // Explicit width, matching colTemplate's own total exactly via the same
+    // var/calc (not a bare number): without this, .sc-grid's own rendered
+    // box is clipped to .sc-grid-scroll's clientWidth even though its
+    // tracks overflow past that - and a position:sticky item's travel range
+    // is bounded by ITS OWN containing block (.sc-grid here), not by how
+    // much its content visually overflows. Once the grid is scrolled far
+    // enough past that artificially-narrow box, the sticky column runs out
+    // of room and starts tracking the scroll like a normal (non-sticky)
+    // item - confirmed by isolated repro, and exactly Alex's report (stays
+    // frozen briefly, then drifts off screen further into the scroll).
+    var gridWidth = "calc(" + battersColVar + " + " +
+      (columns.length * INNING_COL_WIDTH + STAT_COL_COUNT * STAT_COL_WIDTH) + "px)";
+    return '<div class="sc-grid-scroll"><div class="sc-grid" style="grid-template-columns:' + colTemplate +
+      ";width:" + gridWidth + '">' + head + rows + totalsRow + "</div></div>";
+  }
+
+  // Top-border pitching-change marker: is this the first play of a new
+  // pitching stint for the opposing team (never the game's own starter -
+  // reference spec only marks actual changes)?
+  function pitchChangeMarkerFor(box, oppAbbr, play) {
+    var stints = oppAbbr === box.awayAbbr ? box.away.pitching : box.home.pitching;
+    for (var i = 1; i < stints.length; i++) {
+      if (stints[i].startPlayNum === play.play_num) {
+        return box.pitchColors[stints[i].pitcherId != null ? String(stints[i].pitcherId) : stints[i].name];
+      }
+    }
+    return null;
+  }
+
+  function pitchersTableHtml(box, teamKey) {
+    var stints = box[teamKey].pitching;
+    var rows = stints.map(function (s, i) {
+      var colorIdx = box.pitchColors[s.pitcherId != null ? String(s.pitcherId) : s.name];
+      var decision = box.decisions[s.pitcherId];
+      return '<tr class="' + (i > 0 ? "pitch-color-" + colorIdx + " relief" : "") + '">' +
+        "<td>" + escapeHtml(s.name || "") + (decision ? ' <span class="pitch-decision">' + decision + "</span>" : "") + "</td>" +
+        "<td>" + s.ip + "</td><td>" + s.bf + "</td><td>" + s.h + "</td><td>" + s.r +
+        "</td><td>" + s.bb + "</td><td>" + s.k + "</td></tr>";
+    }).join("");
+    var totals = { outs: 0, bf: 0, h: 0, r: 0, bb: 0, k: 0 };
+    stints.forEach(function (s) {
+      totals.outs += s.outs; totals.bf += s.bf; totals.h += s.h;
+      totals.r += s.r; totals.bb += s.bb; totals.k += s.k;
+    });
+    var totalsRow = '<tr class="sc-pitchers-totals"><td>TOTALS</td><td>' +
+      Math.floor(totals.outs / 3) + "." + (totals.outs % 3) + "</td><td>" + totals.bf +
+      "</td><td>" + totals.h + "</td><td>" + totals.r + "</td><td>" + totals.bb +
+      "</td><td>" + totals.k + "</td></tr>";
+    return '<table class="sc-pitchers"><thead><tr><th>PITCHER</th><th>IP</th><th>BF</th><th>H</th>' +
+      "<th>R</th><th>BB</th><th>K</th></tr></thead><tbody>" + rows + totalsRow + "</tbody></table>";
+  }
+
+  // Classic inning-by-inning linescore (runs per inning) plus total R/H
+  // columns - a blank cell (not "0") for a half-inning with no halfTotals
+  // entry at all, i.e. genuinely not played yet, vs. an actual 0.
+  function linescoreHtml(box) {
+    // A completed game's home half of its final inning is sometimes never
+    // played at all (Alex's ask) - a lead after the top half ends the game
+    // right there, no bottom needed. Traditional scorecards mark that
+    // skipped bottom with a dash rather than leaving it blank (which would
+    // otherwise be indistinguishable from "hasn't happened yet" in a still-
+    // live game) - only ever for a completed game, and only the specific
+    // inning where top has an entry but bottom doesn't.
+    var skippedBottomInning = null;
+    if (box.isFinal) {
+      for (var si = 1; si <= box.maxInning; si++) {
+        if (box.halfTotals[si + "-top"] && !box.halfTotals[si + "-bottom"]) skippedBottomInning = si;
+      }
+    }
+    function rowFor(abbr, half) {
+      var cells = "", totalR = 0, totalH = 0, totalLob = 0;
+      for (var i = 1; i <= box.maxInning; i++) {
+        var t = box.halfTotals[i + "-" + half];
+        var cellText = t ? t.runs : (half === "bottom" && i === skippedBottomInning ? "-" : "");
+        cells += "<td>" + cellText + "</td>";
+      }
+      Object.keys(box.halfTotals).forEach(function (key) {
+        if (key.substring(key.indexOf("-") + 1) === half) {
+          totalR += box.halfTotals[key].runs; totalH += box.halfTotals[key].hits;
+          totalLob += box.halfTotals[key].lob;
+        }
+      });
+      return "<tr><td class=\"ls-team\">" + teamLogoImg(abbr, "ls-logo") + escapeHtml(abbr) + "</td>" + cells +
+        '<td class="ls-total">' + totalR + '</td><td class="ls-total">' + totalH +
+        '</td><td class="ls-total">' + totalLob + "</td></tr>";
+    }
+    var headCells = "";
+    for (var i = 1; i <= box.maxInning; i++) headCells += "<th>" + i + "</th>";
+    return '<table class="sc-linescore"><thead><tr><th></th>' + headCells +
+      "<th>R</th><th>H</th><th>LOB</th></tr></thead><tbody>" +
+      rowFor(box.awayAbbr, "top") + rowFor(box.homeAbbr, "bottom") +
+      "</tbody></table>";
+  }
+
+  function scorecardBodyHtml(box) {
+    // Each team's own pitching sits right under that same team's batting
+    // (Alex's ask) - a self-contained "everything about this team" section,
+    // rather than grouping both teams' pitching together at the bottom.
+    return (
+      linescoreHtml(box) +
+      '<div class="sc-team-label">' + escapeHtml(box.awayAbbr) + " Batting</div>" +
+      teamGridHtml(box, "away") +
+      '<div class="sc-team-label">' + escapeHtml(box.awayAbbr) + " Pitching</div>" +
+      pitchersTableHtml(box, "away") +
+      '<div class="sc-team-label">' + escapeHtml(box.homeAbbr) + " Batting</div>" +
+      teamGridHtml(box, "home") +
+      '<div class="sc-team-label">' + escapeHtml(box.homeAbbr) + " Pitching</div>" +
+      pitchersTableHtml(box, "home")
+    );
+  }
+
+  // ---- open/close/refresh ----
+
+  var scorecard = { open: false, gameCode: null, session: null, refreshTimer: null };
+  var SCORECARD_REFRESH_MS = 5 * 60 * 1000; // matches the live grid's own cron-aligned cadence
+
+  // Logo + abbreviation on each side of "@" (Alex's ask), same teamLogoImg
+  // helper the scoreboard tile itself already uses (app.js:490).
+  function scorecardTeamTagHtml(abbr) {
+    return teamLogoImg(abbr, "scorecard-title-logo") + '<span>' + escapeHtml(abbr) + "</span>";
+  }
+
+  // A team's own grid content width at the (fixed) desktop Batter-column
+  // size - used only for sizing the modal itself, never the mobile-narrowed
+  // var the grid's own inline style uses (box.mobileBatterColWidth).
+  function teamGridDesktopWidth(box, teamKey) {
+    var half = teamKey === "away" ? "top" : "bottom";
+    var n = box.columns.filter(function (c) { return c.half === half; }).length;
+    return BATTER_COL_WIDTH + n * INNING_COL_WIDTH + STAT_COL_COUNT * STAT_COL_WIDTH;
+  }
+
+  function renderScorecard(gameCode, session, plays) {
+    var box = buildBoxScore(gameCode, session, plays);
+    if (!box) { toast("No plays recorded for that game yet."); return; }
+    $("scorecard-title").innerHTML =
+      '<span class="scorecard-title-team">' + scorecardTeamTagHtml(box.awayAbbr) + "</span>" +
+      '<span class="scorecard-title-at">@</span>' +
+      '<span class="scorecard-title-team">' + scorecardTeamTagHtml(box.homeAbbr) + "</span>";
+    $("scorecard-body").innerHTML = scorecardBodyHtml(box);
+    // Always set (harmless at any screen size) - style.css's own small-
+    // screen media query is what actually wires --sc-batter-col (the var
+    // .sc-grid's grid-template-columns consumes) to this value; on any
+    // larger screen --sc-batter-col stays undefined there, so the grid's
+    // own var(--sc-batter-col, 230px) falls back to the fixed desktop width.
+    $("scorecard-body").style.setProperty("--sc-mobile-batter-col", box.mobileBatterColWidth + "px");
+    // Modal sized to fit the wider of the two teams' own grids (Alex's ask -
+    // no dead gray space for a short game, and no truncating a long
+    // extra-innings one) - recomputed on every render, live-refresh
+    // included, since an in-progress extra-innings game keeps growing.
+    var gridWidth = Math.max(teamGridDesktopWidth(box, "away"), teamGridDesktopWidth(box, "home"));
+    var chrome = 18 * 2 + 2 + 24; // .scorecard-body padding + .sc-grid-scroll border + breathing room
+    $("scorecard-card").style.maxWidth = "min(97vw, " + Math.min(1800, gridWidth + chrome) + "px)";
+  }
+
+  function clearScorecardRefreshTimer() {
+    if (scorecard.refreshTimer) { window.clearInterval(scorecard.refreshTimer); scorecard.refreshTimer = null; }
+  }
+
+  function openScorecard(gameCode, session) {
+    if (session == null || isNaN(session)) {
+      toast("Could not determine which session this game belongs to.");
+      return;
+    }
+    ensureSessionPlaysLoaded(session).then(function () {
+      var plays = gamePlaysFor(session, gameCode);
+      renderScorecard(gameCode, session, plays);
+      scorecard.open = true;
+      scorecard.gameCode = gameCode;
+      scorecard.session = session;
+      $("scorecard-modal").hidden = false;
+      // Always start at the top for a freshly-opened scorecard (Alex's ask)
+      // - a live-refresh re-render (renderScorecard called directly, not
+      // through here) never touches scroll position, so mid-session
+      // refreshes don't yank the viewer back to the top while they're
+      // reading further down.
+      $("scorecard-body").scrollTop = 0;
+      Array.prototype.forEach.call(document.querySelectorAll(".sc-grid-scroll"), function (el) {
+        el.scrollLeft = 0;
+      });
+      clearScorecardRefreshTimer();
+      // Only the active season's own files are ever polled (an historical
+      // season's plays file is immutable) - same gate openLiveGrid uses.
+      if (season.active === season.current) {
+        scorecard.refreshTimer = window.setInterval(function () {
+          ensureSessionPlaysLoaded(session).then(function () {
+            renderScorecard(gameCode, session, gamePlaysFor(session, gameCode));
+          });
+        }, SCORECARD_REFRESH_MS);
+      }
+    }).catch(function () {
+      toast("Could not load that game's plays.");
+    });
+  }
+
+  function openScorecardFor(btn) {
+    var gameCode = btn.getAttribute("data-scorecard");
+    var tile = btn.closest(".scoreboard-tile");
+    var raw = tile && tile.getAttribute("data-session");
+    var session = raw ? Number(raw) : filters.session;
+    openScorecard(gameCode, session);
+  }
+
+  function closeScorecard() {
+    clearScorecardRefreshTimer();
+    scorecard.open = false;
+    $("scorecard-modal").hidden = true;
+    $("scorecard-body").innerHTML = "";
+  }
+
+  function wireScorecard() {
+    var modal = $("scorecard-modal");
+    if (!modal) return;
+    $("scorecard-close").addEventListener("click", closeScorecard);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeScorecard(); });
+    document.addEventListener("keydown", function (e) {
+      if (modal.hidden) return;
+      if (e.key === "Escape") closeScorecard();
+    });
+    modal.addEventListener("click", function (e) {
+      var cell = e.target.closest("[data-play]");
+      if (!cell) return;
+      // Both modals share the same .modal (position:fixed, full-screen)
+      // treatment - leaving this one's hidden=false while replay-modal
+      // opens on top would leave it painted later in the DOM and stealing
+      // clicks meant for replay's own controls. Content/timer stay intact
+      // underneath; backToScorecardFromReplay just un-hides it again.
+      modal.hidden = true;
+      openReplayAtPlay(scorecard.gameCode, scorecard.session, Number(cell.getAttribute("data-play")), cell, false,
+        { gameCode: scorecard.gameCode, session: scorecard.session });
+    });
   }
 
   // ── Live grid: up to 8 games from the current session, each pane cycling
@@ -12658,6 +13882,7 @@
     wireSpeedToggle("replay-speed");
     wireLoopToggle("replay-loop");
     $("replay-close").addEventListener("click", closeReplay);
+    $("replay-back").addEventListener("click", backToScorecardFromReplay);
     $("replay-prev").addEventListener("click", function () { stepReplay(-1); });
     $("replay-next").addEventListener("click", function () { stepReplay(1); });
     modal.addEventListener("click", function (e) { if (e.target === modal) closeReplay(); });
@@ -13173,6 +14398,12 @@
         openGameReplayFor(replayBtn);
         return;
       }
+      var scorecardBtn = e.target.closest("[data-scorecard]");
+      if (scorecardBtn) {
+        e.stopPropagation();
+        openScorecardFor(scorecardBtn);
+        return;
+      }
       // Same reasoning as the replay button above - let the MLN Reference
       // link navigate on its own without also toggling tile selection.
       if (e.target.closest(".sb-game-link")) {
@@ -13190,7 +14421,8 @@
       if (e.key !== "Enter" && e.key !== " ") return;
       var tile = e.target.closest(".scoreboard-tile");
       // the button/link handle themselves
-      if (!tile || e.target.closest("[data-replay]") || e.target.closest(".sb-game-link")) return;
+      if (!tile || e.target.closest("[data-replay]") || e.target.closest("[data-scorecard]") ||
+          e.target.closest(".sb-game-link")) return;
       e.preventDefault();
       selectScoreboardTile(tile);
     });
@@ -13380,6 +14612,7 @@
     wireCatchUp();
     wireReplay();
     wireLiveGrid();
+    wireScorecard();
     wireSettings();
     wireMethodology();
     wireDebugModeToggle();

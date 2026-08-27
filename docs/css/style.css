@@ -17,6 +17,7 @@
   --muted: #6b7280;
   --green: #1e7d32;
   --gold: #d9a300;
+  --orange: #c05a00;            /* scorecard: thrown-out-on-the-bases fill */
 
   --tint: #f3f5f8;              /* neutral fill: badges, hover rows, tag pills */
   --tint-red: #fdeef0;
@@ -59,6 +60,7 @@
   --muted: #9aa4b2;
   --green: #55c47a;
   --gold: #e0b13c;
+  --orange: #e08a3c;
 
   --tint: #232b36;
   --tint-red: #3a1e22;
@@ -179,6 +181,15 @@ button{font-family:inherit;cursor:pointer;}
   color:var(--navy);border-color:var(--navy);
 }
 .tile-replay-btn.loading{opacity:0.4;pointer-events:none;}
+/* Scorecard entry point - same icon-badge family as tile-replay-btn. */
+.tile-scorecard-btn{
+  position:relative;z-index:2;
+  width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:20px;background:var(--tint);
+  color:var(--muted);cursor:pointer;flex-shrink:0;
+}
+.tile-scorecard-btn svg{width:11px;height:11px;}
+.tile-scorecard-btn:hover,.tile-scorecard-btn:focus-visible{color:var(--navy);border-color:var(--navy);}
 /* MLN Reference link - moved here from the plays rows (Alex's ask: once per
    game instead of once per play) - same round icon-badge footprint as its
    replay-button neighbour so the pair reads as one family. */
@@ -606,6 +617,19 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 #replay-modal .catchup-fullscreen{right:82px;}
 #replay-modal .catchup-loop{right:118px;}
 #replay-modal .catchup-speed{right:154px;}
+
+/* Back-to-scorecard (Scorecard feature) - top-left, mirroring close's
+   top-right corner, rather than crowding into the existing right-side
+   button row above. Hidden by default in the markup; shown only when
+   replay.returnTo is set (a cell click from the scorecard, not any other
+   entry point). */
+.catchup-back{
+  position:absolute;top:8px;left:10px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  width:30px;height:30px;padding:6px;cursor:pointer;border-radius:6px;
+}
+.catchup-back:hover{color:var(--text);background:var(--tint);}
+.catchup-back svg{width:100%;height:100%;}
 
 /* Loop mode, left of fullscreen (Alex's ask) - three states, same
    Apple-Music-style single glyph as their own repeat toggle: muted for "play
@@ -2379,3 +2403,248 @@ html[data-km-debug="1"] .km-tuning-panel{
 .live-grid-overlay-text{
   font-size:19px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text);
 }
+
+/* ---- Scorecard (Alex's ask - traditional batting-order x half-inning box
+   score, modeled on caughtlooking.app's MLB gameday scorecard). See app.js's
+   own "Scorecard" section header comment for what this deliberately leaves
+   out (pitch sequence, pitch counts, handedness, jersey numbers, a slash
+   line/running ERA, E) and why. ---- */
+.scorecard-modal{padding:12px;}
+/* max-width is overridden per-game by renderScorecard (app.js) to fit the
+   wider of the two teams' own grids (Alex's ask - no dead space for a short
+   game, no truncating a long extra-innings one) - this is just the static
+   fallback before that first render, raised from 1400 to leave room for
+   that per-game width to actually grow past what a plain 6-inning game
+   needed. */
+.scorecard-card{
+  background:var(--card);border-radius:12px;width:100%;max-width:min(97vw,1800px);
+  height:min(92vh,1100px);display:flex;flex-direction:column;overflow:hidden;position:relative;
+  box-shadow:0 10px 40px var(--shadow);
+}
+:root[data-theme="dark"] .scorecard-card{border:1px solid var(--border);}
+.scorecard-title{
+  padding:16px 46px 10px 18px;font-size:16px;font-weight:800;border-bottom:1px solid var(--border);
+  flex-shrink:0;display:flex;align-items:center;gap:8px;
+}
+.scorecard-title-team{display:flex;align-items:center;gap:6px;}
+.scorecard-title-logo{width:24px;height:24px;object-fit:contain;flex-shrink:0;}
+.scorecard-title-at{color:var(--muted);font-weight:700;}
+.scorecard-body{padding:14px 18px 24px;overflow:auto;flex:1;}
+#scorecard-close{position:absolute;top:8px;right:10px;}
+
+.sc-team-label{
+  font-size:13px;font-weight:800;letter-spacing:0.3px;color:var(--muted);
+  margin:18px 0 8px;text-transform:uppercase;
+}
+.sc-team-label:first-child{margin-top:0;}
+
+/* Linescore - classic inning-by-inning runs, plus total R/H (Alex's ask) -
+   sits above the two full batting grids. */
+.sc-linescore{border-collapse:collapse;font-size:12px;margin:0 auto 12px;}
+.sc-linescore th,.sc-linescore td{
+  padding:4px 8px;text-align:center;border-bottom:1px solid var(--border);
+  font-variant-numeric:tabular-nums;
+}
+.sc-linescore th{color:var(--muted);font-size:11px;font-weight:800;}
+.sc-linescore .ls-team{text-align:left;font-weight:800;display:flex;align-items:center;gap:6px;}
+.ls-logo{width:18px;height:18px;object-fit:contain;flex-shrink:0;}
+.sc-linescore .ls-total{font-weight:800;border-left:2px solid var(--border);}
+
+/* Grid items (.sc-cell) fill the row left-to-right per the inline
+   grid-template-columns app.js sets per team (name column + one per
+   half-inning + 6 fixed stat columns) - CSS grid auto-flow wraps to the next
+   row on its own, no wrapper div needed per lineup row.
+   The border/radius/clipping live on the *scroll* wrapper, not .sc-grid
+   itself (Alex's ask: scrollable on mobile with the Batter column frozen) -
+   position:sticky below needs its nearest overflow ancestor to be the
+   element that actually scrolls, and an overflow:hidden .sc-grid sitting
+   between the sticky cells and that scroller would otherwise become the
+   (non-scrolling) containing block instead, defeating the freeze.
+   width:100% is load-bearing, not decorative: without it this wrapper is a
+   plain block that just grows to fit .sc-grid's own (wider-than-viewport)
+   content instead of staying capped to its parent's width, so overflow-x
+   never actually has anything of ITS OWN to scroll - the scroll (and the
+   sticky column's freeze) silently falls through to a container further up
+   instead, which is exactly what broke the freeze on a narrow/mobile
+   viewport (Alex's report). */
+.sc-grid-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:6px;}
+/* Cell borders (not a grid `gap`-reveals-background trick) - Alex's report:
+   the previous gap:1px hairline could vanish on some mobile screens/zoom
+   levels where a 1px logical gap rounds away sub-pixel; an explicit border
+   renders reliably at any density. */
+.sc-grid{display:grid;font-size:12px;}
+.sc-cell{
+  background:var(--card);padding:4px 6px;display:flex;align-items:center;min-height:28px;
+  border-right:1px solid var(--border);border-bottom:1px solid var(--border);
+}
+.sc-head{
+  background:var(--tint);font-weight:800;color:var(--muted);justify-content:center;
+  font-size:11px;letter-spacing:0.2px;
+}
+/* Frozen Batter column (Alex's ask) - sticky within .sc-grid-scroll above,
+   opaque via .sc-cell's own background so scrolled-under content doesn't
+   show through. */
+.sc-lineup-head{justify-content:flex-start;position:sticky;left:0;z-index:2;}
+/* One row per batting-order slot, not per stint (Alex's ask) - every player
+   who's occupied this slot gets their own stacked line in .lineup-entries,
+   all within this one sticky cell. */
+.sc-lineup{
+  display:grid;grid-template-columns:20px 1fr;align-items:center;gap:4px;
+  position:sticky;left:0;z-index:2;
+  /* Matches a populated row's own real minimum (.batter-box's 58px +
+     .sc-box's 2px top/bottom padding = 62px) - a hitter who hasn't had a
+     plate appearance yet has nothing but empty .sc-box-empty cells this
+     half, which on their own only need .sc-cell's plain 28px floor, making
+     that row visibly shorter than every other one (Alex's report) unless
+     the lineup cell itself also asks for the full 62px. */
+  min-height:62px;
+}
+.lineup-slot{font-weight:800;color:var(--muted);text-align:center;}
+.lineup-entries{display:flex;flex-direction:column;gap:3px;}
+.lineup-entry{
+  display:grid;grid-template-columns:34px 1fr;align-items:center;gap:4px;
+  border-left:3px solid transparent;padding-left:4px;
+}
+.lineup-pos{color:var(--muted);font-size:11px;}
+.lineup-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Last-name-only on a small screen (Alex's ask) - swapped via CSS alone
+   (not a resize listener) so it also reacts to orientation change/zoom.
+   The pitchers' table is untouched - full names stay there regardless of
+   screen size. */
+.lineup-name-short{display:none;}
+/* Substitution markers (reference spec): pinch-hit = blue; pinch-run/
+   defensive replacement = grey. Shown two places - a thin left border on
+   this player's own line in the lineup cell, and (the more prominent one,
+   .sc-box.sub-* below) a vertical bar on the specific inning cell where
+   they took over, since that's the moment "this is a substitution" is
+   really about. */
+.lineup-entry.sub-ph{border-left-color:var(--blue);}
+.lineup-entry.sub-pr,.lineup-entry.sub-def{border-left-color:var(--border-hover);}
+
+.sc-box{padding:2px;}
+.sc-box-empty{background:var(--tint);}
+.sc-box.pitch-change{border-top:3px solid transparent;}
+.sc-box.sub-ph{border-left:3px solid var(--blue);}
+.sc-box.sub-pr,.sc-box.sub-def{border-left:3px solid var(--border-hover);}
+.batter-box{
+  /* As compact as the diamond itself allows (Alex's ask) - the result badge
+     and RBI/out markers are all position:absolute (out of flow), so the box
+     only needs to be tall enough for the 48px diamond plus a sliver of its
+     own padding; RBI/out sit close beneath it now instead of leaving a lot
+     of reserved space below. */
+  width:100%;height:100%;min-height:58px;border:none;background:transparent;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;
+  padding:2px;border-radius:4px;color:inherit;font-family:inherit;
+}
+.batter-box:hover,.batter-box:focus-visible{background:var(--tint);}
+.batter-box.loading{opacity:0.4;pointer-events:none;}
+/* Result badge - top-left corner, "connecting to" the box per Alex's ask
+   (anchored flush at 0,0 with only its own outer corner rounded, rather than
+   floating with a gap, so it reads as a tab growing out of the cell).
+   Always white text on a solid black chip (Alex's ask - no blue/navy tint;
+   literal black/white in both themes, not tokens, so a plain --card
+   background never has to fight it for contrast the way it would in light
+   mode). */
+.bb-result{
+  position:absolute;top:0;left:0;z-index:1;
+  font-size:10px;font-weight:800;letter-spacing:0.2px;line-height:1;
+  padding:2px 4px;border:1px solid #fff;border-top:none;border-left:none;
+  border-bottom-right-radius:4px;background:#000;color:#fff;
+}
+.bb-diamond{width:59px;height:48px;}
+/* Base fill states (reference spec) - own/later are literal black/white,
+   not theme tokens, since they're specified as absolute colors rather than
+   "an accent that separates from the card" the way the rest of this file's
+   palette is. Light mode (default here): own = solid black, later = white
+   with a black outline. Dark mode inverts both (override block below) -
+   Alex's ask. A scored-run cell (batterBoxHtml passing scoredHex into
+   diamondMarkupForPlay) overrides both of these via an inline style with
+   the team's own primary color regardless of theme, so it's unaffected by
+   either block. */
+.bb-base.empty{fill:var(--tint);stroke:var(--border-hover);stroke-width:1;}
+.bb-base.own{fill:#000000;stroke:var(--text);stroke-width:1;}
+.bb-base.later{fill:#ffffff;stroke:#000000;stroke-width:2;}
+.bb-base.out{fill:var(--orange);stroke:var(--orange);}
+:root[data-theme="dark"] .bb-base.own{fill:#ffffff;}
+:root[data-theme="dark"] .bb-base.later{fill:#000000;stroke:#ffffff;}
+/* dominant-baseline:middle so the label centres vertically on its anchor
+   point instead of sitting baseline-up from it - halves how far any one
+   side of the glyphs reaches back toward the base squares (Alex's report:
+   the 3B-Home label's top edge was clipping into the square beside it). */
+.bb-leg-label{font-size:7px;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;}
+/* White in dark mode specifically (Alex's ask) - --muted's dark value reads
+   fine on a light card but wants to be literal white against the dark one. */
+:root[data-theme="dark"] .bb-leg-label{fill:#fff;}
+.bb-rbi{position:absolute;left:3px;bottom:2px;font-size:15px;line-height:1;letter-spacing:1px;color:var(--gold);}
+/* A double/triple play's 2-3 circles sit side by side in this same wrap
+   (Alex's ask) - .bb-out itself is just a flex child now, the wrap owns the
+   corner positioning it used to have alone. */
+.bb-out-wrap{position:absolute;right:2px;bottom:1px;display:flex;gap:2px;}
+.bb-out{
+  width:13px;height:13px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid var(--red-dark);color:var(--red-dark);font-size:9px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;background:var(--card);
+}
+.sc-stat{justify-content:center;font-variant-numeric:tabular-nums;}
+.sc-stat-total{font-weight:800;background:var(--tint);}
+.sc-totals{font-variant-numeric:tabular-nums;}
+/* flex:1 so R/H/LOB each claim an equal third of the cell (Alex's ask)
+   instead of bunching together in the middle with a fixed gap. */
+.sc-totals-col{display:flex;flex:1;flex-direction:column;align-items:center;line-height:1.1;}
+.sc-totals-col b{font-weight:800;font-size:12px;}
+.sc-totals-col i{font-style:normal;font-size:8px;color:var(--muted);font-weight:700;}
+
+.sc-pitchers{border-collapse:collapse;font-size:12px;margin-bottom:4px;}
+.sc-pitchers th{
+  text-align:center;color:var(--muted);font-size:11px;font-weight:800;letter-spacing:0.2px;
+  border-bottom:1px solid var(--border);padding:4px 6px;
+}
+.sc-pitchers td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:center;}
+/* Wide enough by default for a long name plus its decision label (e.g.
+   "Gracie Mlodzianowski-Cwej SV") without wrapping (Alex's ask). */
+.sc-pitchers th:first-child,.sc-pitchers td:first-child{text-align:left;min-width:230px;}
+.sc-pitchers tr.relief{border-left:3px solid transparent;}
+.sc-pitchers-totals{font-weight:800;}
+.sc-pitchers-totals td{border-bottom:none;}
+.pitch-decision{color:var(--muted);font-weight:800;font-size:10px;}
+
+/* Pitching-change color palette - cycled per team (assignPitchColors,
+   app.js), shared between a batter's-box top border (where the change
+   happened) and the pitcher table row's left border (who entered). Distinct
+   enough in both themes without introducing new theme tokens.
+   Scoped to border-*-color on the ONE side each context actually means to
+   color (top for a batter's box, left for a pitcher row) - not the bare
+   border-color shorthand, which sets all four sides at once and was
+   bleeding into .sc-cell's own plain gray border-right/border-bottom
+   gridlines on every pitch-change cell (Alex's report: a stray red/etc
+   border on cells that had nothing to do with that color otherwise). */
+.sc-box.pitch-color-0{border-top-color:var(--navy) !important;}
+.sc-box.pitch-color-1{border-top-color:var(--red-dark) !important;}
+.sc-box.pitch-color-2{border-top-color:var(--gold) !important;}
+.sc-box.pitch-color-3{border-top-color:var(--green) !important;}
+.sc-box.pitch-color-4{border-top-color:var(--blue) !important;}
+.sc-pitchers tr.pitch-color-0{border-left-color:var(--navy) !important;}
+.sc-pitchers tr.pitch-color-1{border-left-color:var(--red-dark) !important;}
+.sc-pitchers tr.pitch-color-2{border-left-color:var(--gold) !important;}
+.sc-pitchers tr.pitch-color-3{border-left-color:var(--green) !important;}
+.sc-pitchers tr.pitch-color-4{border-left-color:var(--blue) !important;}
+
+/* Small screen (Alex's ask, same 600px breakpoint the rest of the site
+   already uses) - last-name-only in the batting table's cramped sticky
+   name column, and the pitchers' table's own name column drops its desktop
+   min-width so the whole table fits the screen instead of forcing a
+   sideways scroll (its numeric columns stay centred and readable at this
+   size regardless). */
+@media (max-width:600px){
+  .lineup-name-full{display:none;}
+  .lineup-name-short{display:inline;}
+  .sc-pitchers{width:100%;font-size:11px;}
+  .sc-pitchers th,.sc-pitchers td{padding:4px 3px;}
+  .sc-pitchers th:first-child,.sc-pitchers td:first-child{min-width:0;}
+  /* Only ever assigned here - .sc-grid's own grid-template-columns reads
+     --sc-batter-col with a 230px fallback, so any screen wider than this
+     query never sees it defined at all (app.js only ever sets the raw
+     --sc-mobile-batter-col value, harmless until this rule wires it in). */
+  .scorecard-body{--sc-batter-col: var(--sc-mobile-batter-col, 230px);}
+}
+

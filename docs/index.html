@@ -407,6 +407,13 @@
         <circle cx="12" cy="7.8" r="1.15" fill="currentColor" stroke="none"></circle>
       </svg>
     </button>
+    <!-- Only shown when this replay was opened from a scorecard cell
+         (replay.returnTo set in openReplayAtPlay) - every other entry point
+         (tile replay button, live grid, deep link) leaves it hidden and the
+         plain X close still just closes to nothing, unchanged. -->
+    <button type="button" class="catchup-back" id="replay-back" title="Back to scorecard" aria-label="Back to scorecard" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
     <button type="button" class="catchup-close" id="replay-close" aria-label="Close">&times;</button>
     <div class="catchup-progress" id="replay-progress"></div>
     <div class="catchup-slide" id="replay-slide"></div>
@@ -477,6 +484,19 @@
       <img src="favicon.png" alt="" class="live-grid-overlay-logo">
       <div class="live-grid-overlay-text">Live Look-In</div>
     </div>
+  </div>
+</div>
+
+<!-- Scorecard: traditional batting-order x half-inning box score for one
+     game, opened via the pencil icon on its scoreboard tile (scoreboardCard,
+     app.js). Cells jump straight into Game Replay at that exact play
+     (openReplayAtPlay); Game Replay's own Back control (above, #replay-back)
+     returns here instead of just closing when it was opened this way. -->
+<div class="modal scorecard-modal" id="scorecard-modal" hidden>
+  <div class="scorecard-card" id="scorecard-card">
+    <button type="button" class="catchup-close" id="scorecard-close" aria-label="Close">&times;</button>
+    <div class="scorecard-title" id="scorecard-title"></div>
+    <div class="scorecard-body" id="scorecard-body"></div>
   </div>
 </div>
 

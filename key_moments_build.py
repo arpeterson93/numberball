@@ -284,21 +284,28 @@ def _diamond_svg(obc: str) -> str:
 
     Geometry ported from utils.bases_diamond_svg: 2B top, 1B right, 3B left.
     Colors come from the page stylesheet via the base-diamond on/off classes.
+
+    Base centers sit a bit further out from the shared centroid (15, 12.33)
+    than the original (10,2)/(18,10)/(2,10) rects did (Alex's ask: a bit more
+    gap between bases) - viewBox grew from a flush "0 0 30 30" to "-2 -2 34
+    34" to keep 1B's own rotated corner (its tightest margin) from clipping
+    now that it's a little further from center; base squares stay 10x10,
+    only the spacing changed.
     """
     on_3b = obc[0] == "1"
     on_2b = obc[1] == "1"
     on_1b = obc[2] == "1"
     bases = (
-        (10, 2, 15, 7, on_2b),    # second - top
-        (18, 10, 23, 15, on_1b),  # first - right
-        (2, 10, 7, 15, on_3b),    # third - left
+        (10, 1.4, 15, 6.4, on_2b),     # second - top
+        (18.9, 10.3, 23.9, 15.3, on_1b),  # first - right
+        (1.1, 10.3, 6.1, 15.3, on_3b),    # third - left
     )
     rects = "".join(
         f'<rect class="base-diamond {"on" if filled else "off"}" x="{x}" y="{y}" '
         f'width="10" height="10" rx="1.5" transform="rotate(45 {cx} {cy})"/>'
         for x, y, cx, cy, filled in bases
     )
-    return f'<svg width="30" height="30" viewBox="0 0 30 30">{rects}</svg>'
+    return f'<svg width="30" height="30" viewBox="-2 -2 34 34">{rects}</svg>'
 
 
 def _result_category(result: str) -> str:
@@ -1213,6 +1220,16 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
     # lazily, the first time a non-final game is actually encountered below.
     lineups_by_game: dict[str, list[dict]] | None = None
 
+    # Scorecard feature: the same in-progress-game Lineups rows Path A above
+    # already resolves per play (_defense_alignment_for_play) also carry the
+    # batting-order slot (order_slot) that per-play defense dict throws away -
+    # exactly what the scorecard's lineup header needs for a live game (a
+    # completed game has no such feed and instead infers its batting order
+    # from the plays themselves, client-side). Collected per game_code here
+    # and exported below so the JSON's scoreboard tile for that game carries
+    # it; trimmed of game_id_short since it's redundant once keyed by code.
+    lineup_rows_by_game: dict[str, list[dict]] = {}
+
     # Every play is scored and tagged; is_key_moment records which ones qualify.
     # The walk has to happen anyway to get WPA, so keeping the non-qualifying
     # rows costs nothing and is what the favorites view browses.
@@ -1255,6 +1272,11 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
                 for row in utils.read_lineups_from_sheet(sheet_id):
                     lineups_by_game.setdefault(row["game_id_short"], []).append(row)
             game_lineup_rows = lineups_by_game.get((game or {}).get("game_id_short"), [])
+            if game_lineup_rows:
+                lineup_rows_by_game[game_code] = [
+                    {k: r[k] for k in ("team", "pos", "player_name", "order_slot", "row", "seq")}
+                    for r in game_lineup_rows
+                ]
 
         last_state = None
         game_rows_start = len(rows)
@@ -1360,6 +1382,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
                 "primary_hex": ref["team_by_abbrev"].get(abbr, {}).get("primary_hex") or "",
                 "secondary_hex": SECONDARY_HEX.get(abbr, ""),
                 "logo_url": ref["team_by_abbrev"].get(abbr, {}).get("logo_url") or "",
+                "stadium": ref["team_by_abbrev"].get(abbr, {}).get("stadium") or "",
             }
             for abbr in teams_seen
         },
@@ -1376,7 +1399,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # (JSON object keys are always strings) - the page shows whichever
         # one matches its session selector and hides the section entirely
         # for "Full season".
-        "games": {str(s): _scoreboard(rows, games, s) for s in sessions},
+        "games": {str(s): _scoreboard(rows, games, s, lineup_rows_by_game) for s in sessions},
     }
     if archive_season is not None:
         meta["is_archive"] = True
@@ -1496,7 +1519,8 @@ def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, 
     return False
 
 
-def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]:
+def _scoreboard(rows: list[dict], games: list[dict], session: int,
+                 lineup_rows_by_game: dict[str, list[dict]] | None = None) -> list[dict]:
     """One tile per game in the given session, from each game's latest play -
     the replay already carries current score/inning/outs/bases, so "live"
     state falls out of the existing per-play computation for free.
@@ -1569,7 +1593,7 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]
         leverage_now = (0 if is_final else
                        (utils.compute_leverage_re24(remaining_now, outs_after, obc_after, lead_now) or 0))
 
-        tiles.append({
+        tile = {
             "game_code": m["game_code"],
             "away_team_abbr": m["away_team_abbr"],
             "home_team_abbr": m["home_team_abbr"],
@@ -1584,7 +1608,14 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int) -> list[dict]
             "leverage": round(leverage_now, 2),
             "away_win_prob": None if away_wp is None else round(away_wp, 4),
             "home_win_prob": None if home_wp is None else round(home_wp, 4),
-        })
+        }
+        # Scorecard feature (live lineup source): only a non-final game ever
+        # has rows here (lineup_rows_by_game is populated only in build()'s
+        # is_final=False branch) - omitted entirely for a finished game so
+        # its JSON stays exactly as small as before this feature existed.
+        if not is_final and lineup_rows_by_game and lineup_rows_by_game.get(m["game_code"]):
+            tile["lineup_rows"] = lineup_rows_by_game[m["game_code"]]
+        tiles.append(tile)
 
     # Scheduled games in this session with no play recorded yet - the
     # Games-tab matchup itself, at its plain not-started state. Leverage
