@@ -2650,5 +2650,32 @@ html[data-km-debug="1"] .km-tuning-panel{
      query never sees it defined at all (app.js only ever sets the raw
      --sc-mobile-batter-col value, harmless until this rule wires it in). */
   .scorecard-body{--sc-batter-col: var(--sc-mobile-batter-col, 230px);}
+  /* Tighter spacing between the batting-order #, position, and last name
+     here only (Alex's ask) - reclaims a few px for the name itself so
+     fewer names need the …-truncation computeMobileBatterColWidth already
+     applies. Desktop keeps the wider 20px/4px/4px spacing untouched.
+     computeMobileBatterColWidth's own fixed-width terms are kept in sync
+     with these exact numbers. */
+  .sc-lineup{grid-template-columns:14px 1fr;gap:2px;}
+  .lineup-entry{gap:2px;padding-left:2px;}
+  /* .bb-result / .bb-out-wrap's own small font doesn't reliably shrink
+     along with the rest of the grid under the mobile zoom-to-fit below
+     (Alex's report: the result tag and the out-circle's number stayed
+     full-size while everything else around them shrank) - some browsers
+     floor a computed font-size for legibility regardless of ambient
+     `zoom`, and that floor doesn't apply to a plain paint-time transform.
+     Cancelling the ambient zoom on just these two (zoom:1/scale) and
+     re-applying the identical shrink via transform sidesteps it - same
+     visual result everywhere else, but immune to that floor for the tiny
+     text. --sc-mobile-scale is set inline per grid by
+     applyMobileScorecardZoom, right alongside the zoom it's cancelling. */
+  .bb-result{
+    zoom:calc(1 / var(--sc-mobile-scale, 1));
+    transform:scale(var(--sc-mobile-scale, 1));transform-origin:top left;
+  }
+  .bb-out-wrap{
+    zoom:calc(1 / var(--sc-mobile-scale, 1));
+    transform:scale(var(--sc-mobile-scale, 1));transform-origin:bottom right;
+  }
 }
 

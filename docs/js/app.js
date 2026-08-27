@@ -12819,12 +12819,16 @@
       });
     });
     // .sc-cell's own left+right padding (6+6) + the slot-number sub-column
-    // (20) + .sc-lineup's own gap (4) + the entry's own pos sub-column (34)
-    // + its own gap (4) + the measured name, plus a few px of safety margin
+    // (14) + .sc-lineup's own gap (2) + the entry's own pos sub-column (34)
+    // + its own gap (2) + the measured name, plus a few px of safety margin
     // (canvas measureText can differ very slightly from actual CSS text
-    // layout/kerning). No upper cap (Alex's ask - a long last name needs to
-    // stay fully visible, not get truncated to fit some fixed ceiling).
-    var width = 6 + 20 + 4 + 34 + 4 + maxNameW + 6 + 10;
+    // layout/kerning). The 14/2/34/2 spacing terms match the mobile-only
+    // tightened .sc-lineup/.lineup-entry rule in style.css (Alex's ask -
+    // tighter spacing between the order #/position/name reclaims a few px
+    // for the name itself, so fewer names need the below truncation). No
+    // upper cap on the name (Alex's ask - a long last name needs to stay
+    // fully visible, not get truncated to fit some fixed ceiling).
+    var width = 6 + 14 + 2 + 34 + 2 + maxNameW + 6 + 10;
     return Math.max(90, Math.round(width));
   }
 
@@ -13137,7 +13141,10 @@
     if (!window.matchMedia("(max-width:600px)").matches) {
       Array.prototype.forEach.call(scrolls, function (wrap) {
         var grid = wrap.querySelector(".sc-grid");
-        if (grid) grid.style.zoom = "";
+        if (grid) {
+          grid.style.zoom = "";
+          grid.style.removeProperty("--sc-mobile-scale");
+        }
       });
       return;
     }
@@ -13151,6 +13158,13 @@
       var available = wrap.clientWidth;
       var scale = available > 0 ? Math.min(1, available / targetWidth) : 1;
       grid.style.zoom = scale < 1 ? String(scale) : "";
+      // Consumed by style.css to cancel-then-retransform .bb-result/
+      // .bb-out-wrap specifically (their own small font doesn't reliably
+      // shrink under plain `zoom` - see the CSS comment there). Always set
+      // to the real scale (even 1) rather than removed at scale===1, so
+      // that CSS's var(...,1) fallback isn't the only thing standing
+      // between a stale scale value and a freshly-unzoomed grid.
+      grid.style.setProperty("--sc-mobile-scale", String(scale));
     });
   }
 
