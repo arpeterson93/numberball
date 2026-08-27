@@ -2432,11 +2432,13 @@ html[data-km-debug="1"] .km-tuning-panel{
 .scorecard-body{padding:14px 18px 24px;overflow:auto;flex:1;}
 #scorecard-close{position:absolute;top:8px;right:10px;}
 
-.sc-team-label{
-  font-size:13px;font-weight:800;letter-spacing:0.3px;color:var(--muted);
-  margin:18px 0 8px;text-transform:uppercase;
+.sc-team-header{
+  display:flex;align-items:center;gap:8px;
+  font-size:15px;font-weight:800;color:var(--text);
+  margin:18px 0 8px;
 }
-.sc-team-label:first-child{margin-top:0;}
+.sc-team-header:first-child{margin-top:0;}
+.sc-team-header-logo{width:24px;height:24px;object-fit:contain;flex-shrink:0;}
 
 /* Linescore - classic inning-by-inning runs, plus total R/H (Alex's ask) -
    sits above the two full batting grids. */

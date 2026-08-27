@@ -13083,19 +13083,27 @@
       "</tbody></table>";
   }
 
+  // Logo + full team name (not the acronym), once above that team's whole
+  // section (Alex's ask - replaces the separate "XXX BATTING"/"XXX
+  // PITCHING" acronym labels; the pitching table right underneath needs no
+  // label of its own, it's already read as part of this same team).
+  function scorecardTeamHeaderHtml(abbr) {
+    var fullName = (data.meta.teams[abbr] || {}).name || abbr;
+    return '<div class="sc-team-header">' + teamLogoImg(abbr, "sc-team-header-logo") +
+      "<span>" + escapeHtml(fullName) + "</span></div>";
+  }
+
   function scorecardBodyHtml(box) {
     // Each team's own pitching sits right under that same team's batting
     // (Alex's ask) - a self-contained "everything about this team" section,
     // rather than grouping both teams' pitching together at the bottom.
     return (
       linescoreHtml(box) +
-      '<div class="sc-team-label">' + escapeHtml(box.awayAbbr) + " Batting</div>" +
+      scorecardTeamHeaderHtml(box.awayAbbr) +
       teamGridHtml(box, "away") +
-      '<div class="sc-team-label">' + escapeHtml(box.awayAbbr) + " Pitching</div>" +
       pitchersTableHtml(box, "away") +
-      '<div class="sc-team-label">' + escapeHtml(box.homeAbbr) + " Batting</div>" +
+      scorecardTeamHeaderHtml(box.homeAbbr) +
       teamGridHtml(box, "home") +
-      '<div class="sc-team-label">' + escapeHtml(box.homeAbbr) + " Pitching</div>" +
       pitchersTableHtml(box, "home")
     );
   }
@@ -13121,44 +13129,32 @@
     return BATTER_COL_WIDTH + n * INNING_COL_WIDTH + STAT_COL_COUNT * STAT_COL_WIDTH;
   }
 
-  // Columns with real plays in them so far, excluding the empty stub
-  // columns groupHalfInnings pads out to the scheduled inning count (Alex's
-  // ask: the mobile default view should fit the batter column plus exactly
-  // what the game has actually played into, not the whole scheduled grid).
-  function scorecardRealColumnCount(box, teamKey) {
-    var half = teamKey === "away" ? "top" : "bottom";
-    return box.columns.filter(function (c) { return c.half === half && c.plays.length > 0; }).length;
-  }
-
-  // Shrinks each team's mobile batting grid out just far enough that the
-  // batter column plus its real (played-into) innings fit the screen width
-  // without scrolling - "you can always zoom in, but you can't really zoom
-  // out" was Alex's complaint about the previous always-100% default, and
-  // "top priority is visibility of the batter column - names shouldn't be
-  // squished/cut off" is the harder requirement this version is built
-  // around. Uses `transform:scale()`, not CSS `zoom`: an earlier version
-  // used zoom (it recomputes layout, so the scrollable range shrinks to
-  // match what's painted, unlike scale()), but some browsers floor a
-  // computed font-size for legibility regardless of ambient zoom - and
-  // that floor kicked in for every bit of small text in the grid (names,
-  // headers, stat totals), leaving them full-size and overflowing/clipped
-  // inside their now-tiny cells (Alex's report). A plain paint-time
+  // Shrinks each team's mobile batting grid out just far enough that its
+  // entire width (batter column + every inning column, played or not)
+  // fits the screen without scrolling - "you can always zoom in, but you
+  // can't really zoom out" was Alex's complaint about the previous always-
+  // 100% default. Uses `transform:scale()`, not CSS `zoom`: an earlier
+  // version used zoom (it recomputes layout, so the scrollable range
+  // shrinks to match what's painted, unlike scale()), but some browsers
+  // floor a computed font-size for legibility regardless of ambient zoom -
+  // and that floor kicked in for every bit of small text in the grid
+  // (names, headers, stat totals), leaving them full-size and overflowing/
+  // clipped inside their now-tiny cells (Alex's report). A plain paint-time
   // transform has no such floor (confirmed via computed-style inspection
   // and a high-DPI screenshot), so it's the only mechanism that reliably
   // keeps every bit of text legible and correctly sized down.
   //
-  // The tradeoff transform brings back: its scroll range still reflects
-  // the grid's PRE-transform (full, real+stub) layout size, so naively
-  // leaving the wrapper scrollable would let a scroll gesture reveal
-  // genuinely blank paint past the visually-shrunk real content (confirmed
-  // by isolated repro). Since text fidelity is the priority here and there
-  // was never a real ask to keep stub (not-yet-played) columns reachable
-  // at this reduced scale, the wrapper's horizontal scroll is simply
-  // switched off while shrunk - the default view already shows exactly
-  // the real content, nothing more to scroll to. Its height is pinned to
-  // match the scaled-down size too, since transform doesn't shrink layout
-  // height either and would otherwise leave a blank gap below the grid.
-  function applyMobileScorecardZoom(box) {
+  // The tradeoff transform brings: its scroll range still reflects the
+  // grid's PRE-transform layout size, so naively leaving the wrapper
+  // scrollable would let a scroll gesture reveal genuinely blank paint past
+  // the visually-shrunk content (confirmed by isolated repro) - avoided
+  // entirely here since the target width is the WHOLE grid, so there's
+  // nothing left beyond the shrunk content to scroll to in the first
+  // place; the wrapper's horizontal scroll is switched off regardless, and
+  // its height pinned to match the scaled-down size, since transform
+  // doesn't shrink layout height either and would otherwise leave a blank
+  // gap below the grid.
+  function applyMobileScorecardZoom() {
     var scrolls = document.querySelectorAll("#scorecard-body .sc-grid-scroll");
     if (!window.matchMedia("(max-width:600px)").matches) {
       Array.prototype.forEach.call(scrolls, function (wrap) {
@@ -13166,27 +13162,37 @@
         if (grid) grid.style.transform = "";
         wrap.style.height = "";
         wrap.style.overflowX = "";
+        wrap.style.overflowY = "";
       });
       return;
     }
-    ["away", "home"].forEach(function (teamKey, idx) {
-      var wrap = scrolls[idx];
-      var grid = wrap && wrap.querySelector(".sc-grid");
-      if (!wrap || !grid) return;
-      grid.style.transform = ""; // reset before measuring the true unscaled height
+    Array.prototype.forEach.call(scrolls, function (wrap) {
+      var grid = wrap.querySelector(".sc-grid");
+      if (!grid) return;
+      grid.style.transform = ""; // reset before measuring the true unscaled size
+      var naturalWidth = grid.offsetWidth;
       var naturalHeight = grid.offsetHeight;
-      var targetWidth = box.mobileBatterColWidth +
-        scorecardRealColumnCount(box, teamKey) * INNING_COL_WIDTH +
-        STAT_COL_COUNT * STAT_COL_WIDTH;
       var available = wrap.clientWidth;
-      var scale = available > 0 ? Math.min(1, available / targetWidth) : 1;
+      var scale = available > 0 && naturalWidth > 0 ? Math.min(1, available / naturalWidth) : 1;
       if (scale < 1) {
         grid.style.transformOrigin = "top left";
         grid.style.transform = "scale(" + scale + ")";
         wrap.style.height = Math.ceil(naturalHeight * scale) + "px";
         wrap.style.overflowX = "hidden";
+        // overflow-x:hidden alone drags overflow-y's computed value from
+        // 'visible' to 'auto' too (a plain CSS coupling rule: an axis can't
+        // stay 'visible' once the other one isn't) - and since this
+        // wrapper's pinned height is always shorter than the grid's own
+        // (transform doesn't shrink layout height, only paint), that 'auto'
+        // sees real overflow and turns the batter table into its own
+        // nested vertical scroller, fighting the modal's outer scroll
+        // (Alex's report). Explicit 'hidden' (not 'visible', so the
+        // coupling never triggers) instead just crops at the already-
+        // correct pinned height, matching what's actually painted there.
+        wrap.style.overflowY = "hidden";
       } else {
         wrap.style.height = "";
+        wrap.style.overflowY = "";
         wrap.style.overflowX = "";
       }
     });
@@ -13196,7 +13202,7 @@
     if (!scorecard.open || !scorecard.lastBox) return;
     window.clearTimeout(scorecardZoomResizeTimer);
     scorecardZoomResizeTimer = window.setTimeout(function () {
-      applyMobileScorecardZoom(scorecard.lastBox);
+      applyMobileScorecardZoom();
     }, 150);
   }
   window.addEventListener("resize", scheduleScorecardZoomResize);
@@ -13223,7 +13229,7 @@
     var chrome = 18 * 2 + 2 + 24; // .scorecard-body padding + .sc-grid-scroll border + breathing room
     $("scorecard-card").style.maxWidth = "min(97vw, " + Math.min(1800, gridWidth + chrome) + "px)";
     scorecard.lastBox = box;
-    applyMobileScorecardZoom(box);
+    applyMobileScorecardZoom();
   }
 
   function clearScorecardRefreshTimer() {
@@ -13248,7 +13254,7 @@
       // the modal is actually visible. Only needed here, on a fresh open;
       // a live-refresh re-render calls renderScorecard directly while the
       // modal is already showing, so its own measurement is already good.
-      applyMobileScorecardZoom(scorecard.lastBox);
+      applyMobileScorecardZoom();
       // Always start at the top for a freshly-opened scorecard (Alex's ask)
       // - a live-refresh re-render (renderScorecard called directly, not
       // through here) never touches scroll position, so mid-session
