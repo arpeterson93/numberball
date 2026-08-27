@@ -12782,8 +12782,14 @@
         });
       });
     });
-    var width = 20 + 4 + 34 + 4 + maxNameW + 10;
-    return Math.max(90, Math.min(170, Math.round(width)));
+    // .sc-cell's own left+right padding (6+6) + the slot-number sub-column
+    // (20) + .sc-lineup's own gap (4) + the entry's own pos sub-column (34)
+    // + its own gap (4) + the measured name, plus a few px of safety margin
+    // (canvas measureText can differ very slightly from actual CSS text
+    // layout/kerning). No upper cap (Alex's ask - a long last name needs to
+    // stay fully visible, not get truncated to fit some fixed ceiling).
+    var width = 6 + 20 + 4 + 34 + 4 + maxNameW + 6 + 10;
+    return Math.max(90, Math.round(width));
   }
 
   function teamGridHtml(box, teamKey) {
