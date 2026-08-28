@@ -1399,7 +1399,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # (JSON object keys are always strings) - the page shows whichever
         # one matches its session selector and hides the section entirely
         # for "Full season".
-        "games": {str(s): _scoreboard(rows, games, s, lineup_rows_by_game) for s in sessions},
+        "games": {str(s): _scoreboard(rows, games, s, lineup_rows_by_game, ref["name_to_id"]) for s in sessions},
     }
     if archive_season is not None:
         meta["is_archive"] = True
@@ -1519,8 +1519,34 @@ def _is_walkoff_final(inning: int, half: str, outs_after: int, home_score: int, 
     return False
 
 
+def _pitcher_decisions_from_game(game: dict | None, name_to_id: dict) -> dict | None:
+    """Resolve a Games-tab row's Winning Pitcher/Losing Pitcher/Save/Hold/
+    Hold.1 columns (plain names, per utils.read_mln_games_from_sheet) to
+    player_ids via the same name_to_id lookup load_reference already builds
+    for every other name-keyed field. This is the league's own actual
+    decision, not app.js's client-side computeDecisions heuristic (no
+    starter-innings minimum, no exact save conditions) - the scorecard falls
+    back to that heuristic only when a game has no resolvable decisions here
+    (blank columns, or a name that doesn't match the roster).
+    """
+    if not game:
+        return None
+    decisions: dict[int, str] = {}
+    def _add(name: str | None, code: str) -> None:
+        pid = name_to_id.get((name or "").strip())
+        if pid:
+            decisions[pid] = code
+    _add(game.get("winning_pitcher"), "W")
+    _add(game.get("losing_pitcher"), "L")
+    _add(game.get("save_pitcher"), "SV")
+    _add(game.get("hold_1"), "H")
+    _add(game.get("hold_2"), "H")
+    return decisions or None
+
+
 def _scoreboard(rows: list[dict], games: list[dict], session: int,
-                 lineup_rows_by_game: dict[str, list[dict]] | None = None) -> list[dict]:
+                 lineup_rows_by_game: dict[str, list[dict]] | None = None,
+                 name_to_id: dict | None = None) -> list[dict]:
     """One tile per game in the given session, from each game's latest play -
     the replay already carries current score/inning/outs/bases, so "live"
     state falls out of the existing per-play computation for free.
@@ -1546,6 +1572,8 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int,
     game has no "how tense is this right now" to show) rather than being
     dropped, so a session's slate doesn't shrink as games wrap up.
     """
+    games_by_code = {g["game_code"]: g for g in games if g.get("game_code")}
+
     latest: dict[str, dict] = {}
     for m in rows:
         if m["session_number"] != session:
@@ -1615,6 +1643,14 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int,
         # its JSON stays exactly as small as before this feature existed.
         if not is_final and lineup_rows_by_game and lineup_rows_by_game.get(m["game_code"]):
             tile["lineup_rows"] = lineup_rows_by_game[m["game_code"]]
+        # Games-tab pitcher decisions (W/L/SV/H), same "only when it applies"
+        # sizing as lineup_rows above - a non-final game has no decisions yet,
+        # and one without resolvable columns just omits the key so app.js
+        # knows to fall back to its own heuristic.
+        if is_final and name_to_id:
+            dec = _pitcher_decisions_from_game(games_by_code.get(m["game_code"]), name_to_id)
+            if dec:
+                tile["decisions"] = dec
         tiles.append(tile)
 
     # Scheduled games in this session with no play recorded yet - the

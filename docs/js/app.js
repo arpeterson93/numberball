@@ -12226,13 +12226,16 @@
     return stints;
   }
 
-  // Simplified decisions (W/L/S/H) - NOT the official rulebook (no starter-
-  // innings minimum, no exact save conditions). Winning/losing pitcher = the
-  // pitcher of the winning/losing team on the mound at the moment the
-  // winning team's lead margin turns positive for the last time and never
-  // returns to zero or below. A reliever who finishes a win they didn't
-  // themselves earn gets a Save; any other reliever who leaves with their
-  // team still ahead gets a Hold.
+  // Fallback only - buildBoxScore prefers tile.decisions (the Games tab's
+  // own Winning Pitcher/Losing Pitcher/Save/Hold/Hold.1 columns) whenever
+  // present, and only calls this when that's missing. Simplified decisions
+  // (W/L/S/H) - NOT the official rulebook (no starter-innings minimum, no
+  // exact save conditions). Winning/losing pitcher = the pitcher of the
+  // winning/losing team on the mound at the moment the winning team's lead
+  // margin turns positive for the last time and never returns to zero or
+  // below. A reliever who finishes a win they didn't themselves earn gets a
+  // Save; any other reliever who leaves with their team still ahead gets a
+  // Hold.
   function computeDecisions(plays, awayAbbr, homeAbbr, awayStints, homeStints) {
     var last = plays[plays.length - 1];
     if (!last || !last.is_game_final || last.away_score === last.home_score) return {};
@@ -12723,7 +12726,14 @@
     // cross-referenced by oppAbbr there rather than swapped here.
     var awayPitching = buildPitchingStints(awayAbbr, plays);
     var homePitching = buildPitchingStints(homeAbbr, plays);
-    var decisions = computeDecisions(plays, awayAbbr, homeAbbr, awayPitching, homePitching);
+    // The Games tab's own Winning Pitcher/Losing Pitcher/Save/Hold/Hold.1
+    // columns (key_moments_build.py's _pitcher_decisions_from_game, baked
+    // into the scoreboard tile as tile.decisions) are the league's actual
+    // decision - preferred whenever present. computeDecisions below is a
+    // fallback only, for a game whose Games-tab columns are blank or don't
+    // resolve to a roster name.
+    var decisions = (tile && tile.decisions) ||
+      computeDecisions(plays, awayAbbr, homeAbbr, awayPitching, homePitching);
 
     var grouped = groupHalfInnings(plays, data.meta.innings);
     var awayOrder = orderFor(awayAbbr), homeOrder = orderFor(homeAbbr);
