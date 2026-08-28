@@ -1158,6 +1158,82 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
     return m
 
 
+def _game_start_on_deck_moment(ref: dict, game: dict, game_lineup_rows: list[dict]) -> dict | None:
+    """Synthesizes the very first on-deck placeholder for a scheduled game
+    that hasn't recorded a single play yet this session - the away team's
+    leadoff batter, top of the 1st, 0-0, bases empty (Alex's report: "Now
+    Batting" slides didn't appear at all for a game until it had its own
+    first real play, even once the session itself had gone live via some
+    other game). Same shape/contract as _next_batter_moment's own
+    placeholder (is_on_deck: True, null result/pitch/swing/ball-flight) -
+    just built directly from the Games-tab schedule and the Lineups tab
+    instead of copied forward from a last real moment, since there isn't one
+    yet. Returns None - never a guess - whenever next_batter_info can't
+    resolve the away team's leadoff slot (the Lineups tab hasn't been filled
+    in for this game yet either).
+
+    Pitcher stays unresolved (id/name empty), same as _next_batter_moment's
+    own "first half-inning turnover" edge case - Path A deliberately never
+    sources a pitcher from the Lineups tab (lineup_alignment_at's own rule:
+    "P comes from the play row itself"), so a game with literally no play
+    rows yet has no pitcher to show, consistent with that existing rule
+    rather than a new guess.
+    """
+    game_code = game.get("game_code") or ""
+    off = _team_view(ref, game.get("away_team"))
+    deff = _team_view(ref, game.get("home_team"))
+
+    next_up = utils.next_batter_info(game_lineup_rows, off["abbrev"], None, ref["name_to_id"])
+    if next_up is None:
+        return None
+    next_batter_view = _player_view(ref, next_up["player_id"])
+    pitcher_view = _player_view(ref, None)
+    play_num = utils.make_play_num(game_code, 1)
+
+    return {
+        "moment_id": str(play_num) + "-next",
+        "play_num": play_num,
+        "game_code": game_code,
+        "session_number": game.get("session_number"),
+        "timestamp": _parse_timestamp(game.get("start_time")),
+
+        "inning": 1, "half": "top",
+        "outs_before": 0, "outs_after": 0,
+        "obc_before": "000", "obc_after": "000",
+
+        "result": None, "result_category": None, "diff": None, "pitch": None, "swing": None,
+        "throw_num": None, "steal_num": None, "throw_order": None,
+        "excluded_positions": None, "default_position": None, "throw_order_by_position": None,
+        "runner_moves": None, "runs": 0, "scoring_names": [],
+
+        "batter_name": next_up["name"], "batter_id": next_up["player_id"],
+        "batter_hand": next_batter_view["hand"] or None,
+        "pitcher_name": pitcher_view["name"], "pitcher_id": pitcher_view["id"],
+        "runner_name": "", "runner_id": None,
+
+        "featured_name": next_up["name"], "featured_id": next_up["player_id"],
+        "featured_side": "batting", "featured_team_abbr": off["abbrev"],
+        "featured_wp_after": None, "featured_wpa": None,
+
+        "counterpart_name": pitcher_view["name"] or None, "counterpart_id": pitcher_view["id"],
+
+        "off_team_abbr": off["abbrev"], "def_team_abbr": deff["abbrev"],
+        "away_team_abbr": off["abbrev"], "home_team_abbr": deff["abbrev"],
+        "away_score": 0, "home_score": 0,
+        "batting_is_home": False,
+
+        "win_prob_before": None, "win_prob_after": None, "wpa": None,
+        "leverage": LEVERAGE_AT_GAME_START,
+
+        "rookie": next_batter_view["rookie"], "is_key_moment": False, "tags": [],
+        "is_half_inning_final": False, "is_game_final": False,
+        "is_on_deck": True, "on_deck_order_slot": next_up["order_slot"],
+
+        "batter_spd": next_batter_view["spd"], "pitcher_spd": pitcher_view["spd"],
+        "pitcher_awr": pitcher_view["awr"],
+    }
+
+
 # ── build ─────────────────────────────────────────────────────────────────────
 
 def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
@@ -1331,8 +1407,6 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
             if next_moment:
                 rows.append(next_moment)
 
-    rows.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
-
     roster = sorted(
         (
             {
@@ -1352,6 +1426,35 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
     # what it always was, rows-derived only.
     sessions = sorted({m["session_number"] for m in rows if m["session_number"]}, reverse=True)
     sessions_set = set(sessions)
+
+    # A "Now Batting" placeholder for every OTHER scheduled game in an
+    # already-live session too (Alex's report), not just the ones that
+    # happen to have their own first real play yet - archive builds skip
+    # this entirely (every archive game already has all its plays, and the
+    # archive sheet has no Lineups tab to source a leadoff batter from
+    # anyway). game_is_final guards a data-quality edge case (a game marked
+    # final on the Games tab - e.g. a forfeit - with no plays recorded at
+    # all) from growing a placeholder for a plate appearance that will never
+    # happen, same reasoning the real on-deck placeholder above already
+    # applies mid-game.
+    if archive_season is None:
+        for g in games:
+            game_code = g.get("game_code")
+            if not game_code or game_code in by_game or g.get("session_number") not in sessions_set:
+                continue
+            if utils.game_is_final(g):
+                continue
+            if lineups_by_game is None:
+                lineups_by_game = {}
+                for row in utils.read_lineups_from_sheet(sheet_id):
+                    lineups_by_game.setdefault(row["game_id_short"], []).append(row)
+            game_lineup_rows = lineups_by_game.get(g.get("game_id_short"), [])
+            start_moment = _game_start_on_deck_moment(ref, g, game_lineup_rows)
+            if start_moment:
+                rows.append(start_moment)
+
+    rows.sort(key=lambda m: (m["timestamp"] or "", m["play_num"]), reverse=True)
+
     # But WITHIN a session that does have plays, every game already on the
     # MLN Games tab schedule for it should show on the scoreboard - not just
     # the ones that happen to have a play recorded yet (Alex's report: at
