@@ -13330,16 +13330,19 @@
     if (scorecard.refreshTimer) { window.clearInterval(scorecard.refreshTimer); scorecard.refreshTimer = null; }
   }
 
-  function openScorecard(gameCode, session) {
+  // initialTab (optional, "batting" or "pitching") - a fresh open always
+  // lands there; only a same-game live-refresh re-render (which never goes
+  // through this function) preserves whichever tab the viewer was already
+  // reading. Defaults to "batting", same as before this param existed -
+  // the pencil-icon click path (openScorecardFor) never passes one, and
+  // the ?view=scorecard deep link only passes "pitching" when its own
+  // &tab= param asked for it.
+  function openScorecard(gameCode, session, initialTab) {
     if (session == null || isNaN(session)) {
       toast("Could not determine which session this game belongs to.");
       return;
     }
-    // Always the Batting tab on a fresh open (Alex's "always start at the
-    // top" convention below, extended to the tab choice too) - only a
-    // same-game live-refresh re-render should ever preserve whichever tab
-    // the viewer was already reading.
-    scorecard.activeTab = "batting";
+    scorecard.activeTab = initialTab === "pitching" ? "pitching" : "batting";
     ensureSessionPlaysLoaded(session).then(function () {
       var plays = gamePlaysFor(session, gameCode);
       renderScorecard(gameCode, session, plays);
@@ -14997,7 +15000,8 @@
 
   // ── boot ────────────────────────────────────────────────────────────────────
 
-  // ── deep links: ?game=130419&play=34, or ?game=130419&view=scorecard ───────
+  // ── deep links: ?game=130419&play=34, or
+  //    ?game=130419&view=scorecard&tab=pitching ─────────────────────────────
   //
   // Read-only input, parsed once at boot - no pushState/history management in
   // v1 (plan Stage 4 item 4), so closing the replay modal just leaves the
@@ -15025,7 +15029,11 @@
     // replay-deep-link behavior so an existing shared link never changes
     // what it does.
     var view = params.get("view") === "scorecard" ? "scorecard" : "replay";
-    return { code: code, season: gameSeason, session: session, play: play, view: view };
+    // &tab=pitching (scorecard view only, Alex's ask) picks which of the
+    // two tabs the modal opens on - anything else (missing, "batting", a
+    // typo) is the existing default and needs no special-casing here.
+    var tab = params.get("tab") === "pitching" ? "pitching" : "batting";
+    return { code: code, season: gameSeason, session: session, play: play, view: view, tab: tab };
   }
 
   // Runs after boot's own load has rendered the normal page underneath -
@@ -15039,7 +15047,7 @@
     var playNum = link.play ? Number(link.code) * 1000 + link.play : null;
     function open() {
       if (link.view === "scorecard") {
-        openScorecard(link.code, link.session);
+        openScorecard(link.code, link.session, link.tab);
       } else {
         openReplayAtPlay(link.code, link.session, playNum, null, true);
       }
