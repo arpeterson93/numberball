@@ -2208,11 +2208,29 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_result_pre_p = st.session_state.get("ctx_result_v_p", _cf_result_def_p)
             _cf_result_lbl_p = f"Prev result ({_cf_result_pre_p})"
 
-            _cf_cur_leverage_p = None
-            if not _pf_sorted_p.empty:
-                _cf_lev_last_p = utils.compute_play_leverage(_pf_sorted_p.tail(1))
-                if not _cf_lev_last_p.empty and pd.notna(_cf_lev_last_p.iloc[0]):
-                    _cf_cur_leverage_p = float(_cf_lev_last_p.iloc[0])
+            # Current leverage is prospective - the game state pulled from the
+            # Google Sheet for the upcoming plate appearance (outs/obc/score),
+            # not whatever the pitcher's most recent historical play happened
+            # to be.
+            _cf_gs_outs_p    = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _cf_gs_obc_p     = st.session_state.get("mgr_sheet_obc") or "000"
+            _cf_gs_inn_p     = int(st.session_state.get("mgr_inning", 1))
+            _cf_gs_half_p    = str(st.session_state.get("mgr_half", "Top")).lower()
+            _cf_gs_away_p    = int(st.session_state.get("mgr_away_score", 0))
+            _cf_gs_home_p    = int(st.session_state.get("mgr_home_score", 0))
+            _cf_gs_remaining_p = utils.remaining_half_innings(
+                _cf_gs_inn_p, _cf_gs_half_p, utils.game_innings(st.session_state.get("mgr_league", "MLN")))
+            _cf_gs_lead_p    = (_cf_gs_home_p - _cf_gs_away_p if _cf_gs_half_p == "bottom"
+                                else _cf_gs_away_p - _cf_gs_home_p)
+            # Mirror the Manager tab's own Leverage caption exactly when the live
+            # matchup's ranges are loaded, so the two tabs agree; fall back to the
+            # generic RE24 estimate (state-only, no matchup ranges needed) otherwise.
+            _cf_cur_leverage_p = (
+                utils.compute_leverage(result_ranges, _cf_gs_remaining_p, _cf_gs_outs_p,
+                                       _cf_gs_obc_p, _cf_gs_lead_p)
+                if result_ranges else
+                utils.compute_leverage_re24(_cf_gs_remaining_p, _cf_gs_outs_p, _cf_gs_obc_p, _cf_gs_lead_p)
+            )
             _cf_leverage_lbl_p = (f"Leverage ({_cf_cur_leverage_p:.2f})" if _cf_cur_leverage_p is not None
                                   else "Leverage (n/a)")
 
