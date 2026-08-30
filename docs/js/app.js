@@ -7112,7 +7112,11 @@
   // constant fraction of that distance - not dynamic mid-flight
   // redirection (out of scope, round 1). Abstracted into its own constant
   // so the fraction is a one-line tune, not a hunt through the geometry.
-  var CUTOFF_POSITION_FRAC = 0.5;
+  // 0.6 (Alex's ask): the outfielder's own throw covers 60% of the ground,
+  // the cutoff man's relay covers the last 40% - not the geometric
+  // midpoint, since a real cutoff man plays noticeably closer to the base
+  // he's backing up than to the outfielder he's receiving from.
+  var CUTOFF_POSITION_FRAC = 0.6;
   function cutoffSpotFt(originFt, targetBaseFt) {
     if (!originFt || !targetBaseFt) return null;
     return {
@@ -8917,6 +8921,73 @@
     return { style: "<style>@keyframes " + name + " { " + kfBody + " }</style>", name: name, totalMs: totalMs };
   }
 
+  var rnRoundArcCounter = 0;
+  // Samples per 90ft leg - plenty to read as smooth at this SVG's scale
+  // without generating keyframe bodies any bigger than they need to be.
+  var ROUND_ARC_SAMPLES_PER_LEG = 6;
+  // Uniform Catmull-Rom through 4 control points, evaluated at t in [0,1]
+  // between p1 and p2 - the standard construction (p0/p3 are the neighbors
+  // on either side, used only to shape the tangent, never touched by the
+  // curve itself).
+  function catmullRomPt(p0, p1, p2, p3, t) {
+    var t2 = t * t, t3 = t2 * t;
+    return {
+      x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x) * t2 +
+        (-p0.x + 3*p1.x - 3*p2.x + p3.x) * t3),
+      y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y) * t2 +
+        (-p0.y + 3*p1.y - 3*p2.y + p3.y) * t3),
+    };
+  }
+  /* A safe runner rounding 2+ bases on one play (Alex's correction, x2): not
+     a bulge tacked onto a straight edge, and not a uniform circle either -
+     a single continuous curve through the runner's own start point and
+     every base actually touched, in order, that shares its tangent across
+     the join at each base rather than resetting to a straight line right
+     before/after it (a real player's own wide part of the turn straddles
+     the bag, it doesn't bulge-touch-bulge again). A Catmull-Rom spline
+     gets this for free: it passes through every one of its own control
+     points exactly (t=0/1 of each segment lands exactly on them, so the
+     real final base still lands on SCENE_BASES with no separate snap-to-
+     the-corner case needed), and the tangent a segment arrives with is
+     shared by the segment leaving it, by construction - no kink. Phantom
+     points reflected across each real endpoint (the standard open-
+     Catmull-Rom convention) keep the very first and last legs from being
+     dragged into a curve by a neighbor that doesn't exist, which is also
+     what keeps a lone (legs===1, no rounding needed) trip arrow-straight
+     if this ever got called for one - it doesn't; legs<2 bails out below.
+     Pure SVG-space spline, not real ft - like isStealAdvance's own leadoff
+     interpolation above, not worth reprojecting through BASE_POS_FT/
+     ftToSvg for a purely decorative curve. Same per-token dynamic
+     @keyframes technique runnerOutMotionHtml already uses above, timed so
+     each actually-touched base still lands at exactly i/legs of legDurMs -
+     unchanged from the straight-edge version, so nothing downstream that
+     reads legDurMs/mvDelay has to know the path is curved now. */
+  function roundedRunnerKeyframes(fromSvg, pathSvg, legDurMs) {
+    var legs = pathSvg.length;
+    if (legs < 2) return null;
+    var pts = [fromSvg].concat(pathSvg);
+    var n = pts.length;
+    function at(i) {
+      if (i < 0) return { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y };
+      if (i >= n) return { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y };
+      return pts[i];
+    }
+    var stops = [{ frac: 0, x: fromSvg.x, y: fromSvg.y }];
+    for (var leg = 1; leg <= legs; leg++) {
+      var p0 = at(leg - 2), p1 = at(leg - 1), p2 = at(leg), p3 = at(leg + 1);
+      for (var s = 1; s <= ROUND_ARC_SAMPLES_PER_LEG; s++) {
+        var t = s / ROUND_ARC_SAMPLES_PER_LEG;
+        var pt = catmullRomPt(p0, p1, p2, p3, t);
+        stops.push({ frac: (leg - 1 + t) / legs, x: pt.x, y: pt.y });
+      }
+    }
+    var name = "rnRound" + (rnRoundArcCounter++);
+    var kfBody = stops.map(function (s) {
+      return (s.frac * 100).toFixed(3) + "% { transform: translate(" + s.x.toFixed(1) + "px," + s.y.toFixed(1) + "px); }";
+    }).join(" ");
+    return { style: "<style>@keyframes " + name + " { " + kfBody + " }</style>", name: name };
+  }
+
   function sceneFieldHtml(m, flight) {
     var before = String(m.obc_before || "000");
     var after = String(m.obc_after || "000");
@@ -9340,13 +9411,31 @@
           ";animation-delay:calc(" + (mvDelay + runnerSeqDelay) + "ms / var(--play-speed,1))" +
           ";animation-timing-function:linear;animation-fill-mode:both";
       }
+      // A safe runner rounding 2+ bases on this one play (Alex's ask):
+      // overrides the shared straight-edge .rn.legsN keyframes below with a
+      // per-token curved one - see roundedRunnerKeyframes for the geometry.
+      // legDurMs/mvDelay stay exactly what they already were; only the
+      // path between them bends.
+      var roundArc = (!isOut && !strandedSafe && !useRetreat)
+        ? roundedRunnerKeyframes(from, path, legDurMs)
+        : null;
+      if (roundArc) {
+        outStyle = roundArc.style;
+        vars += ";animation-name:" + roundArc.name +
+          ";animation-duration:calc(" + legDurMs + "ms / var(--play-speed,1))" +
+          ";animation-delay:calc(" + (mvDelay + runnerSeqDelay) + "ms / var(--play-speed,1))" +
+          ";animation-timing-function:linear;animation-fill-mode:both";
+      }
       // A put-out runner with somewhere to be forced travels there first,
       // THEN turns red, THEN walks a straight line to the dugout (Stage
       // 6a/6b, generalised by I8). legsN is a safe-runner-only class - the
       // out choreography's own keyframe owns --p1 instead, so isOut never
-      // gets a legsN class alongside it.
+      // gets a legsN class alongside it. A rounded-arc token owns its own
+      // animation-name (just set above) the same way, so it's excluded here
+      // too - the plain legsN keyframes would otherwise still apply via the
+      // shared CSS rule and immediately overwrite it.
       var outCls = isOut ? (useRetreat ? " out-retreat" : (path.length ? " out-to-base" : " out-walk")) : "";
-      var cls = "rn" + (legs && !isOut && !strandedSafe ? " legs" + legs : "") + outCls +
+      var cls = "rn" + (legs && !isOut && !strandedSafe && !roundArc ? " legs" + legs : "") + outCls +
                 (strandedSafe ? " stranded-to-dugout" : "") +
                 (mv.scored ? " score" : "") + (mv.from === "BATTER" ? " batter" : "");
       return outStyle + '<g class="' + cls + '" style="' + vars + '">' +
@@ -11077,9 +11166,13 @@
     var head = "FINAL · " + escapeHtml(r.away) + " " + r.awayScore + ", " +
                escapeHtml(r.home) + " " + r.homeScore;
     var top = r.topPlay
-      ? '<span class="scene-recap-top">Biggest play: ' + escapeHtml(r.topPlay.featured_name) +
-        " · " + escapeHtml((data.meta.result_labels || {})[r.topPlay.result] || r.topPlay.result) +
-        " · LI " + r.topPlay.leverage.toFixed(1) + "</span>"
+      ? (function () {
+          var delta = r.topPlay.featured_wpa * 100;
+          var sign = delta >= 0 ? "+" : "";
+          return '<span class="scene-recap-top">Biggest play: ' + escapeHtml(r.topPlay.featured_name) +
+            " · " + escapeHtml((data.meta.result_labels || {})[r.topPlay.result] || r.topPlay.result) +
+            " · WPA " + sign + delta.toFixed(1) + "%</span>";
+        })()
       : "";
     return '<div class="scene-recap"><span class="scene-recap-head">' + head + "</span>" + top + "</div>";
   }
@@ -11660,10 +11753,13 @@
     var last = plays[plays.length - 1];
     var isFinal = !!last.is_game_final;
     var away = plays[0].away_team_abbr, home = plays[0].home_team_abbr;
-    // Highest-leverage play of the game, straight off the list already loaded.
+    // Biggest swing of the game by win-probability impact, straight off the
+    // list already loaded (not leverage - a high-leverage spot with a small
+    // actual swing isn't "the" play of the game the way a big WPA gain is).
     var top = null;
     plays.forEach(function (p) {
-      if (p.leverage != null && (!top || p.leverage > top.leverage)) top = p;
+      if (p.featured_wpa != null &&
+          (!top || Math.abs(p.featured_wpa) > Math.abs(top.featured_wpa))) top = p;
     });
     var slides = [{
       kind: "replay-title", away: away, home: home,
@@ -13302,11 +13398,32 @@
     });
   }
 
+  // Alex's ask: full-bleed on phone, same treatment .catchup-card already
+  // gets - style.css's own max-width:600px rule sets max-width:none there,
+  // but this inline maxWidth (set unconditionally below) would otherwise
+  // keep outranking it every render regardless of screen size. Skipping the
+  // inline override here on mobile is what actually lets that CSS rule win,
+  // without reaching for !important against JS-set inline styles.
+  function applyScorecardCardWidth(box) {
+    if (window.matchMedia("(max-width:600px)").matches) {
+      $("scorecard-card").style.maxWidth = "";
+      return;
+    }
+    var gridWidth = Math.max(teamGridDesktopWidth(box, "away"), teamGridDesktopWidth(box, "home"));
+    var chrome = 18 * 2 + 2 + 24; // .scorecard-body padding + .sc-grid-scroll border + breathing room
+    $("scorecard-card").style.maxWidth = "min(97vw, " + Math.min(1800, gridWidth + chrome) + "px)";
+  }
+
   function scheduleScorecardZoomResize() {
     if (!scorecard.open || !scorecard.lastBox) return;
     window.clearTimeout(scorecardZoomResizeTimer);
     scorecardZoomResizeTimer = window.setTimeout(function () {
       applyMobileScorecardZoom();
+      // A resize can cross the 600px breakpoint (rotation, a resized
+      // browser window) without a fresh renderScorecard call ever firing -
+      // re-applied here too so the card's width doesn't get stuck on
+      // whichever side of that breakpoint it was last rendered under.
+      applyScorecardCardWidth(scorecard.lastBox);
     }, 150);
   }
   window.addEventListener("resize", scheduleScorecardZoomResize);
@@ -13329,9 +13446,9 @@
     // no dead gray space for a short game, and no truncating a long
     // extra-innings one) - recomputed on every render, live-refresh
     // included, since an in-progress extra-innings game keeps growing.
-    var gridWidth = Math.max(teamGridDesktopWidth(box, "away"), teamGridDesktopWidth(box, "home"));
-    var chrome = 18 * 2 + 2 + 24; // .scorecard-body padding + .sc-grid-scroll border + breathing room
-    $("scorecard-card").style.maxWidth = "min(97vw, " + Math.min(1800, gridWidth + chrome) + "px)";
+    // On phone this is skipped entirely (applyScorecardCardWidth) so the
+    // card goes full-bleed instead.
+    applyScorecardCardWidth(box);
     scorecard.lastBox = box;
     applyMobileScorecardZoom();
   }

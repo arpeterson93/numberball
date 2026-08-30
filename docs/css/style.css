@@ -2687,6 +2687,20 @@ html[data-km-debug="1"] .km-tuning-panel{
    already uses) - last-name-only in the batting table's cramped sticky
    name column. */
 @media (max-width:600px){
+  /* Full-bleed on phone (Alex's ask), same treatment .catchup-modal/
+     .catchup-card already get for the slideshow - more real screen estate
+     than a card floating with margins and rounded corners on a screen this
+     small. app.js's applyScorecardCardWidth skips its own inline max-width
+     override at this breakpoint so this max-width:none actually wins,
+     rather than needing !important against a JS-set inline style. */
+  .scorecard-modal{padding:0;}
+  .scorecard-card{width:100vw;max-width:none;height:100vh;height:100dvh;border-radius:0;}
+  /* #scorecard-close's own unconditional top:8px (an ID rule) would
+     otherwise outrank .catchup-close's shared top:14px mobile nudge below
+     on specificity alone - same physical-top-edge clearance the slideshow
+     modal's own controls already get once there's no browser/PWA chrome
+     softening it, now that this card sits edge-to-edge too. */
+  #scorecard-close{top:14px;}
   .lineup-name-full{display:none;}
   .lineup-name-short{display:inline;}
   /* The fixed-width, right-anchored stat columns that keep the team-total
