@@ -6775,6 +6775,11 @@
     var driftTargetFt = (flight && !flight.clearedFence) ? fieldedPoint(flight) : null;
     var idleHtml = allPositions.filter(function (pos) { return !moving[pos]; }).map(function (pos) {
       var startFt = fielderStartAnchorFt(pos, flight, m);
+      // Resp_* coverage (Alex's ask) takes priority over the generic
+      // drift-toward-the-ball nudge below - an explicit per-situation
+      // assignment is more specific than that generic heuristic.
+      var coverLeg = coverageLeg(pos, m, flight, startFt);
+      if (coverLeg) return movingFielderTokenHtml(m, pos, [coverLeg], startDelay + coverStartMs(flight, startFt), startFt);
       var leg = (driftTargetFt && !IDLE_DRIFT_EXCLUDED_POSITIONS[pos]) ? idleDriftLeg(pos, driftTargetFt, startFt, m, flight) : null;
       return leg ? movingFielderTokenHtml(m, pos, [leg], startDelay, startFt) : idleFielderTokenHtml(pos, startFt);
     }).join("");
@@ -7305,6 +7310,67 @@
       return angle < 45 ? "2B" : "SS";
     }
     return fielderPos;
+  }
+
+  // import_BRC.csv's optional Resp_1B/Resp_2B/Resp_3B/Resp_SS columns
+  // (Alex's ask): decorative-only positioning for an infielder who never
+  // touches the ball or covers a base for a real out on this play, but
+  // should still be shown running to one - e.g. a 2B breaking for the bag
+  // on a steal-adjacent grounder even though the SS never actually throws
+  // there. Purely cosmetic: fielderTokensHtml only ever calls this for a
+  // position its own real chain (chainMoverPlan/moving) left idle, so this
+  // can never duplicate or contradict a real out/throw.
+  //
+  // 2B/SS are deliberately NOT two independent columns here, even though
+  // they're two independent columns in the CSV: whichever of Resp_2B/
+  // Resp_SS is filled in with "s" just flags "someone covers 2nd in this
+  // situation" - which of the pair actually does mirrors coveringPosition's
+  // own real angle rule just above (angle<45 -> 2B, else SS) rather than
+  // whichever column happened to be filled in, since the real answer
+  // depends on where THIS ball was hit, not the situational archetype
+  // alone. No flight (no batted ball at all) means no angle to decide
+  // by, so the 2B/SS pair simply sits out. Every other (position, target)
+  // pair - 1B/3B, or a 2B/SS assignment to some base OTHER than 2nd - is a
+  // direct, unambiguous pass-through.
+  var INFIELD_COVER_POSITIONS = { "1B": 1, "2B": 1, "3B": 1, SS: 1 };
+  function infieldCoverTarget(pos, m, flight) {
+    if (!INFIELD_COVER_POSITIONS[pos]) return null;
+    var resp = m.infield_coverage;
+    var raw = resp && resp[pos];
+    if (!raw) return null;
+    var base = THROW_ORDER_BASE_LETTER[String(raw).toLowerCase()];
+    if (!base) return null;
+    if (base === "2B" && (pos === "2B" || pos === "SS")) {
+      if (!flight) return null;
+      return pos === (flight.angle < 45 ? "2B" : "SS") ? base : null;
+    }
+    return base;
+  }
+  // {toSvg, distFt} leg for fielderTokensHtml's idle branch, or null - same
+  // shape idleDriftLeg returns, so both slot into the identical
+  // movingFielderTokenHtml call.
+  function coverageLeg(pos, m, flight, startFt) {
+    var base = infieldCoverTarget(pos, m, flight);
+    if (!base || !startFt) return null;
+    var baseFt = BASE_POS_FT[base];
+    var baseSvg = base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[base];
+    if (!baseFt || !baseSvg) return null;
+    return { toSvg: baseSvg, distFt: Math.hypot(baseFt.x - startFt.x, baseFt.y - startFt.y) };
+  }
+  // When a decorative Resp_* cover actually gets to start moving (Alex's
+  // report: snapping to motion right on contact looked wrong on a ball hit
+  // to the outfield) - the exact same trigger a REAL covering fielder's own
+  // startMs already uses in chainMoverPlan above (Task 1, §5), reused
+  // verbatim rather than a second, possibly-diverging rule. Ground-
+  // archetype (the ball never leaves the infield): a flat, small reaction
+  // beat, same as breaking on a normal infield grounder. Everything else (a
+  // fly ball, a hit that actually reaches the outfield): waits for the ball
+  // to pass this fielder's own depth first - there's nothing real to react
+  // to before that, so no delay would mean bolting for the bag at contact,
+  // well before the ball's even out there.
+  function coverStartMs(flight, startFt) {
+    return GROUND_ARCHETYPES[flight.archetype] ? Math.min(INFIELD_COVER_BREAK_MS, fieldedMs(flight))
+      : Math.min(ballPassesDepthMs(flight, Math.hypot(startFt.x, startFt.y)) || 0, fieldedMs(flight));
   }
 
   // Standard scorecard shorthand for a batted-ball out - "6-4-3", "F8",
@@ -8925,17 +8991,29 @@
   // Samples per 90ft leg - plenty to read as smooth at this SVG's scale
   // without generating keyframe bodies any bigger than they need to be.
   var ROUND_ARC_SAMPLES_PER_LEG = 6;
-  // Uniform Catmull-Rom through 4 control points, evaluated at t in [0,1]
-  // between p1 and p2 - the standard construction (p0/p3 are the neighbors
-  // on either side, used only to shape the tangent, never touched by the
-  // curve itself).
+  // Cardinal spline (uniform Catmull-Rom generalized with a tension
+  // multiplier on the tangents) through 4 control points, evaluated at t in
+  // [0,1] between p1 and p2 - p0/p3 are the neighbors on either side, used
+  // only to shape the tangent, never touched by the curve itself. Written
+  // as explicit Hermite basis functions (h00/h10/h01/h11) rather than the
+  // expanded single-polynomial form specifically so ROUND_ARC_TENSION has
+  // somewhere to multiply in - the tangent terms (m1/m2, scaled by it) are
+  // exactly what h10/h11 carry, and h10/h11 are both 0 at t=0 AND t=1, so
+  // scaling them can never move where the curve actually lands at a real
+  // touched base (h00(0)=1/h01(1)=1 alone decide those) - only how wide it
+  // swings getting there. ROUND_ARC_TENSION=1 reduces to plain Catmull-Rom
+  // (m1=(p2-p0)/2, m2=(p3-p1)/2, the standard tangent choice).
+  var ROUND_ARC_TENSION = 1.35;
   function catmullRomPt(p0, p1, p2, p3, t) {
     var t2 = t * t, t3 = t2 * t;
+    var h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t;
+    var h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+    var k = ROUND_ARC_TENSION * 0.5;
+    var m1x = k * (p2.x - p0.x), m1y = k * (p2.y - p0.y);
+    var m2x = k * (p3.x - p1.x), m2y = k * (p3.y - p1.y);
     return {
-      x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x) * t2 +
-        (-p0.x + 3*p1.x - 3*p2.x + p3.x) * t3),
-      y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y) * t2 +
-        (-p0.y + 3*p1.y - 3*p2.y + p3.y) * t3),
+      x: h00 * p1.x + h10 * m1x + h01 * p2.x + h11 * m2x,
+      y: h00 * p1.y + h10 * m1y + h01 * p2.y + h11 * m2y,
     };
   }
   /* A safe runner rounding 2+ bases on one play (Alex's correction, x2): not

@@ -861,6 +861,13 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "throw_order_by_position": utils.get_throw_order_by_position(
             result, state["obc_before"], state["outs_before"]
         ),
+        # Decorative-only infielder base coverage (Alex's ask) - e.g.
+        # {"1B": "s", "SS": "s"} - see utils.get_infield_coverage for the
+        # full contract. Never affects an out/timing, only which uninvolved
+        # fielder(s) app.js shows running to cover a base.
+        "infield_coverage": utils.get_infield_coverage(
+            result, state["obc_before"], state["outs_before"]
+        ),
         # Explicit per-runner outcome for this (result, obc_before,
         # outs_before) situation, decoded straight from import_BRC.csv's B/
         # r1/r2/r3 columns - e.g. [{"from":"1B","to":"2B","scored":false},
@@ -1134,6 +1141,7 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         "result": None, "result_category": None, "diff": None, "pitch": None, "swing": None,
         "throw_num": None, "steal_num": None, "throw_order": None,
         "excluded_positions": None, "default_position": None, "throw_order_by_position": None,
+        "infield_coverage": None,
         "runner_moves": None, "runs": 0, "scoring_names": [],
         "batter_name": next_up["name"], "batter_id": next_up["player_id"],
         "batter_hand": next_batter_view["hand"] or None,
@@ -1204,6 +1212,7 @@ def _game_start_on_deck_moment(ref: dict, game: dict, game_lineup_rows: list[dic
         "result": None, "result_category": None, "diff": None, "pitch": None, "swing": None,
         "throw_num": None, "steal_num": None, "throw_order": None,
         "excluded_positions": None, "default_position": None, "throw_order_by_position": None,
+        "infield_coverage": None,
         "runner_moves": None, "runs": 0, "scoring_names": [],
 
         "batter_name": next_up["name"], "batter_id": next_up["player_id"],

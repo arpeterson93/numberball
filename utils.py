@@ -153,6 +153,10 @@ _BRC_POSITION_OVERRIDE: dict[tuple[str, str, int], dict] = {}
 # a single string like the generic ThrowOrder column.
 _BRC_THROW_ORDER_BY_POSITION: dict[tuple[str, str, int], dict] = {}
 
+# (result, before_obc, outs) -> {"1B": "s", ...} - see _RESP_POSITION_COLUMNS
+# above for the full contract.
+_BRC_INFIELD_COVERAGE: dict[tuple[str, str, int], dict] = {}
+
 # ThrowOrder_OF (the original, coarse "any outfielder" column) stays alongside
 # the newer per-outfielder LF/CF/RF columns rather than being replaced - a
 # situation can fill in either, or both (docs/js/app.js's own lookup tries
@@ -165,6 +169,22 @@ _THROW_ORDER_POSITION_COLUMNS = {
     "LF": "ThrowOrder_LF", "CF": "ThrowOrder_CF", "RF": "ThrowOrder_RF",
     "OF": "ThrowOrder_OF",
 }
+
+# (result, before_obc, outs) -> {"1B": "s", "SS": "s", ...}. Alex's ask: an
+# infielder who never touches the ball or covers a base for a real out can
+# still be shown running to cover one - purely decorative positioning, no
+# out/timing implication (unlike ThrowOrder_* above, which describes a real
+# throw). Same single-char base-letter grammar as ThrowOrder (h/f/s/t ->
+# HOME/1B/2B/3B), decoded client-side by app.js's THROW_ORDER_BASE_LETTER -
+# this module just passes each column's raw character through, same
+# no-interpretation contract as _BRC_THROW_ORDER_BY_POSITION. 2B/SS are
+# deliberately NOT independent here on the app.js side: whichever of
+# Resp_2B/Resp_SS is filled in with "s" just flags "someone covers 2nd in
+# this situation" - which of the pair actually does is decided per-play by
+# real batted-ball angle (coveringPosition's own rule), not by which column
+# happened to be filled in, since the real answer depends on where THIS ball
+# was hit, not the situational archetype alone.
+_RESP_POSITION_COLUMNS = {"1B": "Resp_1B", "2B": "Resp_2B", "3B": "Resp_3B", "SS": "Resp_SS"}
 
 
 # (result, before_obc, outs) -> [{"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|
@@ -344,7 +364,7 @@ def _clean_csv_cell(raw) -> str:
 
 
 def _load_brc_table() -> None:
-    global _BRC_RUN_LOOKUP, _BRC_THROW_ORDER, _BRC_POSITION_OVERRIDE, _BRC_THROW_ORDER_BY_POSITION, _BRC_RUNNER_MOVES
+    global _BRC_RUN_LOOKUP, _BRC_THROW_ORDER, _BRC_POSITION_OVERRIDE, _BRC_THROW_ORDER_BY_POSITION, _BRC_RUNNER_MOVES, _BRC_INFIELD_COVERAGE
     try:
         _bdf = pd.read_csv("import_BRC.csv")
         if "Situation" not in _bdf.columns or "Runs" not in _bdf.columns:
@@ -354,12 +374,14 @@ def _load_brc_table() -> None:
         has_excluded = "ExcludedPositions" in cols and "DefaultPosition" in cols
         has_runner_cols = all(c in cols for c in ("B", "r1", "r2", "r3"))
         position_cols = {pos: col for pos, col in _THROW_ORDER_POSITION_COLUMNS.items() if col in cols}
+        resp_cols = {pos: col for pos, col in _RESP_POSITION_COLUMNS.items() if col in cols}
 
         lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
         throw_lookup: dict[tuple[str, str, int], str] = {}
         override_lookup: dict[tuple[str, str, int], dict] = {}
         by_position_lookup: dict[tuple[str, str, int], dict] = {}
         moves_lookup: dict[tuple[str, str, int], list[dict]] = {}
+        coverage_lookup: dict[tuple[str, str, int], dict] = {}
 
         for _, row in _bdf.iterrows():
             situation = str(row["Situation"]).strip()
@@ -399,6 +421,14 @@ def _load_brc_table() -> None:
             if by_position:
                 by_position_lookup[key] = by_position
 
+            coverage = {}
+            for pos, col in resp_cols.items():
+                val = _clean_csv_cell(row.get(col))
+                if val:
+                    coverage[pos] = val
+            if coverage:
+                coverage_lookup[key] = coverage
+
             if has_runner_cols:
                 moves = _build_runner_moves_for_row(row, before_obc, outs)
                 if moves is not None:
@@ -409,6 +439,7 @@ def _load_brc_table() -> None:
         _BRC_POSITION_OVERRIDE = override_lookup
         _BRC_THROW_ORDER_BY_POSITION = by_position_lookup
         _BRC_RUNNER_MOVES = moves_lookup
+        _BRC_INFIELD_COVERAGE = coverage_lookup
     except FileNotFoundError:
         pass
 
@@ -441,6 +472,17 @@ def get_throw_order_by_position(result: str, obc: str, outs: int) -> dict | None
     a value for this situation.
     """
     return _BRC_THROW_ORDER_BY_POSITION.get((result, obc, outs))
+
+
+def get_infield_coverage(result: str, obc: str, outs: int) -> dict | None:
+    """{"1B": "s", "SS": "s", ...} for this situation, from the optional
+    Resp_1B/Resp_2B/Resp_3B/Resp_SS columns - one raw base-letter character
+    (h/f/s/t) per infielder who should be shown decoratively covering a base
+    on this play, even when they never touch the ball or make a real out
+    there. Only positions actually filled in are present. None when none of
+    those columns exist yet, or none of them has a value for this situation.
+    """
+    return _BRC_INFIELD_COVERAGE.get((result, obc, outs))
 
 
 def get_runner_moves(result: str, obc: str, outs: int) -> list[dict] | None:

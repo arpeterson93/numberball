@@ -248,6 +248,11 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
         <p class="hint"><code>ExcludedPositions</code>/<code>DefaultPosition</code>: position codes, e.g. <code>SS,2B</code> / <code>3B</code>. <code>ThrowOrder</code>*: one character per leg, comma/space/dash all work as separators - <code>h</code>/<code>f</code>/<code>s</code>/<code>t</code> for a real throw to HOME/1B/2B/3B (reconciled against the runner), <code>1</code>-<code>9</code> for a cutoff man's own scorecard position number (decorative relay only, never an out) - e.g. <code>fst</code> is a direct 1B-then-2B-then-3B relay, <code>6h</code> is a throw cut off by the shortstop and relayed home. <code>ThrowOrder_LF</code>/<code>CF</code>/<code>RF</code> are a specific outfielder's own sequence and beat the older, coarser <code>ThrowOrder_OF</code> (any outfielder) when both are set - fill in a specific one only when that outfielder's own throw genuinely differs from the shared default.</p>
         <div class="field-grid wide" id="fields-fielding"></div>
       </fieldset>
+      <fieldset>
+        <legend class="fs-legend">Decorative coverage (no throw, no out)</legend>
+        <p class="hint"><code>Resp_1B</code>/<code>Resp_2B</code>/<code>Resp_3B</code>/<code>Resp_SS</code>: one base letter (<code>h</code>/<code>f</code>/<code>s</code>/<code>t</code>) an infielder runs to cover on this play even when they never touch the ball or make a real out there - e.g. a 2B breaking for the bag on a play the SS actually fields. Purely cosmetic positioning; never reconciled against outs or throw timing. <code>Resp_2B</code>/<code>Resp_SS</code> are a shared decision, not two independent ones - fill in either one with <code>s</code> to mean "someone covers 2nd here," and the game engine picks 2B or SS per real play by which side of the infield the ball was hit to, not by which of these two columns you happened to fill in.</p>
+        <div class="field-grid" id="fields-coverage"></div>
+      </fieldset>
     </div>
   </div>
 </div>
@@ -333,13 +338,17 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   // ensure-it-exists-on-load, highlight-it-green, ensure-it's-exported
   // treatment those already get, not just an editable field that would
   // silently vanish on export if the loaded file never had it.
-  var NEW_COLS = ["a1", "a2", "a3", "delay", "retreat", "ThrowOrder_LF", "ThrowOrder_CF", "ThrowOrder_RF"];
+  var NEW_COLS = [
+    "a1", "a2", "a3", "delay", "retreat", "ThrowOrder_LF", "ThrowOrder_CF", "ThrowOrder_RF",
+    "Resp_1B", "Resp_2B", "Resp_3B", "Resp_SS",
+  ];
   var ALL_COLS = [
     "Situation", "B", "r1", "r2", "r3", "a1", "a2", "a3", "delay", "retreat",
     "b1", "b2", "b3", "Runs", "eOuts", "OBC", "AB", "HIT",
     "ExcludedPositions", "DefaultPosition",
     "ThrowOrder", "ThrowOrder_P", "ThrowOrder_C", "ThrowOrder_1B", "ThrowOrder_2B", "ThrowOrder_SS", "ThrowOrder_3B",
     "ThrowOrder_OF", "ThrowOrder_LF", "ThrowOrder_CF", "ThrowOrder_RF",
+    "Resp_1B", "Resp_2B", "Resp_3B", "Resp_SS",
   ];
 
   // ---- app state ----
@@ -514,6 +523,10 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
   var THROW_ORDER_PATTERN = "[hfstHFST1-9,\\s\\-]*";
   var THROW_ORDER_TITLE = "One character per leg: h/f/s/t = HOME/1B/2B/3B (real throw), " +
     "1-9 = scorecard position number (cutoff man, decorative). Comma/space/dash as separators.";
+  // Always exactly one base letter (or blank) - unlike ThrowOrder above,
+  // this is never a multi-leg chain and never a position/cutoff number.
+  var RESP_PATTERN = "[hfstHFST]?";
+  var RESP_TITLE = "One base letter: h/f/s/t = HOME/1B/2B/3B - which base this fielder covers, purely decorative.";
 
   function renderForm(row) {
     $("fields-destinations").innerHTML =
@@ -540,6 +553,10 @@ legend.fs-legend{font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-t
       // outThrowTargets reads them in.
       fieldHtml(row, "ThrowOrder_LF", throwOrderOpts) + fieldHtml(row, "ThrowOrder_CF", throwOrderOpts) + fieldHtml(row, "ThrowOrder_RF", throwOrderOpts) +
       fieldHtml(row, "ThrowOrder_OF", throwOrderOpts);
+    var respOpts = { pattern: RESP_PATTERN, title: RESP_TITLE };
+    $("fields-coverage").innerHTML =
+      fieldHtml(row, "Resp_1B", respOpts) + fieldHtml(row, "Resp_2B", respOpts) +
+      fieldHtml(row, "Resp_3B", respOpts) + fieldHtml(row, "Resp_SS", respOpts);
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-col]"), function (el) {
       var evt = el.type === "checkbox" ? "change" : "input";
