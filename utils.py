@@ -1749,6 +1749,8 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_circ_delta2"] = pd.NA
     df["pitch_circ_delta2_signed"] = pd.NA
     df["pitch_approach"] = pd.NA
+    df["pitch_shadow_delta"] = pd.NA
+    df["pitch_shadow_delta_signed"] = pd.NA
     df["pitch_wraparound"] = pd.NA
     df["pitch_dd"] = pd.NA
     df["pitch_td"] = pd.NA
@@ -1784,19 +1786,35 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         # Use SeriesGroupBy (pitch only) with swing captured via closure to avoid
         # DataFrameGroupBy.apply returning a DataFrame in pandas 2.x
         _sw2_swing = sw_df2["swing"]
+        # Shadow Δ: circular delta from the PREVIOUS batter's swing to this
+        # pitch - signed keeps direction (which way the pitcher moved off that
+        # swing), |Δ| is its magnitude and is the same curr_dist used to decide
+        # pitch_approach. Collected as a side effect of _approach_fn's single
+        # pass rather than a second loop over the same pitches/swings.
+        _shadow_delta_vals: dict = {}
+        _shadow_delta_signed_vals: dict = {}
         def _approach_fn(pitch_grp: pd.Series) -> pd.Series:
             idx = pitch_grp.index
             pitches = pitch_grp.astype(int).tolist()
             swings  = _sw2_swing.loc[idx].astype(int).tolist()
             results = [float("nan")]
+            shadow_deltas = [float("nan")]
+            shadow_deltas_signed = [float("nan")]
             for i in range(1, len(pitches)):
                 prev_dist = abs(circular_signed_delta(pitches[i - 1], swings[i - 1]))
-                curr_dist = abs(circular_signed_delta(pitches[i], swings[i - 1]))
+                signed_val = circular_signed_delta(swings[i - 1], pitches[i])
+                curr_dist = abs(signed_val)
                 results.append(1.0 if curr_dist < prev_dist else 0.0)
+                shadow_deltas.append(float(curr_dist))
+                shadow_deltas_signed.append(float(signed_val))
+            _shadow_delta_vals.update(dict(zip(idx, shadow_deltas)))
+            _shadow_delta_signed_vals.update(dict(zip(idx, shadow_deltas_signed)))
             return pd.Series(results, index=idx)
         df.loc[sw, "pitch_approach"] = sw_df2.groupby(
             gk_pit2, group_keys=False
         )["pitch"].apply(_approach_fn)
+        df.loc[sw, "pitch_shadow_delta"] = pd.Series(_shadow_delta_vals)
+        df.loc[sw, "pitch_shadow_delta_signed"] = pd.Series(_shadow_delta_signed_vals)
 
     return df
 
@@ -7608,6 +7626,99 @@ def diff_vs_next_pitch_delta_heatmap(
     return fig
 
 
+def shadow_delta_vs_prior_diff_heatmap(
+    df: pd.DataFrame,
+    title: str = "Shadow |Δ| vs Prior Diff",
+) -> go.Figure:
+    """Heatmap: Shadow |Δ| (unsigned circular distance from this pitch to the
+    PREVIOUS plate appearance's swing, see enrich_df's pitch_shadow_delta) vs.
+    that previous plate appearance's own diff.
+
+    X = prior PA's diff bin; Y = Shadow |Δ| bin (0 at bottom, 500 at top).
+    Only consecutive plate appearances from the same pitcher within the same
+    game are counted.
+    """
+    df_sw = df[df["diff"].notna() & df["pitch_shadow_delta"].notna()].copy()
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw = df_sw.sort_values(["game_id", "pitcher_name", "id"])
+    df_sw["_prior_diff"] = df_sw.groupby(["game_id", "pitcher_name"])["diff"].shift(1)
+    df_sw = df_sw.dropna(subset=["_prior_diff"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_diff_cat"] = pd.cut(
+        df_sw["_prior_diff"].astype(int),
+        bins=_DIFF_HM_BINS, labels=_DIFF_HM_LABELS, right=True, include_lowest=True,
+    )
+    df_sw["_delta_cat"] = pd.cut(
+        df_sw["pitch_shadow_delta"].astype(float),
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_diff_cat"]).reindex(
+        index=_DELTA_HM_LABELS, columns=_DIFF_HM_LABELS, fill_value=0
+    )
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
+    # Normalize each column to 0–100 % so colour reflects within-column distribution.
+    col_totals = _col_n.replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw  = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(_DIFF_HM_LABELS))]
+        for i in range(len(_DELTA_HM_LABELS))
+    ]
+    customdata = z_raw
+
+    annotations = []
+    for j, lbl in enumerate(_DIFF_HM_LABELS):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"{int(_col_n.iloc[j])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(_DELTA_HM_LABELS):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"{int(_row_n.iloc[i])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
+
+    fig = go.Figure(go.Heatmap(
+        z=z_norm,
+        x=_DIFF_HM_LABELS,
+        y=_DELTA_HM_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        customdata=customdata,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Prior diff: %{x}<br>Shadow |Δ|: %{y}<br>%{z:.1f}% of column (%{customdata} pitches)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Prior diff (abs)"),
+        yaxis=dict(title="Shadow |Δ|", autorange=True),
+        annotations=annotations,
+        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        margin=dict(l=80, r=62, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def next_pitch_delta_vs_prior_result_heatmap(
     df: pd.DataFrame,
     title: str = "Next Pitch |Δ| vs Prior Result",
@@ -9547,6 +9658,7 @@ def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
         deltas   = grp["pitch_circ_delta"].dropna()
         delta2s  = grp["pitch_circ_delta2"].dropna()
         approach = grp["pitch_approach"].dropna()
+        shadow_deltas = grp["pitch_shadow_delta"].dropna()
         # Wraparound %: of pitches where the previous pitch was in the boundary zone
         # (>=850 or <=150), how often did they actually cross to the other side?
         # DD %/TD %: of eligible consecutive pitches, how often did they land within
@@ -9568,6 +9680,7 @@ def compute_pitcher_stats(df: pd.DataFrame) -> list[dict]:
             "avg_abs_delta":  round(float(deltas.abs().mean()), 3) if not deltas.empty else None,
             "avg_delta2":     round(float(delta2s.mean()), 3)      if not delta2s.empty else None,
             "shadow_pct":     round(float(approach.mean() * 100), 2) if not approach.empty else None,
+            "avg_shadow_delta": round(float(shadow_deltas.mean()), 3) if not shadow_deltas.empty else None,
             "meme_rate":      round(float(grp["is_meme_pitch"].mean() * 100), 2),
             "wraparound_pct": wraparound_pct,
             "dd_pct":         dd_pct,
@@ -9585,6 +9698,7 @@ def compute_recent_pitcher_stats(df: pd.DataFrame) -> dict:
     deltas   = sw["pitch_circ_delta"].dropna()
     delta2s  = sw["pitch_circ_delta2"].dropna()
     approach = sw["pitch_approach"].dropna()
+    shadow_deltas = sw["pitch_shadow_delta"].dropna()
     _we = _wc = _de = _dh = _te = _th = 0
     for _, g in sw.groupby("game_id"):
         pitches = g.sort_values("id")["pitch"].astype(int).tolist()
@@ -9596,6 +9710,7 @@ def compute_recent_pitcher_stats(df: pd.DataFrame) -> dict:
         "avg_abs_delta":  float(deltas.abs().mean())   if not deltas.empty  else None,
         "avg_delta2":     float(delta2s.mean())        if not delta2s.empty else None,
         "shadow_pct":     float(approach.mean() * 100) if not approach.empty else None,
+        "avg_shadow_delta": float(shadow_deltas.mean()) if not shadow_deltas.empty else None,
         "meme_rate":      float(sw["is_meme_pitch"].mean() * 100),
         "wraparound_pct": (_wc / _we * 100)            if _we else None,
         "dd_pct":         (_dh / _de * 100)            if _de else None,
@@ -9607,6 +9722,7 @@ _PERCENTILE_STATS = [
     ("Avg |Δ|",      "avg_abs_delta",  lambda v: f"{v:.1f}"),
     ("Avg |Δ²|",     "avg_delta2",     lambda v: f"{v:.1f}"),
     ("Shadow %",     "shadow_pct",     lambda v: f"{v:.1f}%"),
+    ("Shadow |Δ|",   "avg_shadow_delta", lambda v: f"{v:.1f}"),
     ("Wraparound %", "wraparound_pct", lambda v: f"{v:.1f}%"),
     ("Meme Rate",    "meme_rate",      lambda v: f"{v:.1f}%"),
     ("DD%", "dd_pct",       lambda v: f"{v:.1f}%"),
@@ -9833,6 +9949,7 @@ _MA_METRICS: dict[str, dict] = {
     "avg_delta":      {"label": "Avg |Δ|",   "col": "pitch_circ_delta",  "scale": "abs",   "y_range": [0, 500], "y_title": "Δ"},
     "avg_delta2":     {"label": "Avg |Δ²|",  "col": "pitch_circ_delta2", "scale": "abs",   "y_range": [0, 500], "y_title": "Δ²"},
     "shadow_pct":     {"label": "Shadow %",      "col": "pitch_approach",    "scale": "pct",   "y_range": [0, 100], "y_title": "Shadow %"},
+    "avg_shadow_delta": {"label": "Shadow |Δ|",  "col": "pitch_shadow_delta", "scale": "abs",  "y_range": [0, 500], "y_title": "Shadow |Δ|"},
     "wraparound_pct": {"label": "Wraparound %",  "col": "pitch_wraparound",  "scale": "pct",   "y_range": None, "y_title": "Wraparound %"},
     "meme_rate":      {"label": "Meme Rate %",   "col": "is_meme_pitch",     "scale": "pct",   "y_range": None, "y_title": "Meme Rate %"},
     "dd_pct":         {"label": "DD%", "col": "pitch_dd",          "scale": "pct",   "y_range": None, "y_title": "DD%"},
