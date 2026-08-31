@@ -703,7 +703,7 @@ st.divider()
 
 # ── pitcher stats ─────────────────────────────────────────────────────────────
 st.subheader("Pitcher Stats")
-st.caption("Pre-compute behavioral stats (Avg |Δ|, Avg Δ², Shadow %, Meme Rate, Wraparound %, DD%, TD%) across all pitchers.")
+st.caption("Pre-compute behavioral stats (Avg |Δ|, Avg Δ², Shadow %, Shadow |Δ|, Meme Rate, Wraparound %, DD%, TD%) and their 20-pitch rolling-average distributions across all pitchers.")
 if st.button("Refresh Pitcher Stats", key="refresh_pitcher_stats"):
     import utils, pandas as pd
     _bar  = st.progress(0, text="Fetching RLN plays…")
@@ -720,10 +720,15 @@ if st.button("Refresh Pitcher Stats", key="refresh_pitcher_stats"):
         _bar.progress(70, text="Computing pitcher stats…")
         _combined  = pd.concat(_dfs, ignore_index=True)
         _stat_rows = utils.compute_pitcher_stats(_combined)
+        _bar.progress(80, text="Pooling rolling-average distributions…")
+        _ma_pool = utils.pitcher_ma_pool(_combined)
+        _ma_rows = utils.ma_percentile_rows(_ma_pool)
         _bar.progress(90, text="Saving to database…")
         db.clear_pitcher_stats()   # full replace - purge stale old-name rows
         _n = db.upsert_pitcher_stats(_stat_rows)
+        db.upsert_ma_percentiles(_ma_rows)
         db.get_pitcher_stats.clear()
+        db.get_ma_percentiles.clear()
         _bar.progress(100, text="Done.")
         st.success(f"Updated stats for {_n} pitcher(s).")
     else:

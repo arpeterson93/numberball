@@ -376,6 +376,26 @@ def clear_pitcher_stats() -> None:
     _client().table("pitcher_stats").delete().gt("id", 0).execute()
 
 
+# ------------------------------------------------------------------ pitcher MA percentiles
+
+@st.cache_data(ttl=3600)
+def get_ma_percentiles() -> list[dict]:
+    """Load pre-computed 20-pitch rolling-average percentile tables (one row
+    per behavioral metric) - see utils.ma_percentile_rows. Used to grade a
+    pitcher's recent rolling-average value against everyone's rolling
+    averages instead of the (much smoother) career-average distribution."""
+    return _fetch_all(
+        _client().table("pitcher_ma_percentiles")
+        .select("*")
+    )
+
+
+def upsert_ma_percentiles(rows: list[dict]) -> int:
+    """Upsert one row per metric - metric is the natural conflict key, and the
+    fixed small set of metrics means no stale-row cleanup is needed."""
+    return _bulk_upsert("pitcher_ma_percentiles", rows, "metric")
+
+
 # ------------------------------------------------------------------ user preferences
 
 def get_user_preferences(user_id: str) -> dict:

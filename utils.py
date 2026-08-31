@@ -9729,6 +9729,26 @@ _PERCENTILE_STATS = [
     ("TD%", "td_pct",       lambda v: f"{v:.1f}%"),
 ]
 
+# _PERCENTILE_STATS col -> _MA_METRICS key, for the one stat whose names diverge
+# (avg_abs_delta's moving-average counterpart is keyed "avg_delta" - see
+# _MA_METRICS). Every other stat shares its name with its MA metric key.
+_STAT_TO_MA_METRIC = {"avg_abs_delta": "avg_delta"}
+
+
+def _percentile_from_table(val: float, table: list[float]) -> tuple[float, str]:
+    """Percentile of val within a stored 101-point percentile breakpoint table
+    (see ma_percentile_rows), via linear interpolation. Mirrors _percentile's
+    (pct, label) return shape."""
+    if not table or len(table) < 2:
+        return 50.0, "50"
+    if val <= table[0]:
+        return 0.0, "0-"
+    if val >= table[-1]:
+        return 100.0, "100+"
+    qs = np.linspace(0, 100, len(table))
+    p = float(np.interp(val, table, qs))
+    return p, f"{p:.0f}"
+
 
 def pitcher_percentile_card(
     pitcher_name: str,
@@ -9736,11 +9756,17 @@ def pitcher_percentile_card(
     recent_vals: dict | None = None,
     recent_n: int | None = None,
     player_id: int | None = None,
+    ma_percentiles: dict[str, list[float]] | None = None,
 ) -> go.Figure | None:
     """
     Compact pill-bar percentile chart.
     Bar = career percentile in the qualified pool (≥100 AB).
-    Gold needle = where recent stats (recent_vals) fall in that same pool.
+    Gold needle = where recent stats (recent_vals) fall - against ma_percentiles
+    (each metric's pooled rolling-average distribution, see pitcher_ma_pool)
+    when supplied, since a recent rolling-average value is itself a rolling
+    average and should be judged against other rolling averages rather than
+    smoother career averages; falls back to the same career pool the blue/red
+    bar uses when ma_percentiles is missing or lacks that stat.
 
     Matches the pitcher's stats row by player_id when given (robust to the row
     being stored under a different name than the dropdown's most-recent one),
@@ -9794,10 +9820,15 @@ def pitcher_percentile_card(
             raw_vals.append(fmt(val))
             bubble_labels.append(blbl)
 
-        # Recent value for same stat
+        # Recent value for same stat - graded against that metric's rolling-
+        # average pool when available, else the same career pool as above.
         rval = (recent_vals or {}).get(col)
         if rval is not None and not (isinstance(rval, float) and pd.isna(rval)):
-            rpct, _ = _percentile(rval, qual_vals)
+            _ma_table = (ma_percentiles or {}).get(_STAT_TO_MA_METRIC.get(col, col))
+            if _ma_table:
+                rpct, _ = _percentile_from_table(rval, _ma_table)
+            else:
+                rpct, _ = _percentile(rval, qual_vals)
             recent_pcts.append(rpct)
             recent_raw_vals.append(fmt(rval))
         else:
@@ -9916,8 +9947,9 @@ def pitcher_percentile_card(
 
     career_ab = row.get("ab_count") if "ab_count" in row.index else None
     career_ab_str = f" ({int(career_ab)} PA)" if career_ab and not pd.isna(career_ab) else ""
+    _recent_ref = " vs rolling-avg pool" if ma_percentiles else ""
     subtitle = (
-        f"<br><sup>Top = Career{career_ab_str}  |  Bottom = Recent ({recent_n} PA)</sup>"
+        f"<br><sup>Top = Career{career_ab_str}  |  Bottom = Recent ({recent_n} PA{_recent_ref})</sup>"
         if has_recent else ""
     )
     fig.update_layout(
@@ -9955,6 +9987,66 @@ _MA_METRICS: dict[str, dict] = {
     "dd_pct":         {"label": "DD%", "col": "pitch_dd",          "scale": "pct",   "y_range": None, "y_title": "DD%"},
     "td_pct":         {"label": "TD%", "col": "pitch_td",          "scale": "pct",   "y_range": None, "y_title": "TD%"},
 }
+
+
+def pitcher_ma_pool(df: pd.DataFrame, window: int = 20) -> dict[str, np.ndarray]:
+    """Pool every pitcher's 20-pitch rolling average into one array per metric
+    in _MA_METRICS - the distribution a RECENT rolling-average value should be
+    graded against, instead of the career-average distribution. A rolling
+    stat carries far more sampling variance than a career average, so
+    comparing it to career values overstates how extreme a hot or cold
+    stretch looks (see pitcher_percentile_card's ma_percentiles param).
+
+    Grouped by pitcher_name only (not the player_id merge compute_pitcher_stats
+    uses for mid-career renames) - a rename just splits that one pitcher's
+    windows at the boundary, which barely dents a pool built from everyone.
+    Rolls every metric for every pitcher, so this is meant to run only from
+    the Games page's Refresh Pitcher Stats button, not on every page load."""
+    sw = df[df["swing"].notna()]
+    pool: dict[str, list[np.ndarray]] = {m: [] for m in _MA_METRICS}
+    if sw.empty:
+        return {m: np.array([]) for m in _MA_METRICS}
+    for _, grp in sw.groupby("pitcher_name"):
+        grp = grp.sort_values("id")
+        if len(grp) < window:
+            continue
+        for metric, defn in _MA_METRICS.items():
+            col = defn["col"]
+            if col not in grp.columns:
+                continue
+            raw = grp[col].astype(float)
+            raw = raw * 100.0 if defn["scale"] == "pct" else raw.abs()
+            # Mirrors pitcher_ma_figure: rolling mean over every row (NaN rows
+            # still occupy a window slot, just excluded from the mean), then
+            # keep only the window-th value onward - the same slice the chart
+            # blanks out for being a partial early average.
+            ma = raw.rolling(window=window, min_periods=1).mean().iloc[window - 1:].dropna()
+            if not ma.empty:
+                pool[metric].append(ma.to_numpy())
+    return {m: (np.concatenate(v) if v else np.array([])) for m, v in pool.items()}
+
+
+_MA_PCT_POINTS = 101  # percentile breakpoints 0..100 inclusive, 1-point resolution
+
+
+def ma_percentile_rows(pool: dict[str, np.ndarray], window: int = 20) -> list[dict]:
+    """Convert a pitcher_ma_pool() result into upsertable percentile-table rows
+    (table pitcher_ma_percentiles, one row per metric): 101 breakpoints (the
+    0th through 100th percentile) of that metric's pooled rolling-average
+    distribution. Skips metrics with too few samples to give a meaningful
+    distribution."""
+    qs = np.linspace(0, 100, _MA_PCT_POINTS)
+    rows = []
+    for metric, vals in pool.items():
+        if vals.size < 20:
+            continue
+        rows.append({
+            "metric":      metric,
+            "percentiles": np.percentile(vals, qs).tolist(),
+            "n_samples":   int(vals.size),
+            "window_size": window,
+        })
+    return rows
 
 
 def pitcher_ma_figure(df: pd.DataFrame, metric: str, window: int = 20) -> go.Figure | None:

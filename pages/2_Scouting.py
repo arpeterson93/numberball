@@ -461,6 +461,12 @@ def _load_pitcher_stats() -> pd.DataFrame:
     rows = db.get_pitcher_stats()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
+def _load_ma_percentiles() -> dict:
+    # Same reasoning as _load_pitcher_stats: db.get_ma_percentiles() carries
+    # the cache, this just reshapes it into {metric: [percentile breakpoints]}.
+    rows = db.get_ma_percentiles()
+    return {r["metric"]: r["percentiles"] for r in rows} if rows else {}
+
 @st.cache_data(ttl=60)
 def _load_game_plays(game_id: int, data_v: int = 0) -> list[dict]:
     return db.get_plays_for_game(game_id)
@@ -1382,6 +1388,7 @@ with tab_p:
     # ── percentile card ───────────────────────────────────────────────────────
     if tab_p_pitcher != "All" and not df_p.empty:
         _pitcher_stats_df = _load_pitcher_stats()
+        _ma_percentiles   = _load_ma_percentiles()
         _recent_df    = df_p.sort_values("id").tail(n_pitches)
         _recent_stats = utils.compute_recent_pitcher_stats(_recent_df)
         _recent_n     = int(_recent_df["swing"].notna().sum())
@@ -1390,6 +1397,7 @@ with tab_p:
             recent_vals=_recent_stats if _recent_stats else None,
             recent_n=_recent_n if _recent_stats else None,
             player_id=_name_to_pid.get(tab_p_pitcher),
+            ma_percentiles=_ma_percentiles if _ma_percentiles else None,
         )
         with st.expander("Behavioral Tendencies", expanded=not _simple_mode):
             if _pct_fig is not None:
