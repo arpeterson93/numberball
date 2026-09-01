@@ -2912,30 +2912,58 @@ def radial_combined_chart(
     would show in center_on_prev mode (from df_deltas) - always mapped onto
     the most recent actual pitch, regardless of that chart's own toggle.
 
-    Each group keeps its own recency-based radius/color (see
-    _radial_recency_figure) computed independently, so a sparser group's
-    points simply don't reach as far out as a fuller group's; circles mark
-    actual pitches, diamonds mark implied ones. The background slice ring
-    reflects both groups combined. anchor overrides the implied group's
-    "most recent pitch" - pass the caller's true unfiltered most-recent pitch
-    when df_deltas has been narrowed by a context filter.
+    Not every pitch carries a delta (the first pitch of each game has no
+    prior pitch to diff against), so the last n valid deltas can reach further
+    back into a pitcher's history than the last n actual pitches - counting
+    each group's points from 1 independently would then plot a delta computed
+    on the very latest pitch short of the rim, just because some OTHER recent
+    pitch elsewhere lacked a delta. Both groups are instead ranked on one
+    shared recency scale built from the union of their rows' ids (oldest to
+    newest), so a point's radius/color reflects how many actual pitches back
+    its own row really is. Circles mark actual pitches, diamonds mark implied
+    ones. The background slice ring reflects both groups combined. anchor
+    overrides the implied group's "most recent pitch" - pass the caller's
+    true unfiltered most-recent pitch when df_deltas has been narrowed by a
+    context filter.
     """
-    vals = df_pitches[df_pitches[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
-    n_a = len(vals)
-    theta_a = [v * 360.0 / 1000.0 for v in vals]
-    hover_a = [
-        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
-        f"{n_a - i} pitch{'es' if n_a - i != 1 else ''} ago"
-        for i, v in enumerate(vals)
-    ]
+    pitch_rows = df_pitches[df_pitches[value_col].notna()].sort_values("id").tail(n)
+    delta_rows = df_deltas[df_deltas[delta_col].notna()].sort_values("id").tail(n)
 
-    theta_b, hover_b = _implied_pitch_points(df_deltas, n, delta_col, value_col, anchor=anchor)
-    n_b = len(theta_b)
+    if anchor is None:
+        _anchor_vals = df_deltas[df_deltas[value_col].notna()].sort_values("id")[value_col]
+        anchor = int(_anchor_vals.iloc[-1]) if not _anchor_vals.empty else None
+    if anchor is None:
+        delta_rows = delta_rows.iloc[0:0]
 
+    n_a, n_b = len(pitch_rows), len(delta_rows)
     if n_a == 0 and n_b == 0:
         return go.Figure()
 
-    r_max = max(n_a, n_b, 1) * 1.05
+    all_ids = sorted(set(pitch_rows["id"]) | set(delta_rows["id"]))
+    rank = {id_: r for r, id_ in enumerate(all_ids, start=1)}
+    n_total = len(all_ids)
+
+    theta_a, r_a, hover_a = [], [], []
+    for pid, v in zip(pitch_rows["id"], pitch_rows[value_col].astype(int)):
+        r = rank[pid]
+        ago = n_total - r + 1
+        theta_a.append(v * 360.0 / 1000.0)
+        r_a.append(r)
+        hover_a.append(
+            f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
+            f"{ago} pitch{'es' if ago != 1 else ''} ago"
+        )
+
+    theta_b, r_b, hover_b = [], [], []
+    for pid, d in zip(delta_rows["id"], delta_rows[delta_col].astype(int)):
+        r = rank[pid]
+        ago = n_total - r + 1
+        v = ((anchor + d - 1) % 1000) + 1
+        theta_b.append(v * 360.0 / 1000.0)
+        r_b.append(r)
+        hover_b.append(f"{v} (prev {anchor} {d:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago")
+
+    r_max = n_total * 1.05
     marker_base = dict(
         size=6.7,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
@@ -2946,20 +2974,20 @@ def radial_combined_chart(
     fig.add_trace(_slice_background_trace(theta_a + theta_b, r_max))
     if n_a:
         fig.add_trace(go.Scatterpolar(
-            r=list(range(1, n_a + 1)), theta=theta_a, mode="markers", name="Actual",
+            r=r_a, theta=theta_a, mode="markers", name="Actual",
             marker=dict(
-                **marker_base, symbol="circle", color=list(range(1, n_a + 1)),
+                **marker_base, symbol="circle", color=r_a, cmin=1, cmax=n_total,
                 showscale=True,
                 colorbar=dict(title=dict(text="Recency", side="right"),
-                              tickvals=[1, n_a], ticktext=["Oldest", "Newest"],
+                              tickvals=[1, n_total], ticktext=["Oldest", "Newest"],
                               thickness=14, len=0.7),
             ),
             text=hover_a, hoverinfo="text", showlegend=True,
         ))
     if n_b:
         fig.add_trace(go.Scatterpolar(
-            r=list(range(1, n_b + 1)), theta=theta_b, mode="markers", name="Implied",
-            marker=dict(**marker_base, symbol="diamond", color=list(range(1, n_b + 1)), showscale=False),
+            r=r_b, theta=theta_b, mode="markers", name="Implied",
+            marker=dict(**marker_base, symbol="diamond", color=r_b, cmin=1, cmax=n_total, showscale=False),
             text=hover_b, hoverinfo="text", showlegend=True,
         ))
 
