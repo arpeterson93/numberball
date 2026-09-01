@@ -2282,10 +2282,17 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
                 st.markdown(f"**{_cf_leverage_lbl_p}**")
                 _cf_leverage_label_p = st.radio(
-                    "Leverage entering the play", ["Off", "Low (<1.5)", "High (≥1.5)"],
+                    "Leverage entering the play", ["Off", "Low (<)", "High (≥)"],
                     horizontal=True, key="ctx_leverage_p", label_visibility="collapsed",
                 )
-                _cf_leverage_bucket_p = {"Off": None, "Low (<1.5)": "low", "High (≥1.5)": "high"}[_cf_leverage_label_p]
+                _cf_leverage_bucket_p = {"Off": None, "Low (<)": "low", "High (≥)": "high"}[_cf_leverage_label_p]
+                _cf_leverage_threshold_p = 1.5
+                if _cf_leverage_bucket_p is not None:
+                    _cf_leverage_threshold_p = st.number_input(
+                        "Threshold", min_value=0.0, max_value=10.0,
+                        value=st.session_state.get(f"ctx_leverage_thresh_p_{tab_p_pitcher}", 1.5),
+                        step=0.1, format="%.1f", key=f"ctx_leverage_thresh_p_{tab_p_pitcher}",
+                    )
 
             # Previous pitch range only narrows the Pitches radial; previous |Δ|
             # range only narrows the Deltas radial - previous result and leverage
@@ -2301,12 +2308,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     prev_pitch_bucket=_cf_pitch_bucket_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
+                    leverage_threshold=_cf_leverage_threshold_p,
                 ) if _cf_active_pitches_p else _df_ctx_p
                 _df_radial_deltas_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_abs_delta_bucket=_cf_delta_bucket_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
+                    leverage_threshold=_cf_leverage_threshold_p,
                 ) if _cf_active_deltas_p else _df_ctx_p
                 st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} "
                           "matching historical instance(s).")
