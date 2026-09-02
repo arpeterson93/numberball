@@ -1805,9 +1805,112 @@
   // starts and animates from, so the two can differ without conflict. P
   // keeps 45 (dead centre, offset 0) - not part of Alex's ask.
   var CANONICAL_ANGLE = { "3B": 15, SS: 33, P: 45, "2B": 57, "1B": 80 };
-  // The minimum lattice angle mapping to each position - the direction a
-  // BRC-excluded ground ball gets redirected to on override (Part 4.2/4.3).
-  var MIN_ANGLE_FOR_POS = { "3B": 5, SS: 21, P: 45, "2B": 53, "1B": 77 };
+  // Infield starting depth/angle by the play's own pre-pitch OBC (Alex's
+  // ask): a runner on first only pulls the whole left/right side of the
+  // infield in and toward the middle (double-play depth), everything else
+  // (bases empty, or any other runner combo) shares one setup. Keyed on
+  // obc_before's own "000".."111" string (runner-on-base bits only - no
+  // distinct outs-conditioned numbers exist yet, so every out state shares
+  // this same table). These values now ARE each position's real default -
+  // INFIELDER_DEPTH_FT/CANONICAL_ANGLE above stay only as P's own fixed
+  // spot (never part of this ask) and as the fallback for an unrecognized
+  // obc string; see obcFielderAnchorFt below, and FIELDER_ANCHORS_FT's own
+  // build loop, which reads this table's "000" row for 1B/2B/SS/3B rather
+  // than the old flat defaults, so a fielder with no play context to key
+  // off (nearestFielder et al with no obc passed) still lands on a real,
+  // current default instead of a stale one.
+  var INFIELD_OBC_DEPTH_FT = {
+    "000": { "1B": 114, "2B": 153, SS: 148, "3B": 121 },
+    "001": { "1B": 95, "2B": 150, SS: 145, "3B": 118 },
+    "010": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+    "100": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+    "011": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+    "101": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+    "110": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+    "111": { "1B": 108, "2B": 146, SS: 143, "3B": 116 },
+  };
+  // Ceiling for the OWN-DEPTH interpolation fielderStartAnchorFt runs for a
+  // position that ISN'T the ball's actual fielder, when the real fielder's
+  // own honest depthPct (applyGrounderDeepSetup - how far of THEIR OWN real
+  // dirt-edge room they genuinely needed) gets propagated to pull the rest
+  // of the infield back too (Alex's ask). depthPct=1 used to map to that
+  // OTHER position's own real dirtEdgeFt - this table replaces that with an
+  // authored ceiling instead, so "the whole infield plays back together"
+  // doesn't visually push an uninvolved fielder as deep as the actual dirt
+  // edge. Deliberately separate from, and never read by, the real fielder's
+  // own depth math (applyGrounderDeepSetup/resolveGrounderInterception) -
+  // this table only ever feeds idleFielderStartDepthFt below, the
+  // non-active-fielder render path. Every value here sits under this same
+  // position/obc row's own real dirtEdgeFt (verified against the live
+  // dirtEdgeFt(obcAngleDeg(pos,obc)) numbers before Alex chose these), so
+  // this alone can never place an idle fielder off the dirt.
+  var INFIELD_OBC_IDLE_MAX_DEPTH_FT = {
+    "000": { "1B": 133, "2B": 160, SS: 155, "3B": 135 },
+    "001": { "1B": 105, "2B": 158, SS: 154, "3B": 132 },
+    "010": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+    "100": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+    "011": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+    "101": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+    "110": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+    "111": { "1B": 124, "2B": 156, SS: 152, "3B": 130 },
+  };
+  // Same offset-from-45 convention CANONICAL_ANGLE's own values already
+  // bake in (landingPoint's angleDeg = 45 + offset) - obcFielderAnchorFt
+  // adds the 45 back in itself, so this table stores Alex's own raw spec
+  // numbers unchanged.
+  var INFIELD_OBC_ANGLE_OFFSET = {
+    "000": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "001": { "1B": 41, "2B": 11, SS: -11, "3B": -35 },
+    "010": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "100": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "011": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "101": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "110": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+    "111": { "1B": 35, "2B": 12, SS: -12, "3B": -35 },
+  };
+  // obcBefore is a plain "000".."111" string (the String(m.obc_before ||
+  // "000") callers already use everywhere else in this file). Each falls
+  // back to the flat INFIELDER_DEPTH_FT/CANONICAL_ANGLE entry for P/C/OF
+  // and any unrecognized obc string, since none of those are covered by
+  // the table above.
+  function obcDepthFt(pos, obcBefore) {
+    var row = INFIELD_OBC_DEPTH_FT[obcBefore];
+    return (row && row[pos] != null) ? row[pos] : INFIELDER_DEPTH_FT[pos];
+  }
+  function obcAngleDeg(pos, obcBefore) {
+    var row = INFIELD_OBC_ANGLE_OFFSET[obcBefore];
+    return (row && row[pos] != null) ? 45 + row[pos] : CANONICAL_ANGLE[pos];
+  }
+  // Idle-fielder depth ceiling (Alex's ask, above INFIELD_OBC_IDLE_MAX_DEPTH_FT) -
+  // falls back to the real dirtEdgeFt along this position/obc's own bearing
+  // whenever a position or obc string isn't covered by that table (P/C/OF,
+  // or an unrecognized obc), reproducing fielderStartAnchorFt's own prior
+  // behavior exactly in that case.
+  function obcIdleMaxDepthFt(pos, obcBefore, angleDeg) {
+    var row = INFIELD_OBC_IDLE_MAX_DEPTH_FT[obcBefore];
+    return (row && row[pos] != null) ? row[pos] : dirtEdgeFt(angleDeg);
+  }
+  // The real per-play starting anchor for a position. Falls back to
+  // FIELDER_ANCHORS_FT[pos] whenever obcDepthFt/obcAngleDeg themselves fell
+  // back (pos has no INFIELDER_DEPTH_FT/CANONICAL_ANGLE entry either -
+  // C/LF/CF/RF), so a position outside this ask still resolves cleanly.
+  function obcFielderAnchorFt(pos, obcBefore) {
+    if (INFIELDER_DEPTH_FT[pos] == null || CANONICAL_ANGLE[pos] == null) return FIELDER_ANCHORS_FT[pos];
+    return landingPoint(obcDepthFt(pos, obcBefore), obcAngleDeg(pos, obcBefore));
+  }
+  // The lattice angle each position gets redirected to on a BRC override
+  // (Part 4.2/4.3) - renamed from MIN_ANGLE_FOR_POS (Alex's ask): that name
+  // just meant "the numeric minimum of this position's own HZ_FIELDER_BY_ANGLE
+  // bucket," which for 3B {5,13} and SS {21,29,37} silently picked the most
+  // EXTREME (foul-line-hugging) value in the bucket, while for 2B {53,61,69}
+  // and 1B {77,85} "minimum" happened to land on the most CENTERED one - an
+  // artifact of which side of dead-center (45) each bucket sits on, not a
+  // deliberate "always extreme" or "always centered" choice. Alex's fix:
+  // every position now redirects to whichever of its own bucket values sits
+  // closest to its own CANONICAL_ANGLE (3B 15/SS 33/2B 57/1B 80) - the
+  // position's own already-established "typical" bearing - which only
+  // actually moved 3B (5->13) and SS (21->37); 2B/1B were already there.
+  var BRC_REDIRECT_ANGLE_FOR_POS = { "3B": 13, SS: 37, P: 45, "2B": 53, "1B": 77 };
   // Traditional scorecard numbering (fieldingNotation, below outThrowTargets) -
   // the app's own position strings already match the real 9 defensive spots
   // 1-for-1, they've just never had scorecard numbers attached before.
@@ -1849,8 +1952,13 @@
   // reach the fence, where the batting team's watermark is painted
   // (sceneFieldHtml).
   var CF_MARK_DEPTH_FT = 245;
+  // obcFielderAnchorFt("000") for 1B/2B/SS/3B (empty bases, Alex's own
+  // baseline row); P isn't part of that ask (INFIELD_OBC_DEPTH_FT's rows
+  // carry no P entry) so it falls straight through to the old flat table,
+  // same as always - obcFielderAnchorFt's own INFIELDER_DEPTH_FT/
+  // CANONICAL_ANGLE fallback handles that without a special case here.
   ["3B", "SS", "P", "2B", "1B"].forEach(function (pos) {
-    var pt = landingPoint(INFIELDER_DEPTH_FT[pos], CANONICAL_ANGLE[pos]);
+    var pt = landingPoint(obcDepthFt(pos, "000"), obcAngleDeg(pos, "000"));
     FIELDER_ANCHORS_FT[pos] = { x: pt.x, y: pt.y };
   });
   ["LF", "CF", "RF"].forEach(function (pos) {
@@ -2616,12 +2724,12 @@
   // describes.
   var CATCH_RETREAT_PENALTY = 0.7 / 0.3;    // 70/30 RF/2B ground share on a fly ball
   var PICKUP_RETREAT_PENALTY = 0.8 / 0.2;   // 80/20 RF/2B ground share chasing a rolling ball
-  function nearestFielder(x, y, retreatPenalty) {
+  function nearestFielder(x, y, retreatPenalty, obcBefore) {
     var penalty = retreatPenalty || CATCH_RETREAT_PENALTY;
     var ballDist = Math.hypot(x, y);
     var best = null, bestScore = Infinity;
     for (var key in FIELDER_ANCHORS_FT) {
-      var a = FIELDER_ANCHORS_FT[key];
+      var a = obcFielderAnchorFt(key, obcBefore || "000");
       var d = Math.hypot(a.x - x, a.y - y);
       var anchorDist = Math.hypot(a.x, a.y);
       var score = anchorDist >= ballDist ? d : d * penalty;
@@ -2926,7 +3034,7 @@
       hangMs: 1000 * sim.hangS, hangS: sim.hangS, apexFt: sim.apexFt,
       contactVel: sim.contactVel, samples: scaleSamples(sim.samples, scale),
       clamped: D !== sim.distance,
-      fielder: nearestFielder(sim.landing.x * scale, sim.landing.y * scale), archetype: band.archetype,
+      fielder: nearestFielder(sim.landing.x * scale, sim.landing.y * scale, null, String(play.obc_before || "000")), archetype: band.archetype,
       // Over-the-fence vs. inside-the-park - both legal outcomes for a home
       // run (ball-flight-plan.md ground-truth invariant note). Never true for
       // anything else: clampToFence already prevented that.
@@ -3054,19 +3162,30 @@
   // instead of a real fielder-closing chase. Set close to a real sprint
   // (RUNNER_SPRINT_FT_PER_S) rather than reusing the infield number.
   var OF_CHARGE_FT_PER_S = 24;
-  // Recognize-it's-a-roller-and-break beat, same flavor as every other
-  // "notice, then react" constant here (OUT_BEAT_MS, THROW_DELAY_MS) - just
-  // its own value since a charge decision is a different kind of read than
-  // "the ball's already in my glove, throw now."
-  var CHARGE_REACTION_S = 0.15;
+  // Retired (Alex's call): used to be a flat "recognize-it's-a-roller-and-
+  // break" beat charged on top of the accelerating charge-in run. With a
+  // real acceleration model already in place (FIELDER_ACCEL_FT_S2/
+  // INFIELD_CHARGE_SPRINT_ACCEL_FT_S2 - a fielder starts at 0 ft/s and
+  // ramps up, same as a real first step), a separate flat delay before that
+  // ramp even begins was double-counting the same "not yet at full speed"
+  // moment fielders already pay for in the accel curve itself. Kept at 0
+  // rather than deleted - every call site still threads a reactionS through
+  // (chargeFielderArriveS's own distFt>0 gate stays, a no-op at 0 either
+  // way) - so a future real per-position value drops back in without
+  // re-wiring anything.
+  var CHARGE_REACTION_S = 0;
   // Task 6 (round-1 Stage 5c, fact 12): "finishing the delivery costs a
   // beat" - a flat pitcher-specific reaction override, simplest honest
   // model (Alex's own recommendation over a continuous reaction-window
-  // model). Provisional value, probe-selected below (see
-  // tools/pitcher_reaction_probe.py) - a split second more than the shared
-  // 0.15, not a full second. Only applies once a fielder actually has to
-  // move (chargeFielderArriveS's own distFt>0 gate, untouched) - a
-  // comebacker right at the mound still gets fielded on the spot.
+  // model), probe-selected (see tools/pitcher_reaction_probe.py) and kept
+  // even after CHARGE_REACTION_S itself dropped to 0 (Alex's call) - unlike
+  // an infielder's charge, a pitcher's own "reaction" is real dead time
+  // still finishing the pitch delivery, not yet in a ready fielding stance
+  // to even start accelerating, so it isn't the same double-count the
+  // shared constant above was retired for. Only applies once a fielder
+  // actually has to move (chargeFielderArriveS's own distFt>0 gate,
+  // untouched) - a comebacker right at the mound still gets fielded on the
+  // spot.
   var PITCHER_CHARGE_REACTION_S = 0.45;
   // Alex's report: a non-ball-toucher infielder covering a base on a
   // ground-archetype play (1B covering first while SS fields the grounder,
@@ -3083,7 +3202,10 @@
   // real infielder reads that off the bat and breaks immediately. There's
   // no realism cost to arriving early either (Alex: "they can run there,
   // plant themselves, and wait") - so this is a flat, small reaction beat,
-  // same flavor/magnitude as CHARGE_REACTION_S, not a compressed sprint.
+  // same flavor as the old CHARGE_REACTION_S (since retired to 0 - Alex's
+  // call, above), not a compressed sprint. A covering fielder's own break
+  // is a separate real decision from a ball-toucher's charge-in, so this
+  // constant stayed independent even after that one dropped.
   var INFIELD_COVER_BREAK_MS = 150;
   // Every infielder who could plausibly be the one who actually gets to a
   // short roller - LF/CF/RF never win this (they're hundreds of feet away,
@@ -3318,8 +3440,9 @@
   // OF_CHARGE_CANDIDATE_POSITIONS instead to race outfielders on a single.
   function chargeInIntercept(flight, gp, maxAlongFt, candidates, m) {
     var best = null;
+    var obcBefore = String((m && m.obc_before) || "000");
     (candidates || CHARGE_CANDIDATE_POSITIONS).forEach(function (pos) {
-      var anchor = FIELDER_ANCHORS_FT[pos];
+      var anchor = obcFielderAnchorFt(pos, obcBefore);
       if (!anchor) return;
       // Real per-player charge speed (Alex's ask) - each candidate races at
       // their own scouted pace, not one flat number for the whole infield -
@@ -3394,58 +3517,73 @@
     var step = Math.max(-maxDeg, Math.min(maxDeg, deltaDeg));
     return landingPoint(depth, anchorDeg - step);
   }
-  // Task 1 audit, section 1.2: the depth/bearing leeway block extracted
-  // verbatim (no behavior change) from resolveGrounderInterception, plus one
-  // pinned test (ball_flight_test.py 6.4) asserting the exact sequence
-  // below. Only ever called when "no genuine crossing" fired - fieldedFt
-  // landed on fielderInterceptS's own restFt boundary rather than a real
-  // mid-roll interception - and only for the plain "grounder" archetype
-  // (raceRestFt/the caller's own isCappedFallback gate decides that; not
-  // re-checked here). The sequencing is genuinely order-dependent, each
-  // step's input is the previous step's own output, and there is no valid
-  // reordering:
-  //   1. bearing first (capBearingTowardFt, off the TRUE anchor toward the
-  //      ball's own roll direction, capped at WINNER_CHEAT_MAX_DEG) - "start
-  //      and stay on the infield dirt" is the hard rule, but a fielder who's
-  //      genuinely playing deep for this batter is normal positioning.
-  //   2. depth off THAT bearing-adjusted dirt edge (dirtEdgeFt(leewayDeg),
-  //      never the true bearing's own edge) - bounded below by the
-  //      position's own real depth (explicit max(), never assumed) and
-  //      above by min(that dirt edge, the ball's own fielded point) - no
-  //      reason to start deeper than the target being charged to.
-  //   3. the arrival honestly re-timed from the FINAL anchor
-  //      (gp.timeAt(fieldedFt) - fieldedFt itself never moves, only the
-  //      anchor/depth-pct downstream readers see move) - a real recompute,
-  //      not a cosmetic relocation, so the ball's own trail and the glove's
-  //      own rendered run tell one true story.
-  //   4. the propagation scalar (depthPct - how far of the winner's own
-  //      real dirt-edge room they used) derived from the FINAL depth, so
-  //      the rest of the infield can play back the same percentage against
-  //      their OWN default depth/dirt edge (sceneField's fielderStartAnchorFt).
-  // raceRestFt isn't read here - it only exists to gate whether the caller
-  // calls this function at all (fieldedFt >= raceRestFt - 1e-6); kept as a
-  // parameter for that call-site traceability.
+  // Alex's ask (game=021103&play=36 report - a real 95ft double-play-depth
+  // 1B anchor got rendered fielding a hot liner from ~156ft, right at the
+  // dirt edge): this used to be a closed-form jump straight to
+  // min(dirtEdgeFt, the ball's own capPoint) - no smaller push was ever even
+  // considered, unlike applyChargeEase's own retreat step (below), which
+  // already does a genuine graduated "smallest correction that works" search
+  // instead of assuming the full cap is needed. In the cappedFallback case
+  // this ends up landing at (or extremely near) the full cap almost every
+  // time anyway - by construction, the honest race's own restFt boundary is
+  // itself at/near that same cap, which is exactly why cappedFallback fired -
+  // but "almost every time" isn't "every time," and there was never any
+  // actual check confirming the full push was NECESSARY rather than just
+  // sufficient. Now: the same bearing/depth interpolation as before (still
+  // capped at WINNER_CHEAT_MAX_DEG bearing, still bounded above by
+  // min(dirtEdgeFt(stepDeg), the ball's own capPoint depth)), but swept in
+  // 40 steps from the TRUE anchor (t=0) up to the full cap (t=1), re-racing
+  // fielderInterceptS from each candidate anchor and stopping at the first
+  // one that genuinely beats the ball before raceRestFt - the same
+  // "isGenuine" idea applyChargeEase's retreat loop already uses, just
+  // swept toward the ball instead of away from it. fieldedFt now moves with
+  // it (a genuine recompute, not held at the old boundary while only the
+  // anchor cosmetically shifts) - if a shallower anchor genuinely gets there
+  // sooner, that's where the ball was actually touched, not an artifact of
+  // "start deep enough that the fixed old boundary was still reachable."
+  // Falls through to the full t=1 anchor (today's old answer, byte-for-byte
+  // reproduced at that step) if nothing shallower ever genuinely beats the
+  // ball - same resilience guarantee the old closed form always had.
   function applyGrounderDeepSetup(m, flight, intercept, gp, maxAlongFt, raceRestFt) {
-    var fieldedFt = intercept.alongFt;
-    var capPointFt = groundDirPoint(flight, fieldedFt);
+    var capPointFt = groundDirPoint(flight, intercept.alongFt);
     var capPointDepthFt = Math.hypot(capPointFt.x, capPointFt.y);
-    var leewayAnchor = capBearingTowardFt(intercept.anchorFt, capPointFt, WINNER_CHEAT_MAX_DEG);
-    var leewayDeg = 45 + Math.atan2(leewayAnchor.x, leewayAnchor.y) * 180 / Math.PI;
     var trueDepthFt = Math.hypot(intercept.anchorFt.x, intercept.anchorFt.y);
-    var leewayDepthFt = Math.max(trueDepthFt, Math.min(dirtEdgeFt(leewayDeg), capPointDepthFt));
-    leewayAnchor = landingPoint(leewayDepthFt, leewayDeg);
+
+    var pos = intercept.pos;
+    var basePace = OUTFIELD_POSITIONS[pos] ? OF_CHARGE_FT_PER_S : FIELDER_CHARGE_FT_PER_S;
+    var ftPerS = basePace * spdPaceScale(fielderSpd(m, pos));
+    var reactionS = pos === "P" ? PITCHER_CHARGE_REACTION_S : CHARGE_REACTION_S;
+    var reachFt = OUTFIELD_POSITIONS[pos] ? 0 : INFIELD_GLOVE_REACH_FT;
+
+    var steps = 40;
+    var leewayAnchor = intercept.anchorFt;
+    var leewayDeg = 45 + Math.atan2(intercept.anchorFt.x, intercept.anchorFt.y) * 180 / Math.PI;
+    var fieldedFt = intercept.alongFt, groundTimeS = intercept.atS;
+    for (var i = 1; i <= steps; i++) {
+      var t = i / steps;
+      var stepAnchor = capBearingTowardFt(intercept.anchorFt, capPointFt, WINNER_CHEAT_MAX_DEG * t);
+      var stepDeg = 45 + Math.atan2(stepAnchor.x, stepAnchor.y) * 180 / Math.PI;
+      var stepDepthFt = trueDepthFt + (Math.min(dirtEdgeFt(stepDeg), capPointDepthFt) - trueDepthFt) * t;
+      stepAnchor = landingPoint(stepDepthFt, stepDeg);
+      var raced = fielderInterceptS(stepAnchor, flight, gp, maxAlongFt, null, ftPerS, reactionS, null, reachFt);
+      leewayAnchor = stepAnchor; leewayDeg = stepDeg;
+      fieldedFt = raced.alongFt; groundTimeS = raced.atS;
+      if (raced.alongFt < raceRestFt - 1e-6) break; // smallest push that genuinely gets there
+    }
+
     var winnerDirtRoomFt = dirtEdgeFt(leewayDeg) - trueDepthFt;
-    var depthPct = winnerDirtRoomFt > 0 ? (leewayDepthFt - trueDepthFt) / winnerDirtRoomFt : 0;
-    // fieldedFt is exactly whichever boundary restFt used (never round-
-    // tripped through fieldedDistFt's own addition/subtraction, which can
-    // drift a hair past it) - safe by construction, but guarded anyway
-    // (resolveSinglePickup's own established pattern) since timeAt has no
-    // tolerance for landing even a float epsilon beyond its own restFt.
-    // Falls back to intercept.atS (this play's pre-leeway groundTimeS) when
-    // that guard trips, exactly as the pre-extraction inline code did.
+    var finalDepthFt = Math.hypot(leewayAnchor.x, leewayAnchor.y);
+    var depthPct = winnerDirtRoomFt > 0 ? (finalDepthFt - trueDepthFt) / winnerDirtRoomFt : 0;
+    // fieldedFt is exactly whichever boundary the winning step's own race
+    // landed on (never round-tripped through fieldedDistFt's own addition/
+    // subtraction, which can drift a hair past it) - safe by construction,
+    // but guarded anyway (resolveSinglePickup's own established pattern)
+    // since timeAt has no tolerance for landing even a float epsilon beyond
+    // its own restFt. Falls back to the race's own atS when that guard
+    // trips.
     var fieldedArriveS = gp.timeAt(fieldedFt);
-    var groundTimeS = fieldedArriveS != null ? fieldedArriveS : intercept.atS;
-    return { anchorFt: leewayAnchor, depthPct: depthPct, groundTimeS: groundTimeS };
+    if (fieldedArriveS != null) groundTimeS = fieldedArriveS;
+    return { anchorFt: leewayAnchor, depthPct: depthPct, fieldedFt: fieldedFt, groundTimeS: groundTimeS };
   }
   // Task 4 (fielding-reconciliation-audit plan), section 4.2 - the slow-
   // charge knob's own trigger test plus bisection solve, factored out of
@@ -3579,8 +3717,24 @@
     // already a genuine crossing (cappedFallback's own disjointness
     // guard), so the loop only ever needs to watch for retreating PAST
     // that, never needs a special t=0 case.
+    //
+    // P excluded (Alex's ask, after the Jerk McGurkin infield-single report -
+    // S13/Sess5, POR@HFX, top 6): dirtEdgeFt(45), the ceiling this loop
+    // retreats toward, is 175.5ft dead center - past BASE_DIAG_FT's own
+    // 127.3ft to second base - because the infield dirt circle (centered on
+    // the mound, radius INFIELD_SKIN_DIRT_R_FT) is deliberately deep enough
+    // to read as a real infield skin, not sized as a fielder-depth ceiling.
+    // That's harmless for SS/2B/1B/3B (their own true depths, and this same
+    // ceiling's real bounds, already sit close to or short of the bag - nowhere
+    // near this loop's full t=1 extreme), but a comebacker-turned-hit could
+    // retreat the pitcher's TRUE 60ft/dead-centre anchor right past second
+    // base, which no real pitcher ever does pre-pitch (same rule
+    // fielderStartAnchorFt's own idle pull-back already states for P). Left
+    // unset here, paceScale (already computed above) plus downstream
+    // slowThrow/holdRelease are what explain the timing for a close pitcher
+    // play instead - the honest position, never moved.
     var retreatAnchorFt = null, retreatDepthPct = null, retreatApplied = false;
-    if (triggeredAt(bestFieldedFt, bestGroundTimeS)) {
+    if (pos !== "P" && triggeredAt(bestFieldedFt, bestGroundTimeS)) {
       retreatApplied = true;
       var trueDepthFt = Math.hypot(anchorFt.x, anchorFt.y);
       var fieldedPtForBearing = groundDirPoint(flight, bestFieldedFt);
@@ -3604,17 +3758,73 @@
       retreatAnchorFt: retreatAnchorFt, retreatDepthPct: retreatDepthPct, retreatApplied: retreatApplied,
     };
   }
-  function resolveGrounderInterception(m, flight, hand) {
+  // Alex's correction (prototype, round 2): the FIRST version of this
+  // retry only ever asked "can this same fielder, from their same true
+  // anchor, get there faster" - which barely moves anything once a fielder
+  // already comfortably beats the ball (the ball's own roll physics, not
+  // foot speed, decides the crossing point at that point), and it left
+  // fieldedFt frozen entirely on the leeway fallback, which structurally
+  // can never shrink a RETURN trip (pickup point -> a base) since that
+  // point never moved. Alex's own framing: gp (the ball's real ground path)
+  // never changes either way - fielderInterceptS already finds a genuinely
+  // real crossing point for WHATEVER anchor it's given, same as
+  // chargeInIntercept's own multi-candidate race already does today, racing
+  // several real fielders' own anchors against the same ball path. This
+  // adds exactly one more real candidate anchor to that same idea:
+  // interpolated toward whichever base the fielder's own later leg needs to
+  // reach, bounded by ANCHOR_SHIFT_TOWARD_BASE_MAX_FRAC - not a fictional
+  // catch, a genuinely different, still-bounded real starting position,
+  // raced the same honest way as everything else in this function.
+  var ANCHOR_SHIFT_TOWARD_BASE_MAX_FRAC = 0.35;
+  // A small, bounded interpolation from `anchor` toward `targetBaseFt` - the
+  // sibling of capBearingTowardFt above (which shifts toward the BALL's own
+  // direction); this shifts toward wherever the fielder's own later leg
+  // needs them to end up instead. First-guess bound, not researched real
+  // positioning data - same footing as any other tuning-panel constant,
+  // needs Alex's own eye on real examples before being treated as final.
+  function anchorShiftedTowardBaseFt(anchor, targetBaseFt, frac) {
+    return { x: anchor.x + (targetBaseFt.x - anchor.x) * frac, y: anchor.y + (targetBaseFt.y - anchor.y) * frac };
+  }
+  // forceFieldingRetry (prototype, Alex's ask): resolvePlayFlightReconciled's
+  // own retry, below - widens the "no genuine crossing" trigger just below
+  // to ALSO cover "reconciliation later found the ball-toucher's own leg
+  // came up short," reusing the exact same bounded sprint-then-leeway
+  // hierarchy rather than inventing separate math for it. Default false/
+  // undefined is byte-for-byte today's behavior for every existing caller.
+  // targetBaseFt (prototype, round 2): the base position the anchor-shift
+  // candidate above races toward - null for every existing caller (byte-
+  // for-byte unchanged) and for a forced retry where resolvePlayFlight
+  // Reconciled couldn't attribute the shortfall to a specific base.
+  function resolveGrounderInterception(m, flight, hand, forceFieldingRetry, targetBaseFt) {
     var hzPos = HZ_FIELDER_BY_ANGLE[Math.round(flight.angle)];
-    var pitcherExcludedByEv = false;
+    var pitcherExcluded = false;
     if (hzPos === "P" && flight.ev > PITCHER_MIDDLE_EV_MAX_MPH) {
       hzPos = hand === "L" ? "SS" : "2B";
-      pitcherExcludedByEv = true;
+      pitcherExcluded = true;
+    }
+    // Alex's ask, after counting the corpus (reconciliation_corpus_probe-style
+    // sweep, tools/pitcher_infield_single_probe.py): 3/283 (1.1%) of infield
+    // singles across every season already resolve to fielder=P - the same
+    // "weird animation" pattern the Jerk McGurkin report (S13/Sess5, POR@HFX,
+    // top 6) flagged. A pitcher plausibly fielding and CONVERTING a routine
+    // comebacker (archetype "grounder", a real out) is normal; one that got
+    // BEATEN OUT (archetype "infield_single" - by definition, no out was ever
+    // recorded on this play) reads wrong the same way an >80mph comebacker
+    // already does, so it's rerouted exactly like that existing case, by
+    // batter hand. pitcherExcluded is also forced true here unconditionally
+    // (not just when hzPos itself was "P") - one of the three sampled plays
+    // (s10:100101043) shows the charge race itself can still hand an off-
+    // angle dribbler to the pitcher even when the HZ lattice said "1B", so
+    // keeping P out of the candidate pool below can't be gated on hzPos
+    // alone.
+    if (flight.archetype === "infield_single") {
+      if (hzPos === "P") hzPos = hand === "L" ? "SS" : "2B";
+      pitcherExcluded = true;
     }
     var pos = hzPos;
     if (brcExcludes(m, hzPos) && m.default_position) {
       pos = m.default_position;
-      applyAngleOverride(flight, MIN_ANGLE_FOR_POS[pos], hand, false);
+      applyAngleOverride(flight, BRC_REDIRECT_ANGLE_FOR_POS[pos], hand, false);
     }
     var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
     // INFIELDER_DEPTH_FT has no "C" entry (a catcher has no real "standard
@@ -3664,7 +3874,7 @@
       // gates on wasOut for a ground archetype, so an infield single races
       // the same way a comparable groundout does; nobody winning the race
       // in time before maxAlongFt is exactly what "safe" already means.
-      var candidates = pitcherExcludedByEv ? CHARGE_CANDIDATES_NO_PITCHER : null;
+      var candidates = pitcherExcluded ? CHARGE_CANDIDATES_NO_PITCHER : null;
       var intercept = chargeInIntercept(flight, gp, maxAlongFt, candidates, m);
       pos = intercept.pos;
       fieldedFt = intercept.alongFt;
@@ -3741,7 +3951,14 @@
       // never actually caught up to. Its own archetype name implies a real
       // fielding attempt happened, same as a comparable groundout - it
       // deserves the same leeway/speed treatment, not less.
-      if (GROUND_ARCHETYPES[flight.archetype] && isCappedFallback) {
+      // forceFieldingRetry (prototype): the exact same "sprint first, then
+      // shift the anchor if the sprint alone still isn't enough" hierarchy,
+      // just entered for a second reason - resolvePlayFlightReconciled found
+      // this fielder's own later leg (a throw, or their own return trip to a
+      // base they'd already left) came up short downstream even after every
+      // pace/speed knob throwSchedule/reconcileCoverage already have. Same
+      // bounded math either way; only the trigger widens.
+      if (GROUND_ARCHETYPES[flight.archetype] && (isCappedFallback || forceFieldingRetry)) {
         // Positioning hierarchy step 1 (Alex's ask): before ever bending
         // this fielder's own starting position, try a bounded, realistic
         // sprint from their TRUE anchor - INFIELD_CHARGE_SPRINT_*'s own
@@ -3755,7 +3972,52 @@
         var sprint = fielderInterceptS(intercept.anchorFt, flight, gp, maxAlongFt, null,
           INFIELD_CHARGE_SPRINT_TOP_SPEED_FT_PER_S, winnerReactionS, INFIELD_CHARGE_SPRINT_ACCEL_FT_S2, winnerReachFt);
         var sprintCapped = sprint.alongFt >= raceRestFt - 1e-6;
-        if (!sprintCapped) {
+
+        // Round 2 (Alex's ask): a second real candidate alongside the sprint
+        // above - same fielderInterceptS primitive, same honest charge pace
+        // (not sprint; these are two independent, separately real levers,
+        // not stacked here), raced from an anchor shifted toward whichever
+        // base this fielder's own later leg needs to reach instead of their
+        // true default anchor. Only attempted when the caller actually knows
+        // that base (targetBaseFt) - the "no genuine crossing" case has no
+        // such base to aim at and never reaches this branch.
+        var baseShift = (forceFieldingRetry && targetBaseFt)
+          ? fielderInterceptS(anchorShiftedTowardBaseFt(intercept.anchorFt, targetBaseFt, ANCHOR_SHIFT_TOWARD_BASE_MAX_FRAC),
+              flight, gp, maxAlongFt, null, null, null, null, winnerReachFt)
+          : null;
+        var baseShiftReal = baseShift && baseShift.alongFt < raceRestFt - 1e-6;
+
+        // Pick whichever REAL candidate leaves the ball-toucher closest to
+        // the base their own later leg needs - that's the actual thing this
+        // retry is trying to shrink, not "earliest fielded time" in the
+        // abstract (a faster sprint that reaches the ball far from the
+        // target base doesn't help a subsequent carry/return leg at all).
+        // Every existing caller (targetBaseFt always null) falls straight
+        // through to the untouched sprint-then-leeway logic below.
+        if (targetBaseFt && (!sprintCapped || baseShiftReal)) {
+          var options = [];
+          if (!sprintCapped) options.push({ alongFt: sprint.alongFt, atS: sprint.atS, kind: "sprint" });
+          if (baseShiftReal) {
+            options.push({
+              alongFt: baseShift.alongFt, atS: baseShift.atS, kind: "baseShift",
+              anchorFt: anchorShiftedTowardBaseFt(intercept.anchorFt, targetBaseFt, ANCHOR_SHIFT_TOWARD_BASE_MAX_FRAC),
+            });
+          }
+          options.forEach(function (o) { o.pt = groundDirPoint(flight, o.alongFt); });
+          options.sort(function (a, b) {
+            return Math.hypot(a.pt.x - targetBaseFt.x, a.pt.y - targetBaseFt.y) -
+              Math.hypot(b.pt.x - targetBaseFt.x, b.pt.y - targetBaseFt.y);
+          });
+          var winnerOpt = options[0];
+          fieldedFt = winnerOpt.alongFt;
+          groundTimeS = winnerOpt.atS;
+          if (winnerOpt.kind === "sprint") {
+            flight.fieldingAdjust.sprintCapped = true;
+          } else {
+            flight.fieldingAdjust.anchorFt = winnerOpt.anchorFt;
+            flight.fieldingAdjust.baseShifted = true;
+          }
+        } else if (!sprintCapped) {
           // The sprint alone gets there - real position, real (faster,
           // still bounded) pace, no leeway needed. flight.fieldingAdjust
           // stays at its just-initialized default (anchorFt: the true
@@ -3769,6 +4031,7 @@
           flight.fieldingAdjust.sprintCapped = true;
         } else {
           var deepSetup = applyGrounderDeepSetup(m, flight, intercept, gp, maxAlongFt, raceRestFt);
+          fieldedFt = deepSetup.fieldedFt;
           groundTimeS = deepSetup.groundTimeS;
           flight.fieldingAdjust.anchorFt = deepSetup.anchorFt;
           flight.fieldingAdjust.depthPct = deepSetup.depthPct;
@@ -4782,7 +5045,7 @@
     return lo;
   }
 
-  function resolveHitPickup(flight) {
+  function resolveHitPickup(flight, m) {
     var gp = KMTraj.groundPath(Math.hypot(flight.contactVel.vx, flight.contactVel.vy), flight.contactVel.vz);
     var maxReachFt = fenceAt(flight.angle) - 2;
     var pickupFt = gp.restFt, groundTimeS = gp.totalS;
@@ -4814,7 +5077,7 @@
     // (involvedPositions/"Fielded by", fielderTokensHtml's convergence
     // point) reads this same corrected value.
     var restPt = groundDirPoint(flight, pickupFt);
-    flight.fielder = nearestFielder(restPt.x, restPt.y, PICKUP_RETREAT_PENALTY);
+    flight.fielder = nearestFielder(restPt.x, restPt.y, PICKUP_RETREAT_PENALTY, String((m && m.obc_before) || "000"));
   }
 
   // A physically low trajectory reads as "ground" for CSS purposes - the old
@@ -5715,14 +5978,26 @@
     // this is a no-op for the overwhelming majority of plays.
     if (pos !== flight.fielder && pos !== "P" && flight.fieldingAdjust && flight.fieldingAdjust.depthPct &&
         INFIELDER_DEPTH_FT[pos] != null) {
-      var defaultDepthFt = INFIELDER_DEPTH_FT[pos];
-      var idleDirtFt = dirtEdgeFt(CANONICAL_ANGLE[pos]);
-      var idleDepthFt = defaultDepthFt + flight.fieldingAdjust.depthPct * (idleDirtFt - defaultDepthFt);
-      return landingPoint(idleDepthFt, CANONICAL_ANGLE[pos]);
+      // "Own default depth" now means this play's own OBC-conditioned
+      // depth/bearing (obcDepthFt/obcAngleDeg), not the flat table - a
+      // fielder playing back still starts the pull from wherever THIS
+      // play's OBC actually set them up, not a one-size default.
+      // depthPct=1 no longer maps to this position's own real dirtEdgeFt
+      // (Alex's ask) - INFIELD_OBC_IDLE_MAX_DEPTH_FT is an authored ceiling
+      // specifically for this non-active-fielder pull-back, never read by
+      // the real fielder's own depth math above. obcIdleMaxDepthFt falls
+      // back to the real dirtEdgeFt for anything that table doesn't cover.
+      var obcBefore = String((m && m.obc_before) || "000");
+      var defaultDepthFt = obcDepthFt(pos, obcBefore);
+      var defaultAngleDeg = obcAngleDeg(pos, obcBefore);
+      var idleMaxDepthFt = obcIdleMaxDepthFt(pos, obcBefore, defaultAngleDeg);
+      var idleDepthFt = defaultDepthFt + flight.fieldingAdjust.depthPct * (idleMaxDepthFt - defaultDepthFt);
+      return landingPoint(idleDepthFt, defaultAngleDeg);
     }
-    if (!ofPursuitApplies(m, flight) || pos !== flight.fielder) return FIELDER_ANCHORS_FT[pos];
-    if (ofPursuitDeficitMs(m, flight, FIELDER_ANCHORS_FT[pos]) <= OF_READ_DELAY_MAX_MS) {
-      return FIELDER_ANCHORS_FT[pos]; // the read delay alone already covers it - no shade needed
+    var obcAnchor = obcFielderAnchorFt(pos, String((m && m.obc_before) || "000"));
+    if (!ofPursuitApplies(m, flight) || pos !== flight.fielder) return obcAnchor;
+    if (ofPursuitDeficitMs(m, flight, obcAnchor) <= OF_READ_DELAY_MAX_MS) {
+      return obcAnchor; // the read delay alone already covers it - no shade needed
     }
     return ofDerivedShadeAnchorFt(m, flight, pos);
   }
@@ -6494,7 +6769,14 @@
     // meaningfully earlier than the honest fielding time, and the glove's
     // render has to track that same departure, not a slower honest one.
     var leg1Dur = Math.max(0, Math.min(naturalFieldMs, throwLeg.startMs - e.startMs));
-    var leg2Dur = Math.max(0, throwLeg.endMs - (e.startMs + leg1Dur));
+    // Alex's report: this fielder visibly waited before breaking to cover -
+    // root cause, this line dwelled until throwLeg.endMs (when the throw
+    // ARRIVES at its target) instead of throwLeg.startMs (when it actually
+    // LEAVES this fielder's own hand), despite this function's own comment
+    // above already saying "releases." Once the ball's released this
+    // fielder's hands are free - unassistedLegTiming's own sibling dwell
+    // (leg.startMs, not leg.endMs) already gets this right; this one drifted.
+    var leg2Dur = Math.max(0, throwLeg.startMs - (e.startMs + leg1Dur));
     var leg3Dur = fielderLegDurationsMs(m, e.pos, [{ distFt: coverLeg.distFt }], "run", e.paceScaleOverride)[0];
     // Final honest backstop, mirroring reconcileCoverage's own recorded
     // coverCompress residual: explicit durMs on every leg here (the whole
@@ -6558,23 +6840,30 @@
       // later in the same chain - entry.legs is the raw [field, cover]
       // pair (no dwell modeled yet, that's returnCoverLegTiming's own
       // render-time job), and the FIELDING+DWELL prefix (ending exactly
-      // at his own first throw's release, schedule[0].endMs - always his
+      // at his own first throw's release, schedule[0].startMs - always his
       // own leg, throwSchedule's own leg-0 convention) is fixed, not
       // adjustable: coverEarlyBreak's "break for the bag earlier" lever
       // doesn't apply to someone who's still fielding and throwing first.
       // Only the cover-run leg (entry.legs[1]) is ever eased. Corrected
       // BEFORE the deficit check below (not after) - chainMoverPlan's own
-      // entry.arrivalMs has no way to know schedule[0].endMs (it's built
+      // entry.arrivalMs has no way to know schedule[0].startMs (it's built
       // schedule-free, the acyclicity rule) and so understates this
       // entry's own real arrival by the whole dwell; checking deficit
       // against that stale, too-early number would silently conclude
       // "arrives in time" on a play that's actually late.
+      // Alex's report (game=011204&play=22): this used schedule[0].endMs -
+      // the throw's own ARRIVAL at its target, not its release - so the
+      // "fixed prefix" silently included the whole throw's own flight time
+      // (drawMs) as extra dwell nobody's actually standing still for. Once
+      // the ball leaves this fielder's hand they're free to break for the
+      // next base; returnCoverLegTiming's own render-time twin had (and
+      // fixed) the identical bug.
       var isReturnCover = !!entry.returnsAfterThrow;
-      var fixedPrefixMs = isReturnCover ? Math.max(0, schedule[0].endMs - entry.startMs) : 0;
+      var fixedPrefixMs = isReturnCover ? Math.max(0, schedule[0].startMs - entry.startMs) : 0;
       var coverOnlyLeg = isReturnCover ? [entry.legs[1]] : entry.legs;
       if (isReturnCover) {
         var naturalCoverMsForArrival = fielderLegDurationsMs(m, entry.pos, coverOnlyLeg, "run")[0];
-        entry.arrivalMs = schedule[0].endMs + naturalCoverMsForArrival;
+        entry.arrivalMs = schedule[0].startMs + naturalCoverMsForArrival;
       }
       var deficit = entry.arrivalMs - leg.endMs;
       if (deficit <= 0) return;
@@ -6635,10 +6924,10 @@
       // fielderMovePacing entirely (its own continuous-run model has no
       // dwell - exactly the bug this whole fix addresses) and instead adds
       // the eased cover-run time onto the fixed prefix's own real end
-      // point (schedule[0].endMs, his own throw's release).
+      // point (schedule[0].startMs, his own throw's release).
       if (isReturnCover) {
         var easedCoverMs = fielderLegDurationsMs(m, entry.pos, coverOnlyLeg, "run", entry.paceScaleOverride)[0];
-        entry.arrivalMs = schedule[0].endMs + easedCoverMs;
+        entry.arrivalMs = schedule[0].startMs + easedCoverMs;
       } else {
         var pacing = fielderMovePacing(m, entry.pos, entry.legs, entry.startMs, null, entry.profileKind, entry.paceScaleOverride);
         entry.arrivalMs = pacing.delayMs + pacing.totalMs;
@@ -6661,6 +6950,7 @@
 
   function fielderTokensHtml(m, flight, moves, seqDelay) {
     var allPositions = Object.keys(FIELDER_ANCHORS_FT);
+    var obcBefore = String(m.obc_before || "000");
     // Every mover's timeline shares the same t=0 (seqDelay - whenever this
     // play's own slide begins - not fieldedMs/ballTravelMs) - see
     // movingFielderTokenHtml's own comment above. NOT the same as starting
@@ -6671,19 +6961,21 @@
 
     if (!flight) {
       // No batted ball - the only fielder movement worth showing is a steal
-      // attempt's covering fielder heading to the bag.
+      // attempt's covering fielder heading to the bag. Every fielder still
+      // starts from this play's own OBC-conditioned spot, same as a batted
+      // ball would show them at.
       var steal = stealThrowTarget(m, moves);
       var stealPos = steal && STEAL_COVER_POSITION[steal.base];
-      var stealAnchor = stealPos && FIELDER_ANCHORS_FT[stealPos];
+      var stealAnchor = stealPos && obcFielderAnchorFt(stealPos, obcBefore);
       var stealDestFt = stealPos && BASE_POS_FT[steal.base];
       var stealDestSvg = stealPos && (steal.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[steal.base]);
       if (stealAnchor && stealDestFt && stealDestSvg) {
         var stealDistFt = Math.hypot(stealDestFt.x - stealAnchor.x, stealDestFt.y - stealAnchor.y);
         return allPositions.filter(function (pos) { return pos !== stealPos; })
-          .map(function (pos) { return idleFielderTokenHtml(pos); }).join("") +
-          movingFielderTokenHtml(m, stealPos, [{ toSvg: stealDestSvg, distFt: stealDistFt }], startDelay);
+          .map(function (pos) { return idleFielderTokenHtml(pos, obcFielderAnchorFt(pos, obcBefore)); }).join("") +
+          movingFielderTokenHtml(m, stealPos, [{ toSvg: stealDestSvg, distFt: stealDistFt }], startDelay, stealAnchor);
       }
-      return allPositions.map(function (pos) { return idleFielderTokenHtml(pos); }).join("");
+      return allPositions.map(function (pos) { return idleFielderTokenHtml(pos, obcFielderAnchorFt(pos, obcBefore)); }).join("");
     }
 
     var moving = {};
@@ -7039,8 +7331,35 @@
   // The FC family reaches first but deriveRunnerMoves pairs before/after
   // like-for-like for these codes (obc_before === obc_after), so it never
   // emits a BATTER move - the batter token would otherwise be missing
-  // entirely and the play would render completely static (A3).
+  // entirely and the play would render completely static (A3). Only ever
+  // used to pick a target BASE once outThrowTargets/runnerForOutTarget (or
+  // batterUnaccountedOut, below) already know an unaccounted batter-out is
+  // real - never the thing that decides whether one exists at all (that was
+  // this table's own original bug, fixed below).
   var BATTER_REACHES_FIRST = { FC: 1, FC3rd: 1, FCH: 1, FCLead: 1 };
+  // Alex's report (game=011204&play=22): fielderTokensHtml's own
+  // !batterReached render path used to decide "is the batter out" by
+  // checking m.result against BATTER_REACHES_FIRST's own small 4-code
+  // allowlist - wrong for any other result shape where moves still doesn't
+  // list an explicit BATTER entry, which happens whenever deriveRunnerMoves'
+  // algorithmic fallback (no real m.runner_moves recorded) already explains
+  // every one of this play's own new outs through the EXISTING runners
+  // alone (a reverse-force DP: SS throws to 3rd forcing the runner who
+  // started on 2nd, relays to 2nd forcing the one who started on 1st - the
+  // batter is never touched, they'd reach first safely, moot only because
+  // the second force already ended the half-inning). outThrowTargets
+  // (above) already asks this exact question correctly for its own throw-
+  // target list (its own inline "unaccounted" check) - this is that same
+  // derived answer, factored out so the render path reads one true source
+  // instead of guessing a second, incomplete way from the result code.
+  // recorded<=0 (no new out at all) trivially returns false - the batter
+  // was never a candidate to begin with, same as outThrowTargets' own
+  // unaccounted>0 gate requires.
+  function batterUnaccountedOut(m, moves) {
+    var recorded = Math.max(0, (m.outs_after || 0) - (m.outs_before || 0));
+    var accountedFor = moves.filter(function (mv) { return mv.to === "OUT"; }).length;
+    return recorded > accountedFor;
+  }
   // A strikeout has no ball flight to hang a result label off (ballFlightHtml
   // never runs), so its "K" gets drawn directly next to the batter token
   // instead, at the same beat the out itself resolves.
@@ -7549,7 +7868,7 @@
         // the nearest fielder to track with its own already-locked result.
         resolveSinglePickup(m, flight, hand);
       } else if (!flight.clearedFence) {
-        resolveHitPickup(flight);
+        resolveHitPickup(flight, m);
       }
     }
     var notation = fieldingNotation(m, flight);
@@ -8680,7 +8999,7 @@
     if (target.base === "HOME" && stealThrowOrigin(m) === "P") return "";
     var to = target.base === "HOME" ? SCENE_BASES.HOME : SCENE_BASES[target.base];
     if (!to) return "";
-    var originAnchor = FIELDER_ANCHORS_FT[stealThrowOrigin(m)] || FIELDER_ANCHORS_FT.C;
+    var originAnchor = obcFielderAnchorFt(stealThrowOrigin(m), String(m.obc_before || "000")) || FIELDER_ANCHORS_FT.C;
     var from = ftToSvg(originAnchor.x, originAnchor.y);
     // Explicit "delay" flag (e.g. KCS - a strikeout that also catches a
     // runner stealing): the steal doesn't start on the pitch like a normal
@@ -8738,6 +9057,8 @@
     distanceCap: distanceCap, boundaryRFt: boundaryRFt,
     nearestFielder: nearestFielder, flightParams: flightParams, fenceAt: fenceAt,
     resolvePlayFlight: resolvePlayFlight,
+    resolvePlayFlightReconciled: resolvePlayFlightReconciled, fielderChainShortfallMs: fielderChainShortfallMs,
+    targetBaseFtForFielder: targetBaseFtForFielder,
     CATCH_RETREAT_PENALTY: CATCH_RETREAT_PENALTY, PICKUP_RETREAT_PENALTY: PICKUP_RETREAT_PENALTY,
     launchAngleFor: launchAngleFor,
     stationsLookup: stationsLookup,
@@ -8832,7 +9153,10 @@
     colorDistance: colorDistance, gameTeamColors: gameTeamColors,
     TEAM_COLOR_MIN_DISTANCE: TEAM_COLOR_MIN_DISTANCE,
     OF_POSITIONS: OF_POSITIONS, FIELDER_ANCHORS_FT: FIELDER_ANCHORS_FT,
-    INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, MIN_ANGLE_FOR_POS: MIN_ANGLE_FOR_POS,
+    INFIELDER_DEPTH_FT: INFIELDER_DEPTH_FT, BRC_REDIRECT_ANGLE_FOR_POS: BRC_REDIRECT_ANGLE_FOR_POS,
+    INFIELD_OBC_DEPTH_FT: INFIELD_OBC_DEPTH_FT, INFIELD_OBC_ANGLE_OFFSET: INFIELD_OBC_ANGLE_OFFSET,
+    INFIELD_OBC_IDLE_MAX_DEPTH_FT: INFIELD_OBC_IDLE_MAX_DEPTH_FT, obcIdleMaxDepthFt: obcIdleMaxDepthFt,
+    obcFielderAnchorFt: obcFielderAnchorFt, obcDepthFt: obcDepthFt, obcAngleDeg: obcAngleDeg,
     OUTFIELDER_DEPTH_FT: OUTFIELDER_DEPTH_FT, OF_CANONICAL_ANGLE: OF_CANONICAL_ANGLE,
     HZ_FIELDER_BY_ANGLE: HZ_FIELDER_BY_ANGLE, PITCHER_MIDDLE_EV_MAX_MPH: PITCHER_MIDDLE_EV_MAX_MPH,
     fielderSpd: fielderSpd, spdPaceScale: spdPaceScale,
@@ -8867,6 +9191,7 @@
     HOME_SVG: HOME_SVG,
     POSITION_NUMBER: POSITION_NUMBER, coveringPosition: coveringPosition,
     fieldingNotation: fieldingNotation, resolveRunnerMoves: resolveRunnerMoves,
+    batterUnaccountedOut: batterUnaccountedOut,
     realOutThrowCount: realOutThrowCount,
   };
 
@@ -9523,8 +9848,9 @@
     // deriveRunnerMoves only tracks RUNNERS, so a play where the batter never
     // reached base yields no token for them at all. Four shapes: a
     // no-plate-appearance play (a steal, a caught stealing, a balk - Alex's
-    // ask below), the FC family (BATTER_REACHES_FIRST - safe at first, A3),
-    // a batted-ball out (Stage 6b), or no batted ball at all (Stage 6c).
+    // ask below), a play where the batter reaches safely and someone else is
+    // the real out (batterUnaccountedOut - safe at first, A3), a batted-ball
+    // out (Stage 6b), or no batted ball at all (Stage 6c).
     var noPa = (data.meta.flight && data.meta.flight.no_pa) || [];
     var batterReached = moves.some(function (mv) { return mv.from === "BATTER"; });
     // m.result is only null on the on-deck placeholder (no real play has a
@@ -9562,12 +9888,15 @@
         var boxVars = "--tx:" + batterBoxSvg.x + "px;--ty:" + batterBoxSvg.y + "px";
         tokens += '<g class="rn batter" style="' + boxVars + '">' +
           '<g class="rn-inner"><circle r="' + RUNNER_R + '"></circle></g></g>';
-      } else if (BATTER_REACHES_FIRST[m.result]) {
-        // A3/F5: the FC family reaches first safely - someone else was
-        // forced out. deriveRunnerMoves pairs obc_before/after like-for-like
-        // for these codes and never emits a BATTER move, so without this the
-        // batter is invisible and the whole play renders static. Plain safe
-        // token, not the out choreography - the batter isn't out here.
+      } else if (!batterUnaccountedOut(m, moves)) {
+        // A3/F5: reaches first safely - someone else was the real out (the
+        // FC family, and any other shape - a reverse-force DP included -
+        // where moves' own OUT count already explains every one of this
+        // play's new outs without the batter). deriveRunnerMoves pairs
+        // obc_before/after like-for-like for these codes and never emits a
+        // BATTER move, so without this the batter is invisible and the whole
+        // play renders static. Plain safe token, not the out choreography -
+        // the batter isn't out here.
         var fc1 = SCENE_BASES["1B"];
         var fcVars = "--fx:" + batterBoxSvg.x + "px;--fy:" + batterBoxSvg.y + "px;" +
                      "--tx:" + fc1.x + "px;--ty:" + fc1.y + "px;" +
@@ -11294,15 +11623,156 @@
         // the nearest fielder to track with its own already-locked result.
         resolveSinglePickup(m, flight, hand);
       } else if (!flight.clearedFence) {
-        resolveHitPickup(flight);
+        resolveHitPickup(flight, m);
       }
     }
     return flight;
   }
 
+  // --- fast-charge/anchor retry prototype (Alex's ask, following the Dirk
+  // Digglet play - S12/Sess7, ASS@HMH, bot 2 - and the corpus probe's own
+  // worst DP31/TP rows) --------------------------------------------------
+  //
+  // resolvePlayFlight resolves WHERE and WHEN a ball is fielded once, before
+  // throwSchedule/chainMoverPlan/reconcileCoverage exist yet to know whether
+  // that choice leaves the SAME fielder's own later leg enough time - a
+  // throw they make themselves, or (the Digglet case) their own trip back
+  // to a base they'd already left to field the ball. Today those later
+  // stages only ever get to tune pace/speed knobs against a geometry that's
+  // already locked in; when even every one of those knobs maxed out still
+  // isn't enough, the honest result is either an "unresolved" throw residual
+  // or (uncapped, and worse-looking) reconcileCoverage's own coverCompress
+  // backstop, which forces the token to arrive on schedule regardless of
+  // whether the physics actually supports it - a fielder rendered sprinting
+  // an impossible pace.
+  //
+  // Alex's call (explicit, overriding the "positioning is a pre-play
+  // decision" framing this prototype started from): this whole pipeline
+  // already reconciles bounded physical variables BACKWARD from a known
+  // recorded result - carving the fielding stage out as untouchable while
+  // treating every later stage's pace/speed as fair game was an arbitrary
+  // line, not a principled one. So this asks the exact same question
+  // resolveGrounderInterception's existing "no genuine crossing" leeway
+  // already asks (could this fielder, bounded and realistic, have gotten to
+  // the ball faster/closer) for a second reason: not "could they reach it
+  // at all" but "does reconciliation need them to."
+  //
+  // Deliberately NOT wired into any live render path yet - additive only,
+  // callable directly (KMFlight.resolvePlayFlightReconciled) for
+  // measurement against the plays that motivated it, before a decision on
+  // rolling it into playSceneHtml/fielderTokensHtml's own resolvePlayFlight
+  // call. Scoped to ground-archetype plays that record a real new out
+  // (GROUND_ARCHETYPES's own out-play family) - a no-new-out hit already has
+  // its own opposite-direction knob (applyChargeEase) and must never also
+  // race to speed up.
+  //
+  // fielderChainShortfallMs: the single number this whole prototype is
+  // trying to drive toward zero for flight.fielder specifically - the worst
+  // of (a) any throw-schedule leg THIS fielder is the thrower on that still
+  // shows an "unresolved" residual after reconcileChain's own knobs, and (b)
+  // reconcileCoverage's own coverCompress backstop for THIS fielder (the
+  // Digglet case - their own return trip to a base, never a throw at all).
+  // Both already carry an honest ms figure (schedule.adjustments'
+  // "unresolved".ms, coverage.adjustments' "coverCompress".ms) - reused
+  // directly, not re-derived.
+  function fielderChainShortfallMs(flight, schedule, coverage) {
+    if (!flight || !flight.fielder) return 0;
+    var worst = 0;
+    (schedule.adjustments || []).forEach(function (adj) {
+      if (adj.knob !== "unresolved") return;
+      var leg = schedule[adj.legIndex];
+      if (leg && leg.throwerPos === flight.fielder) worst = Math.max(worst, adj.ms);
+    });
+    (coverage && coverage.adjustments || []).forEach(function (adj) {
+      if (adj.knob === "coverCompress" && adj.who === flight.fielder) worst = Math.max(worst, adj.ms);
+    });
+    return worst;
+  }
+
+  // Round 2 (Alex's ask): which base the anchor-shift candidate above
+  // should race toward - whichever of the ball-toucher's OWN legs is
+  // actually responsible for the shortfall fielderChainShortfallMs found.
+  // A throw leg (throwerPos === flight.fielder) names its own base
+  // directly; a coverCompress hit (the Digglet case - no throw at all, just
+  // their own return trip) is read off the coverage plan instead, since
+  // that's the only place a laterSelf entry's own destination base lives.
+  function targetBaseFtForFielder(flight, schedule, plan, coverage) {
+    if (!flight || !flight.fielder) return null;
+    var base = null;
+    (schedule.adjustments || []).forEach(function (adj) {
+      if (base || adj.knob !== "unresolved") return;
+      var leg = schedule[adj.legIndex];
+      if (leg && leg.throwerPos === flight.fielder) base = leg.base;
+    });
+    if (!base) {
+      var coverCompressed = (coverage && coverage.adjustments || []).some(function (adj) {
+        return adj.knob === "coverCompress" && adj.who === flight.fielder;
+      });
+      if (coverCompressed && plan) {
+        plan.forEach(function (e) { if (!base && e.pos === flight.fielder && e.base) base = e.base; });
+      }
+    }
+    return base ? BASE_POS_FT[base] : null;
+  }
+
+  // resolvePlayFlightReconciled: resolvePlayFlight plus one bounded retry.
+  // Builds the schedule/plan/coverage triad the same way any render caller
+  // already does (throwSchedule/chainMoverPlan/reconcileCoverage - no new
+  // machinery), measures the honest shortfall, and only re-resolves the
+  // fielding stage (forceFieldingRetry) when that shortfall is real and the
+  // retry demonstrably shrinks it - never on a play that already resolves
+  // cleanly, and never keeping a retry that doesn't actually help (the
+  // sprint/leeway hierarchy is bounded; it can legitimately still not be
+  // enough, same as today's honest residual/coverCompress already admit).
+  function resolvePlayFlightReconciled(m) {
+    var flight = resolvePlayFlight(m);
+    var before = String(m.obc_before || "000");
+    var after = String(m.obc_after || "000");
+    var moves = deriveRunnerMoves(before, after, m.runs || 0);
+    if (!flight || !GROUND_ARCHETYPES[flight.archetype] || !flight.fielder ||
+        (m.outs_after || 0) <= (m.outs_before || 0)) {
+      return { flight: flight, moves: moves, retried: false };
+    }
+    var schedule = throwSchedule(m, moves, flight);
+    var plan = chainMoverPlan(m, flight, moves);
+    var coverage = plan ? reconcileCoverage(m, flight, plan, schedule) : { adjustments: [] };
+    var shortfallBefore = fielderChainShortfallMs(flight, schedule, coverage);
+    if (shortfallBefore < 1) {
+      return { flight: flight, moves: moves, schedule: schedule, plan: plan, coverage: coverage, retried: false };
+    }
+
+    var targetBaseFt = targetBaseFtForFielder(flight, schedule, plan, coverage);
+    var hand = effectiveHand(m.batter_hand);
+    var flight2 = flightParams(m, data.meta.flight);
+    resolveGrounderInterception(m, flight2, hand, true, targetBaseFt);
+    var schedule2 = throwSchedule(m, moves, flight2);
+    var plan2 = chainMoverPlan(m, flight2, moves);
+    var coverage2 = plan2 ? reconcileCoverage(m, flight2, plan2, schedule2) : { adjustments: [] };
+    var shortfallAfter = fielderChainShortfallMs(flight2, schedule2, coverage2);
+
+    if (shortfallAfter < shortfallBefore - 0.5) {
+      return {
+        flight: flight2, moves: moves, schedule: schedule2, plan: plan2, coverage: coverage2,
+        retried: true, shortfallBefore: shortfallBefore, shortfallAfter: shortfallAfter,
+      };
+    }
+    // Retry didn't help (or made it worse) - keep the honest original rather
+    // than a fielding-stage change with no benefit to show for it.
+    return {
+      flight: flight, moves: moves, schedule: schedule, plan: plan, coverage: coverage,
+      retried: false, shortfallBefore: shortfallBefore, shortfallAfter: shortfallBefore,
+    };
+  }
+
   function playSceneHtml(slide) {
     var m = slide.play;
-    var flight = resolvePlayFlight(m);
+    // resolvePlayFlightReconciled (prototype, Alex's ask): the one live
+    // render entry point wired to the fast-charge/anchor-retry prototype -
+    // every OTHER render helper below already takes `flight` as a plain
+    // argument and derives its own schedule/plan/coverage from it, so
+    // handing them the (possibly retried) flight here is the only change
+    // needed to propagate it through the whole rendered scene.
+    var flight = resolvePlayFlightReconciled(m).flight;
     // A lead change gets a one-shot wash of the new leader's colour - cheap,
     // and it makes the one tag that changes the game's story feel different.
     var flash = "";

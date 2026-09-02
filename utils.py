@@ -129,33 +129,36 @@ _load_wp_table()
 # (result, before_obc, outs) -> (runs_scored, new_obc, eouts)
 _BRC_RUN_LOOKUP: dict[tuple[str, str, int], tuple[float, str, int]] = {}
 
-# (result, before_obc, outs) -> raw ThrowOrder string, e.g. "fst" (throw to
-# 1B, then 2B, then 3B) or "6h" (cutoff through SS, then home) - one
-# character per leg, parsed client-side by docs/js/app.js's parseThrowOrder
-# (h/f/s/t for HOME/1B/2B/3B, 1-9 for a position/cutoff leg). This module
-# never interprets the string itself, just passes it through raw. Column is
+# play_code (import_BRC.csv's own "Situation" string, e.g. "1_4_DP" -
+# Outs_BrcObcCode_Result, the SAME literal Playcode column value the Plays
+# sheet stores per row, never reconstructed - Alex's ask, after finding a
+# play with no BRC row) -> raw ThrowOrder string, e.g. "fst" (throw to 1B,
+# then 2B, then 3B) or "6h" (cutoff through SS, then home) - one character
+# per leg, parsed client-side by docs/js/app.js's parseThrowOrder (h/f/s/t
+# for HOME/1B/2B/3B, 1-9 for a position/cutoff leg). This module never
+# interprets the string itself, just passes it through raw. Column is
 # optional - a CSV without it (every one that exists today) just leaves this
 # dict empty, and every consumer (get_throw_order below) treats "no entry"
 # as "no explicit throw order for this situation," not an error.
-_BRC_THROW_ORDER: dict[tuple[str, str, int], str] = {}
+_BRC_THROW_ORDER: dict[str, str] = {}
 
-# (result, before_obc, outs) -> {"excluded": [...], "default": "SS"}. Lets a
-# situation say "if the physics-computed fielder for this play is one of
-# these positions, it doesn't make sense - use this one instead." "OF" in
-# excluded is a wildcard for any of LF/CF/RF. Both columns optional, same
+# play_code -> {"excluded": [...], "default": "SS"}. Lets a situation say
+# "if the physics-computed fielder for this play is one of these positions,
+# it doesn't make sense - use this one instead." "OF" in excluded is a
+# wildcard for any of LF/CF/RF. Both columns optional, same
 # no-entry-means-nothing-to-override contract as everything else here.
-_BRC_POSITION_OVERRIDE: dict[tuple[str, str, int], dict] = {}
+_BRC_POSITION_OVERRIDE: dict[str, dict] = {}
 
-# (result, before_obc, outs) -> {"P": "...", "C": "...", "1B": "...", ...}.
-# Per-position throw sequences - which one applies depends on which fielder
-# actually ends up credited (after any position override above), not just
-# the situation alone, so this stays a dict-of-positions per key rather than
-# a single string like the generic ThrowOrder column.
-_BRC_THROW_ORDER_BY_POSITION: dict[tuple[str, str, int], dict] = {}
+# play_code -> {"P": "...", "C": "...", "1B": "...", ...}. Per-position throw
+# sequences - which one applies depends on which fielder actually ends up
+# credited (after any position override above), not just the situation
+# alone, so this stays a dict-of-positions per key rather than a single
+# string like the generic ThrowOrder column.
+_BRC_THROW_ORDER_BY_POSITION: dict[str, dict] = {}
 
-# (result, before_obc, outs) -> {"1B": "s", ...} - see _RESP_POSITION_COLUMNS
-# above for the full contract.
-_BRC_INFIELD_COVERAGE: dict[tuple[str, str, int], dict] = {}
+# play_code -> {"1B": "s", ...} - see _RESP_POSITION_COLUMNS above for the
+# full contract.
+_BRC_INFIELD_COVERAGE: dict[str, dict] = {}
 
 # ThrowOrder_OF (the original, coarse "any outfielder" column) stays alongside
 # the newer per-outfielder LF/CF/RF columns rather than being replaced - a
@@ -187,7 +190,7 @@ _THROW_ORDER_POSITION_COLUMNS = {
 _RESP_POSITION_COLUMNS = {"1B": "Resp_1B", "2B": "Resp_2B", "3B": "Resp_3B", "SS": "Resp_SS"}
 
 
-# (result, before_obc, outs) -> [{"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|
+# play_code -> [{"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|
 # "2B"|"3B"|"HOME"|"OUT", "scored": bool, "assist": "1B"|"2B"|"3B"|"HOME"|None,
 # "delay": bool, "retreat": bool}, ...] - the exact per-runner outcome for
 # this situation, decoded from import_BRC.csv's B/r1/r2/r3 (Alex's briefing:
@@ -201,7 +204,7 @@ _RESP_POSITION_COLUMNS = {"1B": "Resp_1B", "2B": "Resp_2B", "3B": "Resp_3B", "SS
 # don't reconcile (see _build_runner_moves_for_row) - app.js falls back to
 # its diff-based guess either way, same contract as everything else in this
 # file.
-_BRC_RUNNER_MOVES: dict[tuple[str, str, int], list[dict]] = {}
+_BRC_RUNNER_MOVES: dict[str, list[dict]] = {}
 
 _MOVE_DEST_BASE = {"b1": "1B", "b2": "2B", "b3": "3B"}
 
@@ -377,11 +380,27 @@ def _load_brc_table() -> None:
         resp_cols = {pos: col for pos, col in _RESP_POSITION_COLUMNS.items() if col in cols}
 
         lookup: dict[tuple[str, str, int], tuple[float, str, int]] = {}
-        throw_lookup: dict[tuple[str, str, int], str] = {}
-        override_lookup: dict[tuple[str, str, int], dict] = {}
-        by_position_lookup: dict[tuple[str, str, int], dict] = {}
-        moves_lookup: dict[tuple[str, str, int], list[dict]] = {}
-        coverage_lookup: dict[tuple[str, str, int], dict] = {}
+        # Alex's ask, after finding a real play with no BRC row: keyed by the
+        # raw Situation string itself (== the Plays sheet's own literal
+        # Playcode column value, "Outs_ObcCode_Result" - e.g. "1_4_DP") -
+        # not the (result, before_obc, outs) tuple below, which reconstructs
+        # an equivalent string from a play's own separately-computed
+        # obc_before/outs_before. Those two can drift (obc_before especially,
+        # once read_mln_plays_from_sheet's own cell/Playcode reconciliation -
+        # see its own comment - repairs a cell-vs-Playcode disagreement,
+        # which the archive sheet has on ~5% of season 1's rows) - reading
+        # the sheet's own Playcode value straight through on both sides
+        # removes that whole class of mismatch structurally, rather than
+        # trusting two independent encodings of the same thing to agree.
+        # _BRC_RUN_LOOKUP alone stays tuple-keyed (below) - its own callers
+        # (compute_result_frequencies.py, simulate_win_probability.py, ...)
+        # look up hypothetical situations that were never a real logged
+        # play, so they have no play_code to key off at all.
+        throw_lookup: dict[str, str] = {}
+        override_lookup: dict[str, dict] = {}
+        by_position_lookup: dict[str, dict] = {}
+        moves_lookup: dict[str, list[dict]] = {}
+        coverage_lookup: dict[str, dict] = {}
 
         for _, row in _bdf.iterrows():
             situation = str(row["Situation"]).strip()
@@ -398,20 +417,19 @@ def _load_brc_table() -> None:
                 new_obc    = _BRC_TO_OBC.get(int(float(row["OBC"])), "000")
             except (ValueError, TypeError, KeyError):
                 continue
-            key = (result, before_obc, outs)
-            lookup[key] = (runs, new_obc, eouts)
+            lookup[(result, before_obc, outs)] = (runs, new_obc, eouts)
 
             if has_throw_order:
                 throw_order = _clean_csv_cell(row.get("ThrowOrder"))
                 if throw_order:
-                    throw_lookup[key] = throw_order
+                    throw_lookup[situation] = throw_order
 
             if has_excluded:
                 excluded_raw = _clean_csv_cell(row.get("ExcludedPositions"))
                 default_raw = _clean_csv_cell(row.get("DefaultPosition")).upper()
                 excluded = [p.strip().upper() for p in excluded_raw.split(",") if p.strip()]
                 if excluded and default_raw:
-                    override_lookup[key] = {"excluded": excluded, "default": default_raw}
+                    override_lookup[situation] = {"excluded": excluded, "default": default_raw}
 
             by_position = {}
             for pos, col in position_cols.items():
@@ -419,7 +437,7 @@ def _load_brc_table() -> None:
                 if val:
                     by_position[pos] = val
             if by_position:
-                by_position_lookup[key] = by_position
+                by_position_lookup[situation] = by_position
 
             coverage = {}
             for pos, col in resp_cols.items():
@@ -427,12 +445,12 @@ def _load_brc_table() -> None:
                 if val:
                     coverage[pos] = val
             if coverage:
-                coverage_lookup[key] = coverage
+                coverage_lookup[situation] = coverage
 
             if has_runner_cols:
                 moves = _build_runner_moves_for_row(row, before_obc, outs)
                 if moves is not None:
-                    moves_lookup[key] = moves
+                    moves_lookup[situation] = moves
 
         _BRC_RUN_LOOKUP = lookup
         _BRC_THROW_ORDER = throw_lookup
@@ -447,55 +465,60 @@ def _load_brc_table() -> None:
 _load_brc_table()
 
 
-def get_throw_order(result: str, obc: str, outs: int) -> str | None:
-    """Explicit throw sequence for this (result, before_obc, outs) situation,
-    straight from import_BRC.csv's optional ThrowOrder column - e.g. "fst"
-    for 1B, then 2B, then 3B. None when the column doesn't exist yet, or
-    this particular situation row hasn't been filled in - callers
-    (key_moments_build.py) treat that as "no explicit order," not an error.
+def get_throw_order(play_code: str | None) -> str | None:
+    """Explicit throw sequence for this play_code (the Plays sheet's own
+    literal Playcode column value, e.g. "1_4_DP" - Alex's ask: read straight
+    from the sheet, never reconstructed from a play's own separately-computed
+    obc_before/outs_before), straight from import_BRC.csv's optional
+    ThrowOrder column - e.g. "fst" for 1B, then 2B, then 3B. None when
+    play_code is falsy, the column doesn't exist yet, or this particular
+    situation row hasn't been filled in - callers (key_moments_build.py)
+    treat that as "no explicit order," not an error.
     """
-    return _BRC_THROW_ORDER.get((result, obc, outs))
+    return _BRC_THROW_ORDER.get(play_code) if play_code else None
 
 
-def get_position_override(result: str, obc: str, outs: int) -> dict | None:
-    """{"excluded": [...], "default": "SS"} for this situation, from the
-    optional ExcludedPositions/DefaultPosition columns - None when either
-    column doesn't exist yet or this situation hasn't been filled in.
+def get_position_override(play_code: str | None) -> dict | None:
+    """{"excluded": [...], "default": "SS"} for this play_code, from the
+    optional ExcludedPositions/DefaultPosition columns - None when play_code
+    is falsy, either column doesn't exist yet, or this situation hasn't been
+    filled in.
     """
-    return _BRC_POSITION_OVERRIDE.get((result, obc, outs))
+    return _BRC_POSITION_OVERRIDE.get(play_code) if play_code else None
 
 
-def get_throw_order_by_position(result: str, obc: str, outs: int) -> dict | None:
-    """{"P": "...", "1B": "...", ...} for this situation, from the optional
+def get_throw_order_by_position(play_code: str | None) -> dict | None:
+    """{"P": "...", "1B": "...", ...} for this play_code, from the optional
     per-position ThrowOrder_* columns - only positions actually filled in are
-    present. None when none of those columns exist yet, or none of them has
-    a value for this situation.
+    present. None when play_code is falsy, none of those columns exist yet,
+    or none of them has a value for this situation.
     """
-    return _BRC_THROW_ORDER_BY_POSITION.get((result, obc, outs))
+    return _BRC_THROW_ORDER_BY_POSITION.get(play_code) if play_code else None
 
 
-def get_infield_coverage(result: str, obc: str, outs: int) -> dict | None:
-    """{"1B": "s", "SS": "s", ...} for this situation, from the optional
+def get_infield_coverage(play_code: str | None) -> dict | None:
+    """{"1B": "s", "SS": "s", ...} for this play_code, from the optional
     Resp_1B/Resp_2B/Resp_3B/Resp_SS columns - one raw base-letter character
     (h/f/s/t) per infielder who should be shown decoratively covering a base
     on this play, even when they never touch the ball or make a real out
-    there. Only positions actually filled in are present. None when none of
-    those columns exist yet, or none of them has a value for this situation.
+    there. Only positions actually filled in are present. None when
+    play_code is falsy, none of those columns exist yet, or none of them has
+    a value for this situation.
     """
-    return _BRC_INFIELD_COVERAGE.get((result, obc, outs))
+    return _BRC_INFIELD_COVERAGE.get(play_code) if play_code else None
 
 
-def get_runner_moves(result: str, obc: str, outs: int) -> list[dict] | None:
-    """Explicit per-runner outcome for this (result, before_obc, outs)
-    situation, decoded from import_BRC.csv's B/r1/r2/r3 columns - each entry
-    is {"from": "BATTER"|"1B"|"2B"|"3B", "to": "1B"|"2B"|"3B"|"HOME"|"OUT",
-    "scored": bool}. Trusted completely by callers when present, in place of
-    guessing from obc_before/obc_after/runs. None when the columns don't
-    exist yet, this situation hasn't been filled in, or the row's own
-    numbers didn't reconcile (see _build_runner_moves_for_row) - callers
-    fall back to that same diff-based guess either way.
+def get_runner_moves(play_code: str | None) -> list[dict] | None:
+    """Explicit per-runner outcome for this play_code, decoded from
+    import_BRC.csv's B/r1/r2/r3 columns - each entry is {"from":
+    "BATTER"|"1B"|"2B"|"3B", "to": "1B"|"2B"|"3B"|"HOME"|"OUT", "scored":
+    bool}. Trusted completely by callers when present, in place of guessing
+    from obc_before/obc_after/runs. None when play_code is falsy, the
+    columns don't exist yet, this situation hasn't been filled in, or the
+    row's own numbers didn't reconcile (see _build_runner_moves_for_row) -
+    callers fall back to that same diff-based guess either way.
     """
-    return _BRC_RUNNER_MOVES.get((result, obc, outs))
+    return _BRC_RUNNER_MOVES.get(play_code) if play_code else None
 
 
 def get_win_probability(

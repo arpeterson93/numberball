@@ -790,7 +790,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
 
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
     scoring_names = _scoring_names(ref, play, feat["batter"]["id"])
-    position_override = utils.get_position_override(result, state["obc_before"], state["outs_before"])
+    position_override = utils.get_position_override(play.get("play_code"))
 
     away_score = state["away_score_before"] + (0 if state["batting_is_home"] else state["runs"])
     home_score = state["home_score_before"] + (state["runs"] if state["batting_is_home"] else 0)
@@ -839,14 +839,18 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         # (Play Scene) shows the two values and their diff only, no safe-zone.
         "throw_num": play.get("throw_num"),
         "steal_num": play.get("steal_num"),
-        # Explicit fielding-throw sequence for this (result, obc_before,
-        # outs_before) situation, straight from import_BRC.csv's optional
-        # ThrowOrder column (e.g. "fst" = throw to 1B, then 2B, then 3B;
-        # "6h" = cutoff through SS, then home) - None on every row until
-        # that column exists and this situation has one filled in. app.js's
+        # Explicit fielding-throw sequence for this play_code (the Plays
+        # sheet's own literal Playcode column value - Alex's ask: read
+        # straight through, never reconstructed from this play's own
+        # separately-computed obc_before/outs_before, which can drift from
+        # the sheet's own Playcode digit - see utils._load_brc_table's own
+        # comment), straight from import_BRC.csv's optional ThrowOrder
+        # column (e.g. "fst" = throw to 1B, then 2B, then 3B; "6h" = cutoff
+        # through SS, then home) - None on every row until that column
+        # exists and this situation has one filled in. app.js's
         # outThrowTargets() prefers this over its own before/after-diff
         # heuristic whenever it's set.
-        "throw_order": utils.get_throw_order(result, state["obc_before"], state["outs_before"]),
+        "throw_order": utils.get_throw_order(play.get("play_code")),
         # If import_BRC.csv's ExcludedPositions/DefaultPosition columns say
         # the physics-computed fielder for this situation doesn't make
         # sense, app.js relocates the landing point to default_position's
@@ -858,25 +862,21 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         # Per-position throw sequences - e.g. {"SS": "21", "P": "41"} - keyed
         # by whichever fielder ends up credited (after the override above),
         # not just the situation alone. Takes priority over throw_order.
-        "throw_order_by_position": utils.get_throw_order_by_position(
-            result, state["obc_before"], state["outs_before"]
-        ),
+        "throw_order_by_position": utils.get_throw_order_by_position(play.get("play_code")),
         # Decorative-only infielder base coverage (Alex's ask) - e.g.
         # {"1B": "s", "SS": "s"} - see utils.get_infield_coverage for the
         # full contract. Never affects an out/timing, only which uninvolved
         # fielder(s) app.js shows running to cover a base.
-        "infield_coverage": utils.get_infield_coverage(
-            result, state["obc_before"], state["outs_before"]
-        ),
-        # Explicit per-runner outcome for this (result, obc_before,
-        # outs_before) situation, decoded straight from import_BRC.csv's B/
-        # r1/r2/r3 columns - e.g. [{"from":"1B","to":"2B","scored":false},
+        "infield_coverage": utils.get_infield_coverage(play.get("play_code")),
+        # Explicit per-runner outcome for this play_code, decoded straight
+        # from import_BRC.csv's B/r1/r2/r3 columns - e.g.
+        # [{"from":"1B","to":"2B","scored":false},
         # {"from":"3B","to":"OUT","scored":false}]. None until this situation
         # has those columns filled in and internally consistent (see
         # utils.get_runner_moves) - app.js's deriveRunnerMoves() before/
         # after-diff guess is the fallback either way, same contract as
         # throw_order above.
-        "runner_moves": utils.get_runner_moves(result, state["obc_before"], state["outs_before"]),
+        "runner_moves": utils.get_runner_moves(play.get("play_code")),
         "runs": state["runs"],
         "scoring_names": scoring_names,
 

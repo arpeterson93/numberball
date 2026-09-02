@@ -942,7 +942,7 @@ def main() -> None:
                       if (flight.fielder !== expectedPos) bad.push("angle=" + angle + " hand=" + hand + " ev=" + ev + ": fielder " + flight.fielder + " != expected " + expectedPos);
                       var alongFt = flight.fieldedDistFt - flight.distance;
                       if (alongFt < -1e-6) bad.push("angle=" + angle + " hand=" + hand + ": fieldedDistFt before landing point");
-                      var depth = KMFlight.INFIELDER_DEPTH_FT[flight.fielder];
+                      var depth = KMFlight.obcDepthFt(flight.fielder, String(m.obc_before || "000"));
                       if (flight.fieldedDistFt > depth + 1e-6 && flight.fieldedDistFt < flight.distance + 1e6) {
                         // fielded past the assigned depth is only OK if the ball landed past it already
                         if (sim.distance <= depth) bad.push("angle=" + angle + " hand=" + hand + ": fielded past assigned depth " + depth);
@@ -1020,7 +1020,7 @@ def main() -> None:
                 KMFlight.resolveGrounderInterception(m, flight, hand);
                 return {
                     fielder: flight.fielder, angle: flight.angle, la: flight.la, ev: flight.ev,
-                    onLattice: KMFlight.MIN_ANGLE_FOR_POS["3B"] === flight.angle,
+                    onLattice: KMFlight.BRC_REDIRECT_ANGLE_FOR_POS["3B"] === flight.angle,
                 };
             }""",
             tables,
@@ -2696,27 +2696,35 @@ def main() -> None:
               migration["hasLegacyDepth"], False)
 
         print("\nFielding-reconciliation audit, Stage 1 (6.4) - applyGrounderDeepSetup's")
-        print("bearing-then-depth sequencing is order-dependent, pinned against a hand-")
-        print("reimplementation of both the shipped order and the (unused) wrong order:")
+        print("bearing-then-depth sequencing is order-dependent (pinned against a hand-")
+        print("reimplementation), and Alex's report (game=021103&play=36 - a real 95ft")
+        print("double-play-depth 1B anchor got rendered fielding a hot liner from the dirt")
+        print("edge) - the leeway is now a genuine 40-step 'smallest push that works'")
+        print("search (mirroring applyChargeEase's own retreat step) instead of always")
+        print("jumping straight to the full dirt-edge cap:")
         seq = page.evaluate(
             """() => {
-                // Grid-searched for maximum bearing-vs-depth divergence under
-                // WINNER_CHEAT_MAX_DEG's own small (3deg) cap - the ordering
-                // only ever matters by a few feet by construction (a bigger
-                // cap would make it matter more), so this fixture is chosen
-                // specifically to make that real, nonzero effect visible.
-                var trueAnchor = KMFlight.landingPoint(60, 10);
-                var capPoint = KMFlight.landingPoint(200, 20);
-                var flight = { x: 0, y: 0, contactVel: { vx: capPoint.x, vy: capPoint.y, vz: 0 } };
-                var intercept = { anchorFt: trueAnchor, alongFt: 200, atS: 2.5 };
-                var gp = { timeAt: function (x) { return Math.abs(x - 200) < 1e-6 ? 3.7 : null; } };
+                // A real simulated flight/groundPath (fielderInterceptS, called inside
+                // the search now, needs the genuine physics this stub used to skip) -
+                // a hot, shallow-angle liner so the true (shallow) anchor plausibly
+                // can't genuinely reach it, same shape as the reported play.
+                var sim = KMTraj.simulateFlight(95, 1, -30, "R");
+                var flight = { x: sim.landing.x, y: sim.landing.y, contactVel: sim.contactVel };
+                var gp = KMTraj.groundPath(Math.hypot(sim.contactVel.vx, sim.contactVel.vy), sim.contactVel.vz);
+                var trueAnchor = KMFlight.landingPoint(60, 15);
+                var intercept = { anchorFt: trueAnchor, alongFt: gp.restFt, atS: gp.totalS, pos: "1B" };
 
-                var shipped = KMFlight.applyGrounderDeepSetup({}, flight, intercept, gp, null, null);
+                // raceRestFt = -1e9: no candidate anchor, however deep, can ever look
+                // "genuine" against an impossibly tight boundary, so the search always
+                // runs its full 40 steps and settles on the t=1 (full-cap) anchor -
+                // deterministically reproducing the old closed-form's own single
+                // answer, letting the bearing-then-depth order still be pinned exactly.
+                var shipped = KMFlight.applyGrounderDeepSetup({}, flight, intercept, gp, null, -1e9);
 
                 // Hand-reimplementation of the SHIPPED order using only the exposed
                 // primitives: bearing first (off the TRUE anchor), depth off THAT
                 // bearing-adjusted dirt edge second - applyGrounderDeepSetup's own
-                // documented sequence.
+                // documented sequence, evaluated at t=1 (the full push).
                 var capPointFt = KMFlight.groundDirPoint(flight, intercept.alongFt);
                 var bearingFirst = KMFlight.capBearingTowardFt(intercept.anchorFt, capPointFt, KMFlight.WINNER_CHEAT_MAX_DEG);
                 var bearingFirstDeg = 45 + Math.atan2(bearingFirst.x, bearingFirst.y) * 180 / Math.PI;
@@ -2733,10 +2741,20 @@ def main() -> None:
                 var depthFirstAnchor = KMFlight.landingPoint(wrongOrderDepth, trueAnchorDeg);
                 var wrongOrder = KMFlight.capBearingTowardFt(depthFirstAnchor, capPointFt, KMFlight.WINNER_CHEAT_MAX_DEG);
 
+                // The real (Alex's ask) case: the caller's own actual raceRestFt
+                // (gp.restFt here, same as intercept.alongFt - matching how
+                // resolveGrounderInterception only ever calls this once cappedFallback
+                // already confirmed fieldedFt >= raceRestFt) - the search should find
+                // a genuinely SMALLER push than the full cap, not jump straight to it.
+                var real = KMFlight.applyGrounderDeepSetup({}, flight, intercept, gp, null, gp.restFt);
+                var realTimeAt = gp.timeAt(real.fieldedFt);
+
                 return {
-                    shippedAnchor: shipped.anchorFt, shippedDepthPct: shipped.depthPct,
-                    shippedGroundTimeS: shipped.groundTimeS,
+                    shippedAnchor: shipped.anchorFt, shippedGroundTimeS: shipped.groundTimeS,
                     rightOrder: rightOrder, wrongOrder: wrongOrder,
+                    realDepthPct: real.depthPct, realFieldedFt: real.fieldedFt,
+                    realGroundTimeS: real.groundTimeS, realTimeAt: realTimeAt,
+                    fullCapFieldedFt: intercept.alongFt,
                 };
             }"""
         )
@@ -2747,8 +2765,19 @@ def main() -> None:
         wrong_diff = abs(seq["shippedAnchor"]["x"] - seq["wrongOrder"]["x"]) + abs(seq["shippedAnchor"]["y"] - seq["wrongOrder"]["y"])
         check("shipped bearing-then-depth order diverges from the (unused) depth-then-bearing order on this fixture",
               wrong_diff > 0.5, True)
-        check("applyGrounderDeepSetup uses gp.timeAt's own resolved value for groundTimeS when it resolves",
-              seq["shippedGroundTimeS"], 3.7, tol=1e-6)
+        check("with an impossibly tight raceRestFt (no step ever looks genuine), groundTimeS falls through "
+              "to the search's own last (t=1) race result, same fallback guarantee the old closed form always had",
+              seq["shippedGroundTimeS"] is not None, True)
+        print(f"  real (Alex's ask) case: depthPct={seq['realDepthPct']:.3f} fieldedFt={seq['realFieldedFt']:.1f} "
+              f"(full cap would be {seq['fullCapFieldedFt']:.1f}) groundTimeS={seq['realGroundTimeS']:.3f}")
+        check("Alex's ask: against the caller's own real raceRestFt, the search finds a genuinely SMALLER "
+              "push than the full dirt-edge cap - not always jumping straight to depthPct=1",
+              0 < seq["realDepthPct"] < 1, True)
+        check("the ball is genuinely fielded SHALLOWER than the old full-cap point once a smaller push works",
+              seq["realFieldedFt"] < seq["fullCapFieldedFt"], True)
+        check("groundTimeS matches gp.timeAt at the search's own chosen (now-moved) fieldedFt - a real "
+              "recompute, not the old boundary value held artificially fixed",
+              seq["realGroundTimeS"], seq["realTimeAt"], tol=1e-6)
 
         print("\nFielding-reconciliation audit, Stage 2 (6.1) - per-leg reconciliation")
         print("sweep. A hand-built 2-leg DP schedule (1B runner forced out at 2B, batter")
@@ -3307,7 +3336,7 @@ def main() -> None:
                     var legs = entry ? KMFlight.returnCoverLegTiming(m, entry, schedule, flight) : null;
                     return {
                         entry: entry, legs: legs, coverageAdjustments: coverage.adjustments,
-                        throwLeg0EndMs: schedule[0].endMs, receiveLegEndMs: schedule[schedule.length - 1].endMs,
+                        throwLeg0StartMs: schedule[0].startMs, receiveLegEndMs: schedule[schedule.length - 1].endMs,
                     };
                 }""",
                 return_cover_m,
@@ -3322,9 +3351,9 @@ def main() -> None:
                 leg1, leg2, leg3 = rc["legs"]
                 check("leg 2 (the dwell) has a real, positive duration - not a zero-time pass-through",
                       leg2["durMs"] > 0, True)
-                check("the dwell ends exactly when 1B's own first throw actually releases (schedule[0].endMs) - "
+                check("the dwell ends exactly when 1B's own first throw actually releases (schedule[0].startMs) - "
                       "he never starts toward the cover base before releasing his own throw",
-                      rc["entry"]["startMs"] + leg1["durMs"] + leg2["durMs"], rc["throwLeg0EndMs"], tol=1)
+                      rc["entry"]["startMs"] + leg1["durMs"] + leg2["durMs"], rc["throwLeg0StartMs"], tol=1)
                 cum_arrival = rc["entry"]["startMs"] + leg1["durMs"] + leg2["durMs"] + leg3["durMs"]
                 check("1B's own token arrives at the bag by the time the relay throw actually lands (invariant #4)",
                       cum_arrival <= rc["receiveLegEndMs"] + 0.5, True)
@@ -3512,8 +3541,20 @@ def main() -> None:
                 # AT maxAlongFt here is correct, not a bug.
                 check("fielded point never rolls past the dirt edge (it's expected to sit exactly on it here)",
                       og["fieldedAlongFt"] <= og["maxAlongFt"] + 0.5, True)
-                check("the glove's own computed arrival is comfortably before the ball actually stops rolling",
-                      og["entryArrivalMs"] < og["entryDeadlineMs"] - 50, True)
+                # Alex's ask (game=021103&play=36 report): applyGrounderDeepSetup's
+                # leeway is now a genuine 40-step "smallest push that works" search
+                # (mirroring applyChargeEase's own retreat step), not a closed-form
+                # jump straight to the full dirt-edge cap - so the margin here is
+                # deliberately TIGHT now (the search stops at the first anchor that
+                # is JUST barely genuine, same 1e-6 tolerance the loop itself uses),
+                # not the old comfortable ~50ms+ this test used to pin. A real
+                # ~50ms cushion here would mean the search overshot past the
+                # smallest sufficient push, which is the exact behavior this change
+                # was meant to stop.
+                check("the glove's own computed arrival is at or before the ball actually stops rolling "
+                      "(a tight margin now, by design - the search stops at the first anchor that's just "
+                      "barely enough, not the old comfortable-but-unnecessary full push)",
+                      og["entryArrivalMs"] < og["entryDeadlineMs"] + 5, True)
             else:
                 print("  [skip] moment 130417007 not found in docs/data/plays_04.json")
         else:
