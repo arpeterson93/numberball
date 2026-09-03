@@ -758,16 +758,27 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    fixed min-height keeps the container's own presence from shifting the
    layout between plays that have a line and plays that don't (Decision 4's
    graceful-empty case) - it's still an empty box, just never a jump. */
+/* margin-top (Alex's ask): narrows the gap above this line (result pill ->
+   description) and, on .scoring-line below, the gap above THAT (description
+   -> "X scores") - originally a mobile-only fix (.play-scene's shared 6px
+   flex gap read as too spread out for this trio of short text rows there),
+   now applied at every width since both this line and .scoring-line share
+   the exact same 10.5px font-size everywhere - nothing about the mobile fix
+   was actually mobile-specific, it's just where Alex first noticed it. */
 .scene-defense{
   min-height:13px;text-align:center;font-size:10.5px;font-weight:600;
-  color:var(--muted);
+  color:var(--muted);margin-top:-6px;
 }
 .scene-top{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:-4px;}
 
 /* position:relative is load-bearing: the watermark below is absolutely
    positioned and would otherwise resolve against the whole modal card and
    cover the entire slide. */
-.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(78%,374px);}
+/* +10% (Alex's ask, after shrinking/compacting the scoring-line and
+   scene-defense text above it freed up a bit more vertical room) - both the
+   percentage and the px cap scaled together so the diamond still respects
+   whichever bound was actually binding before. */
+.scene-diamond-wrap{position:relative;flex:0 0 auto;width:min(86%,411px);}
 .scene-diamond{width:100%;height:auto;display:block;overflow:visible;}
 /* Real field colors, sampled directly from Alex's reference photo (grass
    rgb(54,123,68), dirt/warning-track rgb(199,165,128), fence rgb(38,85,48))
@@ -1289,9 +1300,38 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    thirds here now, unconditionally - the leverage meter sits in the true
    middle third and each team gets the same share regardless of name length. */
 .scene-scorebug{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:10px;width:100%;}
-.scene-scorebug-team{display:flex;align-items:center;justify-self:center;gap:7px;font-size:19px;font-weight:800;min-width:0;color:var(--muted);}
-.scene-scorebug-team.home{flex-direction:row-reverse;}
+/* Alex's ask: on a wide enough screen, the PITCHING/AT BAT line moves up to
+   sit directly under this same team column instead of its own row below the
+   field (mirroring the live-grid view's own identical move, mountLiveSlideInto's
+   liveGridWrapTeamRow/liveGridMatchupLineHtml - same idea, just the real
+   sceneRoleHtml block, not that view's compact "P: Lastname" line, since
+   there's room here). That wrapping happens at MOUNT TIME (wireScorebugMatchup,
+   app.js, called from mountSlide) rather than baked into this markup's own
+   sceneScorebugHtml template - that template is shared with the live-grid
+   path's own wrapping, which expects to find its three original children
+   (logo/abbr/score) directly, not pre-wrapped, so this can't touch the
+   template without breaking that. .scene-scorebug-team is the outer stack
+   (column direction, so it does nothing visible below 900px where the
+   wrapping's own appended .mu-side stays display:none - a flex-column with
+   one visible child centers identically to a plain block); .sb-team-row
+   (added by that same JS wrap) carries the logo/abbr/score row's own actual
+   styling once it exists, inheriting font-size/weight from here rather than
+   repeating it so the mobile font-size override below still targets one
+   place. color lives here too (not on .sb-team-row) so .batting's highlight
+   inherits down to the name/role line once it's appended. */
+.scene-scorebug-team{
+  display:flex;flex-direction:column;align-items:center;justify-self:center;gap:4px;
+  font-size:19px;font-weight:800;min-width:0;color:var(--muted);
+}
 .scene-scorebug-team.batting{color:var(--text);}
+.sb-team-row{display:flex;align-items:center;gap:7px;min-width:0;}
+.sb-team-row.home{flex-direction:row-reverse;}
+/* Hidden below the widescreen breakpoint (the below-field .scene-matchup
+   row carries this instead there) - only ever present in the DOM once
+   wireScorebugMatchup has actually run (mountSlide), so this selector is a
+   no-op everywhere that hasn't (including every live-grid pane, which never
+   calls it at all). */
+.scene-scorebug-team > .mu-side{display:none;}
 .scene-scorebug-logo{width:28px;height:28px;object-fit:contain;flex-shrink:0;}
 .scene-scorebug-team .val{transition:none;display:inline-block;}
 /* Counting score: every value the play passes through is stacked in one grid
@@ -1432,11 +1472,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    corner than this to begin with - verified against real pitch/swing pairs
    landing at every angle, not just the common ones. */
 .scene-diamond-wrap .wheel{
-  position:absolute;bottom:-16%;width:40%;display:flex;flex-direction:column;
+  /* Alex's ask: a few px further down from the field than the existing -16%
+     alone puts it - a flat px add on top of the percentage (not another
+     percentage point) so the nudge stays the same small, fixed amount
+     regardless of how big .scene-diamond-wrap itself ends up being tuned to. */
+  position:absolute;bottom:calc(-16% - 6px);width:40%;display:flex;flex-direction:column;
   align-items:center;gap:1px;
 }
-.scene-diamond-wrap .wheel:first-of-type{left:-4%;}
-.scene-diamond-wrap .wheel:last-of-type{right:-4%;}
+.scene-diamond-wrap .wheel:first-of-type{left:-3%;}
+.scene-diamond-wrap .wheel:last-of-type{right:-3%;}
 /* DIFF/HZ, drawn inside the ring itself now rather than an external label
    above it (Alex's call - the ring has the room once exit velo (was the
    center-small text) moved to sceneFlightReadoutHtml only). */
@@ -1593,7 +1637,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    .play-scene doesn't (it's a plain flex column, full-width children), so
    this now centers itself explicitly, same as .scene-defense right above it
    does for its own row. */
-.play-scene .scoring-line{font-size:12.5px;color:var(--green);font-weight:700;text-align:center;}
+/* Alex's ask: match .scene-defense's own size (the "Fielded by ..." line
+   right above it) instead of the larger 12.5px this used to carry, and pull
+   it up slightly closer to that line - a targeted margin on this row alone
+   (flex gap governs the space above every OTHER row in .play-scene's own
+   column; this only tightens the one gap between these two short text rows,
+   same idea as the max-width:600px block's own -3px compaction below, just
+   a smaller nudge here since these two rows already sit closer on desktop). */
+.play-scene .scoring-line{font-size:10.5px;color:var(--green);font-weight:700;text-align:center;margin-top:-8.3px;}
 
 /* Debug mode (reconciler knob inspector, Settings' Debug mode toggle) -
    hidden by default; app.js always renders it (cheap - reuses the exact
@@ -1749,17 +1800,18 @@ html[data-km-debug="1"] .km-tuning-panel{
      row, so .play-scene's shared 6px gap (fine for the bigger blocks around
      the diamond) shows up three times in a row with nothing bulky between
      them to justify it. Cinches just this trio closer without touching the
-     gap everywhere else (diamond, matchup, ribbon). */
-  .scene-defense{margin-top:-3px;}
-  .play-scene .scoring-line{margin-top:-3px;}
-  .scene-diamond-wrap{order:1;width:min(90vw,374px);}
+     gap everywhere else (diamond, matchup, ribbon). Now the unconditional
+     base rule (.scene-defense/.play-scene .scoring-line above) instead of a
+     mobile-only override - Alex's ask, once it turned out nothing about the
+     fix was actually mobile-specific. */
+  .scene-diamond-wrap{order:1;width:min(99vw,411px);}
   /* min(90vw,340px) is measured against the full viewport, not the space
      .catchup-slide's own 37px nav gutters leave clear - smaller/narrower on
      this axis so the wheels (pinned to the wrap's own edges) can't reach
      into that gutter and collide with the prev/next arrows. */
   .scene-diamond-wrap .wheel{width:42%;}
-  .scene-diamond-wrap .wheel:first-of-type{left:-5%;}
-  .scene-diamond-wrap .wheel:last-of-type{right:-5%;}
+  .scene-diamond-wrap .wheel:first-of-type{left:-4%;}
+  .scene-diamond-wrap .wheel:last-of-type{right:-4%;}
   .scene-play-line{order:3;font-size:14.5px;}
   /* scoring-line no longer needs an order override here - it now lives
      outside .scene-top/.scene-detail entirely (a direct .play-scene child,
@@ -2089,18 +2141,43 @@ html[data-km-debug="1"] .km-tuning-panel{
      card even with plenty of unused space below the modal. Bumped both the
      ceiling and the vh fraction so a tall display actually uses more of
      its own height instead of hitting the same fixed cap every other
-     screen does. */
-  .catchup-card{max-width:min(92vw,1080px);height:min(92vh,880px);}
+     screen does. 880 -> 1040, 92vh -> 97vh (Alex's ask: use as much of a
+     big screen as we can) - 97 rather than 100 so the card still reads as
+     a card floating over the page, not fused edge-to-edge with the
+     viewport (.catchup-modal's own 12px padding adds a further, small
+     margin on top of that). */
+  .catchup-card{max-width:min(92vw,1080px);height:min(97vh,1040px);}
   /* Was capped down to 350 for a stretch (a short/wide window could make
      the whole slide taller than the card, forcing a vertical scroll that
-     chopped the scorebug off the top) - back to its full native size
-     (460 = FIELD_W) now that the layout fits without that squeeze. */
-  .scene-diamond-wrap{width:min(50%,460px);}
+     chopped the scorebug off the top) - back to its full native size (460 =
+     FIELD_W) once the layout fit without that squeeze, then +10% again
+     (Alex's ask, after the scoring-line/scene-defense text above it got
+     smaller and more compact, freeing a bit more vertical room) - FIELD_W is
+     just this SVG's own viewBox width, a vector coordinate reference, not a
+     raster ceiling, so scaling past it is fine. */
+  .scene-diamond-wrap{width:min(57.75%,531px);}
   .scene-play-line{font-size:18px;}
   .mu-name{font-size:17px;}
+  /* Alex's ask: narrower still on a wide screen - the base -6px/-8.3px
+     margins (shared with mobile, since both read the same 10.5px font
+     there) leave a visibly bigger gap here than on mobile, because
+     .scene-result-line's own pill is larger at this breakpoint (its
+     own line-height room grows with it, widening the gap above
+     .scene-defense even though the margin pulling it up hasn't changed).
+     Extra negative margin on top of the shared base, tuned to land close to
+     the same real gap mobile already has. */
+  .scene-defense{margin-top:-21px;}
+  .play-scene .scoring-line{margin-top:-23px;}
   /* The equal-thirds scorebug grid (Alex's spec) is now the unconditional
      base rule above, not a widescreen-only override - nothing left to add
      here. */
+  /* Alex's ask: swap which copy of the matchup is visible - the one
+     wireScorebugMatchup appended under each team's own scorebug column
+     (mountSlide, app.js) takes over, the original below-field row (still
+     rendered - sceneDetailHtml never stopped emitting it, only this
+     visibility swaps) steps aside. */
+  .scene-scorebug-team > .mu-side{display:flex;}
+  .scene-matchup{display:none;}
 }
 
 /* Real browser fullscreen (the expand button in the card's corner) - more

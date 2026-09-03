@@ -745,11 +745,13 @@
           '<div class="wp-seg" style="width:' + awayPct + '%;background:' + awayHex + '"></div>' +
           '<div class="wp-seg" style="width:' + homePct + '%;background:' + homeHex + '"></div>' +
         "</div>" +
-        // Box score link, leverage pill, replay control - in that order,
-        // riding together above the bar so the replay button stops colliding
-        // with the scorebug in the tile's top-right. A finished game drops
-        // the pill and the row centres on the two buttons alone.
-        '<div class="sb-actions">' + gameLink + levBadge + scorecardBtn + replayBtn + "</div>" +
+        // Box score link, scorecard button, replay control, leverage pill -
+        // in that order (Alex's ask: the pill reads as a stat riding along
+        // after the three action buttons, not mixed in among them), riding
+        // together above the bar so the replay button stops colliding with
+        // the scorebug in the tile's top-right. A finished game drops the
+        // pill and the row centres on the three buttons alone.
+        '<div class="sb-actions">' + gameLink + scorecardBtn + replayBtn + levBadge + "</div>" +
       "</div>" +
     "</div>";
   }
@@ -10430,8 +10432,12 @@
   /* Batter and pitcher always sit in the same two slots, unlike card(m)'s
      featured/counterpart pair - which one is "featured" flips with the result
      category, so in a slideshow the same name would jump sides play to play.
-     A fixed AT BAT / PITCHING pairing is what makes a run of slides readable. */
-  function sceneRoleHtml(role, id, name, teamAbbr) {
+     A fixed AT BAT / PITCHING pairing is what makes a run of slides readable.
+     withLogo (Alex's ask): the widescreen scorebug-column placement below
+     (sceneScorebugHtml) sits directly under that team's own logo already, so
+     repeating it there would be redundant - only the below-field placement
+     (sceneDetailHtml, every width under the 900px breakpoint) still needs it. */
+  function sceneRoleHtml(role, id, name, teamAbbr, withLogo) {
     var isFav = window.KMFavorites && id && window.KMFavorites.has(id);
     var star = id
       ? '<button type="button" class="star-btn ' + (isFav ? "on" : "") +
@@ -10439,7 +10445,7 @@
         (isFav ? "★" : "☆") + "</button>"
       : "";
     return '<div class="mu-side">' +
-      '<div class="mu-role">' + teamLogoImg(teamAbbr, "mu-logo") +
+      '<div class="mu-role">' + (withLogo ? teamLogoImg(teamAbbr, "mu-logo") : "") +
         "<span>" + role + "</span></div>" +
       '<div class="mu-name">' + star +
         "<span>" + escapeHtml(name || "-") + "</span></div>" +
@@ -11331,11 +11337,15 @@
       "</div>" +
       // Pitcher first, batter second - the order holds at every width, so when
       // the row wraps on a phone the pitcher stacks on top rather than the
-      // pairing reversing between breakpoints.
+      // pairing reversing between breakpoints. Hidden at the widescreen
+      // breakpoint (Alex's ask) - sceneScorebugHtml's own no-logo copy, sat
+      // directly under each team's own scorebug column, takes over there
+      // instead (style.css's own min-width:900px block), freeing this row's
+      // vertical space for the diamond to grow into.
       '<div class="scene-matchup">' +
-        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr) +
+        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr, true) +
         '<span class="mu-vs">vs</span>' +
-        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr) +
+        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr, true) +
       "</div>" +
     "</div>";
   }
@@ -12002,10 +12012,67 @@
   // building the element, and mutating the property post-insertion doesn't
   // reliably undo that decision (Alex's report: mutating it after the fact
   // wasn't actually fixing the slow sequential loading).
-  function mountSlide(slideEl, slide, prev, eagerImages) {
+  /* Alex's ask: on a wide enough screen (style.css's own min-width:900px
+     gate decides visibility, not this function), the PITCHING/AT BAT line
+     moves up to sit directly under its own team's scorebug column instead
+     of its own row below the field - same idea, same mount-time DOM
+     surgery, as the live-grid view's own identical move
+     (mountLiveSlideInto's liveGridWrapTeamRow/liveGridMatchupLineHtml), just
+     the real sceneRoleHtml block (full name, real star button, no
+     abbreviating to last-name-only) since there's real room here, and a
+     DIFFERENT wrapper class (sb-team-row, never live-grid-team-row) so the
+     two mounting paths can never collide even though they both start from
+     the exact same sceneScorebugHtml markup. Runs unconditionally on every
+     mount (cheap, and CSS alone decides whether the result is visible) -
+     sceneScorebugHtml's own template is intentionally left untouched (the
+     live-grid path's own wrapping expects its three original children -
+     logo/abbr/score - directly, not pre-wrapped), so this is the only place
+     that structure changes. */
+  function wireScorebugMatchup(slideEl, slide) {
+    var m = slide.play;
+    if (!m) return;
+    var awayEl = slideEl.querySelector(".scene-scorebug-team:not(.home)");
+    var homeEl = slideEl.querySelector(".scene-scorebug-team.home");
+    if (!awayEl || !homeEl) return;
+    function wrapRow(teamEl) {
+      var row = document.createElement("div");
+      // Alex's report: the home team's score/abbr/logo order flipped back to
+      // matching away's (logo-abbr-score) instead of staying mirrored
+      // (score-abbr-logo) - this never copied teamEl's own "home" class onto
+      // the new row, so .sb-team-row.home's row-reverse (style.css) never
+      // matched regardless of which team was being wrapped.
+      row.className = teamEl.classList.contains("home") ? "sb-team-row home" : "sb-team-row";
+      while (teamEl.firstChild) row.appendChild(teamEl.firstChild);
+      teamEl.appendChild(row);
+    }
+    wrapRow(awayEl);
+    wrapRow(homeEl);
+    var awayBatting = !m.batting_is_home;
+    var pitcherHtml = sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr, false);
+    var batterHtml = sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr, false);
+    awayEl.insertAdjacentHTML("beforeend", awayBatting ? batterHtml : pitcherHtml);
+    homeEl.insertAdjacentHTML("beforeend", awayBatting ? pitcherHtml : batterHtml);
+  }
+
+  // forGridPane (Alex's report): mountLiveSlideInto (the live-grid view's own
+  // mounting function) calls this same mountSlide too, then runs its own
+  // liveGridWrapTeamRow right afterward, which sweeps EVERY current child of
+  // .scene-scorebug-team - including wireScorebugMatchup's own appended
+  // .mu-side, if it had already run - into .live-grid-team-row. Once nested
+  // there, .mu-side no longer matches this feature's own
+  // ".scene-scorebug-team > .mu-side" show/hide rules (direct-child only),
+  // so it fell through to the bare, unscoped ".mu-side{display:flex}" base
+  // rule instead and rendered unconditionally, crammed into the grid pane's
+  // own tiny team row right alongside that view's own separate "P: Lastname"
+  // line. The grid already has its own equivalent (liveGridMatchupLineHtml) -
+  // this skips wireScorebugMatchup entirely whenever forGridPane is true,
+  // rather than trying to make the CSS survive being re-parented into a
+  // structure this feature was never designed to nest inside.
+  function mountSlide(slideEl, slide, prev, eagerImages, forGridPane) {
     var html = catchUpSlideHtml(slide);
     if (eagerImages) html = html.replace(/ loading="lazy"/g, "");
     slideEl.innerHTML = html;
+    if (slide.kind === "play" && !forGridPane) wireScorebugMatchup(slideEl, slide);
     if (isSameGameAdvance(prev, slide)) {
       slideEl.classList.add("in");
       return;
@@ -12053,9 +12120,19 @@
       // pause the show.
       var star = e.target.closest("[data-fav-id]");
       if (star) {
-        if (window.KMFavorites) window.KMFavorites.toggle(star.getAttribute("data-fav-id"));
-        star.classList.toggle("on");
-        star.textContent = star.classList.contains("on") ? "★" : "☆";
+        var favId = star.getAttribute("data-fav-id");
+        if (window.KMFavorites) window.KMFavorites.toggle(favId);
+        // Sync every copy of this same player's star within the slide
+        // (Alex's ask): the widescreen matchup placement duplicates
+        // PITCHING/AT BAT's own star under the scorebug now
+        // (wireScorebugMatchup) - only one copy is ever visible at a time
+        // via CSS, but both need to land "on" together, in case a resize
+        // crosses the breakpoint mid-slide without a re-mount.
+        var willBeOn = !star.classList.contains("on");
+        Array.prototype.forEach.call(el.querySelectorAll('[data-fav-id="' + favId + '"]'), function (s) {
+          s.classList.toggle("on", willBeOn);
+          s.textContent = willBeOn ? "★" : "☆";
+        });
         return;
       }
       if (e.target.closest("a")) return;
@@ -14415,7 +14492,7 @@
      to the next real play is. */
   function mountLiveSlideInto(pane, slide, forceFreshFade) {
     var prevSlide = forceFreshFade ? null : pane.prev;
-    mountSlide(pane.el, slide, prevSlide, true);
+    mountSlide(pane.el, slide, prevSlide, true, true);
     pane.prev = slide;
     if (pane.keyIconEl) pane.keyIconEl.hidden = slide.pass !== "key";
     var scorebug = pane.el.querySelector(".scene-scorebug");
