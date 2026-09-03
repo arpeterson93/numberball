@@ -1,0 +1,472 @@
+season,session,game_code,game_id,play_num,off_team,def_team,inning,half,outs,obc,result,play_code,category,batter_name,pitcher_name,diff
+1,02,010201,7,10201004,Aruba Sea Serpents,Humongous Melonheads,1,top,0,011,DP,0_4_DP,batted_ball_gap,William Wallace,Hudson Hildebrandt,469
+1,02,010203,9,10203006,Miami Fuego,Kansas City Kitties,1,bottom,0,011,DP,0_4_DP,batted_ball_gap,Basebally McBaseballface Jr.,S.A.R Dinka,278
+1,02,010204,10,10204031,R'Lyeh Ancients,Gas House Gorillas,4,bottom,0,011,DP,0_4_DP,batted_ball_gap,Schluffer Dingus,Bartholomew Crumblepuff,439
+1,02,010206,12,10206022,Acadia Peregrines,Baldur's Gate Beholders,3,top,0,011,DP,0_4_DP,batted_ball_gap,Jefferson Steelflex,Superbone Threefinger,425
+1,03,010302,14,10302013,Miami Fuego,Humongous Melonheads,2,top,0,011,DP,0_4_DP,batted_ball_gap,KC Bats,Ricky Vaughn,435
+1,03,010303,15,10303015,Carolina Reapers,Aruba Sea Serpents,2,bottom,0,011,DP,0_4_DP,batted_ball_gap,Austin Schwartz,Ronald Eagle V,416
+1,04,010402,20,10402027,Miami Fuego,Carolina Reapers,3,bottom,0,011,DP,0_4_DP,batted_ball_gap,Donked McToad,Artie Ziff,466
+1,05,010504,28,10504003,Acadia Peregrines,R'Lyeh Ancients,1,top,0,011,DP,0_4_DP,batted_ball_gap,Jefferson Steelflex,Boaty McBoatface,450
+1,07,010704,40,10704019,Sopher McDophers,R'Lyeh Ancients,2,bottom,0,011,DP,0_4_DP,batted_ball_gap,Chris Robin,Teddy Ballinger,383
+1,09,010903,51,10903033,Aruba Sea Serpents,Humongous Melonheads,4,bottom,0,011,DP,0_4_DP,batted_ball_gap,Finkle Sparkles,Hudson Hildebrandt,429
+1,11,011106,66,11106014,Baldur's Gate Beholders,Gas House Gorillas,2,bottom,0,011,DP,0_4_DP,batted_ball_gap,Duke McCracken,Geno Scaramucci,470
+1,12,011205,71,11205047,Gas House Gorillas,Halifax Highlanders,5,bottom,0,011,DP,0_4_DP,batted_ball_gap,Ryan Gastings,Jimmy Johns,455
+1,13,011302,74,11302015,Sunnydale Slayers,R'Lyeh Ancients,2,top,0,011,DP,0_4_DP,batted_ball_gap,Lefty Louis,Pete Jones,494
+2,02,020201,83,20201026,Sopher McDophers,Miami Fuego,3,bottom,0,011,DP,0_4_DP,batted_ball_gap,Kaylee Stewart,Ronald Eagle V,460
+2,03,020301,90,20301040,Reykjavik Valkyries,Miami Fuego,6,top,0,011,DP,0_4_DP,batted_ball_gap,Xavier Phoenix,Tony Smehrik,391
+2,03,020302,91,20302007,Humongous Melonheads,Carolina Reapers,1,bottom,0,011,DP,0_4_DP,batted_ball_gap,Garrett Evans,Teddy Ballinger,429
+2,04,020407,103,20407040,Acadia Peregrines,Halifax Highlanders,5,bottom,0,011,DP,0_4_DP,batted_ball_gap,Jhahn Tahmus,Art Vandelay,393
+2,05,020507,110,20507047,Halifax Highlanders,Portland Pioneers,6,bottom,0,011,DP,0_4_DP,batted_ball_gap,Bud Tuggli,Gus Buster,409
+2,06,020602,112,20602008,Sopher McDophers,Carolina Reapers,1,bottom,0,011,DP,0_4_DP,batted_ball_gap,Lance Lummoxx,Teddy Ballinger,437
+2,06,020602,112,20602033,Carolina Reapers,Sopher McDophers,4,top,0,011,DP,0_4_DP,batted_ball_gap,Bo-Horse Jackman,William Hatchet,467
+2,06,020606,116,20606012,Acadia Peregrines,Baldur's Gate Beholders,2,top,0,011,DP,0_4_DP,batted_ball_gap,Sleve McDichael,Billy Winters,425
+2,06,020607,117,20607056,Gas House Gorillas,Halifax Highlanders,7,bottom,0,011,DP,0_4_DP,batted_ball_gap,Conor Sexton,Yolanda Martinez,402
+2,07,020701,118,20701021,Carolina Reapers,Miami Fuego,3,top,0,011,DP,0_4_DP,batted_ball_gap,Jim Boeheim,Ronald Eagle V,469
+2,07,020701,118,20701036,Miami Fuego,Carolina Reapers,4,bottom,0,011,DP,0_4_DP,batted_ball_gap,Pennis Brinner,Artie Ziff,490
+2,07,020704,121,20704014,Kansas City Kitties,Baldur's Gate Beholders,2,top,0,011,DP,0_4_DP,batted_ball_gap,Clipper Charge,Superbone Threefinger,493
+2,08,020804,128,20804032,Humongous Melonheads,Halifax Highlanders,5,top,0,011,DP,0_4_DP,batted_ball_gap,Garrett Evans,Cal Lidous,421
+2,08,020807,131,20807037,Reykjavik Valkyries,R'Lyeh Ancients,5,top,0,011,DP,0_4_DP,batted_ball_gap,Demetrios Ooga,Q Kimbrel,482
+2,11,021101,146,21101009,Sunnydale Slayers,Miami Fuego,1,bottom,0,011,DP,0_4_DP,batted_ball_gap,Larry Longshot,Ed Turner,371
+2,13,021302,161,21302009,R'Lyeh Ancients,Carolina Reapers,1,bottom,0,011,DP,0_4_DP,batted_ball_gap,Kiger Wulf,Artie Ziff,417
+2,14,021405,171,21405018,Gas House Gorillas,Sunnydale Slayers,2,bottom,0,011,DP,0_4_DP,batted_ball_gap,Ornn Mistborn,Acey McCman,404
+2,16,021601,181,21601020,Sopher McDophers,Miami Fuego,3,top,0,011,DP,0_4_DP,batted_ball_gap,Smitty Hoppenscotch,Tony Smehrik,420
+2,16,021605,185,21605003,Sunnydale Slayers,R'Lyeh Ancients,1,top,0,011,DP,0_4_DP,batted_ball_gap,Jack Marnette,Thomas Nova,400
+2,17,021702,189,21702010,Kansas City Kitties,Humongous Melonheads,2,top,0,011,DP,0_4_DP,batted_ball_gap,Bofadeez Newtz,Rascal Alex,395
+3,02,030208,208,30208012,Humongous Melonheads,Sopher McDophers,2,top,0,011,DP,0_4_DP,batted_ball_gap,Mylo Grams,Tony Smehrik,489
+3,04,030402,218,30402055,Sunnydale Slayers,Acadia Peregrines,7,top,0,011,DP,0_4_DP,batted_ball_gap,Riles McGiles,Mako Bierman,487
+3,05,030501,225,30501045,Ursa Major Grizzlies,Gas House Gorillas,5,bottom,0,011,DP,0_4_DP,batted_ball_gap,Kali McSuntas,Geno Scaramucci,495
+3,05,030505,229,30505017,Raccoon City Outbreak,Humongous Melonheads,2,bottom,0,011,DP,0_4_DP,batted_ball_gap,Viking Fishbird,Stephen Sondheim,460
+3,05,030505,229,30505024,Raccoon City Outbreak,Humongous Melonheads,3,bottom,0,011,DP,0_4_DP,batted_ball_gap,Dinger Sampson,Stephen Sondheim,457
+3,07,030707,247,30707011,Humongous Melonheads,Kansas City Kitties,2,top,0,011,DP,0_4_DP,batted_ball_gap,Jerome Garcia,Tyrone Jennings III,486
+3,08,030804,252,30804039,Sunnydale Slayers,Halifax Highlanders,4,bottom,0,011,DP,0_4_DP,batted_ball_gap,Pablo Sanchez,Jordan Peppers,490
+3,11,031104,276,31104024,Raccoon City Outbreak,Sunnydale Slayers,3,top,0,011,DP,0_4_DP,batted_ball_gap,Robert Atech,Master Cashier,482
+1,04,010405,23,10405019,Gas House Gorillas,Baldur's Gate Beholders,3,bottom,0,011,GO,0_4_GO,batted_ball_gap,Ecliptic Astrum,Hans Ali,256
+2,11,021101,146,21101028,Miami Fuego,Sunnydale Slayers,4,top,0,011,GO,0_4_GO,batted_ball_gap,Red Trapper,Thomas Nova,266
+3,09,030906,262,30906025,Halifax Highlanders,Sopher McDophers,4,top,0,101,GO,0_5_GO,batted_ball_gap,Spike Suzuki,Atlas Quin,333
+1,08,010806,48,10806063,Baldur's Gate Beholders,Halifax Highlanders,8,bottom,0,000,FC,0_6_FC,batted_ball_gap,Ross Fire,Dan Gerzone,250
+1,06,010602,32,10602029,Carolina Reapers,Halifax Highlanders,4,top,0,111,DP,0_7_DP,batted_ball_gap,Johnny Hopkins,Dan Gerzone,474
+2,15,021505,178,21505057,Sunnydale Slayers,Halifax Highlanders,8,top,0,011,DP,0_7_DP,batted_ball_gap,Jack Marnette,Jordan Peppers,407
+3,16,031602,310,31602029,Raccoon City Outbreak,Aruba Sea Serpents,4,top,0,111,DP,0_7_DP,batted_ball_gap,Willie Mays Hayes,Daraya Jonjet,420
+3,12,031203,283,31203010,Halifax Highlanders,Portland Pioneers,1,bottom,0,111,DP32,0_7_DP32,batted_ball_gap,Rusty Nails,Angel Leon,455
+1,02,010202,8,10202030,Sopher McDophers,Carolina Reapers,4,bottom,0,111,DPRun,0_7_DPRun,batted_ball_gap,Chris Robin,Rub A. Chikin,424
+1,02,010204,10,10204061,R'Lyeh Ancients,Gas House Gorillas,8,bottom,0,001,DPRun,0_7_DPRun,batted_ball_gap,JP Panik,Douglas McElroy Jr.,428
+1,02,010206,12,10206017,Baldur's Gate Beholders,Acadia Peregrines,2,bottom,0,111,DPRun,0_7_DPRun,batted_ball_gap,Spike McBride,Kegs Mabry,466
+1,04,010401,19,10401032,Humongous Melonheads,Kansas City Kitties,4,top,0,111,DPRun,0_7_DPRun,batted_ball_gap,Jerome Garcia,Blue Moon Barthelemy,390
+1,10,011001,55,11001012,Sopher McDophers,Kansas City Kitties,1,top,0,111,DPRun,0_7_DPRun,batted_ball_gap,SirNose d'Voidoffunk,Lee Allen Ripley,424
+1,10,011005,59,11005004,Sunnydale Slayers,Gas House Gorillas,1,top,0,111,DPRun,0_7_DPRun,batted_ball_gap,Haraldo McKenzie,Simon Dominic,408
+3,02,030202,202,30202050,Sunnydale Slayers,Baldur's Gate Beholders,5,top,0,111,DPRun,0_7_DPRun,batted_ball_gap,Tyrone Lannister,Devin Arianna,416
+2,06,020602,112,20602004,Carolina Reapers,Sopher McDophers,1,top,1,001,GO,1_1_GO,batted_ball_gap,Austin Schwartz,Atlas Quin,355
+2,11,021105,150,21105044,Baldur's Gate Beholders,R'Lyeh Ancients,5,bottom,1,001,GO,1_1_GO,batted_ball_gap,Clive Babineaux,Goro Shinoda,260
+1,02,010205,11,10205035,Halifax Highlanders,Sunnydale Slayers,5,top,1,011,DP,1_4_DP,batted_ball_gap,Bud Tuggli,Lee Allen Ripley,472
+1,03,010305,17,10305019,Sunnydale Slayers,Gas House Gorillas,2,bottom,1,011,DP,1_4_DP,batted_ball_gap,Mike Cal,Geno Scaramucci,487
+1,03,010306,18,10306027,Acadia Peregrines,Halifax Highlanders,4,bottom,1,101,DP,1_4_DP,batted_ball_gap,Sleve McDichael,Charlie Yeager,436
+1,05,010505,29,10505026,Gas House Gorillas,Halifax Highlanders,4,top,1,011,DP,1_4_DP,batted_ball_gap,Hank Murphy,Jordan Peppers,467
+1,07,010701,37,10701044,Acadia Peregrines,Kansas City Kitties,5,top,1,011,DP,1_4_DP,batted_ball_gap,Justin Paglia,Lee Allen Ripley,423
+1,07,010705,41,10705004,Gas House Gorillas,Miami Fuego,1,top,1,011,DP,1_4_DP,batted_ball_gap,Hank Murphy,Syd Kidd,473
+1,08,010803,45,10803011,Aruba Sea Serpents,Kansas City Kitties,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Bom Trady,S.A.R Dinka,184
+1,09,010901,49,10901012,Miami Fuego,Kansas City Kitties,2,top,1,011,DP,1_4_DP,batted_ball_gap,Grim Carp,Phil Coulson,390
+1,09,010904,52,10904035,Halifax Highlanders,Sunnydale Slayers,4,bottom,1,011,DP,1_4_DP,batted_ball_gap,Isaiah Harmon,Thomas Nova,427
+1,11,011104,64,11104007,R'Lyeh Ancients,Halifax Highlanders,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,JP Panik,Jordan Peppers,379
+1,11,011105,65,11105009,Sunnydale Slayers,Acadia Peregrines,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Tony Bigdik,Baron Samedi,484
+1,12,011202,68,11202008,Humongous Melonheads,Sopher McDophers,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Henrik Omega,William Hatchet,475
+1,12,011203,69,11203029,Miami Fuego,Aruba Sea Serpents,3,bottom,1,011,DP,1_4_DP,batted_ball_gap,Juan Diego De Las Rosas Jr.,Miss Bats,431
+1,12,011204,70,11204012,Baldur's Gate Beholders,Sunnydale Slayers,2,top,1,011,DP,1_4_DP,batted_ball_gap,John Fitz,Tim Burr,415
+1,12,011204,70,11204022,Sunnydale Slayers,Baldur's Gate Beholders,3,bottom,1,011,DP,1_4_DP,batted_ball_gap,Pete Wheeler,Hans Ali,410
+1,12,011206,72,11206056,Acadia Peregrines,R'Lyeh Ancients,6,bottom,1,011,DP,1_4_DP,batted_ball_gap,Cody Omega,Teddy Ballinger,483
+1,13,011302,74,11302012,R'Lyeh Ancients,Sunnydale Slayers,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Master Cashier,Thomas Nova,397
+2,02,020206,88,20206028,Halifax Highlanders,R'Lyeh Ancients,3,top,1,011,DP,1_4_DP,batted_ball_gap,Chris Gorzo,Boaty McBoatface,403
+2,03,020307,96,20307024,Acadia Peregrines,Gas House Gorillas,3,top,1,011,DP,1_4_DP,batted_ball_gap,JP Panik,Geno Scaramucci,0
+2,04,020401,97,20401039,Miami Fuego,R'Lyeh Ancients,5,bottom,1,011,DP,1_4_DP,batted_ball_gap,Fuzzy Dunlop,Nate Lewis,467
+2,05,020502,105,20502042,Reykjavik Valkyries,Carolina Reapers,6,top,1,011,DP,1_4_DP,batted_ball_gap,Famous Anus,Tommy Foxconn,402
+2,05,020504,107,20504026,Humongous Melonheads,Acadia Peregrines,3,top,1,011,DP,1_4_DP,batted_ball_gap,Steve Hofbardozzi Jr.,Miss Bats,429
+2,06,020603,113,20603048,Sunnydale Slayers,Aruba Sea Serpents,6,top,1,011,DP,1_4_DP,batted_ball_gap,Master Cashier,Willoughby Hoose,437
+2,08,020807,131,20807004,Reykjavik Valkyries,R'Lyeh Ancients,1,top,1,011,DP,1_4_DP,batted_ball_gap,Maud Nelson,Pete Jones,407
+2,09,020901,132,20901010,Miami Fuego,Halifax Highlanders,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Pennis Brinner,Cal Lidous,480
+2,09,020904,135,20904036,R'Lyeh Ancients,Humongous Melonheads,5,top,1,011,DP,1_4_DP,batted_ball_gap,Phil Coulson,Rascal Alex,435
+2,10,021002,140,21002013,Humongous Melonheads,Carolina Reapers,2,top,1,011,DP,1_4_DP,batted_ball_gap,Stephen Sondheim,Artie Ziff,467
+2,10,021003,141,21003036,Sopher McDophers,Acadia Peregrines,4,bottom,1,011,DP,1_4_DP,batted_ball_gap,Kegs Mabry,Mako Bierman,425
+2,14,021403,169,21403016,Aruba Sea Serpents,Sopher McDophers,1,bottom,1,011,DP,1_4_DP,batted_ball_gap,Justin Martin,Atlas Quin,455
+2,15,021503,176,21503014,Gas House Gorillas,Aruba Sea Serpents,2,bottom,1,011,DP,1_4_DP,batted_ball_gap,Conor Sexton,LaPrince Frye,446
+2,15,021505,178,21505054,Halifax Highlanders,Sunnydale Slayers,7,bottom,1,001,DP,1_4_DP,batted_ball_gap,Donked McToad,Ricky Vaughn,500
+3,01,030105,197,30105025,Portland Pioneers,Reykjavik Valkyries,3,top,1,011,DP,1_4_DP,batted_ball_gap,Kalin Young,Britt O'War,468
+3,01,030105,197,30105049,Portland Pioneers,Reykjavik Valkyries,6,top,1,011,DP,1_4_DP,batted_ball_gap,Remi Renaldo,Britt O'War,480
+3,01,030107,199,30107004,Gas House Gorillas,Humongous Melonheads,1,top,1,011,DP,1_4_DP,batted_ball_gap,Conor Sexton,Hudson Hildebrandt,475
+3,03,030302,210,30302059,Baldur's Gate Beholders,Acadia Peregrines,7,top,1,011,DP,1_4_DP,batted_ball_gap,Base Ventura,True Pierce,427
+3,03,030308,216,30308057,Humongous Melonheads,Aruba Sea Serpents,6,bottom,1,011,DP,1_4_DP,batted_ball_gap,Garrett Evans,LaPrince Frye,445
+3,04,030405,221,30405035,Kansas City Kitties,Raccoon City Outbreak,4,bottom,1,011,DP,1_4_DP,batted_ball_gap,Antwan Zella,Diego Medina,478
+3,05,030506,230,30506042,Carolina Reapers,Reykjavik Valkyries,5,top,1,011,DP,1_4_DP,batted_ball_gap,Dick Pole,Brian MacDonald,452
+3,06,030606,238,30606042,Aruba Sea Serpents,Carolina Reapers,4,top,1,011,DP,1_4_DP,batted_ball_gap,Skel Etor,Hans Ali,500
+3,06,030607,239,30607022,Kansas City Kitties,Reykjavik Valkyries,2,bottom,1,011,DP,1_4_DP,batted_ball_gap,Ricky Calzone,Britt O'War,465
+3,08,030801,249,30801020,Ursa Major Grizzlies,Portland Pioneers,2,bottom,1,011,DP,1_4_DP,batted_ball_gap,Kali McSuntas,Gus Buster,489
+3,09,030908,264,30908037,R'Lyeh Ancients,Aruba Sea Serpents,5,top,1,011,DP,1_4_DP,batted_ball_gap,Boof Boog,Rekt Kiddo,477
+3,12,031205,285,31205011,Carolina Reapers,Raccoon City Outbreak,2,top,1,011,DP,1_4_DP,batted_ball_gap,Austin Schwartz,Nate Lewis,458
+3,13,031307,295,31307036,Reykjavik Valkyries,Sopher McDophers,5,top,1,000,DP,1_4_DP,batted_ball_gap,Roland Kholin,William Hatchet,458
+3,17,031701,311,31701010,Raccoon City Outbreak,Sunnydale Slayers,2,top,1,011,DP,1_4_DP,batted_ball_gap,Yolanda Martinez,Cal Lidous,460
+2,06,020602,112,20602017,Sopher McDophers,Carolina Reapers,2,bottom,1,011,DP32,1_4_DP32,batted_ball_gap,Buckeye Logan II,Teddy Ballinger,464
+2,07,020703,120,20703040,Aruba Sea Serpents,Humongous Melonheads,4,top,1,011,DP32,1_4_DP32,batted_ball_gap,Magic Simmons,Hudson Hildebrandt,466
+2,11,021107,152,21107049,Portland Pioneers,Acadia Peregrines,5,bottom,1,011,DP32,1_4_DP32,batted_ball_gap,Fortuk Monmouth,Mako Bierman,450
+3,13,031305,293,31305049,Raccoon City Outbreak,Miami Fuego,5,top,1,011,FCLead,1_4_FCLead,batted_ball_gap,Bob Dunagee,Will Charles,393
+3,14,031404,300,31404053,R'Lyeh Ancients,Halifax Highlanders,6,bottom,1,011,FCLead,1_4_FCLead,batted_ball_gap,Jayson Bae Jr.,Frozen Inertia,427
+1,01,010105,5,10105012,R'Lyeh Ancients,Sunnydale Slayers,2,top,1,101,GO,1_5_GO,batted_ball_gap,Thomas Thompson III,Angel Leon,224
+3,01,030104,196,30104021,Sunnydale Slayers,Miami Fuego,2,bottom,2,111,GO,1_5_GO,batted_ball_gap,Chip Otle,Ronald Eagle V,319
+1,02,010204,10,10204070,Gas House Gorillas,R'Lyeh Ancients,9,top,0,111,DP,1_7_DP,batted_ball_gap,Jimmy Johns,Boaty McBoatface,436
+1,02,010204,10,10204072,R'Lyeh Ancients,Gas House Gorillas,9,bottom,1,000,DP,1_7_DP,batted_ball_gap,Thomas Thompson III,Geno Scaramucci,433
+1,04,010401,19,10401022,Humongous Melonheads,Kansas City Kitties,3,top,1,111,DP,1_7_DP,batted_ball_gap,Freddie Freeballs,Phil Coulson,410
+1,04,010406,24,10406015,Acadia Peregrines,Sunnydale Slayers,2,bottom,1,101,DP,1_7_DP,batted_ball_gap,Steve Shurwin,Lee Allen Ripley,467
+1,05,010504,28,10504046,Acadia Peregrines,R'Lyeh Ancients,5,top,1,111,DP,1_7_DP,batted_ball_gap,Dougal McGoogol,Ace Brasco,479
+1,07,010703,39,10703062,Carolina Reapers,Baldur's Gate Beholders,7,bottom,1,001,DP,1_7_DP,batted_ball_gap,Alex Yaxley,Morris Deratt,395
+1,09,010902,50,10902005,Sopher McDophers,Carolina Reapers,1,top,1,111,DP,1_7_DP,batted_ball_gap,Dick Woolridge Jr.,Rub A. Chikin,479
+1,10,011003,57,11003027,Aruba Sea Serpents,Carolina Reapers,3,bottom,1,111,DP,1_7_DP,batted_ball_gap,Brandon Blade,Tommy Foxconn,487
+1,11,011106,66,11106011,Gas House Gorillas,Baldur's Gate Beholders,2,top,1,111,DP,1_7_DP,batted_ball_gap,Conor Sexton,Hans Ali,493
+1,11,011106,66,11106046,Gas House Gorillas,Baldur's Gate Beholders,7,top,1,011,DP,1_7_DP,batted_ball_gap,Conor Sexton,Hans Ali,500
+2,02,020203,85,20203037,Humongous Melonheads,Kansas City Kitties,5,top,1,111,DP,1_7_DP,batted_ball_gap,Steve Hofbardozzi Jr.,Babatunde Oladotun,426
+2,02,020204,86,20204039,Aruba Sea Serpents,Reykjavik Valkyries,5,top,1,111,DP,1_7_DP,batted_ball_gap,Vandalia Halen,Britt O'War,466
+2,03,020306,95,20306009,Portland Pioneers,Baldur's Gate Beholders,1,bottom,1,111,DP,1_7_DP,batted_ball_gap,Robin Reynolds,Syd Kidd,442
+2,11,021106,151,21106048,Gas House Gorillas,Halifax Highlanders,6,top,1,111,DP,1_7_DP,batted_ball_gap,River Ride,Patrick Mahomes,427
+2,14,021404,170,21404015,Baldur's Gate Beholders,Reykjavik Valkyries,2,top,1,111,DP,1_7_DP,batted_ball_gap,Rabbi Chase,Britt O'War,445
+3,02,030202,202,30202061,Sunnydale Slayers,Baldur's Gate Beholders,6,top,1,111,DP,1_7_DP,batted_ball_gap,Charles Bullion,Devin Arianna,419
+3,03,030305,213,30305049,Miami Fuego,Raccoon City Outbreak,5,top,1,111,DP,1_7_DP,batted_ball_gap,KC Bats,Mat Gamel,471
+3,04,030402,218,30402015,Sunnydale Slayers,Acadia Peregrines,2,top,1,111,DP,1_7_DP,batted_ball_gap,Riles McGiles,Miss Bats,472
+3,04,030403,219,30403021,Portland Pioneers,Gas House Gorillas,2,top,1,111,DP,1_7_DP,batted_ball_gap,Timmy Bendiš,Billy Winters,421
+3,04,030405,221,30405021,Kansas City Kitties,Raccoon City Outbreak,2,bottom,1,111,DP,1_7_DP,batted_ball_gap,Mr. Jim Business,Diego Medina,462
+3,05,030505,229,30505050,Raccoon City Outbreak,Humongous Melonheads,6,bottom,1,111,DP,1_7_DP,batted_ball_gap,Viking Fishbird,Stephen Sondheim,437
+3,06,030606,238,30606005,Aruba Sea Serpents,Carolina Reapers,1,top,1,111,DP,1_7_DP,batted_ball_gap,Johnny Hendrix,Kurt Anger,423
+3,08,030802,250,30802021,Gas House Gorillas,Acadia Peregrines,2,bottom,1,111,DP,1_7_DP,batted_ball_gap,Ornn Mistborn,Miss Bats,406
+3,08,030805,253,30805009,Raccoon City Outbreak,Reykjavik Valkyries,1,bottom,1,111,DP,1_7_DP,batted_ball_gap,Jarey Butts,Adam Croft,452
+3,09,030908,264,30908047,R'Lyeh Ancients,Aruba Sea Serpents,6,top,1,111,DP,1_7_DP,batted_ball_gap,Juniper Nyula,Rekt Kiddo,417
+3,11,031104,276,31104033,Raccoon City Outbreak,Sunnydale Slayers,4,top,1,111,DP,1_7_DP,batted_ball_gap,Jarey Butts,Cal Lidous,434
+2,11,021106,151,21106015,Gas House Gorillas,Halifax Highlanders,2,top,1,111,DP32,1_7_DP32,batted_ball_gap,Dixon Uraz,Jordan Peppers,461
+2,14,021406,172,21406021,R'Lyeh Ancients,Portland Pioneers,3,bottom,1,111,DP32,1_7_DP32,batted_ball_gap,Lloyd Gross,Syd Kidd,445
+1,01,010102,2,10102009,Carolina Reapers,Humongous Melonheads,1,bottom,1,111,FC,1_7_FC,batted_ball_gap,Brohei Brohtani,Jay Bedia,218
+1,04,010402,20,10402017,Miami Fuego,Carolina Reapers,2,bottom,1,111,FC,1_7_FC,batted_ball_gap,Isaac Saffron,Rub A. Chikin,302
+2,06,020607,117,20607014,Halifax Highlanders,Gas House Gorillas,2,top,2,001,FC,2_1_FC,batted_ball_gap,Butters Stotch,Calvin Huff,254
+2,08,020806,130,20806008,Kansas City Kitties,Gas House Gorillas,1,bottom,2,001,FC,2_1_FC,batted_ball_gap,Blue Moon Barthelemy,Bartholomew Crumblepuff,319
+2,09,020907,138,20907044,Acadia Peregrines,Reykjavik Valkyries,5,top,2,001,FC,2_1_FC,batted_ball_gap,JP Panik,Brian MacDonald,283
+3,02,030204,204,30204004,R'Lyeh Ancients,Gas House Gorillas,1,top,2,001,FC,2_1_FC,batted_ball_gap,Dallas Houston,Bartholomew Crumblepuff,277
+2,13,021307,166,21307012,Halifax Highlanders,Portland Pioneers,2,top,2,011,FC3rd,2_4_FC3rd,batted_ball_gap,Donked McToad,Gus Buster,253
+1,04,010401,19,10401029,Humongous Melonheads,Kansas City Kitties,4,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Herrera O'Doubles,Jay Schwizzle,0
+1,05,010503,27,10503004,Aruba Sea Serpents,Miami Fuego,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Willie Mays Hayes,Willoughby Hoose,0
+1,08,010803,45,10803022,Aruba Sea Serpents,Kansas City Kitties,3,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Finkle Sparkles,S.A.R Dinka,0
+1,08,010806,48,10806038,Baldur's Gate Beholders,Halifax Highlanders,5,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Dallas Houston,Dan Gerzone,0
+1,10,011004,58,11004023,Halifax Highlanders,Acadia Peregrines,3,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Isaiah Harmon,Baron Samedi,0
+2,07,020704,121,20704004,Baldur's Gate Beholders,Kansas City Kitties,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Jimmy Johns,Guillermo Caruthers,0
+2,09,020901,132,20901001,Halifax Highlanders,Miami Fuego,1,top,0,111,AutoBB,0_0_AutoBB,no_pa_expected,Francis Herman Swagger,Jay Bedia,0
+2,12,021202,154,21202032,Carolina Reapers,Reykjavik Valkyries,4,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Alex Yaxley,Caleb Miller,0
+2,15,021501,174,21501033,Carolina Reapers,Miami Fuego,4,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Tony Stark,Ed Turner,0
+2,15,021502,175,21502042,Sopher McDophers,Humongous Melonheads,5,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Chris Robin,Carney Lerouix,0
+2,16,021602,182,21602001,Aruba Sea Serpents,Carolina Reapers,1,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Robert Abenduct,Artie Ziff,0
+3,03,030305,213,30305018,Raccoon City Outbreak,Miami Fuego,2,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Joanna McMartinez,Ronald Eagle V,0
+3,11,031101,273,31101005,Ursa Major Grizzlies,Carolina Reapers,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Barney Turbo,Teddy Ballinger,0
+5,12,051203,521,51203015,Gas House Gorillas,R'Lyeh Ancients,2,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Dick Richards,Bull Dozer,0
+6,02,060202,559,60202028,Gas House Gorillas,Carolina Reapers,3,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Keyo,Brian MacDonald,0
+6,05,060504,585,60504055,Halifax Highlanders,Portland Pioneers,6,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Johnny Omar,Poop McGee,0
+6,07,060702,599,60702031,R'Lyeh Ancients,Gas House Gorillas,4,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Copenhagen Black,Hornot Hivez,0
+6,08,060803,608,60803012,Humongous Melonheads,R'Lyeh Ancients,2,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Kanye East,Skye McDowell,0
+7,01,070106,674,70106035,Carolina Reapers,Raccoon City Outbreak,5,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Peter Hoomanawanui,Joanna McMartinez,0
+7,04,070405,697,70405005,Carolina Reapers,Miami Fuego,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Dallas Houston,Dylan Green,0
+7,05,070504,704,70504004,Raccoon City Outbreak,Portland Pioneers,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Bobby Portis,Kevin James,0
+7,06,070607,715,70607005,Carolina Reapers,Humongous Melonheads,1,bottom,0,000,AutoBB,0_0_AutoBB,no_pa_expected,Johnny McFarland,Stephen Sondheim,0
+7,11,071102,750,71102021,Gas House Gorillas,Humongous Melonheads,3,top,0,000,AutoBB,0_0_AutoBB,no_pa_expected,King Kruul,Hudson Hildebrandt,0
+1,02,010203,9,10203040,Kansas City Kitties,Miami Fuego,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Reggie Cooke,Tony Smehrik,0
+1,02,010204,10,10204040,Gas House Gorillas,R'Lyeh Ancients,6,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Dog Man,Nate Lewis,0
+1,03,010303,15,10303023,Carolina Reapers,Aruba Sea Serpents,3,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Brohei Brohtani,Ronald Eagle V,450
+1,06,010605,35,10605018,Aruba Sea Serpents,Acadia Peregrines,3,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Casey Jones,Jameson Poe,0
+1,06,010606,36,10606046,Baldur's Gate Beholders,Miami Fuego,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Spike McBride,Tony Smehrik,0
+1,07,010702,38,10702011,Humongous Melonheads,Sunnydale Slayers,2,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Larry Slack,Thomas Nova,0
+1,07,010706,42,10706035,Halifax Highlanders,Aruba Sea Serpents,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Buzz Schwinghammer,Ronald Eagle V,0
+1,08,010802,44,10802029,Miami Fuego,Sopher McDophers,4,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Fuzzy Dunlop,Andrew Peters,0
+1,08,010803,45,10803012,Kansas City Kitties,Aruba Sea Serpents,2,top,0,100,AutoK,0_0_AutoK,no_pa_expected,Reggie Cooke,Miss Bats,0
+1,09,010906,54,10906008,Baldur's Gate Beholders,Acadia Peregrines,2,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Dixie Wrecked,Baron Samedi,0
+1,11,011106,66,11106034,Baldur's Gate Beholders,Gas House Gorillas,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Duke McCracken,Geno Scaramucci,0
+1,12,011201,67,11201034,Kansas City Kitties,Carolina Reapers,4,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Grey Goose McGillicuddy,Rub A. Chikin,0
+1,12,011203,69,11203051,Aruba Sea Serpents,Miami Fuego,6,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Bom Trady,Ed Turner,0
+2,01,020101,76,20101026,Kansas City Kitties,Miami Fuego,3,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Clipper Charge,Tony Smehrik,0
+2,01,020102,77,20102052,Aruba Sea Serpents,Carolina Reapers,6,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Zed Leona,Teddy Ballinger,0
+2,02,020201,83,20201035,Miami Fuego,Sopher McDophers,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,AJ Preller,William Hatchet,0
+2,06,020601,111,20601016,Miami Fuego,Humongous Melonheads,3,top,0,000,AutoK,0_0_AutoK,no_pa_expected,AJ Preller,Rascal Alex,0
+2,08,020804,128,20804007,Humongous Melonheads,Halifax Highlanders,2,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Steve Thomas,Jordan Peppers,0
+2,11,021102,147,21102008,Carolina Reapers,Sopher McDophers,1,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Tyler Palmatier,William Hatchet,0
+2,12,021203,155,21203031,Kansas City Kitties,Sopher McDophers,4,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Clipper Charge,Atlas Quin,0
+2,12,021203,155,21203037,Sopher McDophers,Kansas City Kitties,4,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Kaylee Stewart,Babatunde Oladotun,0
+2,14,021401,167,21401023,Miami Fuego,Humongous Melonheads,3,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Red Trapper,Hudson Hildebrandt,0
+2,14,021403,169,21403052,Aruba Sea Serpents,Sopher McDophers,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Vandalia Halen,William Hatchet,0
+2,14,021406,172,21406034,Portland Pioneers,R'Lyeh Ancients,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Bom Trady,Thomas Nova,0
+2,16,021606,186,21606032,Acadia Peregrines,Baldur's Gate Beholders,3,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,James Pablano,Jameson Poe,0
+3,02,030206,206,30206011,Miami Fuego,Kansas City Kitties,2,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Zin Martinez,S.A.R Dinka,0
+3,02,030206,206,30206037,Miami Fuego,Kansas City Kitties,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Eli Sasak,Bobby “Freakin” Portis,0
+3,02,030208,208,30208046,Sopher McDophers,Humongous Melonheads,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Lance Lummoxx,Hudson Hildebrandt,0
+3,03,030308,216,30308024,Humongous Melonheads,Aruba Sea Serpents,3,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Larry Slack,LaPrince Frye,0
+3,05,030506,230,30506010,Carolina Reapers,Reykjavik Valkyries,2,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Jake Wilson,Brian MacDonald,0
+3,07,030701,241,30701024,Ursa Major Grizzlies,Halifax Highlanders,4,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Jon Adams,Jordan Peppers,0
+3,07,030705,245,30705007,Aruba Sea Serpents,Raccoon City Outbreak,1,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Robert Abenduct,Josef Samuelsson,0
+3,08,030801,249,30801008,Ursa Major Grizzlies,Portland Pioneers,1,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Kali McSuntas,Gus Buster,0
+3,08,030808,256,30808033,Miami Fuego,Aruba Sea Serpents,4,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Clive Babineaux,Daraya Jonjet,0
+3,11,031101,273,31101033,Carolina Reapers,Ursa Major Grizzlies,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Jake Wilson,Wallace Grommet,0
+3,13,031306,294,31306034,Kansas City Kitties,Carolina Reapers,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Grey Goose McGillicuddy,Teddy Ballinger,0
+4,04,040403,338,40403043,Aruba Sea Serpents,Halifax Highlanders,6,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Brandon Blade,Frozen Inertia,0
+5,08,050807,493,50807001,Carolina Reapers,Reykjavik Valkyries,1,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Clifton Outlaw,Joey Wheeler,0
+5,12,051203,521,51203039,R'Lyeh Ancients,Gas House Gorillas,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Morris Deratt,Rickey Tucker,0
+6,02,060202,559,60202021,Carolina Reapers,Gas House Gorillas,3,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Freddie Huff,Finkle Sparkles,0
+6,05,060505,586,60505030,Miami Fuego,Humongous Melonheads,4,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Jefferson Steelflex,Stephen Sondheim,0
+6,09,060905,618,60905042,Miami Fuego,Reykjavik Valkyries,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Red Trapper,Tyrone Jennings III,0
+6,09,060908,621,60908026,Humongous Melonheads,Raccoon City Outbreak,4,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Papa Longstroke,Diego Medina,0
+6,10,061003,624,61003009,R'Lyeh Ancients,Reykjavik Valkyries,2,top,0,000,AutoK,0_0_AutoK,no_pa_expected,John Rhys Ealy,Larold,0
+6,10,061003,624,61003042,R'Lyeh Ancients,Reykjavik Valkyries,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,John Rhys Ealy,Tyrone Jennings III,0
+6,13,061301,646,61301048,Gas House Gorillas,Acadia Peregrines,6,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Ohtani But Wide,Ryan Gastings,0
+6,15,061504,665,61504037,Raccoon City Outbreak,Sopher McDophers,5,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Shovel Bryant,Thomas Thompson III,0
+7,01,070101,669,70101043,Acadia Peregrines,Portland Pioneers,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Stan Mann,Pete Sweat,0
+7,02,070203,679,70203041,R'Lyeh Ancients,Aruba Sea Serpents,6,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Damien Anderson,Donatello Chalupa,0
+7,03,070303,687,70303017,R'Lyeh Ancients,Baldur's Gate Beholders,2,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Damien Anderson,Matthew Longballo,0
+7,07,070701,717,70701028,R'Lyeh Ancients,Acadia Peregrines,4,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Big Smoke Anderson,Ryan Gastings,0
+7,08,070801,725,70801052,Acadia Peregrines,Sopher McDophers,6,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Alexandra Shepard,LaCarpetron Dukemarriot,0
+7,08,070802,726,70802005,Gas House Gorillas,Kansas City Kitties,1,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Mike Fruitstand,Nate Duke,0
+7,09,070907,739,70907041,Carolina Reapers,Reykjavik Valkyries,5,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Dirk Dangerous,Jhangus Roundstone,0
+7,12,071201,757,71201001,Acadia Peregrines,R'Lyeh Ancients,1,top,0,000,AutoK,0_0_AutoK,no_pa_expected,Bill “Pegleg” Bailey,Six Finger McMillan,0
+7,13,071301,765,71301030,Acadia Peregrines,Gas House Gorillas,3,bottom,0,000,AutoK,0_0_AutoK,no_pa_expected,Willie Mays Hayes,Keyo,0
+5,09,050904,498,50904013,Carolina Reapers,Sunnydale Slayers,2,bottom,0,001,AutoBB,0_1_AutoBB,no_pa_expected,Dick Pole,Cal Lidous,0
+1,08,010806,48,10806039,Baldur's Gate Beholders,Halifax Highlanders,5,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Ross Fire,Dan Gerzone,0
+1,09,010904,52,10904011,Halifax Highlanders,Sunnydale Slayers,2,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Buzz Schwinghammer,Thomas Nova,0
+2,01,020106,81,20106034,Gas House Gorillas,R'Lyeh Ancients,4,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Chuck McCluster,Boaty McBoatface,0
+2,02,020203,85,20203014,Kansas City Kitties,Humongous Melonheads,2,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Reggie Cooke,Carney Lerouix,0
+3,04,030408,224,30408018,Aruba Sea Serpents,Sopher McDophers,3,top,0,001,AutoK,0_1_AutoK,no_pa_expected,Robert Abenduct,Tony Smehrik,0
+3,10,031004,268,31004044,Kansas City Kitties,Sunnydale Slayers,5,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Bofadeez Newtz,Ricky Vaughn,0
+5,15,051503,545,51503051,Sopher McDophers,Humongous Melonheads,6,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Plack Attack,Rascal Alex,0
+7,11,071102,750,71102022,Gas House Gorillas,Humongous Melonheads,3,top,0,001,AutoK,0_1_AutoK,no_pa_expected,Ornn Mistborn,Hudson Hildebrandt,0
+7,12,071205,761,71205016,Miami Fuego,Raccoon City Outbreak,2,bottom,0,001,AutoK,0_1_AutoK,no_pa_expected,Harry Peritestes,Joanna McMartinez,0
+1,01,010101,1,10101022,Aruba Sea Serpents,Kansas City Kitties,3,bottom,0,001,AutoSB,0_1_AutoSB,no_pa_expected,Willie Mays Hayes,Jay Schwizzle,0
+2,09,020906,137,20906006,Sunnydale Slayers,Kansas City Kitties,1,bottom,0,001,AutoSB,0_1_AutoSB,no_pa_expected,Willie Mays Hayes,Babatunde Oladotun,0
+2,11,021102,147,21102002,Sopher McDophers,Carolina Reapers,1,top,0,001,AutoSB,0_1_AutoSB,no_pa_expected,Smitty Hoppenscotch,Tommy Foxconn,0
+2,12,021204,157,21204002,Portland Pioneers,Humongous Melonheads,1,top,0,001,AutoSB,0_1_AutoSB,no_pa_expected,Soy Guapo,Carney Lerouix,0
+2,16,021604,184,21604002,Halifax Highlanders,Kansas City Kitties,1,top,0,001,AutoSB,0_1_AutoSB,no_pa_expected,Sandy Collazo,Babatunde Oladotun,0
+1,02,010202,8,10202028,Sopher McDophers,Carolina Reapers,4,bottom,0,010,AutoBB,0_2_AutoBB,no_pa_expected,"Crawnick ""Pops"" Dongoria",Rub A. Chikin,0
+1,01,010101,1,10101009,Kansas City Kitties,Aruba Sea Serpents,2,top,0,010,AutoK,0_2_AutoK,no_pa_expected,Grey Goose McGillicuddy,Ronald Eagle V,0
+1,04,010401,19,10401050,Humongous Melonheads,Kansas City Kitties,6,top,0,010,AutoK,0_2_AutoK,no_pa_expected,Allen Kennedy,Blue Moon Barthelemy,0
+1,05,010503,27,10503059,Aruba Sea Serpents,Miami Fuego,7,bottom,0,000,AutoK,0_2_AutoK,no_pa_expected,Brigham Young,Ed Turner,0
+2,15,021507,180,21507031,Portland Pioneers,Baldur's Gate Beholders,4,top,0,010,AutoK,0_2_AutoK,no_pa_expected,Bom Trady,Billy Winters,0
+2,16,021602,182,21602029,Carolina Reapers,Aruba Sea Serpents,4,bottom,0,010,AutoK,0_2_AutoK,no_pa_expected,Dick Pole,Louis Whip,0
+3,03,030308,216,30308049,Aruba Sea Serpents,Humongous Melonheads,6,top,0,010,AutoK,0_2_AutoK,no_pa_expected,Arm N. Hammer,Rascal Alex,0
+3,01,030102,194,30102007,Acadia Peregrines,Carolina Reapers,1,bottom,0,010,CS,0_2_CS,no_pa_expected,Dougal McGoogol,Teddy Ballinger,0
+1,04,010403,21,10403045,Aruba Sea Serpents,Sopher McDophers,6,bottom,0,010,SB,0_2_SB,no_pa_expected,Kurt Anger,Atlas Quin,0
+1,01,010102,2,10102006,Carolina Reapers,Humongous Melonheads,1,bottom,0,100,AutoBB,0_3_AutoBB,no_pa_expected,Jake Wilson,Jay Bedia,0
+3,05,030507,231,30507044,Kansas City Kitties,Aruba Sea Serpents,6,top,0,100,AutoK,0_3_AutoK,no_pa_expected,Niklas Sheely,Daraya Jonjet,0
+2,14,021403,169,21403056,Sopher McDophers,Aruba Sea Serpents,6,top,0,100,CS,0_3_CS,no_pa_expected,Kurt Anger,Louis Whip,0
+4,08,040806,373,40806024,Carolina Reapers,Aruba Sea Serpents,4,top,0,011,AutoBB,0_4_AutoBB,no_pa_expected,Fat Wad,Red Arrow,0
+1,01,010106,6,10106045,Gas House Gorillas,Acadia Peregrines,5,bottom,0,011,AutoK,0_4_AutoK,no_pa_expected,Dropov Andpicov,Kegs Mabry,0
+1,05,010506,30,10506058,Baldur's Gate Beholders,Sunnydale Slayers,7,bottom,0,011,AutoK,0_4_AutoK,no_pa_expected,John Fitz,Angel Leon,0
+2,07,020703,120,20703058,Humongous Melonheads,Aruba Sea Serpents,6,bottom,0,011,AutoK,0_4_AutoK,no_pa_expected,Zed Leona,LaPrince Frye,0
+3,13,031304,292,31304055,Halifax Highlanders,Gas House Gorillas,6,top,0,011,AutoK,0_4_AutoK,no_pa_expected,Francis Herman Swagger,Bartholomew Crumblepuff,0
+6,05,060508,589,60508030,Raccoon City Outbreak,Sopher McDophers,4,top,0,101,AutoBB,0_5_AutoBB,no_pa_expected,Josef Samuelsson,Bartholomew Crumblepuff,0
+6,12,061204,641,61204024,Ursa Major Grizzlies,Sunnydale Slayers,3,bottom,0,110,AutoBB,0_6_AutoBB,no_pa_expected,Wallace Grommet,Master Cashier,0
+1,08,010806,48,10806020,Baldur's Gate Beholders,Halifax Highlanders,3,bottom,0,110,AutoK,0_6_AutoK,no_pa_expected,Icna Comit,Jordan Peppers,0
+1,02,010204,10,10204066,Gas House Gorillas,R'Lyeh Ancients,9,top,0,011,AutoK,0_7_AutoK,no_pa_expected,Ryan Gastings,Boaty McBoatface,0
+1,01,010102,2,10102028,Carolina Reapers,Humongous Melonheads,4,bottom,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Brohei Brohtani,Jay Bedia,0
+1,04,010401,19,10401056,Kansas City Kitties,Humongous Melonheads,6,bottom,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Clipper Charge,Ricky Vaughn,0
+1,04,010406,24,10406017,Sunnydale Slayers,Acadia Peregrines,3,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Bom Trady,Baron Samedi,0
+2,12,021204,157,21204010,Portland Pioneers,Humongous Melonheads,2,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Haraldo McKenzie,Carney Lerouix,0
+2,14,021403,169,21403005,Sopher McDophers,Aruba Sea Serpents,1,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,SirNose d'Voidoffunk,Tanner Hendrix,0
+3,05,030506,230,30506040,Carolina Reapers,Reykjavik Valkyries,5,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Alex Yaxley,Brian MacDonald,0
+3,10,031008,272,31008026,R'Lyeh Ancients,Humongous Melonheads,4,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Tucker Doubt,Hudson Hildebrandt,0
+6,03,060304,569,60304036,Ursa Major Grizzlies,Portland Pioneers,4,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Maximillian Minninun,Poop McGee,0
+6,07,060705,602,60705058,Kansas City Kitties,Miami Fuego,6,bottom,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Karolina Miaukatwicz,Dylan Green,0
+6,09,060908,621,60908005,Raccoon City Outbreak,Humongous Melonheads,1,bottom,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Kiger Wulf,Hudson Hildebrandt,0
+7,03,070301,685,70301002,Sunnydale Slayers,Acadia Peregrines,1,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Bob Winn,Ryan Gastings,0
+7,03,070306,690,70306023,Kansas City Kitties,Humongous Melonheads,3,top,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Simba Martinez II,Stephen Sondheim,0
+7,08,070801,725,70801038,Sopher McDophers,Acadia Peregrines,4,bottom,1,000,AutoBB,1_0_AutoBB,no_pa_expected,Isaac Saffron,Babatunde Oladotun,0
+1,03,010304,16,10304027,Baldur's Gate Beholders,R'Lyeh Ancients,4,top,1,000,AutoK,1_0_AutoK,no_pa_expected,John Fitz,Boaty McBoatface,0
+1,03,010304,16,10304033,Baldur's Gate Beholders,R'Lyeh Ancients,5,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Duke McCracken,Boaty McBoatface,0
+1,05,010505,29,10505002,Gas House Gorillas,Halifax Highlanders,1,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Akhbar Reginald Geraldo Hughes,Jordan Peppers,0
+1,07,010703,39,10703019,Baldur's Gate Beholders,Carolina Reapers,3,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Filthy Frank,Tommy Foxconn,0
+1,08,010806,48,10806012,Baldur's Gate Beholders,Halifax Highlanders,2,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Spike McBride,Jordan Peppers,0
+1,10,011001,55,11001056,Kansas City Kitties,Sopher McDophers,6,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Reggie Cooke,Atlas Quin,0
+1,11,011101,61,11101010,Kansas City Kitties,Humongous Melonheads,2,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Reggie Cooke,Hudson Hildebrandt,0
+1,11,011101,61,11101027,Kansas City Kitties,Humongous Melonheads,4,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Grey Goose McGillicuddy,Hudson Hildebrandt,0
+1,11,011101,61,11101045,Kansas City Kitties,Humongous Melonheads,6,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Reggie Cooke,Jay Bedia,0
+1,11,011106,66,11106027,Baldur's Gate Beholders,Gas House Gorillas,4,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Spike McBride,Geno Scaramucci,0
+2,01,020101,76,20101012,Kansas City Kitties,Miami Fuego,2,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Niklas Sheely,Tony Smehrik,0
+2,03,020304,93,20304045,Aruba Sea Serpents,Kansas City Kitties,6,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Patrick Doyle,Sam Anger,0
+2,06,020606,116,20606024,Baldur's Gate Beholders,Acadia Peregrines,3,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Soy Guapo,Mako Bierman,0
+2,07,020706,123,20706015,R'Lyeh Ancients,Acadia Peregrines,2,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Lefty Schweez,Baron Samedi,0
+2,14,021401,167,21401024,Miami Fuego,Humongous Melonheads,3,bottom,0,000,AutoK,1_0_AutoK,no_pa_expected,Zin Martinez,Hudson Hildebrandt,0
+2,15,021504,177,21504011,Kansas City Kitties,Reykjavik Valkyries,2,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Antwan Zella,Chief Cory,0
+2,16,021602,182,21602013,Aruba Sea Serpents,Carolina Reapers,2,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Vandalia Halen,Tommy Foxconn,0
+2,16,021602,182,21602038,Carolina Reapers,Aruba Sea Serpents,5,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Alex Yaxley,Louis Whip,0
+2,16,021607,187,21607039,Portland Pioneers,Gas House Gorillas,5,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Soy Guapo,Finkle Sparkles,0
+3,08,030805,253,30805041,Reykjavik Valkyries,Raccoon City Outbreak,6,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Shea Luca,Nate Lewis,0
+3,10,031004,268,31004023,Kansas City Kitties,Sunnydale Slayers,2,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Bofadeez Newtz,Cal Lidous,0
+3,12,031205,285,31205017,Carolina Reapers,Raccoon City Outbreak,3,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Jake Wilson,Nate Lewis,0
+3,13,031308,296,31308028,Humongous Melonheads,Aruba Sea Serpents,4,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Larry Slack,LaPrince Frye,0
+3,14,031405,301,31405028,Kansas City Kitties,Raccoon City Outbreak,4,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Niklas Sheely,Diego Medina,0
+4,08,040806,373,40806020,Aruba Sea Serpents,Carolina Reapers,3,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Oliver Yu,Joey Wheeler,0
+4,14,041403,418,41403045,Portland Pioneers,R'Lyeh Ancients,5,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Fortuk Monmouth,Sleve McDichael,0
+5,03,050305,451,50305022,Carolina Reapers,Miami Fuego,3,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Tyler Palmatier,Cali Guerensk,0
+5,04,050406,460,50406041,Kansas City Kitties,Halifax Highlanders,4,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Graham Otherie,Jordan Peppers,0
+5,06,050602,472,50602020,Gas House Gorillas,Baldur's Gate Beholders,3,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Rusty Nails,Cookie Mongster,0
+5,06,050606,476,50606029,Kansas City Kitties,Reykjavik Valkyries,4,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Ura Irons,Babatunde Oladotun,0
+5,09,050904,498,50904006,Carolina Reapers,Sunnydale Slayers,1,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Icna Comit,Cal Lidous,0
+6,06,060606,595,60606016,Humongous Melonheads,Halifax Highlanders,2,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Jerome Garcia,,0
+6,07,060701,598,60701042,Portland Pioneers,Acadia Peregrines,5,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Damien Anderson,Sconnie McSwings,0
+6,09,060903,616,60903063,R'Lyeh Ancients,Halifax Highlanders,6,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,JZ (but not the rapper),,0
+6,12,061208,645,61208048,Humongous Melonheads,Reykjavik Valkyries,6,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Steve Hofbardozzi Jr. Jr. Jr.,Tyrone Jennings III,0
+6,13,061304,649,61304028,Halifax Highlanders,Ursa Major Grizzlies,4,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Big Psyduck,Adam Croft,0
+6,15,061502,663,61502015,Acadia Peregrines,Ursa Major Grizzlies,2,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,LeBarn James,"Jason ""Dead"" Redd",0
+7,04,070405,697,70405061,Carolina Reapers,Miami Fuego,7,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Emerson Austin Jr.,Sticky Mickey Mantle,0
+7,05,070505,705,70505053,Miami Fuego,Baldur's Gate Beholders,6,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Jefferson Steelflex,Mad Monty,0
+7,06,070607,715,70607060,Carolina Reapers,Humongous Melonheads,7,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Emerson Austin Jr.,Hudson Hildebrandt,0
+7,09,070901,733,70901046,Acadia Peregrines,Ursa Major Grizzlies,5,bottom,1,000,AutoK,1_0_AutoK,no_pa_expected,Willie Mays Hayes,Tony Smehrik,0
+7,13,071307,771,71307045,Aruba Sea Serpents,Sopher McDophers,6,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Mo Mo,LaCarpetron Dukemarriot,0
+7,14,071406,778,71406034,Raccoon City Outbreak,Carolina Reapers,5,top,1,000,AutoK,1_0_AutoK,no_pa_expected,Streetlamp LeMoose,Jerry Jingles,0
+1,06,010606,36,10606023,Baldur's Gate Beholders,Miami Fuego,3,bottom,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Barney Summers,Ed Turner,0
+2,02,020203,85,20203054,Kansas City Kitties,Humongous Melonheads,7,bottom,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Niklas Sheely,Jay Bedia,0
+2,15,021501,174,21501025,Carolina Reapers,Miami Fuego,3,bottom,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Alex Yaxley,Ronald Eagle V,0
+4,08,040806,373,40806015,Carolina Reapers,Aruba Sea Serpents,3,top,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Tyler Palmatier,Red Arrow,0
+6,13,061304,649,61304013,Ursa Major Grizzlies,Halifax Highlanders,2,bottom,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Maximillian Minninun,,0
+7,08,070801,725,70801015,Acadia Peregrines,Sopher McDophers,2,top,1,001,AutoBB,1_1_AutoBB,no_pa_expected,Stan Mann,Atlas Quin,0
+1,04,010405,23,10405047,Baldur's Gate Beholders,Gas House Gorillas,6,top,1,001,AutoK,1_1_AutoK,no_pa_expected,Duke McCracken,Douglas McElroy Jr.,0
+1,05,010506,30,10506007,Baldur's Gate Beholders,Sunnydale Slayers,1,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,John Fitz,Thomas Nova,0
+1,09,010903,51,10903028,Humongous Melonheads,Aruba Sea Serpents,4,top,1,001,AutoK,1_1_AutoK,no_pa_expected,Larry Slack,Ronald Eagle V,0
+1,10,011001,55,11001038,Kansas City Kitties,Sopher McDophers,3,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Reggie Cooke,Atlas Quin,0
+1,10,011004,58,11004046,Halifax Highlanders,Acadia Peregrines,5,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Pilate Mornicious,Charlie Yeager,0
+2,02,020204,86,20204006,Reykjavik Valkyries,Aruba Sea Serpents,1,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Demetrios Ooga,Tanner Hendrix,0
+2,10,021001,139,21001016,Reykjavik Valkyries,Miami Fuego,2,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Pretzels Poffenberger II,Ronald Eagle V,0
+2,16,021603,183,21603045,Humongous Melonheads,Reykjavik Valkyries,5,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Osmosis Jones,Willoughby Hoose,0
+2,16,021606,186,21606046,Acadia Peregrines,Baldur's Gate Beholders,4,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Declan Archer,Jameson Poe,0
+2,17,021702,189,21702029,Humongous Melonheads,Kansas City Kitties,4,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Zed Leona,S.A.R Dinka,0
+3,13,031308,296,31308016,Aruba Sea Serpents,Humongous Melonheads,2,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Bico Nico,Stephen Sondheim,0
+5,12,051203,521,51203013,R'Lyeh Ancients,Gas House Gorillas,2,top,1,001,AutoK,1_1_AutoK,no_pa_expected,Kev Biffington,Rickey Tucker,0
+6,03,060304,569,60304046,Portland Pioneers,Ursa Major Grizzlies,4,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,JZ (but not the rapper),"Jason ""Dead"" Redd",0
+6,09,060902,615,60902016,Gas House Gorillas,Ursa Major Grizzlies,2,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Nono Nones,"Jason ""Dead"" Redd",0
+7,02,070202,678,70202024,Gas House Gorillas,Miami Fuego,3,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Ornn Mistborn,Dylan Green,0
+7,08,070803,727,70803069,R'Lyeh Ancients,Reykjavik Valkyries,8,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Big Smoke Anderson,Juniped Panda,0
+7,11,071108,756,71108045,Carolina Reapers,Ursa Major Grizzlies,5,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Emerson Austin Jr.,Adam Croft,0
+7,12,071205,761,71205058,Miami Fuego,Raccoon City Outbreak,6,bottom,1,001,AutoK,1_1_AutoK,no_pa_expected,Harry Peritestes,Joanna McMartinez,0
+1,12,011206,72,11206007,Acadia Peregrines,R'Lyeh Ancients,1,bottom,1,001,AutoSB,1_1_AutoSB,no_pa_expected,James Pablano,Nate Lewis,0
+12,14,121409,2068,121409050,Portland Pioneers,Acadia Peregrines,6,bottom,1,001,cAuto,1_1_cAuto,no_pa_expected,Jimmy Payne,Fat Lever,0
+12,14,121409,2068,121409054,Portland Pioneers,Acadia Peregrines,6,bottom,1,001,cAuto,1_1_cAuto,no_pa_expected,Bingle Johnson,Fat Lever,0
+2,02,020201,83,20201042,Sopher McDophers,Miami Fuego,5,bottom,1,010,AutoBB,1_2_AutoBB,no_pa_expected,Dez Perado,Ed Turner,0
+2,03,020306,95,20306007,Portland Pioneers,Baldur's Gate Beholders,1,bottom,1,010,AutoBB,1_2_AutoBB,no_pa_expected,Timmy Bendiš,Morris Deratt,0
+2,16,021606,186,21606003,Baldur's Gate Beholders,Acadia Peregrines,1,top,1,010,AutoBB,1_2_AutoBB,no_pa_expected,Jack Goff,Mako Bierman,0
+2,16,021607,187,21607033,Gas House Gorillas,Portland Pioneers,4,bottom,1,010,AutoBB,1_2_AutoBB,no_pa_expected,Ornn Mistborn,Angel Leon,0
+4,12,041208,407,41208003,Sopher McDophers,Aruba Sea Serpents,1,top,1,010,AutoBB,1_2_AutoBB,no_pa_expected,Dan Gerzone,LaPrince Frye,0
+1,01,010102,2,10102049,Humongous Melonheads,Carolina Reapers,7,top,1,000,AutoK,1_2_AutoK,no_pa_expected,Patrick Doyle,Tommy Foxconn,0
+1,03,010303,15,10303026,Carolina Reapers,Aruba Sea Serpents,3,bottom,0,011,AutoK,1_2_AutoK,no_pa_expected,Jim Boeheim,Ronald Eagle V,0
+1,08,010806,48,10806057,Baldur's Gate Beholders,Halifax Highlanders,7,bottom,1,000,AutoK,1_2_AutoK,no_pa_expected,Duke McCracken,Dan Gerzone,0
+3,03,030306,214,30306029,Carolina Reapers,Kansas City Kitties,4,top,1,010,AutoK,1_2_AutoK,no_pa_expected,Jake Wilson,Bobby “Freakin” Portis,0
+3,03,030307,215,30307036,Sopher McDophers,Reykjavik Valkyries,5,top,1,010,AutoK,1_2_AutoK,no_pa_expected,SirNose d'Voidoffunk,Brian MacDonald,0
+4,09,040908,383,40908016,Raccoon City Outbreak,Gas House Gorillas,2,bottom,1,010,AutoK,1_2_AutoK,no_pa_expected,Jarey Butts,Bartholomew Crumblepuff,499
+5,01,050105,435,50105061,Miami Fuego,Kansas City Kitties,6,bottom,1,010,AutoK,1_2_AutoK,no_pa_expected,Isaac Saffron,Loghan O'Brien,0
+1,10,011001,55,11001031,Sopher McDophers,Kansas City Kitties,3,top,1,010,CS,1_2_CS,no_pa_expected,Smitty Hoppenscotch,Lee Allen Ripley,0
+2,19,021901,192,21901041,Humongous Melonheads,Gas House Gorillas,6,top,1,010,CS,1_2_CS,no_pa_expected,Zed Leona,Finkle Sparkles,0
+12,14,121409,2068,121409051,Portland Pioneers,Acadia Peregrines,6,bottom,1,010,cAuto,1_2_cAuto,no_pa_expected,Jimmy Payne,Fat Lever,0
+3,01,030106,198,30106052,Halifax Highlanders,Aruba Sea Serpents,6,bottom,1,100,AutoBB,1_3_AutoBB,no_pa_expected,Raphael Akias,Tanner Hendrix,0
+3,09,030902,258,30902060,Miami Fuego,Acadia Peregrines,6,bottom,1,100,AutoK,1_3_AutoK,no_pa_expected,Pennis Brinner,True Pierce,0
+5,14,051406,540,51406051,Carolina Reapers,Raccoon City Outbreak,6,top,1,100,AutoK,1_3_AutoK,no_pa_expected,Icna Comit,Bobby Portis,0
+12,14,121409,2068,121409052,Portland Pioneers,Acadia Peregrines,6,bottom,1,100,cAuto,1_3_cAuto,no_pa_expected,Jimmy Payne,Fat Lever,0
+1,03,010305,17,10305014,Gas House Gorillas,Sunnydale Slayers,2,top,1,001,AutoK,1_4_AutoK,no_pa_expected,Dog Man,Tim Burr,0
+1,06,010605,35,10605025,Acadia Peregrines,Aruba Sea Serpents,3,bottom,1,011,AutoK,1_4_AutoK,no_pa_expected,George Ewell,Ronald Eagle V,0
+2,16,021601,181,21601015,Miami Fuego,Sopher McDophers,2,bottom,1,011,AutoK,1_4_AutoK,no_pa_expected,AJ Preller,Hans Ali,0
+3,07,030706,246,30706015,Carolina Reapers,Sopher McDophers,2,bottom,1,011,AutoK,1_4_AutoK,no_pa_expected,Dick Pole,Atlas Quin,0
+6,14,061402,655,61402047,Gas House Gorillas,R'Lyeh Ancients,5,top,1,011,AutoK,1_4_AutoK,no_pa_expected,Alternate Site,Petra Sabor,0
+7,05,070501,701,70501011,Acadia Peregrines,Aruba Sea Serpents,1,bottom,1,011,AutoK,1_4_AutoK,no_pa_expected,LeBarn James,Calvin Guerensk,0
+7,05,070504,704,70504040,Raccoon City Outbreak,Portland Pioneers,4,bottom,1,011,AutoK,1_4_AutoK,no_pa_expected,Streetlamp LeMoose,Matt Himynamis,0
+1,05,010501,25,10501035,Carolina Reapers,Kansas City Kitties,4,bottom,1,011,CS,1_4_CS,no_pa_expected,Viking Fishbird,Lee Allen Ripley,0
+2,02,020201,83,20201043,Sopher McDophers,Miami Fuego,5,bottom,1,011,CS,1_4_CS,no_pa_expected,Dez Perado,Ed Turner,0
+2,05,020505,108,20505014,Gas House Gorillas,Sunnydale Slayers,2,top,1,011,CS,1_4_CS,no_pa_expected,Ryan Gastings,Q Kimbrel,0
+3,01,030103,195,30103037,Baldur's Gate Beholders,Kansas City Kitties,5,top,1,011,CS,1_4_CS,no_pa_expected,War Hamster,Cannibal Johnson,0
+3,10,031004,268,31004034,Sunnydale Slayers,Kansas City Kitties,4,top,1,101,AutoBB,1_5_AutoBB,no_pa_expected,Lefty Louis,S.A.R Dinka,0
+5,11,051105,515,51105016,Humongous Melonheads,Gas House Gorillas,2,bottom,1,101,AutoBB,1_5_AutoBB,no_pa_expected,Osmosis Jones,Bartholomew Crumblepuff,0
+2,06,020604,114,20604014,Reykjavik Valkyries,Kansas City Kitties,2,top,1,101,AutoK,1_5_AutoK,no_pa_expected,Woofie K9,Sam Anger,0
+2,12,021203,155,21203026,Kansas City Kitties,Sopher McDophers,3,top,1,101,AutoK,1_5_AutoK,no_pa_expected,Blue Moon Barthelemy,Atlas Quin,0
+3,08,030802,250,30802032,Acadia Peregrines,Gas House Gorillas,4,top,1,101,AutoK,1_5_AutoK,no_pa_expected,Stan Mann,Bartholomew Crumblepuff,0
+3,14,031405,301,31405011,Kansas City Kitties,Raccoon City Outbreak,2,top,1,101,AutoK,1_5_AutoK,no_pa_expected,Niklas Sheely,Diego Medina,0
+2,14,021404,170,21404013,Baldur's Gate Beholders,Reykjavik Valkyries,2,top,1,110,AutoBB,1_6_AutoBB,no_pa_expected,Barney Summers,Britt O'War,0
+3,06,030603,235,30603045,Baldur's Gate Beholders,Portland Pioneers,5,bottom,1,101,CS,1_6_CS,no_pa_expected,War Hamster,Gus Buster,0
+2,09,020904,135,20904031,Humongous Melonheads,R'Lyeh Ancients,4,bottom,1,111,AutoK,1_7_AutoK,no_pa_expected,Zed Leona,Copenhagen Black,0
+1,11,011105,65,11105024,Acadia Peregrines,Sunnydale Slayers,3,top,1,111,CS,1_7_CS,no_pa_expected,Foxx Dashington,Thomas Nova,0
+1,01,010101,1,10101033,Aruba Sea Serpents,Kansas City Kitties,4,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Casey Jones,S.A.R Dinka,0
+2,01,020104,79,20104027,Portland Pioneers,Reykjavik Valkyries,3,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Timmy Bendiš,Brian MacDonald,0
+3,05,030502,226,30502037,Portland Pioneers,Acadia Peregrines,4,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Kalin Young,Mako Bierman,0
+4,03,040306,333,40306052,Kansas City Kitties,Miami Fuego,7,top,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Aapo,Fuzzy Dunlop,0
+4,05,040505,348,40505016,Raccoon City Outbreak,Aruba Sea Serpents,2,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Willie Mays Hayes,Red Arrow,0
+5,06,050601,471,50601003,R'Lyeh Ancients,Acadia Peregrines,1,top,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Dom Emnic,Ryan Gastings,0
+6,10,061004,625,61004009,Humongous Melonheads,Portland Pioneers,1,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Haraldo MacKenzie,Angel Leon,0
+6,12,061205,642,61205044,Carolina Reapers,Miami Fuego,4,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Dirk Dangerous,Tommy Tightpants,0
+7,04,070405,697,70405047,Miami Fuego,Carolina Reapers,6,top,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Harry Peritestes,Steven Silston,0
+7,04,070406,698,70406019,Kansas City Kitties,Raccoon City Outbreak,2,bottom,2,000,AutoBB,2_0_AutoBB,no_pa_expected,Yoel Roshi,Matthew Longballo,0
+1,01,010101,1,10101003,Kansas City Kitties,Aruba Sea Serpents,1,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Blue Moon Barthelemy,Ronald Eagle V,0
+1,02,010204,10,10204035,Gas House Gorillas,R'Lyeh Ancients,5,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Aych Imtayaz,Nate Lewis,0
+1,02,010206,12,10206026,Baldur's Gate Beholders,Acadia Peregrines,3,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Tyler Palmatier,Kegs Mabry,0
+1,05,010501,25,10501039,Kansas City Kitties,Carolina Reapers,5,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Antwan Zella,Artie Ziff,0
+1,06,010604,34,10604036,Gas House Gorillas,Sopher McDophers,5,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Dropov Andpicov,William Hatchet,0
+1,07,010703,39,10703036,Baldur's Gate Beholders,Carolina Reapers,5,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Filthy Frank,Rub A. Chikin,0
+1,07,010706,42,10706047,Aruba Sea Serpents,Halifax Highlanders,6,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,William Wallace,Jordan Peppers,0
+1,08,010803,45,10803014,Kansas City Kitties,Aruba Sea Serpents,2,top,1,000,AutoK,2_0_AutoK,no_pa_expected,Gianni,Miss Bats,0
+1,08,010806,48,10806007,Baldur's Gate Beholders,Halifax Highlanders,1,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,John Fitz,Jordan Peppers,0
+1,10,011006,60,11006009,Baldur's Gate Beholders,R'Lyeh Ancients,1,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Spike McBride,Pete Jones,0
+1,12,011205,71,11205012,Halifax Highlanders,Gas House Gorillas,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Von Majica,Bartholomew Crumblepuff,0
+1,12,011205,71,11205019,Gas House Gorillas,Halifax Highlanders,2,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Aych Imtayaz,Johnny Dickshot,0
+1,13,011301,73,11301019,Carolina Reapers,Miami Fuego,3,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Jake Wilson,Ed Turner,0
+2,01,020103,78,20103058,Humongous Melonheads,Sopher McDophers,6,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Stephen Sondheim,Madis Mickelson,0
+2,03,020304,93,20304028,Aruba Sea Serpents,Kansas City Kitties,3,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Zed Leona,S.A.R Dinka,0
+2,04,020404,100,20404013,Reykjavik Valkyries,Humongous Melonheads,2,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Rivka Morales,Carney Lerouix,0
+2,06,020605,115,20605011,R'Lyeh Ancients,Portland Pioneers,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,War Hamster,Angel Leon,0
+2,11,021104,149,21104030,Aruba Sea Serpents,Reykjavik Valkyries,4,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Vandalia Halen,Britt O'War,0
+2,14,021401,167,21401012,Humongous Melonheads,Miami Fuego,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Solomon Caine,Ed Turner,0
+2,14,021401,167,21401037,Miami Fuego,Humongous Melonheads,4,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Ben Williams,Rascal Alex,0
+2,14,021402,168,21402030,Carolina Reapers,Kansas City Kitties,4,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Jake Wilson,Cannibal Johnson,0
+3,03,030307,215,30307010,Reykjavik Valkyries,Sopher McDophers,1,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Jack Alpha,Atlas Quin,0
+3,12,031201,281,31201044,Ursa Major Grizzlies,Acadia Peregrines,6,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Barney Summers,James Pablano,0
+4,10,041002,385,41002014,Carolina Reapers,Gas House Gorillas,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Fat Wad,Finkle Sparkles,0
+5,02,050206,444,50206003,Carolina Reapers,Kansas City Kitties,1,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Dick Pole,Yoel Roshi,0
+5,08,050806,492,50806065,Humongous Melonheads,Kansas City Kitties,7,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Jerome Garcia,Loghan O'Brien,0
+5,09,050908,502,50908040,Portland Pioneers,Aruba Sea Serpents,5,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Raphael Akias,Donatello Chalupa,0
+6,05,060504,585,60504024,Portland Pioneers,Halifax Highlanders,3,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Mike Fruitstand,Dylan Green,0
+6,13,061305,650,61305013,Miami Fuego,Raccoon City Outbreak,2,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Ben Bramly,Diego Medina,0
+6,14,061406,659,61406015,Carolina Reapers,Raccoon City Outbreak,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Daniel Martinez,Sheridan Blackstone,0
+7,02,070205,681,70205026,Humongous Melonheads,Baldur's Gate Beholders,3,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Rotticus Scott Jr.,Mad Monty,0
+7,09,070907,739,70907049,Carolina Reapers,Reykjavik Valkyries,6,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Johnny McFarland,Sandy Collazo,0
+7,13,071305,769,71305013,Miami Fuego,Carolina Reapers,2,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Zin Martinez,Doc Dockerson,0
+7,14,071405,777,71405067,Kansas City Kitties,Miami Fuego,6,bottom,2,000,AutoK,2_0_AutoK,no_pa_expected,Jackie Daytona,Dylan Green,0
+7,14,071406,778,71406013,Raccoon City Outbreak,Carolina Reapers,2,top,2,000,AutoK,2_0_AutoK,no_pa_expected,Robert Atech,Pablo Sanchez,0
+3,05,030506,230,30506049,Carolina Reapers,Reykjavik Valkyries,6,top,2,001,AutoBB,2_1_AutoBB,no_pa_expected,Austin Schwartz,Willoughby Hoose,0
+3,09,030902,258,30902037,Miami Fuego,Acadia Peregrines,4,bottom,2,001,AutoBB,2_1_AutoBB,no_pa_expected,Fuzzy Dunlop,Mako Bierman,0
+6,07,060701,598,60701033,Acadia Peregrines,Portland Pioneers,3,bottom,2,001,AutoBB,2_1_AutoBB,no_pa_expected,Kegs Mabry,Matt Himynamis,0
+1,09,010904,52,10904013,Halifax Highlanders,Sunnydale Slayers,2,bottom,1,001,AutoK,2_1_AutoK,no_pa_expected,Chuck McCluster,Thomas Nova,0
+1,10,011006,60,11006017,Baldur's Gate Beholders,R'Lyeh Ancients,2,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,Ross Fire,Pete Jones,0
+1,10,011006,60,11006025,Baldur's Gate Beholders,R'Lyeh Ancients,3,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,Spike McBride,Pete Jones,0
+2,01,020107,82,20107046,Halifax Highlanders,Baldur's Gate Beholders,5,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,Tommy Reenwood,Charlie Yeager,0
+2,05,020506,109,20506005,Baldur's Gate Beholders,R'Lyeh Ancients,1,top,2,001,AutoK,2_1_AutoK,no_pa_expected,Jerry Jingles,Boaty McBoatface,0
+2,12,021202,154,21202015,Carolina Reapers,Reykjavik Valkyries,2,top,2,001,AutoK,2_1_AutoK,no_pa_expected,Johnny Hopkins,Brian MacDonald,0
+3,04,030405,221,30405045,Kansas City Kitties,Raccoon City Outbreak,5,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,Grey Goose McGillicuddy,Mat Gamel,0
+3,07,030708,248,30708029,Miami Fuego,Reykjavik Valkyries,4,top,2,001,AutoK,2_1_AutoK,no_pa_expected,Bico Nico,Tanner Hendrix,0
+3,08,030808,256,30808029,Miami Fuego,Aruba Sea Serpents,3,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,AJ Preller,Daraya Jonjet,0
+4,11,041106,397,41106044,Carolina Reapers,Halifax Highlanders,5,bottom,2,001,AutoK,2_1_AutoK,no_pa_expected,Dirk Dangerous,Dylan Green,120
+5,02,050202,440,50202052,Sunnydale Slayers,Ursa Major Grizzlies,5,top,2,001,AutoK,2_1_AutoK,no_pa_expected,Assassin Xekutioner,"Jason ""Dead"" Redd",0
+7,01,070106,674,70106013,Carolina Reapers,Raccoon City Outbreak,2,top,2,001,AutoK,2_1_AutoK,no_pa_expected,Daniel Martinez,Diego Medina,0
+1,10,011006,60,11006041,R'Lyeh Ancients,Baldur's Gate Beholders,5,top,2,001,AutoSB,2_1_AutoSB,no_pa_expected,Master Cashier,Syd Kidd,0
+2,16,021604,184,21604006,Halifax Highlanders,Kansas City Kitties,1,top,2,001,AutoSB,2_1_AutoSB,no_pa_expected,Spike Suzuki,Babatunde Oladotun,0
+3,04,030405,221,30405011,Raccoon City Outbreak,Kansas City Kitties,2,top,2,001,AutoSB,2_1_AutoSB,no_pa_expected,Kiger Wulf,Cannibal Johnson,0
+4,15,041503,426,41503021,Sopher McDophers,Humongous Melonheads,2,bottom,2,001,AutoSB,2_1_AutoSB,no_pa_expected,Henrik Omega,,0
+1,12,011206,72,11206009,Acadia Peregrines,R'Lyeh Ancients,1,bottom,2,010,AutoBB,2_2_AutoBB,no_pa_expected,Foxx Dashington,Nate Lewis,0
+1,05,010504,28,10504033,Acadia Peregrines,R'Lyeh Ancients,4,top,2,010,AutoK,2_2_AutoK,no_pa_expected,Stan Mann,Boaty McBoatface,0
+2,08,020805,129,20805010,Aruba Sea Serpents,Baldur's Gate Beholders,1,bottom,2,010,AutoK,2_2_AutoK,no_pa_expected,Brandon Blade,Syd Kidd,0
+3,01,030104,196,30104004,Miami Fuego,Sunnydale Slayers,1,top,2,010,AutoK,2_2_AutoK,no_pa_expected,Clive Babineaux,Cal Lidous,0
+4,08,040806,373,40806041,Carolina Reapers,Aruba Sea Serpents,6,top,2,010,AutoK,2_2_AutoK,no_pa_expected,Fat Wad,LaPrince Frye,0
+1,05,010503,27,10503033,Aruba Sea Serpents,Miami Fuego,4,bottom,2,010,CS,2_2_CS,no_pa_expected,Brigham Young,Tony Smehrik,0
+1,06,010601,31,10601009,R'Lyeh Ancients,Humongous Melonheads,1,bottom,2,010,CS,2_2_CS,no_pa_expected,Lefty Schweez,Ricky Vaughn,0
+3,01,030101,193,30101028,Raccoon City Outbreak,Ursa Major Grizzlies,3,bottom,2,010,CS,2_2_CS,no_pa_expected,Viking Fishbird,Louis Whip,0
+2,04,020403,99,20403036,Sopher McDophers,Aruba Sea Serpents,5,bottom,2,010,SB,2_2_SB,no_pa_expected,Lance Lummoxx,Tanner Hendrix,0
+2,14,021404,170,21404070,Baldur's Gate Beholders,Reykjavik Valkyries,8,top,2,010,SB,2_2_SB,no_pa_expected,Rabbi Chase,Willoughby Hoose,0
+2,07,020703,120,20703015,Aruba Sea Serpents,Humongous Melonheads,2,top,2,100,AutoBB,2_3_AutoBB,no_pa_expected,Magic Simmons,Carney Lerouix,0
+2,01,020101,76,20101030,Kansas City Kitties,Miami Fuego,3,top,1,100,AutoK,2_3_AutoK,no_pa_expected,Icna Comit,Tony Smehrik,0
+6,12,061202,639,61202040,Gas House Gorillas,Portland Pioneers,5,top,2,100,AutoK,2_3_AutoK,no_pa_expected,Conor Sexton,Angel Leon,0
+1,08,010806,48,10806025,Baldur's Gate Beholders,Halifax Highlanders,3,bottom,1,100,CS,2_3_CS,no_pa_expected,Spike McBride,Dan Gerzone,0
+2,04,020403,99,20403037,Sopher McDophers,Aruba Sea Serpents,5,bottom,2,100,CS,2_3_CS,no_pa_expected,Lance Lummoxx,Tanner Hendrix,0
+6,02,060202,559,60202025,Carolina Reapers,Gas House Gorillas,3,top,1,011,AutoBB,2_4_AutoBB,no_pa_expected,Duwan Anonly,Finkle Sparkles,0
+1,12,011201,67,11201012,Kansas City Kitties,Carolina Reapers,1,bottom,2,011,AutoK,2_4_AutoK,no_pa_expected,Reggie Cooke,Rub A. Chikin,0
+2,04,020402,98,20402049,Carolina Reapers,Kansas City Kitties,5,bottom,2,011,AutoK,2_4_AutoK,no_pa_expected,Jake Wilson,Guillermo Caruthers,0
+3,02,030207,207,30207017,Aruba Sea Serpents,Reykjavik Valkyries,2,bottom,2,011,AutoK,2_4_AutoK,no_pa_expected,Buck Naked,Rekt Kiddo,0
+3,11,031102,274,31102034,Kansas City Kitties,Acadia Peregrines,4,top,2,011,AutoK,2_4_AutoK,no_pa_expected,Niklas Sheely,True Pierce,0
+4,12,041208,407,41208012,Aruba Sea Serpents,Sopher McDophers,1,bottom,2,011,AutoK,2_4_AutoK,no_pa_expected,Arm N. Hammer,LaCarpetron Dukemarriot,235
+3,01,030108,200,30108031,R'Lyeh Ancients,Sopher McDophers,3,bottom,2,101,AutoBB,2_5_AutoBB,no_pa_expected,Ricky Calzone,Madis Mickelson,0
+3,13,031303,291,31303044,Portland Pioneers,R'Lyeh Ancients,4,bottom,2,101,AutoK,2_5_AutoK,no_pa_expected,Kalin Young,Copenhagen Black,0
+2,16,021606,186,21606017,Baldur's Gate Beholders,Acadia Peregrines,2,top,2,111,AutoBB,2_7_AutoBB,no_pa_expected,Jack Goff,Mako Bierman,0

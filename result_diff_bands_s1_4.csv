@@ -9,13 +9,13 @@ SacF,fly_ball,106,151,262,own,30.0,40.0,48.9,80.0,96.5,261.0,313.0,own
 DP,grounder,544,329,500,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 DP21,grounder,51,373,496,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 DP31,grounder,36,436,499,own,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-DP32,grounder,6,216,496,archetype,,,,,,,,
+DP32,grounder,6,329,500,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"borrowed:DP; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 DPH1,grounder,23,216,496,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 DPRun,grounder,10,216,496,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 FC,grounder,339,218,419,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 FC3rd,grounder,51,241,455,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 FCH,grounder,49,101,447,own,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
-FCLead,grounder,2,216,496,archetype,,,,,,,,
+FCLead,grounder,2,218,419,archetype,-37.0,-14.0,1.0,61.7,102.5,3.0,44.6,"borrowed:FC; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 GO,grounder,5093,216,434,own,-35.0,-11.0,3.0,65.0,103.0,3.0,61.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 GORA,grounder,221,195,324,own,-35.0,-11.0,3.0,65.0,103.0,3.0,61.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
 TP,grounder,4,216,496,archetype,-23.0,-8.0,3.0,72.3,104.5,5.0,69.0,"own; depth=first-bounce point (hit_distance_sc), audit reference only - not a runtime input"
