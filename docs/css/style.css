@@ -2524,6 +2524,13 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Hugs the top rather than centring (Alex's ask - centring left dead space
    above the scorebug that the restored rows below now need instead). */
 .live-grid-pane .play-scene{gap:1px;height:100%;justify-content:flex-start;}
+/* Base .scene-defense pulls itself up toward the result pill with a -6px
+   margin (tuned for the full slideshow's own 6px flex gap) - against this
+   pane's much smaller 1px gap that reads as glued to the pill instead of a
+   real gap (Alex's report). A small positive margin here instead, kept
+   deliberately tiny to stay compact rather than reopening the row spacing
+   the pane's tighter layout is built around. */
+.live-grid-pane .scene-defense{margin-top:3px;}
 
 /* Field-of-play focus (Alex's spec), pared back after a first look: the
    recap banner and the win-probability ribbon are still dropped (the ribbon
