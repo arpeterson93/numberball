@@ -39,6 +39,17 @@
      than just cutting the pause between slides in half. Defaults to 1 so
      nothing depends on JS having run yet. */
   --play-speed: 1;
+
+  /* Stats tab sticky offsets (app.js's updateStickyOffsets) - measured live
+     off .title-row/.stats-toolbar's own rendered heights rather than
+     hardcoded, since .title-row wraps to two lines on narrow viewports and
+     .stats-toolbar itself grows taller whenever its Filters panel is open.
+     Defaulted to 0 so nothing depends on JS having run yet. */
+  --title-row-h: 0px;
+  --stats-toolbar-h: 0px;
+  /* Full Season's SN column's own sticky-left offset - the Player column's
+     real width, measured live since it varies with name length/badges. */
+  --stats-col1-w: 0px;
 }
 
 /* Dark theme. --red stays put: it only ever appears as a fill under white
@@ -150,7 +161,218 @@ button{font-family:inherit;cursor:pointer;}
 .section-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
 .scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;}
 .built-at{font-size:12px;color:var(--muted);margin-left:auto;}
-.scoreboard{margin-bottom:22px;}
+.scoreboard{margin-bottom:10px;}
+
+/* Plays / Stats tabs - same chip visual language as the filter chips
+   (.chip.active), just underline-style since these two are mutually
+   exclusive views of the page, not togglable filters. */
+.view-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+.view-tab{
+  padding:9px 16px;border:none;background:transparent;color:var(--muted);
+  font-size:13px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.view-tab:hover{color:var(--text);}
+.view-tab.active{color:var(--text);border-bottom-color:var(--red);}
+
+/* Stats view: session batting/pitching lines (app.js's renderStats). */
+.stats-section{margin-bottom:26px;}
+/* Batting/Pitching sub-tabs + the Stats-only Filters widget (Alex's ask:
+   Filters leftmost, sub-tabs following it - app.js's statsToolbarHtml()
+   controls that order), one sticky row together - smaller,
+   unbordered sibling of .view-tabs above (no bottom rule of its own; it
+   sits inside the already-tabbed Stats view, not a second top-level nav).
+   Sticky right below the page's own sticky .title-row - top offset is
+   app.js's own measured --title-row-h, not a hardcoded number, since
+   .title-row wraps to two lines on narrow viewports. Opaque background for
+   the same reason .title-row's own comment gives: scrolled-past content
+   would show through a transparent sticky element. Whichever of the two
+   (sub-tabs or filters) is taller when filters are expanded grows this
+   whole sticky row together - app.js's updateStickyOffsets measures the
+   TOOLBAR's own height (not just the sub-tabs') for exactly that reason.
+   No top padding/margin of its own (Alex's ask: match the Plays tab's own
+   spacing around .filters-card exactly) - the 16px gap above it is just
+   .view-tabs' own margin-bottom, shared by both tabs already. Below it,
+   the real match on the Plays side isn't .filters-card's own 22px margin
+   (that's an INTERNAL gap, to .sort-bar, still inside the same .controls
+   block) - it's .sort-bar's own 16px margin-bottom, the actual last thing
+   before the first play row. */
+.stats-toolbar{
+  display:flex;align-items:flex-start;justify-content:flex-start;gap:12px;flex-wrap:wrap;
+  position:sticky;top:var(--title-row-h);z-index:14;background:var(--bg);margin-bottom:16px;
+}
+/* flex-shrink:0 (Alex's ask) - the pills never compress to make room; all
+   the give lives in the Filters card below (while collapsed) or in
+   wrapping to a second line (while expanded - see #stats-filters-card). */
+.stats-subtabs{display:flex;gap:4px;flex-shrink:0;}
+.stats-subtab{
+  padding:6px 14px;border:1px solid var(--border);border-radius:20px;background:var(--card);
+  color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;
+}
+.stats-subtab:hover{color:var(--text);}
+.stats-subtab.active{background:var(--red);border-color:var(--red);color:#fff;}
+/* Stats-only Filters widget - literally the Plays view's own .filters-card/
+   .filters-toggle/.filters-body/.filter-group/.group-label/.chip-row/.chip
+   classes (Alex's ask: look consistent with that panel, not a smaller
+   reinvention of it), plus one added modifier class (.stats-filters) that
+   overrides just the two things that don't transfer to this placement:
+   .filters-toggle is display:none outside a phone-width media query there
+   (that panel is meant to stay always-open on desktop - see its own
+   comment above), and .filters-card.collapsed only hides .filters-body
+   inside that same media query - neither actually collapses on desktop,
+   which is exactly what this compact, docked-next-to-the-pills version
+   needs to do at every width. Width/margin are the only other overrides;
+   everything else (border, radius, colors, padding, the toggle's own
+   label+caret layout, every filter control's own look) comes straight from
+   the shared classes, unmodified. */
+.filters-card.stats-filters{max-width:280px;margin-bottom:0;}
+.stats-filters .filters-toggle{display:flex;}
+.stats-filters.collapsed .filters-body{display:none;}
+.stats-filters:not(.collapsed) .filters-body{margin-top:14px;}
+/* Width (Alex's ask): collapsed matches the same 280px the card already
+   uses expanded, rather than shrinking to just the toggle label's own
+   content width. #id beats .filters-card's own phone-width flex:1 1 auto/
+   100% rules (meant for its OTHER home, .controls' flex row alongside the
+   sort bar) outright regardless of source order, no !important needed.
+   Expanded (flex:0 0 280px) never shrinks - if the sub-tab pills don't fit
+   alongside it, .stats-toolbar's own flex-wrap sends the pills to their
+   own line instead, so the filter controls' own layout is never squeezed.
+   Collapsed (flex:1 1 280px) is the one case allowed to give: it shrinks
+   down to min-width before anything wraps, freeing up just enough room for
+   the pills to stay on the same line on a narrow phone. min-width is sized
+   to comfortably fit the toggle's longest real label ("Filters · 3 active"
+   + caret). */
+#stats-filters-card{flex:0 0 280px;}
+#stats-filters-card.collapsed{flex:1 1 280px;min-width:140px;}
+/* Stacked rather than .filter-row's own side-by-side flex (that rule leans
+   on .fields-row's width rules for its <select>/input children, which this
+   narrower card doesn't opt into) - simplest way to avoid a width fight in
+   a box this compact; each control still looks identical to the Plays
+   panel's own, just stacked instead of side-by-side. */
+.stats-filters .filter-group + .filter-group{margin-top:14px;}
+.stats-table-wrap{border:1px solid var(--border);border-radius:8px;background:var(--card);}
+/* border-collapse:separate (not collapse) + border-spacing:0 - Alex's
+   report: with collapse, a sticky cell's own border/background gets painted
+   into the table's shared collapsed-border grid rather than staying inside
+   that cell's own sticky layer, so scrolled-under content could show
+   through the award row's left border/tint while scrolling horizontally.
+   separate keeps each cell's border genuinely its own (and therefore stuck
+   with it); 0 spacing keeps the layout identical to collapse otherwise. */
+.stats-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;white-space:nowrap;}
+.stats-table th,.stats-table td{padding:7px 10px;text-align:center;border-bottom:1px solid var(--border);}
+/* First-column freeze (name, during horizontal scroll) only actually scrolls
+   anything below the 700px breakpoint - see .stats-table-wrap's own
+   overflow-x there. Left alone above it: sticky;left:0 with no scrolling
+   ancestor just behaves like static positioning, which is exactly the no-op
+   we want once there's no horizontal scroll to freeze against. */
+.stats-table th:first-child,.stats-table td:first-child{text-align:left;position:sticky;left:0;background:var(--card);z-index:2;}
+/* Full Season's SN column (Alex's ask) - frozen right alongside Player,
+   same reasoning/no-op-above-700px as the first-column rule above. Sticks
+   at --stats-col1-w (Player's own live-measured width, app.js's
+   updateStickyOffsets) rather than a second hardcoded offset, so it stays
+   correct regardless of how wide a given name+badges render. */
+.stats-table th.stats-col-session,.stats-table td.stats-col-session{position:sticky;left:var(--stats-col1-w);background:var(--card);z-index:2;}
+/* Header row sticks to the top of the actual page scroll (Alex's ask), not
+   .stats-table-wrap's own scrollport - this is why .stats-table-wrap must
+   NOT be an overflow container up here: position:sticky resolves against
+   the NEAREST scrolling ancestor, and overflow-x:auto on the wrapper would
+   silently make IT that ancestor instead of the page (its own height never
+   actually scrolls, so the header would never appear to move at all).
+   z-index 11/12 (12 for the top-left corner cell, which sticks on both
+   axes below 700px) stay above both the sticky first column (2) and
+   ordinary scrolled-past rows. */
+.stats-table thead th{
+  position:sticky;top:calc(var(--title-row-h) + var(--stats-toolbar-h));z-index:11;background:var(--card);
+}
+.stats-table thead th:first-child{z-index:12;}
+/* SN's own header cell is sticky on both axes too (a second "corner"), same
+   as the true first corner above - needs restating here since
+   .stats-table th.stats-col-session (2 classes) is otherwise MORE specific
+   than .stats-table thead th (1 class + 2 types) and would win the z-index
+   cascade with its own left-sticky-only value (2) instead. */
+.stats-table thead th.stats-col-session{z-index:12;}
+.stats-table th{color:var(--muted);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;cursor:pointer;user-select:none;}
+.stats-table th:hover{color:var(--text);}
+.stats-table th.active{color:var(--text);}
+.stats-table tbody tr.stats-player-row{cursor:pointer;}
+.stats-table tbody tr.stats-player-row:hover td{background:var(--tint);}
+.stats-table tbody tr.stats-player-row.expanded td:first-child{font-weight:800;}
+/* Session award highlight (Alex's ask) - reuses --gold, already this site's
+   "special/notable player" color (the favorite star uses it too). Player of
+   the Session (top tier) gets a stronger tint; Hitter/Pitcher of the
+   Session (second tier - a player who somehow won both shows only the
+   higher one, see key_moments_build.py's _AWARD_PRIORITY) a lighter one.
+   The left border eats into the cell's own 10px padding, so padding drops
+   to 7px there to keep content aligned - same swap the scorecard's own
+   sub-border classes make. */
+.stats-table tbody tr.stats-player-row.award-player td{background:color-mix(in srgb, var(--gold) 20%, var(--card));}
+.stats-table tbody tr.stats-player-row.award-hitter td,
+.stats-table tbody tr.stats-player-row.award-pitcher td{background:color-mix(in srgb, var(--gold) 9%, var(--card));}
+.stats-table tbody tr.stats-player-row.award-player td:first-child,
+.stats-table tbody tr.stats-player-row.award-hitter td:first-child,
+.stats-table tbody tr.stats-player-row.award-pitcher td:first-child{
+  border-left:3px solid var(--gold);padding-left:7px;
+}
+/* Bat/ball badges next to a Hitter/Pitcher-of-the-Session name
+   (statsAwardBadgeHtml) - the DIFF wheel's own real vector bat/ball art,
+   wrapped in a small standalone <svg> instead of a wheel marker. color sets
+   .wheel-ball-border's own fill:currentColor (style.css's wheel-ball-*
+   rules, further down) - same border tone the table's own borders use. The
+   trophy (Player of the Session) is a plain emoji, so it skips the fixed
+   icon box below. */
+.award-badge{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;vertical-align:-2px;color:var(--border);}
+.award-badge svg{width:100%;height:100%;display:block;}
+.award-badge-trophy{width:auto;height:auto;font-size:12px;line-height:1;}
+/* Player of the Game / Honorable Mention (statsGameAwardBadgeHtml) -
+   deliberately quieter than the session award treatment above: a small
+   text pill, no row background/border of its own, appended after whatever
+   session badge is already there rather than replacing it (overlap between
+   the two is common - see key_moments_build.py's _game_awards_from_game
+   comment). POTG gets a thin gold outline (still reads as an award, just a
+   lighter-weight one); HM is plain muted, one tier quieter still. */
+.game-award-badge{
+  display:inline-block;margin-left:4px;padding:1px 4px;border-radius:3px;
+  font-size:9px;font-weight:800;letter-spacing:0.3px;vertical-align:1px;line-height:1.4;
+}
+.game-award-potg{color:var(--gold);border:1px solid var(--gold);}
+.game-award-hm{color:var(--muted);border:1px solid var(--border);}
+/* Below this width the table needs to scroll horizontally to fit every
+   column, which (per the thead comment above) turns .stats-table-wrap into
+   the sticky header's own reference ancestor instead of the page - the
+   header would otherwise render at some meaningless fixed offset inside the
+   wrapper's own (never-scrolled) box rather than actually tracking anything
+   (Alex's report: it floated mid-table instead of pinning to the top).
+   Rather than lose the sticky header on phones, the wrapper becomes a
+   bounded scroll pane of its own (both axes, capped height) so the header/
+   first-column genuinely have real scroll motion to stick against within
+   it - same frozen-column-in-a-scrollable-box pattern the scorecard's own
+   .sc-grid-scroll already uses. top:0 replaces the page-offset formula
+   above since this pane's own top edge, not the page's title-row height, is
+   what the header now sits flush against. */
+@media (max-width:700px){
+  .stats-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;max-height:70vh;}
+  .stats-table thead th{top:0;}
+}
+.stats-empty{padding:14px;color:var(--muted);font-size:13px;}
+/* A clicked player's plays nest directly under their own <tr> (Alex's ask,
+   back from a standalone panel below the whole table) - same card look
+   that panel had (no header bar), just relocated into .stats-expand-content. */
+.stats-expand-row td{padding:10px;text-align:left;}
+.stats-expand-content{border:1px solid var(--border);border-radius:8px;background:var(--card);overflow:hidden;}
+.stats-expand-plays{padding:6px 10px;}
+@media (max-width:700px){
+  /* Below 700px the table itself scrolls horizontally (see .stats-table-wrap
+     above), so this colspan cell's own box is exactly as wide as the whole
+     (wide) table, not the screen - .moment's own width:auto would
+     otherwise stretch a play card to match (Alex's earlier report). Pins
+     the card to the visible left edge of that horizontal scroll and caps
+     its width to roughly the same content width a card gets in the normal
+     Plays view, so it reads the same regardless of how far the table's
+     been scrolled. The exact px math approximates .page's own 20px side
+     padding plus this cell's own 10px padding - worth a look once this is
+     actually seen live, in case it wants a small nudge. */
+  .stats-expand-row td{padding:10px 0 10px 10px;}
+  .stats-expand-content{position:sticky;left:10px;width:calc(100vw - 60px);}
+}
 /* Column count is set inline by applyScoreboardColumns() (app.js) so every
    row ends up as close to equal-count as possible - a plain wrapping flex
    row would rather overfill earlier rows (e.g. 6-then-2 for 8 tiles) than
@@ -339,6 +561,10 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .filters-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
 .count-text{font-weight:700;font-size:13.5px;}
 .footer-actions{display:flex;gap:16px;align-items:center;}
+/* Stats' own filters-footer has no count-text sibling (no "N key moments"
+   equivalent) to space-between against - right-align the Reset filters
+   link instead of letting it collapse to the left edge. */
+.stats-filters .filters-footer{justify-content:flex-end;}
 .link-btn{font-size:13px;color:var(--muted);font-weight:600;background:none;border:none;padding:0;}
 .link-btn:hover{color:var(--text);}
 .play-filtered-btn{margin-right:8px;}
@@ -2213,6 +2439,13 @@ html[data-km-debug="1"] .km-tuning-panel{
   background:var(--tint-red-border);transform:translateY(-1px);box-shadow:0 4px 10px var(--shadow);
 }
 .live-grid-btn.loading{opacity:0.4;pointer-events:none;}
+/* Same fix every other [hidden]-toggled element with its own `display`
+   class needs in this file (see .modal[hidden]/.settings-row[hidden] above)
+   - author CSS beats the UA [hidden]{display:none} rule regardless of
+   source order or specificity, so renderScoreboard's `.hidden = true` for
+   Full Season (Alex's report - the button kept showing) did nothing without
+   this override. */
+.live-grid-btn[hidden]{display:none;}
 @media (max-width:899px){ .live-grid-btn{display:none;} }
 
 /* A little tighter than the other modals' padding (Alex's ask - "use any
@@ -2495,7 +2728,7 @@ html[data-km-debug="1"] .km-tuning-panel{
    needed. */
 .scorecard-card{
   background:var(--card);border-radius:12px;width:100%;max-width:min(97vw,1800px);
-  height:min(92vh,1100px);display:flex;flex-direction:column;overflow:hidden;position:relative;
+  height:min(97vh,1100px);display:flex;flex-direction:column;overflow:hidden;position:relative;
   box-shadow:0 10px 40px var(--shadow);
 }
 :root[data-theme="dark"] .scorecard-card{border:1px solid var(--border);}
@@ -2590,7 +2823,13 @@ html[data-km-debug="1"] .km-tuning-panel{
   font-variant-numeric:tabular-nums;
 }
 .sc-linescore th{color:var(--muted);font-size:11px;font-weight:800;}
-.sc-linescore .ls-team{text-align:left;font-weight:800;display:flex;align-items:center;gap:6px;}
+/* .ls-team itself stays a plain table-cell (no display:flex on the <td> -
+   that blockifies it out of the row's normal cell layout, which is what was
+   throwing its border-bottom out of line with the rest of the row's cells,
+   Alex's report). The flex layout for the logo+abbrev instead lives on an
+   inner <span> that doesn't affect the <td>'s own box. */
+.sc-linescore .ls-team{text-align:left;font-weight:800;}
+.ls-team-inner{display:flex;align-items:center;gap:6px;}
 .ls-logo{width:18px;height:18px;object-fit:contain;flex-shrink:0;}
 .sc-linescore .ls-total{font-weight:800;border-left:2px solid var(--border);}
 
@@ -2815,7 +3054,7 @@ html[data-km-debug="1"] .km-tuning-panel{
   .sc-linescore th,.sc-linescore td{padding:3px 1px;overflow:hidden;}
   .sc-linescore th{font-size:9px;}
   .sc-linescore .ls-col-team{width:54px;}
-  .sc-linescore .ls-team{gap:3px;}
+  .ls-team-inner{gap:3px;}
   .ls-logo{width:14px;height:14px;}
 }
 

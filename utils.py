@@ -8950,6 +8950,39 @@ def read_mln_players_from_sheet(sheet_id: str, tab: str = "Rosters", season: int
     return players
 
 
+def read_session_awards_from_sheet(sheet_id: str, tab: str = "Sheet1") -> list[dict]:
+    """Read the curated MLN session-awards sheet - season/session/award/
+    player_id/player_name columns, one row per award recipient (a session can
+    have zero, one, or several per award type). Produced by a one-time
+    extraction from the league's own hand-curated "hitter/pitcher/player of
+    the session" tabs (build_session_awards.py, not part of this pipeline) -
+    this reader just trusts its columns as-is, no re-parsing of the original
+    free-text sheet. A blank player_id (the extraction's own unmatched-name
+    rows, or a genuine "None Selected" session) reads as None, not 0.
+    """
+    import urllib.parse
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(tab)}"
+    )
+    df = pd.read_csv(url, dtype=str, header=0)
+    df.columns = [c.strip() for c in df.columns]
+    out = []
+    for _, row in df.iterrows():
+        season, session = _safe_int(row.get("season")), _safe_int(row.get("session"))
+        award = _str(row.get("award"))
+        if season is None or session is None or not award:
+            continue
+        out.append({
+            "season": season,
+            "session": session,
+            "award": award,
+            "player_id": _safe_int(row.get("player_id")),
+            "player_name": _str(row.get("player_name")),
+        })
+    return out
+
+
 def read_mln_team_abbrev_lookup(sheet_id: str) -> dict[str, str]:
     """Return {abbrev: full_team} for resolving team names in MLN Games/Plays."""
     import urllib.parse

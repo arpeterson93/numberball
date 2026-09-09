@@ -80,6 +80,24 @@
 
   var loadingPlays = false;
 
+  // Plays / Stats tab - "plays" is the existing filters+moments feed
+  // (#plays-view), "stats" is the session batting/pitching lines
+  // (#stats-view, renderStats()). Row currently expanded in the Stats
+  // tables (null = none) - "playerId|session" (statsRowKey), not just a
+  // player id, since Full Season mode can show several rows for the same
+  // player (one per session) at once. Reset on every session/season/filter
+  // switch below since an expanded row's plays belong to whichever
+  // session/filtered set was active when it was opened.
+  var activeView = "plays";
+  var statsExpandedKey = null;
+  // Set around renderStats()'s own innerHTML swap (below) - removing a
+  // focused element from the DOM fires a synchronous, genuine blur/
+  // focusout on it, which the player-search focusout handler would
+  // otherwise treat as the user clicking away and queue a dropdown-hide
+  // for. This tells that handler "this one's just our own rebuild
+  // destroying and recreating the input, not a real blur - ignore it."
+  var statsSuppressFocusout = false;
+
   // Which season's data is loaded into `data` above. `current` is the live
   // season (data.meta.season at boot, never changes after that); `active` is
   // whichever season the visitor is currently browsing - equal to `current`
@@ -257,6 +275,41 @@
     // are ever shown on a card, so those are the only two who can make a
     // play a "rookie" moment.
     return isRookieId(m.featured_id) || isRookieId(m.counterpart_id);
+  }
+
+  // Stats tab's Team filter needs each player's CURRENT roster team (not a
+  // play's own off/def team, which is the wrong concept for a season-total
+  // stat line) - same lazy-build-once pattern as rookieIds above, off the
+  // same players.json roster.
+  var playerTeamById = null;
+
+  function teamForPlayerId(id) {
+    if (!playerTeamById) {
+      playerTeamById = {};
+      (data.players || []).forEach(function (p) { playerTeamById[p.id] = p.team; });
+    }
+    return playerTeamById[id];
+  }
+
+  // players.json's own last_name (the Players/Rosters sheet's real Last
+  // Name column, key_moments_build.py) - the actual, authoritative surname,
+  // not a guess. Same lazy-build-once cache pattern as playerTeamById above.
+  var playerLastNameById = null;
+
+  // Prefer the roster's own real last name when id resolves to one;
+  // lastNameOf's own whitespace-split guess (still needed as a fallback -
+  // e.g. an opposing-league/off-roster name with no id at all) is exactly
+  // the heuristic that broke on "JZ (but not the rapper)" (Alex's report).
+  function resolvedLastName(id, fallbackFullName) {
+    if (id != null) {
+      if (!playerLastNameById) {
+        playerLastNameById = {};
+        (data.players || []).forEach(function (p) { playerLastNameById[p.id] = p.last_name; });
+      }
+      var known = playerLastNameById[id];
+      if (known) return known;
+    }
+    return lastNameOf(fallbackFullName);
   }
 
   /* Whichever team isn't the featured player's team - always the other one
@@ -758,10 +811,22 @@
 
   function deselectScoreboardTile() {
     filters.selectedGame = null;
+    // Stats side of the same selection (Alex's ask) - unlike the Plays
+    // filter above, a single team abbrev can't stand in for "just this
+    // game" here (statsRowVisible's own Team filter means current roster
+    // team, not a play's off/def side), so both of the matchup's abbrevs
+    // are kept, not just one. Cleared here too so every existing
+    // invalidation point (season/session switch, etc.) that already calls
+    // this also keeps the Stats tab's copy from going stale, with no need
+    // to touch each of those call sites separately. renderActiveView() is a
+    // no-op unless the Stats tab actually happens to be the visible one.
+    statsFilters.gameTeams = null;
+    statsExpandedKey = null;
     Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
       t.classList.remove("selected");
       t.setAttribute("aria-pressed", "false");
     });
+    renderActiveView();
   }
 
   /* Select (or re-click to clear) a game tile. Extracted from the click
@@ -772,18 +837,26 @@
     if (filters.selectedGame === game) {
       filters.team = "";
       filters.selectedGame = null;
+      statsFilters.gameTeams = null;
+      statsExpandedKey = null;
       $("team-select").value = "";
       tile.classList.remove("selected");
       tile.setAttribute("aria-pressed", "false");
       render();
+      renderActiveView();
       return;
     }
     var away = tile.getAttribute("data-away");
+    var home = tile.getAttribute("data-home");
     // Either team in the matchup would do - Team is a season-long filter, but
     // the scoreboard only ever shows the selected session's games, so this
     // reads as "just this game" in practice.
     filters.team = away;
     filters.selectedGame = game;
+    // Both abbrevs, not just one (see deselectScoreboardTile's own comment
+    // on why the Plays-side shortcut above doesn't carry over to Stats).
+    statsFilters.gameTeams = [away, home];
+    statsExpandedKey = null;
     $("team-select").value = away;
     Array.prototype.forEach.call(document.querySelectorAll(".scoreboard-tile"), function (t) {
       var on = t === tile;
@@ -791,6 +864,7 @@
       t.setAttribute("aria-pressed", String(on));
     });
     render();
+    renderActiveView();
   }
 
   var SCOREBOARD_TILE_MIN = 176;
@@ -872,6 +946,620 @@
       : games.length === 4 ? "Quad-Box"
       : games.length === 8 ? "Octo-Box"
       : "Multiview";
+  }
+
+  // ── Stats tab: session batting/pitching lines, from key_moments_build.py's
+  //    meta.stats[session] (_session_stats) - same result-code taxonomy the
+  //    per-game scorecard's own client-side tallies use, just precomputed
+  //    server-side and summed across the whole session. ──────────────────────
+
+  // gsc (batting): Bill James' hitting Game Score, Baseball-Reference's
+  // published weights - https://www.baseball-reference.com/about/
+  // pi_glossary.shtml (the only public source for the exact formula).
+  // Rounded to 1 decimal server-side (_finish_batting) - the trailing
+  // decimals column below forces that precision to always show, even when
+  // the value happens to land on a whole number. gidp is otherwise only
+  // ever a gsc input (_finish_batting) - a real column here too (Alex's ask).
+  // gsc leads the stat columns (Alex's ask), right after Player/SN. wpa
+  // (session-summed win probability added, _session_stats) follows it -
+  // already scaled *100 and rounded to 1 decimal server-side, same
+  // convention a single play's own WPA already displays with elsewhere in
+  // this file (e.g. "+5.0"), just without a "%" sign here (Alex's ask).
+  var STATS_BATTING_COLS = [
+    ["gsc", "GSc", 1], ["wpa", "WPA", 1], ["ab", "AB"], ["r", "R"], ["h", "H"], ["2b", "2B"], ["3b", "3B"],
+    ["hr", "HR"], ["rbi", "RBI"], ["bb", "BB"], ["k", "K"], ["sb", "SB"], ["cs", "CS"],
+    ["gidp", "GIDP"],
+  ];
+  // W/L/SV/HD render inline next to the pitcher's name instead (see
+  // statsPitcherDecisionsHtml) - same placement/style as the scorecard's own
+  // per-game decision badge, just a session-total tally instead of the
+  // single decision one game can produce.
+  //
+  // gsc: Tom Tango's pitching Game Score v2.0 (tangotiger.com, 2014;
+  // FanGraphs' "GSv2" since 2016) - NOT the classic Bill James 1988 formula
+  // Baseball-Reference still shows. Left unmodified for MLN's 6-inning
+  // games (Alex's call) - always a whole number, unlike batting's gsc.
+  var STATS_PITCHING_COLS = [
+    ["gsc", "GSc"], ["wpa", "WPA", 1], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"],
+  ];
+
+  // Which sub-tab is showing, and the current sort per sub-tab (persists
+  // across renders/tab switches - only reset by season/session changes,
+  // same lifetime as statsExpandedKey below). Default keys/dirs match
+  // _session_stats' own default JSON order (Game Score desc for both), so
+  // the very first render matches the server's own sort.
+  var statsSubView = "batting"; // "batting" | "pitching"
+  var statsSort = {
+    batting: { key: "gsc", dir: "desc" },
+    pitching: { key: "gsc", dir: "desc" },
+  };
+
+  // Stats-only filters (Alex's ask) - deliberately separate from the Plays
+  // view's own `filters` object: "Team" here means a player's current
+  // roster team (teamForPlayerId), not a play's off/def team, which is the
+  // wrong concept for a season-total stat line, so sharing state with the
+  // Plays filters would just be confusing. Persists across sub-tab/session
+  // switches like statsSort above; only `team` resets on a season switch
+  // (see activateSeasonData).
+  // player/playerId mirror the Plays view's own filters.player/playerId
+  // pair (free-text substring vs. an exact suggestion pick), just kept
+  // separate for the same reason `team` is above. gameTeams (Alex's ask) -
+  // [awayAbbr, homeAbbr] when a scoreboard tile is selected, else null; see
+  // selectScoreboardTile/deselectScoreboardTile.
+  var statsFilters = { team: "", player: "", playerId: null, gameTeams: null, rookiesOnly: false, favoritesOnly: false };
+  var statsFiltersExpanded = false;
+
+  // decimals (optional, from a column tuple's own 3rd element - e.g. GSc's
+  // batting entry, which rounds to 1 decimal server-side) forces that
+  // precision so a value that happens to land on a whole number still
+  // shows it (e.g. "16.0"), rather than JSON's own int/float ambiguity
+  // dropping the trailing zero.
+  function statsCellText(row, key, decimals) {
+    var v = row[key];
+    if (v == null) return "-";
+    return decimals != null ? v.toFixed(decimals) : String(v);
+  }
+
+  // "6.2" (6 and two-thirds innings) -> 6.667, so IP sorts by real innings
+  // pitched rather than as a decimal string - mirrors key_moments_build.py's
+  // own _ip_sort_key (the server uses the identical comparison to order the
+  // JSON's own default IP-desc row order).
+  function ipToInnings(ip) {
+    var parts = String(ip).split(".");
+    return Number(parts[0]) + Number(parts[1]) / 3;
+  }
+
+  function sortStatsRows(rows, sort) {
+    var key = sort.key;
+    var copy = rows.slice();
+    copy.sort(function (a, b) {
+      var cmp;
+      if (key === "name") {
+        cmp = String(a.name || "").localeCompare(String(b.name || ""));
+      } else {
+        var av = a[key], bv = b[key];
+        // Blank ("-") cells always sink to the bottom regardless of
+        // direction, same convention a spreadsheet's own sort uses.
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        cmp = key === "ip" ? ipToInnings(av) - ipToInnings(bv) : av - bv;
+      }
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }
+
+  function statsColHeaderHtml(label, key, sort) {
+    var active = sort.key === key;
+    var arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
+    // stats-col-session (Full Season's SN column - Alex's ask: frozen
+    // alongside Player) needs its own class since it isn't always
+    // :nth-child(2) the way Player is always :first-child - see style.css's
+    // matching rule and updateStickyOffsets' own --stats-col1-w.
+    var colCls = key === "session" ? " stats-col-session" : "";
+    return '<th class="stats-th' + colCls + (active ? " active" : "") + '" data-sort-key="' + key + '">' +
+      escapeHtml(label) + arrow + "</th>";
+  }
+
+  // Reuses the main feed's own card() renderer for the expand-panel
+  // drill-down (Alex's ask) rather than a second, thinner play template -
+  // one source of truth for "what a play looks like" everywhere on the page.
+  function statsExpandPlaysHtml(playerId, session) {
+    var loaded = data.playsBySession[session];
+    if (!loaded) return '<div class="stats-empty">Loading plays...</div>';
+    var plays = loaded.filter(function (p) {
+      return p.result != null && (p.batter_id === playerId || p.pitcher_id === playerId);
+    });
+    if (!plays.length) return '<div class="stats-empty">No plays found for this player.</div>';
+    // Oldest first (Alex's ask) - same timestamp-then-play_num comparator
+    // the main feed's own "chrono" sort uses (sorted() above), just always
+    // ascending rather than following filters.sortDir, since this drill-down
+    // has nothing to do with the Plays view's own sort state.
+    plays = plays.slice().sort(function (a, b) {
+      var ta = a.timestamp || "", tb = b.timestamp || "";
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      return a.play_num - b.play_num;
+    });
+    return plays.map(card).join("");
+  }
+
+  function statsRowVisible(row) {
+    if (statsFilters.team && teamForPlayerId(row.player_id) !== statsFilters.team) return false;
+    if (statsFilters.gameTeams && statsFilters.gameTeams.indexOf(teamForPlayerId(row.player_id)) === -1) return false;
+    if (statsFilters.playerId) {
+      if (row.player_id !== statsFilters.playerId) return false;
+    } else if (statsFilters.player) {
+      var needle = statsFilters.player.toLowerCase();
+      if (!row.name || row.name.toLowerCase().indexOf(needle) === -1) return false;
+    }
+    if (statsFilters.rookiesOnly && !isRookieId(row.player_id)) return false;
+    if (statsFilters.favoritesOnly && !isFavoritedId(row.player_id)) return false;
+    return true;
+  }
+
+  function statsActiveFilterCount() {
+    return (statsFilters.team ? 1 : 0) + (statsFilters.player || statsFilters.playerId ? 1 : 0) +
+      (statsFilters.rookiesOnly ? 1 : 0) + (statsFilters.favoritesOnly ? 1 : 0);
+  }
+
+  function statsFiltersHtml() {
+    var teams = data.meta.teams || {};
+    var abbrs = Object.keys(teams).sort(function (a, b) {
+      return (teams[a].name || a).localeCompare(teams[b].name || b);
+    });
+    var teamOptionsHtml = '<option value="">All teams</option>' + abbrs.map(function (a) {
+      return '<option value="' + escapeHtml(a) + '"' + (statsFilters.team === a ? " selected" : "") + ">" +
+        escapeHtml(teams[a].name || a) + "</option>";
+    }).join("");
+    var n = statsActiveFilterCount();
+    var label = n ? "Filters · " + n + " active" : "Filters";
+    // Literally the Plays panel's own filters-card/filters-toggle/
+    // filters-body/filter-group/group-label/chip-row/chip classes (Alex's
+    // ask: this should look consistent with that panel, not a smaller
+    // reinvention) - .stats-filters is the one added modifier class, and it
+    // carries the collapsed state itself (see style.css) since that panel's
+    // own .collapsed only ever hides .filters-body on phone widths.
+    return '<div class="filters-card stats-filters' + (statsFiltersExpanded ? "" : " collapsed") + '" id="stats-filters-card">' +
+      '<button type="button" class="filters-toggle" id="stats-filters-toggle" ' +
+        'aria-expanded="' + statsFiltersExpanded + '" aria-controls="stats-filters-body">' +
+        "<span>" + escapeHtml(label) + '</span><span class="caret" aria-hidden="true">' +
+        (statsFiltersExpanded ? "▴" : "▾") + "</span>" +
+      "</button>" +
+      '<div class="filters-body" id="stats-filters-body">' +
+        '<div class="filter-group">' +
+          '<label class="group-label">Team</label>' +
+          '<select id="stats-team-select">' + teamOptionsHtml + "</select>" +
+        "</div>" +
+        '<div class="filter-group player-search-group">' +
+          '<label class="group-label">Player</label>' +
+          '<div class="search-input-wrap">' +
+            '<input type="text" id="stats-player-input" placeholder="Player name" autocomplete="off" value="' +
+              escapeHtml(statsFilters.player) + '">' +
+            '<button type="button" class="input-clear-btn" id="stats-player-input-clear" ' +
+              'aria-label="Clear player search"' + (statsFilters.player ? "" : " hidden") + ">&times;</button>" +
+          "</div>" +
+          '<div id="stats-player-suggest" class="player-suggest" hidden></div>' +
+        "</div>" +
+        '<div class="filter-group">' +
+          '<label class="group-label">Show</label>' +
+          '<div class="chip-row" id="stats-toggle-chips">' +
+            '<button type="button" class="chip toggle' + (statsFilters.rookiesOnly ? " active" : "") +
+              '" data-toggle="rookies">Rookies</button>' +
+            '<button type="button" class="chip toggle' + (statsFilters.favoritesOnly ? " active" : "") +
+              '" data-toggle="favorites">Favorites</button>' +
+          "</div>" +
+        "</div>" +
+        // Same filters-footer/footer-actions/link-btn markup as the Plays
+        // panel's own #reset-btn (Alex's ask) - inside .filters-body itself
+        // (not a sibling of it) so it collapses along with the rest of the
+        // panel instead of staying stranded visible (Alex's report). No
+        // count-text sibling here (Stats has no "N key moments" equivalent),
+        // so .stats-filters' own CSS right-aligns this instead of the
+        // two-sided space-between the Plays footer uses.
+        '<div class="filters-footer">' +
+          '<div class="footer-actions">' +
+            '<button type="button" class="link-btn" id="stats-reset-btn">↻ Reset filters</button>' +
+          "</div>" +
+        "</div>" +
+      "</div>" +
+    "</div>";
+  }
+
+  // Award-badge icons next to a Hitter/Pitcher-of-the-Session name (Alex's
+  // ask) - the DIFF wheel's own real vector bat/ball (wheelBatIconSvg/
+  // wheelBallIconSvg), just wrapped in a small standalone <svg> instead of
+  // rendered as a marker on the wheel's ring.
+  //
+  // wheelBallIconSvg(r) already normalizes to an origin-centered circle of
+  // radius r on its own (scale(r/WHEEL_BALL_R0) translate(-WHEEL_BALL_R0,
+  // -WHEEL_BALL_R0)) - built for exactly this kind of reuse (the flaming-
+  // ball variants already call it at different sizes elsewhere).
+  //
+  // wheelBatIconSvg() is the opposite: no size/position params, because its
+  // transform is purpose-built to plant the barrel TIP a fixed distance
+  // outside the wheel's own ring, not to center the whole bat in a box -
+  // reusing it standalone means accounting for that offset instead of
+  // assuming it's centered at (0,0). Rather than guess at a viewBox, its
+  // real transformed bounding box was computed once directly from
+  // WHEEL_BAT_PATHS + the exact same transform chain wheelBatIconSvg()
+  // itself applies (translate(-TIP_X,-TIP_Y) scale(WHEEL_BAT_SCALE)
+  // rotate(WHEEL_BAT_ROT_DEG) translate(0,WHEEL_BAT_TIP_OUT), via
+  // svgpathtools off the live path data): x:[-7.11,7.10], y:[-9.74,4.48].
+  // AWARD_BAT_VIEWBOX below is that box with a little rounding-up padding.
+  var AWARD_BAT_VIEWBOX = "-7.6 -10.3 15.2 15.2";
+  var AWARD_BALL_R = 6.5;
+
+  // "player" (top tier - Player of the Session) gets a plain gold trophy
+  // mark; "hitter"/"pitcher" (Hitter/Pitcher of the Session) get the real
+  // bat/ball wheel art above. _session_stats already resolves a player who
+  // somehow won both in one session down to just "player" (the higher
+  // tier), so this never needs to combine two badges.
+  function statsAwardBadgeHtml(award) {
+    if (award === "player") return ' <span class="award-badge award-badge-trophy" title="Player of the Session">🏆</span>';
+    if (award === "hitter") {
+      return ' <span class="award-badge" title="Hitter of the Session">' +
+        '<svg viewBox="' + AWARD_BAT_VIEWBOX + '" aria-hidden="true">' + wheelBatIconSvg() + "</svg></span>";
+    }
+    if (award === "pitcher") {
+      var r = AWARD_BALL_R;
+      return ' <span class="award-badge" title="Pitcher of the Session">' +
+        '<svg viewBox="' + (-r - 0.5) + " " + (-r - 0.5) + " " + (2 * r + 1) + " " + (2 * r + 1) + '" aria-hidden="true">' +
+        wheelBallIconSvg(r) + "</svg></span>";
+    }
+    return "";
+  }
+
+  // Player of the Game / Honorable Mention (Alex's ask) - a per-GAME pick
+  // from the league's own Games tab (key_moments_build.py's
+  // _game_awards_from_game), distinct from the session-wide picks above and
+  // deliberately styled much quieter: a small text pill, no row tint/
+  // border, appended after the session award badge rather than replacing
+  // it - overlap between the two is common (a session Player pick is very
+  // often also that game's POTG), so both need to read cleanly at once
+  // rather than fighting for the same visual space.
+  function statsGameAwardBadgeHtml(gameAward) {
+    if (gameAward === "potg") return ' <span class="game-award-badge game-award-potg" title="Player of the Game">POTG</span>';
+    if (gameAward === "hm") return ' <span class="game-award-badge game-award-hm" title="Honorable Mention">HM</span>';
+    return "";
+  }
+
+  // Player-column name display (Alex's ask): try the full name first (up to
+  // 18 chars - LIVE_GRID_MU_NAME_FULL_MAX, the same threshold the live-grid
+  // matchup labels already use), then fall back to last-name-only
+  // (lastNameOf), then truncate THAT to 15 chars (LIVE_GRID_MU_NAME_
+  // TRUNCATE_AT) plus an ellipsis if even the last name alone is too long -
+  // one more tier than mobileLastName above (which always drops the first
+  // name), reusing its same two constants and lastNameOf rather than
+  // inventing new ones. The full name always still shows via the cell's own
+  // title attribute (see statsTableHtml) when this shortens it.
+  function statsPlayerNameDisplay(id, fullName) {
+    var name = fullName || "";
+    if (name.length <= LIVE_GRID_MU_NAME_FULL_MAX) return name;
+    var last = resolvedLastName(id, name);
+    return last.length <= LIVE_GRID_MU_NAME_FULL_MAX ? last : last.slice(0, LIVE_GRID_MU_NAME_TRUNCATE_AT) + "…";
+  }
+
+  // W/L/SV/HD next to the pitcher's name, reusing the scorecard's own
+  // .pitch-decision badge style (Alex's ask) - a session is one game per
+  // team, so a pitcher gets at most one decision in it, same as the
+  // scorecard's own single-game badge (no count prefix needed). Blank
+  // whenever none apply (most relievers most sessions).
+  function statsPitcherDecisionsHtml(row) {
+    var parts = [];
+    if (row.w) parts.push("W");
+    if (row.l) parts.push("L");
+    if (row.sv) parts.push("SV");
+    if (row.hd) parts.push("HD");
+    return parts.length ? ' <span class="pitch-decision">' + parts.join(" ") + "</span>" : "";
+  }
+
+  // Expanded row's plays nest directly under the clicked player's own <tr>
+  // (Alex's ask, back from the standalone-panel-below-the-table version) -
+  // same card look that panel had, just relocated (no header line - Alex's
+  // ask). The colspan cell is exactly as wide as the whole (possibly
+  // horizontally-scrollable) table, not the screen, so the mobile width bug
+  // that motivated the panel in the first place is handled in CSS instead
+  // this time: below 700px (see style.css) .stats-expand-content pins
+  // itself to the visible left edge of that horizontal scroll and caps its
+  // own width, rather than letting .moment's own width:auto stretch to the
+  // table's full span.
+  // Every row carries its own `session` (renderStats sets it - the row's
+  // originating session either way, whether this table is showing one
+  // session or, with a Session column added, every session at once) - see
+  // statsRowKey. That's what makes the Full Season case (Alex's ask) just
+  // fall out of the same per-row logic here, no separate code path: a
+  // player can legitimately have several rows (one per session) once
+  // Session is in `cols`, so the expand toggle/plays lookup key on
+  // (player_id, session) together, never player_id alone.
+  function statsRowKey(row) {
+    return row.player_id + "|" + row.session;
+  }
+
+  function statsTableHtml(rows, cols, emptyNoun, sort, nameSuffixFn) {
+    if (!rows.length) return '<div class="stats-empty">No ' + emptyNoun + ' match.</div>';
+    var sorted = sortStatsRows(rows, sort);
+    var head = statsColHeaderHtml("Player", "name", sort) +
+      cols.map(function (c) { return statsColHeaderHtml(c[1], c[0], sort); }).join("");
+    var body = sorted.map(function (row) {
+      var rowKey = statsRowKey(row);
+      var expanded = rowKey === statsExpandedKey;
+      var awardCls = row.award ? " award-" + row.award : "";
+      var main = '<tr class="stats-player-row' + awardCls + (expanded ? " expanded" : "") +
+          '" data-player-id="' + row.player_id + '" data-session="' + row.session + '">' +
+        '<td title="' + escapeHtml(row.name) + '">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
+          (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
+          statsGameAwardBadgeHtml(row.game_award) + "</td>" +
+        cols.map(function (c) {
+          var cls = c[0] === "session" ? ' class="stats-col-session"' : "";
+          return "<td" + cls + ">" + statsCellText(row, c[0], c[2]) + "</td>";
+        }).join("") +
+        "</tr>";
+      if (!expanded) return main;
+      return main + '<tr class="stats-expand-row"><td colspan="' + (cols.length + 1) + '">' +
+        '<div class="stats-expand-content">' +
+          '<div class="stats-expand-plays">' + statsExpandPlaysHtml(row.player_id, row.session) + "</div>" +
+        "</div></td></tr>";
+    }).join("");
+    return '<div class="stats-table-wrap"><table class="stats-table"><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+  }
+
+  function statsSubtabsHtml() {
+    return '<div class="stats-subtabs">' +
+      '<button type="button" class="stats-subtab' + (statsSubView === "batting" ? " active" : "") +
+        '" data-subview="batting">Batting</button>' +
+      '<button type="button" class="stats-subtab' + (statsSubView === "pitching" ? " active" : "") +
+        '" data-subview="pitching">Pitching</button>' +
+      "</div>";
+  }
+
+  function statsToolbarHtml() {
+    return '<div class="stats-toolbar">' + statsFiltersHtml() + statsSubtabsHtml() + "</div>";
+  }
+
+  // The Stats toolbar (sub-tabs + Filters) and table header stick just
+  // below the page's own sticky .title-row - both offsets are measured live
+  // (not hardcoded) since .title-row wraps to two lines on narrow viewports
+  // and .stats-toolbar itself grows taller whenever its Filters panel is
+  // open. Cheap enough to call on every renderStats (a couple of
+  // getBoundingClientRect reads) and on resize (debounced below).
+  function updateStickyOffsets() {
+    var titleRow = document.querySelector(".title-row");
+    document.documentElement.style.setProperty(
+      "--title-row-h", (titleRow ? titleRow.getBoundingClientRect().height : 0) + "px");
+    var toolbar = document.querySelector(".stats-toolbar");
+    document.documentElement.style.setProperty(
+      "--stats-toolbar-h", (toolbar ? toolbar.getBoundingClientRect().height : 0) + "px");
+    // Full Season's SN column sticks right after Player (Alex's ask) -
+    // Player's own rendered width varies with name length/badges, so this
+    // is measured live off the real header cell rather than guessed, same
+    // reasoning as title-row-h/stats-toolbar-h above. 0 when there's no
+    // table at all (e.g. the "No X match" empty state) - harmless, since
+    // stats-col-session doesn't exist to read it in that case either.
+    var firstCol = document.querySelector(".stats-table th:first-child");
+    document.documentElement.style.setProperty(
+      "--stats-col1-w", (firstCol ? firstCol.getBoundingClientRect().width : 0) + "px");
+  }
+
+  var stickyOffsetsResizeTimer;
+  function scheduleStickyOffsetsUpdate() {
+    window.clearTimeout(stickyOffsetsResizeTimer);
+    stickyOffsetsResizeTimer = window.setTimeout(updateStickyOffsets, 150);
+  }
+
+  // Full Season (filters.session === null - Alex's ask): every session's
+  // own rows, each still tagged with its real originating session (not the
+  // aggregated season-long totals _session_stats never computes) - a
+  // Session column goes in front of the usual stat columns so the same
+  // player's several rows (one per session) are told apart. Single-session
+  // mode tags every row with that one session too, so statsTableHtml's own
+  // per-row expand-key logic (statsRowKey) never needs to know which mode
+  // it's in.
+  function statsRowsForActiveSession(isBatting) {
+    var session = filters.session;
+    var field = isBatting ? "batting" : "pitching";
+    if (session != null) {
+      var stats = (data.meta.stats || {})[String(session)];
+      var rows = (stats && stats[field]) || [];
+      rows.forEach(function (r) { r.session = session; });
+      return rows;
+    }
+    var allStats = data.meta.stats || {};
+    var out = [];
+    Object.keys(allStats).forEach(function (s) {
+      var rows = allStats[s][field] || [];
+      var sNum = Number(s);
+      rows.forEach(function (r) { r.session = sNum; out.push(r); });
+    });
+    return out;
+  }
+
+  function renderStats() {
+    var el = $("stats-view");
+    if (!el) return;
+    // Rebuilding the whole view via innerHTML would otherwise steal focus
+    // (and the text cursor position) out from under the player-search input
+    // whenever the debounced filter apply fires mid-typing - save it here,
+    // restore it below once the new nodes exist.
+    var active = document.activeElement;
+    var focusId = (active && active.id && el.contains(active)) ? active.id : null;
+    var focusSelStart = focusId && active.selectionStart != null ? active.selectionStart : null;
+    var focusSelEnd = focusId && active.selectionEnd != null ? active.selectionEnd : null;
+    // Same problem, same fix, for the player-search suggestion dropdown:
+    // it's plain DOM content statsRenderPlayerSuggest wrote directly (not
+    // part of this render), so a rebuild mid-typing would otherwise wipe it
+    // back to the freshly-hidden box statsFiltersHtml() always renders,
+    // even though the user's still looking at it (Alex's report).
+    var suggestBox = $("stats-player-suggest");
+    var wasSuggestOpen = focusId === "stats-player-input" && suggestBox && !suggestBox.hidden;
+
+    var isBatting = statsSubView === "batting";
+    var rows = statsRowsForActiveSession(isBatting).filter(statsRowVisible);
+    var cols = isBatting ? STATS_BATTING_COLS : STATS_PITCHING_COLS;
+    if (filters.session == null) cols = [["session", "SN"]].concat(cols);
+    // Suppressed only across this one synchronous swap - genuinely focused
+    // and unfocused elements outside of it still make focusout do its
+    // normal job.
+    statsSuppressFocusout = true;
+    el.innerHTML = statsToolbarHtml() + '<div class="stats-section">' +
+      statsTableHtml(rows, cols, isBatting ? "batting lines" : "pitching lines", statsSort[statsSubView],
+        isBatting ? null : statsPitcherDecisionsHtml) +
+      "</div>";
+    statsSuppressFocusout = false;
+    if (focusId) {
+      var restored = $(focusId);
+      if (restored) {
+        restored.focus();
+        if (focusSelStart != null && restored.setSelectionRange) {
+          try { restored.setSelectionRange(focusSelStart, focusSelEnd); } catch (e) { /* not a text-selectable input */ }
+        }
+      }
+      if (wasSuggestOpen && restored && restored.value.trim()) statsRenderPlayerSuggest(restored.value);
+    }
+    updateStickyOffsets();
+    // A row expanded before ITS OWN session's plays finished loading shows
+    // "Loading plays..." above - fill it in for real once they land. Reads
+    // the expanded row's own session (from the key), not filters.session -
+    // in Full Season mode those aren't the same thing.
+    if (statsExpandedKey != null) {
+      var expandedSession = Number(statsExpandedKey.split("|")[1]);
+      if (!data.playsBySession[expandedSession]) {
+        ensurePlaysLoaded().then(function () {
+          if (activeView === "stats") renderStats();
+        });
+      }
+    }
+  }
+
+  function renderActiveView() {
+    if (activeView === "stats") renderStats();
+  }
+
+  function toggleStatsExpand(rowKey) {
+    statsExpandedKey = statsExpandedKey === rowKey ? null : rowKey;
+    renderStats();
+  }
+
+  function setStatsSubView(view) {
+    if (statsSubView === view) return;
+    statsSubView = view;
+    statsExpandedKey = null;
+    renderStats();
+  }
+
+  function toggleStatsFiltersExpanded() {
+    statsFiltersExpanded = !statsFiltersExpanded;
+    renderStats();
+  }
+
+  function toggleStatsFilterFlag(slug) {
+    if (slug === "rookies") statsFilters.rookiesOnly = !statsFilters.rookiesOnly;
+    else if (slug === "favorites") statsFilters.favoritesOnly = !statsFilters.favoritesOnly;
+    else return;
+    statsExpandedKey = null; // the expanded player may no longer be in the filtered set
+    renderStats();
+  }
+
+  function setStatsFilterTeam(team) {
+    statsFilters.team = team;
+    statsExpandedKey = null;
+    renderStats();
+  }
+
+  // Debounced substring text (mirrors the Plays view's own player-input
+  // handler) - applied after a short pause rather than on every keystroke,
+  // both to match that existing feel and because applying it immediately
+  // would mean rebuilding (and refocusing) the input on every single
+  // keystroke, not just when typing actually pauses.
+  var statsPlayerFilterTimer;
+  function setStatsFilterPlayerText(text) {
+    statsFilters.playerId = null; // typing again invalidates a previous exact pick
+    window.clearTimeout(statsPlayerFilterTimer);
+    statsPlayerFilterTimer = window.setTimeout(function () {
+      statsFilters.player = text.trim();
+      statsExpandedKey = null;
+      renderStats();
+    }, 150);
+  }
+
+  function pickStatsFilterPlayer(id, name) {
+    window.clearTimeout(statsPlayerFilterTimer);
+    statsFilters.playerId = id;
+    statsFilters.player = name;
+    statsExpandedKey = null;
+    renderStats();
+  }
+
+  function clearStatsFilterPlayer() {
+    window.clearTimeout(statsPlayerFilterTimer);
+    statsFilters.player = "";
+    statsFilters.playerId = null;
+    statsExpandedKey = null;
+    renderStats();
+  }
+
+  // Mirrors the Plays panel's own #reset-btn handler. deselectScoreboardTile
+  // clears statsFilters.gameTeams (the scoreboard-tile selection) and does
+  // the actual re-render, so the field resets above just need to land first.
+  function resetStatsFilters() {
+    window.clearTimeout(statsPlayerFilterTimer);
+    statsFilters.team = "";
+    statsFilters.player = "";
+    statsFilters.playerId = null;
+    statsFilters.rookiesOnly = false;
+    statsFilters.favoritesOnly = false;
+    deselectScoreboardTile();
+  }
+
+  // Same shape as the Plays view's own renderPlayerSuggest, just targeting
+  // the Stats filter's own input/dropdown ids and never touching the Plays
+  // view's (the two searches are independent, per statsFilters' own
+  // top-of-file comment).
+  function statsRenderPlayerSuggest(query) {
+    var box = $("stats-player-suggest");
+    var needle = query.trim().toLowerCase();
+    if (!needle) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    var matches = (data.players || []).filter(function (p) {
+      return p.name && p.name.toLowerCase().indexOf(needle) !== -1;
+    }).slice(0, PLAYER_SUGGEST_LIMIT);
+    if (!matches.length) {
+      box.innerHTML = '<div class="player-suggest-empty">No players match.</div>';
+      box.hidden = false;
+      return;
+    }
+    box.innerHTML = matches.map(function (p) {
+      return '<div class="player-suggest-row" data-player-id="' + p.id +
+        '" data-player-name="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) +
+        '<span class="team">' + escapeHtml(p.team || "") + "</span></div>";
+    }).join("");
+    box.hidden = false;
+  }
+
+  function toggleStatsSort(key) {
+    var sort = statsSort[statsSubView];
+    if (sort.key === key) {
+      sort.dir = sort.dir === "asc" ? "desc" : "asc";
+    } else {
+      sort.key = key;
+      sort.dir = "desc";
+    }
+    renderStats();
+  }
+
+  function switchView(view) {
+    if (activeView === view) return;
+    activeView = view;
+    statsExpandedKey = null;
+    Array.prototype.forEach.call(document.querySelectorAll("#view-tabs .view-tab"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-view") === view);
+    });
+    $("plays-view").hidden = view !== "plays";
+    $("stats-view").hidden = view !== "stats";
+    if (view === "stats") renderStats();
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -12965,7 +13653,7 @@
       var stints = slots[slot];
       var last = stints[stints.length - 1];
       if (!last || last.name !== p.batter_name) {
-        stints.push({ name: p.batter_name, startSeq: seq, endSeq: seq });
+        stints.push({ name: p.batter_name, playerId: p.batter_id, startSeq: seq, endSeq: seq });
       } else {
         last.endSeq = seq;
       }
@@ -13182,7 +13870,13 @@
       });
       (p.scoring_names || []).forEach(function (lastName) {
         Object.keys(stats).forEach(function (name) {
-          if (name !== p.batter_name && name.split(" ").slice(-1)[0] === lastName) stats[name].r++;
+          // lastNameOf, not a raw split (Alex's report: a plain split broke
+          // on a name with a parenthetical aside, e.g. "JZ (but not the
+          // rapper)" splitting to "rapper)" instead of "JZ") - stats is
+          // keyed by full name only here, with no id to resolve the fully
+          // authoritative way (resolvedLastName), so this is still a guess,
+          // just the same improved one used everywhere else in this file.
+          if (name !== p.batter_name && lastNameOf(name) === lastName) stats[name].r++;
         });
       });
     });
@@ -13632,8 +14326,16 @@
   // here, only for whoever a specific play's own battter/pitcher/catcher/
   // runner happens to be.
   var NAME_SUFFIXES = { "jr": 1, "jr.": 1, "sr": 1, "sr.": 1, "ii": 1, "iii": 1, "iv": 1, "v": 1 };
+  // A trailing parenthetical aside ("JZ (but not the rapper)") isn't part
+  // of the surname - stripped before splitting on whitespace, or the naive
+  // last-word logic below picks up the last word INSIDE the parens instead
+  // (Alex's report: the pitcher tab's scorecard showed "rapper)" for this
+  // exact player). Falls back to the untouched fullName if stripping the
+  // parenthetical leaves nothing (a name that's ONLY "(something)", not a
+  // real case today but a safe guard regardless).
   function lastNameOf(fullName) {
-    var parts = (fullName || "").trim().split(/\s+/);
+    var name = (fullName || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+    var parts = (name || fullName || "").trim().split(/\s+/);
     while (parts.length > 1 && NAME_SUFFIXES[parts[parts.length - 1].toLowerCase()]) parts.pop();
     return parts[parts.length - 1] || fullName || "";
   }
@@ -13650,8 +14352,14 @@
   // its own lastNameOf (suffix-aware - "...Jr. Jr. Jr." - unlike
   // liveGridLastName's plainer last-whitespace-token split) since that's
   // what this feature already needed.
-  function mobileLastName(fullName) {
-    var last = lastNameOf(fullName);
+  // id (optional) - resolvedLastName's roster lookup over lastNameOf's own
+  // guess, same reasoning as liveGridLastName above. Only ever set for a
+  // completed game's own inferred stints (inferBattingOrder's playerId,
+  // sourced straight from the play's own batter_id) - a live/in-progress
+  // game's stints come from the Lineups tab instead (liveBattingOrderFromRows),
+  // which carries no id at all, so those still fall back to the guess.
+  function mobileLastName(id, fullName) {
+    var last = resolvedLastName(id, fullName);
     return last.length > LIVE_GRID_MU_NAME_FULL_MAX
       ? last.slice(0, LIVE_GRID_MU_NAME_TRUNCATE_AT) + "…"
       : last;
@@ -13686,7 +14394,7 @@
     [awayOrder, homeOrder].forEach(function (order) {
       order.forEach(function (stints) {
         stints.forEach(function (stint) {
-          var w = measureTextWidth(mobileLastName(stint.name));
+          var w = measureTextWidth(mobileLastName(stint.playerId, stint.name));
           if (w > maxNameW) maxNameW = w;
         });
       });
@@ -13757,7 +14465,7 @@
         return '<div class="lineup-entry' + subBorderClass(stint.subType) + '">' +
           '<span class="lineup-pos">' + escapeHtml(posLabel || "") + '</span>' +
           '<span class="lineup-name lineup-name-full" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(stint.name || "") + "</span>" +
-          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(mobileLastName(stint.name)) + "</span>" +
+          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(mobileLastName(stint.playerId, stint.name)) + "</span>" +
           "</div>";
       }).join("");
       rows += '<div class="sc-cell sc-lineup' + nowBattingCls + '"' + nowBattingStyle + '>' +
@@ -13907,7 +14615,8 @@
           if (box.halfTotals[key].lob != null) totalLob += box.halfTotals[key].lob;
         }
       });
-      return "<tr><td class=\"ls-team\">" + teamLogoImg(abbr, "ls-logo") + escapeHtml(abbr) + "</td>" + cells +
+      return "<tr><td class=\"ls-team\"><span class=\"ls-team-inner\">" + teamLogoImg(abbr, "ls-logo") + escapeHtml(abbr) +
+        "</span></td>" + cells +
         '<td class="ls-total">' + totalR + '</td><td class="ls-total">' + totalH +
         '</td><td class="ls-total">' + totalLob + "</td></tr>";
     }
@@ -14010,7 +14719,7 @@
     var teamHex = (data.meta.teams[oppAbbr] || {}).primary_hex;
     return '<div class="sc-pitch-box">' +
       batterBoxHtml(play, box.outNumber[play.play_num], box.runnerPaths[play.play_num], teamHex) +
-      '<div class="sc-pitch-batter-name">' + escapeHtml(lastNameOf(play.batter_name || "")) + "</div>" +
+      '<div class="sc-pitch-batter-name">' + escapeHtml(resolvedLastName(play.batter_id, play.batter_name || "")) + "</div>" +
       "</div>";
   }
 
@@ -14518,17 +15227,21 @@
   var LIVE_GRID_MU_NAME_FULL_MAX = 18;
   var LIVE_GRID_MU_NAME_TRUNCATE_AT = 15;
 
-  function liveGridLastName(name) {
+  // id (optional) - resolvedLastName's own roster lookup, not this
+  // function's plain whitespace-split guess (Alex's report: that guess
+  // produced "rapper)" for "JZ (but not the rapper)"). Still needs its own
+  // truncation on top - resolvedLastName only resolves the name, doesn't
+  // cap its length the way this live-grid label wants to.
+  function liveGridLastName(id, name) {
     if (!name) return "-";
-    var parts = name.trim().split(/\s+/);
-    var last = parts[parts.length - 1];
+    var last = resolvedLastName(id, name);
     return last.length > LIVE_GRID_MU_NAME_FULL_MAX
       ? last.slice(0, LIVE_GRID_MU_NAME_TRUNCATE_AT) + "…"
       : last;
   }
 
-  function liveGridMatchupLineHtml(prefix, name) {
-    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(liveGridLastName(name)) + "</div>";
+  function liveGridMatchupLineHtml(prefix, id, name) {
+    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(liveGridLastName(id, name)) + "</div>";
   }
 
   /* logo/abbr/score have to move together as one unit (Alex's report: an
@@ -14680,11 +15393,11 @@
       liveGridWrapTeamRow(homeEl);
       var awayBatting = !m.batting_is_home;
       awayEl.insertAdjacentHTML("beforeend", awayBatting
-        ? liveGridMatchupLineHtml("AB", m.batter_name)
-        : liveGridMatchupLineHtml("P", m.pitcher_name));
+        ? liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name)
+        : liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name));
       homeEl.insertAdjacentHTML("beforeend", awayBatting
-        ? liveGridMatchupLineHtml("P", m.pitcher_name)
-        : liveGridMatchupLineHtml("AB", m.batter_name));
+        ? liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name)
+        : liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name));
     }
 
     // Player-scores follows the fielding description on the same line
@@ -15200,8 +15913,11 @@
   // survives untouched.
   function activateSeasonData(targetSession) {
     rookieIds = null; // rebuild from the newly-active season's roster
+    playerTeamById = null;
+    playerLastNameById = null;
     filters.selectedGame = null;
     filters.team = "";
+    statsFilters.team = ""; // abbreviations differ across seasons, same reasoning as filters.team above
     deselectScoreboardTile();
     var historical = season.active !== season.current;
     // No "Season N archive" label (Alex's ask) - the season+session picker
@@ -15210,6 +15926,8 @@
     $("built-at").textContent = historical ? "" : formatBuiltAt(data.meta.built_at);
     populateSessionSelect(false, targetSession);
     renderScoreboard();
+    statsExpandedKey = null;
+    renderActiveView();
     populateTeamSelect();
     populateTagChips();
     Array.prototype.forEach.call(document.querySelectorAll("#tag-chips .chip"), function (c) {
@@ -15431,7 +16149,105 @@
     }).join("");
   }
 
+  // Shared by #moments and #stats-view's own delegated click handlers - a
+  // card() render's own play-jump/favorite-star buttons carry these data
+  // attributes regardless of which container it ended up in (Alex's report:
+  // the Stats tab's expand-row plays reuse card() too, but only #moments
+  // had this wired, so the play button there silently did nothing). Returns
+  // true when it handled the click, so a caller with its own follow-up
+  // checks knows to stop there.
+  function handleMomentCardClick(e) {
+    var jumpBtn = e.target.closest("[data-jump-game]");
+    if (jumpBtn) {
+      openReplayAtPlay(
+        jumpBtn.getAttribute("data-jump-game"),
+        Number(jumpBtn.getAttribute("data-jump-session")),
+        Number(jumpBtn.getAttribute("data-jump-num")),
+        jumpBtn
+      );
+      return true;
+    }
+    var favBtn = e.target.closest("[data-fav-id]");
+    if (favBtn && window.KMFavorites) {
+      window.KMFavorites.toggle(favBtn.getAttribute("data-fav-id"));
+      return true;
+    }
+    return false;
+  }
+
   function wireControls() {
+    Array.prototype.forEach.call(document.querySelectorAll("#view-tabs .view-tab"), function (b) {
+      b.addEventListener("click", function () { switchView(this.getAttribute("data-view")); });
+    });
+    // Delegated (the whole view is rebuilt wholesale on every renderStats) -
+    // a play-jump/favorite-star click inside an expanded player's plays
+    // panel behaves the same as it does in the main Plays feed
+    // (handleMomentCardClick), sub-tab click switches Batting/Pitching, the
+    // Filters toggle expands/collapses its own panel, a Rookies/Favorites
+    // chip flips that filter, a header click sorts by that column, and a
+    // click anywhere else in a player row toggles that player's
+    // plays-detail panel below the table.
+    $("stats-view").addEventListener("click", function (e) {
+      if (handleMomentCardClick(e)) return;
+      var subtab = e.target.closest(".stats-subtab");
+      if (subtab) { setStatsSubView(subtab.getAttribute("data-subview")); return; }
+      if (e.target.closest("#stats-filters-toggle")) { toggleStatsFiltersExpanded(); return; }
+      if (e.target.closest("#stats-reset-btn")) { resetStatsFilters(); return; }
+      var toggleChip = e.target.closest("#stats-toggle-chips .chip");
+      if (toggleChip) { toggleStatsFilterFlag(toggleChip.getAttribute("data-toggle")); return; }
+      var th = e.target.closest("th[data-sort-key]");
+      if (th) { toggleStatsSort(th.getAttribute("data-sort-key")); return; }
+      var row = e.target.closest(".stats-player-row");
+      if (!row) return;
+      toggleStatsExpand(row.getAttribute("data-player-id") + "|" + row.getAttribute("data-session"));
+    });
+    $("stats-view").addEventListener("change", function (e) {
+      if (e.target.id === "stats-team-select") setStatsFilterTeam(e.target.value);
+    });
+    // Player search - same delegated approach as the click handler above
+    // (the input/suggestion dropdown/clear button are all rebuilt along
+    // with the rest of the view on every renderStats, so listeners can't
+    // be bound to them directly - they'd be gone after the first
+    // re-render). input bubbles natively; focusin/focusout are the
+    // delegation-friendly versions of focus/blur, which don't bubble.
+    $("stats-view").addEventListener("input", function (e) {
+      if (e.target.id !== "stats-player-input") return;
+      setStatsFilterPlayerText(e.target.value);
+      statsRenderPlayerSuggest(e.target.value);
+      var clearBtn = $("stats-player-input-clear");
+      if (clearBtn) clearBtn.hidden = !e.target.value;
+    });
+    $("stats-view").addEventListener("focusin", function (e) {
+      if (e.target.id === "stats-player-input" && e.target.value.trim()) statsRenderPlayerSuggest(e.target.value);
+    });
+    $("stats-view").addEventListener("focusout", function (e) {
+      if (e.target.id !== "stats-player-input") return;
+      // Ignore the synthetic blur renderStats' own innerHTML swap fires
+      // when it destroys the (still-focused) old input mid-typing - not a
+      // real "user clicked away," and queuing a hide for it is exactly
+      // what was making the dropdown flash and vanish (Alex's report).
+      if (statsSuppressFocusout) return;
+      // Delayed so a mousedown pick/clear (below) still lands first.
+      window.setTimeout(function () {
+        var box = $("stats-player-suggest");
+        if (box) box.hidden = true;
+      }, 120);
+    });
+    // mousedown, not click - fires before the input's own focusout would
+    // otherwise close the dropdown out from under it first.
+    $("stats-view").addEventListener("mousedown", function (e) {
+      var row = e.target.closest("#stats-player-suggest .player-suggest-row");
+      if (row) {
+        e.preventDefault();
+        pickStatsFilterPlayer(Number(row.getAttribute("data-player-id")), row.getAttribute("data-player-name"));
+        return;
+      }
+      if (e.target.closest("#stats-player-input-clear")) {
+        e.preventDefault();
+        clearStatsFilterPlayer();
+      }
+    });
+
     // Phone-only disclosure. CSS force-shows the panel above 600px, so the
     // class this leaves behind cannot strand a desktop user with it shut.
     $("filters-toggle").addEventListener("click", function () {
@@ -15454,6 +16270,8 @@
         filters.session = sess;
         deselectScoreboardTile();
         renderScoreboard();
+        statsExpandedKey = null;
+        renderActiveView();
         renderMaybeLoading();
         return;
       }
@@ -15474,6 +16292,10 @@
     });
 
     window.addEventListener("resize", scheduleScoreboardResize);
+    // Re-measure the Stats tab's sticky offsets on resize too - .title-row
+    // can wrap to a second line at some widths, changing the offset the
+    // sub-tabs/table header need to stick below.
+    window.addEventListener("resize", scheduleStickyOffsetsUpdate);
 
     // Result is a radio group that can also be fully off: clicking the active
     // chip clears it back to "all categories".
@@ -15777,21 +16599,7 @@
       renderMaybeLoading();
     });
 
-    $("moments").addEventListener("click", function (e) {
-      var jumpBtn = e.target.closest("[data-jump-game]");
-      if (jumpBtn) {
-        openReplayAtPlay(
-          jumpBtn.getAttribute("data-jump-game"),
-          Number(jumpBtn.getAttribute("data-jump-session")),
-          Number(jumpBtn.getAttribute("data-jump-num")),
-          jumpBtn
-        );
-        return;
-      }
-      var btn = e.target.closest("[data-fav-id]");
-      if (!btn || !window.KMFavorites) return;
-      window.KMFavorites.toggle(btn.getAttribute("data-fav-id"));
-    });
+    $("moments").addEventListener("click", handleMomentCardClick);
 
     wireCatchUp();
     wireReplay();

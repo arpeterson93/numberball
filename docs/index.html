@@ -121,6 +121,15 @@
   </div>
   <div id="scoreboard" class="scoreboard" hidden></div>
 
+  <!-- Plays / Stats tabs - Plays is everything below (filters, sort bar,
+       moment cards), unchanged; Stats is the session-wide batting/pitching
+       lines (app.js's renderStats, from meta.stats). -->
+  <div class="view-tabs" id="view-tabs">
+    <button type="button" class="view-tab active" data-view="plays">Plays</button>
+    <button type="button" class="view-tab" data-view="stats">Stats</button>
+  </div>
+
+  <div id="plays-view">
   <!-- .controls exists so the phone breakpoint can sit the collapsed filters
        bar and the sort chips on one line; above 600px it is a plain block. -->
   <div class="controls">
@@ -245,6 +254,13 @@
 
   <div id="moments"></div>
   <div id="empty-state" class="empty-state" hidden>No plays match these filters.</div>
+  </div>
+
+  <!-- Stats view: session-wide batting/pitching lines, filled by app.js's
+       renderStats() from data.meta.stats[session]. Clicking a player row
+       expands that player's plays this session beneath it (reuses the same
+       lazily-loaded data.playsBySession the Plays tab already fetches). -->
+  <div id="stats-view" hidden></div>
 
 </div>
 

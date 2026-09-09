@@ -49,6 +49,10 @@ ARCHIVE_SHEET_ID = "1H9ES_TL9nC0x-Q3auM6jtLcb6bII--eu4MtcAPoFcqg"
 # type-inference bug documented on that function - see its docstring.
 ARCHIVE_PLAYS_GID = "1141271229"
 
+# Curated hitter/pitcher/player-of-the-session picks (Alex's own Google
+# Sheet, one row per award recipient) - see utils.read_session_awards_from_sheet.
+SESSION_AWARDS_SHEET_ID = "17Clgc4dBNXCDeD0SaJLF5LPu_1jZMqt-OimYwJv7r4I"
+
 OUT_DIR = os.path.join("docs", "data")
 
 # A team's secondary color, for when its primary reads as too close to an
@@ -117,9 +121,37 @@ PITCHING_CODES = {
 SAC_CODES = {"SacF", "DSacF", "SacB"}
 
 STEAL_SUCCESS_CODES = {"SB", "SB2", "SB3", "SB4"}
+# Combined multi-runner steals (two backs stealing on the same play code) -
+# same STEAL_SUCCESS_CODES role for the session-stats "genuine turn" gate
+# below, just not folded into that set since nothing else in this file reads
+# steal codes for multi-runner credit today.
+STEAL_SUCCESS_MULTI_CODES = {"SB32", "SB42", "SB43", "SB432"}
 CAUGHT_STEALING_CODES = {"CS", "CS2", "CS3", "CS4"}
 DOUBLE_PLAY_CODES = {"DP", "DP21", "DP31", "DPH1", "DPRun", "LODP"}
 TRIPLE_PLAY_CODES = {"TP", "LOTP"}
+
+# ── session stats (Stats tab) ─────────────────────────────────────────────────
+# Result-code groupings the batting/pitching aggregation below needs that the
+# rest of this file has no reason to track. Mirrors docs/js/app.js's own
+# STRIKEOUT_RESULTS/WALK_RESULTS/NON_TURN_RESULTS (built independently there
+# for the per-game scorecard) - kept here as the one server-side copy so
+# _session_stats and any future consumer share a single source.
+STRIKEOUT_CODES = {"K", "AutoK", "KCS"}
+WALK_CODES = {"BB", "IBB", "AutoBB"}
+SAC_FLY_CODES = {"SacF", "DSacF"}
+SAC_BUNT_CODES = {"SacB"}
+# Subset of WALK_CODES - Runs Created's B factor wants BB minus intentional
+# walks specifically (a batter isn't really "earning" an IBB the way a real
+# walk is earned). AutoBB stays lumped into the plain BB count either way.
+INTENTIONAL_WALK_CODES = {"IBB"}
+TWO_BASE_CODES = {"2B", "2BWH"}
+THREE_BASE_CODES = {"3B"}
+HOME_RUN_CODES = {"HR"}
+# Not a real batter turn at all (mid-at-bat steal attempt or a balk) - PA/AB
+# both skip these, same as app.js's isGenuineTurn.
+NON_TURN_CODES = (
+    STEAL_SUCCESS_CODES | STEAL_SUCCESS_MULTI_CODES | CAUGHT_STEALING_CODES | {"Balk"}
+)
 
 RESULT_LABELS = {
     "1B": "Single",
@@ -241,26 +273,36 @@ def _safe_player_id(raw) -> int | None:
         return None
 
 
-def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
-    """Last names of runners who scored on this play, in the order they'd
-    have crossed the plate: 3rd, then 2nd, then 1st. The page renders these
-    as "X scores" (one) or "X, Y, Z score" (more than one).
+def _scoring_ids(play: dict, batter_id: int | None) -> list[int]:
+    """Player ids of runners who scored on this play, in the order they'd
+    have crossed the plate: 3rd, then 2nd, then 1st.
 
-    The batter's own run is never listed here even if the sheet ever put
-    their id in one of these cells (a solo/grand-slam HR's batter is implied
-    by the result and the card's headline name already showing them) - the
-    scored2/scored3/scored4 cells map to the runner who started the play on
-    1st/2nd/3rd respectively, per the sheet's naming.
+    The batter's own run is never included here even if the sheet ever put
+    their id in one of these cells (an inside-the-park HR's batter is
+    resolvable from the result itself, not this list) - the scored2/scored3/
+    scored4 cells map to the runner who started the play on 1st/2nd/3rd
+    respectively, per the sheet's naming. Session-stats' batting R credit
+    uses these ids, not _scoring_names' display strings - a real name isn't
+    a safe key to aggregate by (see HITTING_CODES-area comment on
+    name_to_id's "no duplicate names" assumption, which this deliberately
+    doesn't rely on).
     """
     seen: set[int] = set()
-    names: list[str] = []
+    ids: list[int] = []
     for key in ("scored4", "scored3", "scored2"):  # 3rd, 2nd, 1st
         pid = _safe_player_id(play.get(key))
         if pid is None or pid == batter_id or pid in seen:
             continue
         seen.add(pid)
-        names.append(_player_view(ref, pid)["last_name"])
-    return names
+        ids.append(pid)
+    return ids
+
+
+def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
+    """Last names of runners who scored on this play (see _scoring_ids),
+    in the same 3rd/2nd/1st order. The page renders these as "X scores"
+    (one) or "X, Y, Z score" (more than one)."""
+    return [_player_view(ref, pid)["last_name"] for pid in _scoring_ids(play, batter_id)]
 
 
 def _parse_timestamp(raw: str | None) -> str | None:
@@ -789,7 +831,8 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
     featured_wp_after = None if wp_after is None else ((1.0 - wp_after) if flip else wp_after)
 
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
-    scoring_names = _scoring_names(ref, play, feat["batter"]["id"])
+    scoring_ids = _scoring_ids(play, feat["batter"]["id"])
+    scoring_names = [_player_view(ref, pid)["last_name"] for pid in scoring_ids]
     position_override = utils.get_position_override(play.get("play_code"))
 
     away_score = state["away_score_before"] + (0 if state["batting_is_home"] else state["runs"])
@@ -879,6 +922,10 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "runner_moves": utils.get_runner_moves(play.get("play_code")),
         "runs": state["runs"],
         "scoring_names": scoring_names,
+        # Player ids for scoring_names, same order - session-stats' batting R
+        # credit (see _session_stats) is the only reader; not otherwise
+        # rendered client-side today.
+        "scoring_ids": scoring_ids,
 
         "batter_name": feat["batter"]["name"],
         "batter_id": feat["batter"]["id"],
@@ -1421,6 +1468,14 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
             {
                 "id": p["player_id"],
                 "name": p.get("name") or "",
+                # The Players/Rosters sheet's own explicit Last Name column
+                # (utils.read_mln_players_from_sheet), not derived by
+                # splitting `name` on whitespace - a client-side guess like
+                # that breaks on a name with a parenthetical aside (Alex's
+                # report: "JZ (but not the rapper)" produced "rapper)").
+                # Falls back to the full name if the sheet's own column is
+                # blank, same convention _player_view's own last_name uses.
+                "last_name": p.get("last_name") or p.get("name") or "",
                 "team": p.get("team") or "",
                 "sub_league": _team_view(ref, p.get("team"))["sub_league"],
                 "rookie": bool(p.get("is_rookie")),
@@ -1475,10 +1530,12 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         {g["away_team"] for g in games if g.get("away_team") and g.get("session_number") in sessions_set} |
         {g["home_team"] for g in games if g.get("home_team") and g.get("session_number") in sessions_set}
     )
+    season_num = archive_season if archive_season is not None else CURRENT_SEASON
+    session_awards = _load_session_awards()
     meta = {
         "built_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "sheet_id": sheet_id,
-        "season": archive_season if archive_season is not None else CURRENT_SEASON,
+        "season": season_num,
         "innings": MLN_INNINGS,
         "sessions": sessions,
         "plays_scanned": len(rows),
@@ -1512,6 +1569,13 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # one matches its session selector and hides the section entirely
         # for "Full season".
         "games": {str(s): _scoreboard(rows, games, s, lineup_rows_by_game, ref["name_to_id"]) for s in sessions},
+        # Stats tab: one {batting: [...], pitching: [...]} per session, same
+        # session-keyed shape as "games" above. Awards loaded once here (not
+        # once per session) and reused across all of them, same as ref/games.
+        "stats": {
+            str(s): _session_stats(rows, s, season_num, ref, game_by_code, session_awards)
+            for s in sessions
+        },
     }
     if archive_season is not None:
         meta["is_archive"] = True
@@ -1654,6 +1718,324 @@ def _pitcher_decisions_from_game(game: dict | None, name_to_id: dict) -> dict | 
     _add(game.get("hold_1"), "H")
     _add(game.get("hold_2"), "H")
     return decisions or None
+
+
+def _game_awards_from_game(game: dict | None, name_to_id: dict) -> dict[int, str] | None:
+    """player_id -> 'potg'/'hm' for one game's own Player of the Game /
+    Honorable Mention picks (Games-tab columns, per utils.
+    read_mln_games_from_sheet - already parsed there for both current and
+    archive seasons, just not read by this pipeline until now), resolved
+    the same way _pitcher_decisions_from_game resolves its own names. A
+    per-GAME counterpart to _load_session_awards' per-SESSION picks -
+    different sheet, different granularity, so kept as its own lookup
+    rather than merged into that one. potg outranks hm if a name somehow
+    ended up in both columns.
+    """
+    if not game:
+        return None
+    out: dict[int, str] = {}
+    def _add(name: str | None, tier: str) -> None:
+        pid = name_to_id.get((name or "").strip())
+        if pid and out.get(pid) != "potg":
+            out[pid] = tier
+    _add(game.get("player_of_game"), "potg")
+    _add(game.get("honorable_mention_1"), "hm")
+    _add(game.get("honorable_mention_2"), "hm")
+    _add(game.get("honorable_mention_3"), "hm")
+    return out or None
+
+
+# Hierarchy for the Stats tab's award highlight (Alex's ask): "Player of the
+# Session" outranks "Hitter"/"Pitcher of the Session" - the rare case of one
+# player winning both in the same session shows only the higher one, which
+# subsumes it visually rather than stacking badges.
+_AWARD_PRIORITY = {"player": 2, "hitter": 1, "pitcher": 1}
+
+
+def _load_session_awards(sheet_id: str = SESSION_AWARDS_SHEET_ID) -> dict[tuple[int, int, int], str]:
+    """(season, session, player_id) -> award ('player'/'hitter'/'pitcher'),
+    from Alex's own curated Google Sheet (build_session_awards.py's one-time
+    extraction, not part of this pipeline) - a subjective human pick, never
+    re-derived from play data. Loaded once per build() call and reused across
+    every session, same as ref/games below.
+
+    Decorative, not core data: any failure to load it (sheet unreachable,
+    unexpected columns) logs a warning and returns an empty dict rather than
+    failing the whole build - a missing awards sheet should just mean no
+    highlight badges show up, not a broken Stats tab.
+    """
+    try:
+        rows = utils.read_session_awards_from_sheet(sheet_id)
+    except Exception as exc:
+        print(f"WARNING: could not load session awards ({exc}) - Stats tab will show no award badges", file=sys.stderr)
+        return {}
+    out: dict[tuple[int, int, int], str] = {}
+    for r in rows:
+        pid, award = r.get("player_id"), r.get("award")
+        if pid is None or award not in _AWARD_PRIORITY:
+            continue
+        key = (r["season"], r["session"], pid)
+        if key not in out or _AWARD_PRIORITY[award] > _AWARD_PRIORITY[out[key]]:
+            out[key] = award
+    return out
+
+
+def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_by_code: dict,
+                    awards: dict[tuple[int, int, int], str]) -> dict:
+    """Session-wide batting/pitching stat lines for the Stats tab - the
+    server-side, whole-session counterpart to docs/js/app.js's per-game
+    scorecard tallies (battingStats/buildPitchingStints), built from the same
+    result-code taxonomy those mirror (HIT_CODES/WALK_CODES/STRIKEOUT_CODES/
+    etc., this module's own copies) and summed across every game in the
+    session instead of recomputed per game on open.
+
+    Two known approximations, both inherited from the scorecard this is
+    modeled on (see its own doc comment above _scoreboard/computeDecisions in
+    app.js): RBI is the play's own `runs` field, since no explicit RBI column
+    exists; and ER is just runs allowed, since this league's result-code
+    taxonomy has no error/misplay distinction to separate earned from
+    unearned. Decisions (W/L/SV/HD) come only from the Games tab's own
+    Winning/Losing Pitcher/Save/Hold columns via _pitcher_decisions_from_game
+    - the same source the live scorecard prefers - never app.js's
+    computeDecisions heuristic fallback, which isn't ported here.
+
+    `award` on each row (None when this player won nothing) is looked up
+    from `awards` (_load_session_awards' output, keyed by season/session/
+    player_id) - `season` is only needed for that lookup, everything else
+    here is already session-scoped.
+    """
+    session_rows = [m for m in rows if m["session_number"] == session and m["result"] is not None]
+
+    batting: dict[int, dict] = {}
+    pitching: dict[int, dict] = {}
+
+    def _row(store: dict[int, dict], pid: int, name: str) -> dict:
+        line = store.get(pid)
+        if line is None:
+            line = store[pid] = {"player_id": pid, "name": name}
+        else:
+            line["name"] = name  # last name seen wins - a session is short enough that mid-session renames aren't worth guarding against
+        return line
+
+    def _bump(line: dict, key: str, n: int = 1) -> None:
+        line[key] = line.get(key, 0) + n
+
+    for m in session_rows:
+        result = m["result"]
+        runs = m["runs"] or 0
+
+        batter_id = m.get("batter_id")
+        if batter_id:
+            b = _row(batting, batter_id, m["batter_name"])
+            if result not in NON_TURN_CODES:
+                _bump(b, "pa")
+                if result not in WALK_CODES and result not in SAC_CODES:
+                    _bump(b, "ab")
+                if result in HIT_CODES:
+                    _bump(b, "h")
+                    if result in TWO_BASE_CODES:
+                        _bump(b, "2b")
+                    elif result in THREE_BASE_CODES:
+                        _bump(b, "3b")
+                    elif result in HOME_RUN_CODES:
+                        _bump(b, "hr")
+                if result in WALK_CODES:
+                    _bump(b, "bb")
+                    if result in INTENTIONAL_WALK_CODES:
+                        _bump(b, "ibb")
+                elif result in STRIKEOUT_CODES:
+                    _bump(b, "k")
+                if result in SAC_FLY_CODES:
+                    _bump(b, "sf")
+                elif result in SAC_BUNT_CODES:
+                    _bump(b, "sh")
+                if result in DOUBLE_PLAY_CODES:
+                    _bump(b, "gidp")
+                _bump(b, "rbi", runs)
+
+        # Runs scored: the batter's own run (only possible via a home run -
+        # every other way to score requires already being a baserunner, a
+        # separate later play with its own row) plus scoring_ids' explicit
+        # runner credits (see build_moment) - never inferred from base-state
+        # deltas, per this project's explicit-data-over-heuristics rule.
+        scorer_ids = list(m.get("scoring_ids") or [])
+        if result in HOME_RUN_CODES and batter_id:
+            scorer_ids.append(batter_id)
+        for sid in scorer_ids:
+            sname = m["batter_name"] if sid == batter_id else _player_view(ref, sid)["name"]
+            _bump(_row(batting, sid, sname), "r")
+
+        # Stolen base / caught stealing - credited to the runner (runner_id),
+        # not the batter at the plate during the steal attempt.
+        runner_id = m.get("runner_id")
+        if runner_id:
+            if result in STEAL_SUCCESS_CODES or result in STEAL_SUCCESS_MULTI_CODES:
+                _bump(_row(batting, runner_id, m["runner_name"]), "sb")
+            elif result in CAUGHT_STEALING_CODES:
+                _bump(_row(batting, runner_id, m["runner_name"]), "cs")
+
+        # Session WPA sum (Alex's ask) - `wpa` on every play is already the
+        # batting TEAM's own win-probability change for that play (build_
+        # moment), so a steal/caught-stealing's swing is the RUNNER's doing
+        # (same reasoning as the sb/cs credit just above), not the batter
+        # merely standing at the plate during it.
+        wpa = m.get("wpa") or 0.0
+        is_steal_play = (result in STEAL_SUCCESS_CODES or result in STEAL_SUCCESS_MULTI_CODES
+                          or result in CAUGHT_STEALING_CODES)
+        if is_steal_play:
+            if runner_id:
+                _bump(_row(batting, runner_id, m["runner_name"]), "wpa", wpa)
+        elif batter_id:
+            _bump(_row(batting, batter_id, m["batter_name"]), "wpa", wpa)
+
+        # Defensive WPA credit for a steal/caught-stealing (Alex's ask) goes
+        # to the catcher who made the throw, not the pitcher - resolved from
+        # the play's own "defense" dict (build_moment; the sheet's own
+        # catcher_id/catcher_name columns are blank on every steal play in
+        # this league's data, so that field can't be used here). Falls back
+        # to crediting the pitcher below (catcher_id stays None) whenever
+        # the defense dict is missing or the name doesn't resolve, rather
+        # than silently dropping the WPA. Folded into the catcher's own
+        # BATTING wpa for now (Alex's call) rather than a standalone
+        # pitching row with otherwise-all-zero counting stats - a catcher
+        # who never actually pitched showing up on the Pitching table read
+        # as more confusing than useful.
+        catcher_id = None
+        catcher_name = None
+        if is_steal_play:
+            catcher_entry = (m.get("defense") or {}).get("C")
+            if catcher_entry:
+                catcher_name = catcher_entry[0]
+                catcher_id = ref["name_to_id"].get(catcher_name)
+        if catcher_id:
+            _bump(_row(batting, catcher_id, catcher_name), "wpa", -wpa)
+
+        pitcher_id = m.get("pitcher_id")
+        if pitcher_id:
+            p = _row(pitching, pitcher_id, m["pitcher_name"])
+            # Outs always count toward IP regardless of genuine-turn status -
+            # a caught-stealing mid-at-bat is still a real out the pitcher's
+            # team gets credit for (mirrors app.js's buildPitchingStints).
+            _bump(p, "outs", max(0, (m["outs_after"] or 0) - (m["outs_before"] or 0)))
+            if result in HIT_CODES:
+                _bump(p, "h")
+            if result in HOME_RUN_CODES:
+                _bump(p, "hr")
+            if result in WALK_CODES:
+                _bump(p, "bb")
+            elif result in STRIKEOUT_CODES:
+                _bump(p, "k")
+            if result in DOUBLE_PLAY_CODES:
+                _bump(p, "dp")
+            _bump(p, "er", runs)
+            # Pitching team's own WPA is the negative of the batting team's
+            # (same `wpa` value every play already carries) - every play
+            # this pitcher was on the mound for, same "outs always count"
+            # reasoning as above - EXCEPT a steal/caught-stealing whose
+            # catcher was just credited above instead.
+            if not catcher_id:
+                _bump(p, "wpa", -wpa)
+
+    for game_code in {m["game_code"] for m in session_rows if m["is_game_final"]}:
+        game = game_by_code.get(game_code)
+        dec = _pitcher_decisions_from_game(game, ref["name_to_id"])
+        if dec:
+            for pid, code in dec.items():
+                p = pitching.get(pid)
+                if p is None:
+                    continue  # a decision for a pitcher with no rows this session shouldn't happen - skip rather than guess a name
+                _bump(p, {"W": "w", "L": "l", "SV": "sv", "H": "hd"}[code])
+        # Player of the Game / Honorable Mention (Alex's ask) - a per-game
+        # pick, so it can land on either a batting or a pitching row
+        # depending on whether that game's pick was a hitter or a pitcher.
+        game_awards = _game_awards_from_game(game, ref["name_to_id"])
+        if game_awards:
+            for pid, tier in game_awards.items():
+                row = batting.get(pid) or pitching.get(pid)
+                if row is not None:
+                    row["game_award"] = tier
+
+    def _finish_batting(b: dict) -> dict:
+        for key in ("pa", "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "ibb", "k", "sb", "cs", "sf", "sh", "gidp"):
+            b.setdefault(key, 0)
+        ab, h, bb, sf, sh = b["ab"], b["h"], b["bb"], b["sf"], b["sh"]
+        singles = h - b["2b"] - b["3b"] - b["hr"]
+        total_bases = singles + 2 * b["2b"] + 3 * b["3b"] + 4 * b["hr"]
+        obp_denom = ab + bb + sf
+        b["avg"] = round(h / ab, 3) if ab else None
+        b["obp"] = round((h + bb) / obp_denom, 3) if obp_denom else None
+        b["slg"] = round(total_bases / ab, 3) if ab else None
+        b["ops"] = round(b["obp"] + b["slg"], 3) if b["obp"] is not None and b["slg"] is not None else None
+
+        # HBP and errors are always 0 here: this league's result-code
+        # taxonomy has neither a hit-by-pitch code nor any error/misplay
+        # distinction at all.
+        hbp = 0
+
+        # Runs Created, the "2002" Technical version (Bill James/Baseball
+        # Info Solutions - The Bill James Handbook 2005/2008 pp.475-7,
+        # cross-checked against an independent direct quote of the same
+        # Handbook text; NOT the older Technical RC, which uses flat
+        # .26/.52 weights and no strikeout term at all - the two aren't
+        # interchangeable). Internal only, feeds the Game Score formula
+        # below rather than being its own column (Alex's ask).
+        rc_a = h + bb - b["cs"] + hbp - b["gidp"]
+        rc_c = ab + bb + hbp + sh + sf
+        rc_b = (
+            1.125 * singles + 1.69 * b["2b"] + 3.02 * b["3b"] + 3.73 * b["hr"]
+            + 0.29 * (bb - b["ibb"] + hbp) + 0.492 * (sh + sf + b["sb"]) - 0.04 * b["k"]
+        )
+        runs_created = ((2.4 * rc_c + rc_a) * (3 * rc_c + rc_b) / (9 * rc_c) - 0.9 * rc_c) if rc_c else 0.0
+
+        # Batting Game Score (Alex's own formula) - a 25-point baseline plus
+        # weighted Runs Created/runs/RBI/reach-on-error, minus a penalty for
+        # every out the batter's own PA is responsible for. Reach-on-error
+        # is always 0 (same gap as HBP above). "Outs responsible for": every
+        # PA that didn't reach base safely (PA - (H+BB)) already counts a
+        # GIDP's own PA as one out - +gidp brings that specific PA to 2,
+        # since it's really the batter's own out plus a runner erased with
+        # them.
+        reach_on_error = 0
+        outs_responsible = b["pa"] - (h + bb) + b["gidp"]
+        b["gsc"] = round(
+            25 + 8 * runs_created + 3 * b["r"] + 3 * b["rbi"] + reach_on_error - 2.5 * outs_responsible,
+            1,
+        )
+        del b["sf"], b["sh"], b["ibb"]  # internal-only (RC/gsc inputs), not requested columns
+        b["award"] = awards.get((season, session, b["player_id"]))
+        b.setdefault("game_award", None)
+        # Displayed as a bare number, percentage-scaled but with no "%" sign
+        # (Alex's ask) - same *100/1-decimal convention app.js already uses
+        # to show a single play's own WPA (e.g. "+5.0").
+        b["wpa"] = round(b.setdefault("wpa", 0.0) * 100, 1)
+        return b
+
+    def _finish_pitching(p: dict) -> dict:
+        for key in ("outs", "h", "hr", "bb", "k", "dp", "er", "w", "l", "sv", "hd"):
+            p.setdefault(key, 0)
+        outs = p.pop("outs")
+        innings = outs / 3.0
+        p["ip"] = f"{outs // 3}.{outs % 3}"
+        p["whip"] = round((p["bb"] + p["h"]) / innings, 2) if innings else None
+        p["er6"] = round(p["er"] * 6 / innings, 2) if innings else None
+        # Pitching Game Score v2.0 (Tom Tango, tangotiger.com 2014-12-14;
+        # implemented by FanGraphs as "GSv2" in 2016 - NOT the formula
+        # Baseball-Reference shows, which is still James' original 1988
+        # version). Left unmodified for MLN's 6-inning games per Alex's
+        # call: every start here is the same length, so it still ranks
+        # pitchers correctly relative to each other even though the
+        # absolute numbers run lower than a real 9-inning Game Score would.
+        p["gsc"] = 40 + 2 * outs + p["k"] - 2 * p["bb"] - 2 * p["h"] - 3 * p["er"] - 6 * p["hr"]
+        p["award"] = awards.get((season, session, p["player_id"]))
+        p.setdefault("game_award", None)
+        # See _finish_batting's own wpa line - same *100/1-decimal, no "%".
+        p["wpa"] = round(p.setdefault("wpa", 0.0) * 100, 1)
+        return p
+
+    return {
+        "batting": sorted((_finish_batting(b) for b in batting.values()), key=lambda b: -b["gsc"]),
+        "pitching": sorted((_finish_pitching(p) for p in pitching.values()), key=lambda p: -p["gsc"]),
+    }
 
 
 def _scoreboard(rows: list[dict], games: list[dict], session: int,
