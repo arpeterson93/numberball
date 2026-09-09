@@ -4524,7 +4524,7 @@
   // fielderSpd(m,pos)) - every throw-side knob (mph tables are position-
   // only) never touches it. Safe to omit for a schedule with no unassisted
   // leg at uptoIdx; only the unassisted branches read it.
-  function reconcileLeg(schedule, uptoIdx, runnerArrivalMs, cls, diff, isOut, runnerWho, holdFromIdx, m) {
+  function reconcileLeg(schedule, uptoIdx, runnerArrivalMs, cls, diff, isOut, runnerWho, holdFromIdx, m, flight) {
     var adjustments = [];
     if (!schedule || !schedule.length || runnerArrivalMs == null) {
       return { schedule: schedule, adjustments: adjustments };
@@ -4668,6 +4668,93 @@
                 : "lands exactly on the required margin, no hold needed"),
           });
           delta = required - leg.endMs;
+        }
+      }
+      // easePickup (Alex's ask): outfield hits had no fielder-speed lever at
+      // all before this - only slowThrow/holdRelease on the throw side. This
+      // is the outfield-pickup mirror of the grounder charge race's own
+      // paceScale ease (resolveGrounderInterception/flight.fieldingAdjust) -
+      // same idea (an honestly slower approach to the ball, bounded by a
+      // real per-player pace floor), applied to the OF's own run-to-the-ball
+      // instead of an infielder's charge, and tried AFTER slowThrow/easeCarry
+      // (not pooled with them) so multiple knobs each absorb a bit of the gap
+      // rather than one knob alone maxing out.
+      //
+      // Reaches back to leg 0 even when uptoIdx>0 (a multi-leg relay whose
+      // FINAL leg needs to land later - a cutoff's own throw home, say):
+      // shifting leg 0's own pickup later carries every later leg with it
+      // (sequentialThrowSchedule's own chaining), same "shift the whole
+      // suffix, gaps between legs untouched" mechanic holdChainTo already
+      // uses. holdFromIdx===0 is the guard that makes this safe - it's
+      // lastOutIdx+1 from reconcileChain's own ascending walk, so ===0 means
+      // no real out leg exists anywhere before this final leg yet - nothing
+      // upstream has a locked-in margin this shift could quietly undo. When
+      // holdFromIdx>0 (a real out DID already fire earlier in the chain -
+      // e.g. the front end of a DP whose back end doesn't retire anyone),
+      // this stays out entirely and falls through to plain holdRelease, the
+      // same as reconcileLeg's own delta>0 guard already refuses to re-time
+      // an earlier out leg's margin for any other knob.
+      //
+      // Still gated on a real throw for leg 0 (not unassisted - a carry's
+      // own approach is easeCarry's job, not reached by this multi-leg
+      // extension), and only when leg 0's own startMs was actually built off
+      // the fielder's own honest arrival rather than the ball's own rest
+      // time (throwSchedule's `Math.max(fieldedMs(flight), honestArrivalMs)`) -
+      // easing a fielder who isn't the bottleneck would be a real ms shift
+      // with no honest basis.
+      if (delta > 0 && holdFromIdx === 0 && schedule[0] && !schedule[0].unassisted && flight &&
+          flight.fielder === schedule[0].throwerPos && OUTFIELD_POSITIONS[flight.fielder] &&
+          !GROUND_ARCHETYPES[flight.archetype] && !CAUGHT_IN_AIR[flight.archetype]) {
+        var honestArrivalMs = fielderBallArrivalMs(m, flight);
+        if (honestArrivalMs != null && honestArrivalMs > fieldedMs(flight) + 0.5) {
+          var pickupAnchor = fielderStartAnchorFt(flight.fielder, flight, m);
+          if (pickupAnchor) {
+            var pickupFieldedFt = fieldedPoint(flight);
+            var pickupDistFt = Math.hypot(pickupFieldedFt.x - pickupAnchor.x, pickupFieldedFt.y - pickupAnchor.y);
+            var pickupKind = ofPursuitApplies(m, flight) ? "pursuit" : "run";
+            var pickupPaceRange = FIELDER_PACE_SCALE[pickupKind] || FIELDER_PACE_SCALE.run;
+            // Only the TRAVEL portion of honestArrivalMs scales with pace -
+            // the read-delay/reaction beats ahead of it are fixed reaction
+            // time, not running speed (same split fielderBallArrivalMs's own
+            // body keeps, recomputed here since that function returns one
+            // combined number, not the travel-only piece a bisection target
+            // needs).
+            var naturalTravelMs = arrivalTimeS(pickupDistFt, fielderProfile(m, flight.fielder, pickupKind)) * 1000;
+            // delta is against THIS leg (uptoIdx, the final leg) - since
+            // every leg between 0 and uptoIdx shifts by the exact same flat
+            // amount below, growing leg 0's own travel by X grows the final
+            // leg's own endMs by that same X, so solving leg 0's travel
+            // toward natural+delta is exactly "solve the final leg's own
+            // shortfall," just applied at the source.
+            var neededTravelMs = naturalTravelMs + delta;
+            var pickupScale = solveFielderPaceScale(m, flight.fielder, [{ distFt: pickupDistFt }], pickupKind,
+              neededTravelMs, pickupPaceRange.min, 1);
+            var easedTravelMs = fielderLegDurationsMs(m, flight.fielder, [{ distFt: pickupDistFt }], pickupKind, pickupScale)[0];
+            var pickupGainMs = easedTravelMs - naturalTravelMs;
+            if (pickupGainMs > 0.5) {
+              for (var pickupShiftIdx = 0; pickupShiftIdx <= uptoIdx; pickupShiftIdx++) {
+                schedule[pickupShiftIdx].startMs += pickupGainMs;
+                schedule[pickupShiftIdx].endMs += pickupGainMs;
+              }
+              // Baked onto flight itself (not just this local schedule),
+              // same pattern flight.fieldingAdjust.paceScale already uses
+              // for the grounder charge race - every independent
+              // chainMoverPlan() call downstream (rendering the fielder's
+              // own token, in chainMoverPlan's own ball-toucher-entry pace
+              // selection) reads this same value, so the ball and the
+              // glove can't disagree about how fast this fielder got there.
+              flight.fielderPickupAdjust = { paceScale: pickupScale };
+              adjustments.push({
+                knob: "easePickup", who: flight.fielder, ms: Math.round(pickupGainMs), legIndex: uptoIdx,
+                paceScaleFrom: 1, paceScaleTo: Math.round(pickupScale * 100) / 100,
+                reason: cls + " outfielder's own approach to the ball eased off to land later - " +
+                  (pickupScale <= pickupPaceRange.min + 1e-6
+                    ? "floor pace reached, closing the remainder with holdRelease"
+                    : "lands exactly on the required margin, no hold needed"),
+              });
+              delta = required - leg.endMs;
+            }
+          }
         }
       }
       // Throw must land LATER - hold the release (generalizes today's ad-hoc
@@ -6034,7 +6121,11 @@
   //   profile (fielderProfile's reactionS) - added once, not twice, exactly
   //   the double-count movingFielderTokenHtml's profileKind param (below)
   //   also avoids.
-  function fielderBallArrivalMs(m, flight) {
+  // paceScaleOverride (optional, Task 3 - reconcileLeg's own easePickup
+  // knob): only the TRAVEL portion scales with it - readDelayMs/reactionMs
+  // ahead of it are fixed reaction beats, not running speed. Every existing
+  // caller omits it (defaults to 1, today's honest-pace value unchanged).
+  function fielderBallArrivalMs(m, flight, paceScaleOverride) {
     if (!flight || !flight.fielder) return null;
     var anchor = fielderStartAnchorFt(flight.fielder, flight, m);
     if (!anchor) return null;
@@ -6043,7 +6134,7 @@
     var kind = ofPursuitApplies(m, flight) ? "pursuit" : "run";
     var readDelayMs = ofReadDelayMs(m, flight, anchor);
     var reactionMs = (kind === "run" && OUTFIELD_POSITIONS[flight.fielder]) ? OUTFIELDER_REACT_MS : 0;
-    var travelMs = Math.round(arrivalTimeS(distFt, fielderProfile(m, flight.fielder, kind)) * 1000);
+    var travelMs = Math.round(arrivalTimeS(distFt, fielderProfile(m, flight.fielder, kind, paceScaleOverride)) * 1000);
     return readDelayMs + reactionMs + travelMs;
   }
   // Real fielders build up to their top pace rather than moving at a flat
@@ -6628,8 +6719,26 @@
       // own case real per-leg durations instead, and reconcileCoverage
       // (Task 3, section 3.1) gives laterSelf's own case a real bounded/
       // pooled/recorded correction via the ordinary receiverForLeg match.
+      // OUTFIELD_POSITIONS branch (Task 3, easePickup prerequisite fix): the
+      // ball-toucher's own deadline used to be flat fieldedMs(flight) even
+      // when throwSchedule's own `base` (the thing this token is supposed to
+      // agree with) is actually driven by fielderBallArrivalMs instead -
+      // whenever an OF's own honest arrival runs past the ball's rest time,
+      // this deadline was already tighter than the real constraint, so
+      // fielderMovePacing's own deadline-compression (§4.3, below) was
+      // silently rushing the glove to beat a deadline nothing else in the
+      // play actually honors - masking exactly the "ball departs later than
+      // the glove visibly got there" desync this whole mechanism exists to
+      // prevent. Math.max mirrors throwSchedule's own `base` formula exactly
+      // (the two must agree, not just both exist) - this is also what makes
+      // reconcileLeg's easePickup knob (which raises honestArrivalMs further
+      // still) actually render instead of being compressed straight back out.
       var deadlineMs = (e.pos === flight.fielder && e.base === null && !laterSelf)
-        ? (isAir ? ballTravelMs(flight) : fieldedMs(flight)) : null;
+        ? (isAir ? ballTravelMs(flight)
+          : OUTFIELD_POSITIONS[flight.fielder] ? Math.max(fieldedMs(flight), fielderBallArrivalMs(m, flight,
+              flight.fielderPickupAdjust && flight.fielderPickupAdjust.paceScale) || 0)
+          : fieldedMs(flight))
+        : null;
       var entryReadDelayMs = (e.pos === flight.fielder) ? ofReadDelayMs(m, flight, anchor) : 0;
       // "charge" for the ball-toucher on a ground-archetype play (Alex's
       // ask) - resolveGrounderInterception's own race decided WHO fields it
@@ -6666,7 +6775,18 @@
       var startMs = (e.pos === flight.fielder) ? entryReadDelayMs
         : GROUND_ARCHETYPES[flight.archetype] ? Math.min(INFIELD_COVER_BREAK_MS, fieldedMs(flight))
         : Math.min(ballPassesDepthMs(flight, Math.hypot(anchor.x, anchor.y)) || 0, fieldedMs(flight));
-      var pacing = fielderMovePacing(m, e.pos, legs, startMs, deadlineMs, profileKind);
+      // easePickup (reconcileLeg, Task 3 outfield-hit sibling): baked onto
+      // flight itself rather than returned locally, so this always agrees
+      // with whatever the reconciler solved regardless of which of this
+      // file's several independent chainMoverPlan() call sites is asking -
+      // same pattern flight.fieldingAdjust.paceScale already uses for the
+      // grounder charge race. Scoped to the exact same "plain single fielding
+      // leg" entry deadlineMs (above) already gates on - a laterSelf/
+      // unassisted entry's own approach is a different, not-yet-eased leg.
+      var pickupPaceScaleOverride = (e.pos === flight.fielder && e.base === null && !laterSelf &&
+        flight.fielderPickupAdjust && flight.fielderPickupAdjust.paceScale != null)
+        ? flight.fielderPickupAdjust.paceScale : undefined;
+      var pacing = fielderMovePacing(m, e.pos, legs, startMs, deadlineMs, profileKind, pickupPaceScaleOverride);
       // laterSelf: this entry's own base/kind/cutoffFt describe where the
       // SECOND leg actually ends up (their later covering role), not the
       // first (null/null, ball-toucher) role - receiverForLeg/
@@ -6678,6 +6798,7 @@
         cutoffFt: laterSelf ? laterSelf.cutoffFt : e.cutoffFt,
         anchor: anchor, legs: legs, startMs: startMs, deadlineMs: deadlineMs,
         profileKind: profileKind, arrivalMs: pacing.delayMs + pacing.totalMs,
+        paceScaleOverride: pickupPaceScaleOverride,
         // Real-play report fix (round 2): this entry's own 2 legs
         // (anchor->pickup, pickup->cover) have no dwell between them - the
         // plain fielderMovePacing above treats them as ONE continuous
@@ -6990,6 +7111,16 @@
       // actually written into the render call, exactly where the plan's
       // own raw (pre-seqDelay) startMs/deadlineMs get it. Behavior-
       // identical to the inline version this replaced.
+      // throwSchedule built BEFORE chainMoverPlan (Task 3 outfield-pickup
+      // ease, reconcileLeg's easePickup knob): throwSchedule is what actually
+      // solves and records flight.fielderPickupAdjust when this knob fires -
+      // chainMoverPlan's own ball-toucher-entry pace read (below) needs that
+      // already sitting on flight by the time IT runs, or this specific
+      // render pass would build its token at the honest, un-eased pace even
+      // though the schedule it's paired with already committed to a slower
+      // one. Safe/acyclic either way (probe 0.5) - throwSchedule still never
+      // reads chainMoverPlan's own return value, just runs first now.
+      var schedule = throwSchedule(m, moves, flight);
       var plan = chainMoverPlan(m, flight, moves);
       if (plan) {
         // §4.3 token-side backstop: every receiver entry whose schedule leg
@@ -6997,9 +7128,7 @@
         // schedule is already raw) - closes the invariant unconditionally
         // where §4.2's per-leg floor got hard-capped (a margin-tight
         // forceOut relay): the glove hurries instead, the honest story for
-        // a bang-bang relay. Safe/acyclic (probe 0.5) - throwSchedule reads
-        // only chainMoverPlan, never fielderTokensHtml.
-        var schedule = throwSchedule(m, moves, flight);
+        // a bang-bang relay.
         // Task 3, section 3.1: the bounded/pooled/recorded coverage
         // correction runs BEFORE the §4.3 backstop below - reconcileCoverage
         // mutates each closed entry's own startMs/arrivalMs/paceScaleOverride
@@ -8390,7 +8519,7 @@
         // through anyway for forward consistency with the final leg's call
         // below, where it's the whole point.
         var r = reconcileLeg(schedule, i, arrival, "forceOut", m.diff, true,
-          mv && mv.from, lastOutIdx + 1, m);
+          mv && mv.from, lastOutIdx + 1, m, flight);
         adjustments = adjustments.concat(r.adjustments);
         metas.push(legMeta(i, "forceOut", arrival, m.diff, true, hardCapMs, schedule));
       }
@@ -8407,7 +8536,7 @@
         // already-locked-in margins - the one genuine conflict the
         // sequential model has, and this is its complete resolution.
         var rs = reconcileLeg(schedule, finalIdx, sArrival, "contestedSafe", m.diff, false,
-          smv && smv.from, lastOutIdx + 1, m);
+          smv && smv.from, lastOutIdx + 1, m, flight);
         adjustments = adjustments.concat(rs.adjustments);
         metas.push(legMeta(finalIdx, "contestedSafe", sArrival, m.diff, false, null, schedule));
       }
@@ -8491,14 +8620,27 @@
       // action either way, his words.
       var tagOfSetupMs = OUTFIELD_POSITIONS[flight.fielder] ? OF_THROW_SETUP_MS : 0;
       var tagSchedule = sequentialThrowSchedule(targets, catchMs + THROW_DELAY_MS + tagOfSetupMs, realCount, function (i, leg) {
-        // Task 9.3: leg 0 has no real fielded-point origin to draw distance
-        // from (comment above), but the THROWER is still known - draw the
-        // same flat BASE_DIAG_FT model at their own position speed rather
-        // than the generic THROW_SPEED_MPH.
+        // Task 9.3 origin fix (Alex's report): leg 0's real origin IS
+        // resolvable after all - fieldedPoint(flight) already returns the
+        // catch point itself for a caught-in-air ball (its own comment: "or
+        // the landing point itself when no ground phase was resolved"), the
+        // same helper the non-tag path below already uses for its own leg 0.
+        // Giving this leg a real distFt is what makes slowThrow/speedThrow
+        // eligible for it at all (their own guard is `leg.distFt != null`) -
+        // without it a tag-up throw could only ever be held later
+        // (holdRelease, uncapped), never actually thrown slower/faster. Only
+        // falls back to the flat BASE_DIAG_FT model when the distance
+        // genuinely isn't resolvable (no fielder anchor - a minimal test
+        // fixture with no real x/y, same fallback the i>=1 branch already had).
         var throwerPos = i === 0 ? flight.fielder : throwerOf(targets[i - 1]);
         var mph = THROW_SPEED_BY_POS[throwerPos] && THROW_SPEED_BY_POS[throwerPos].mph;
         var toFt = legPointFt(leg);
-        if (i === 0) return { drawMs: throwDrawMsForFt(BASE_DIAG_FT, mph), throwerPos: throwerPos, toFt: toFt };
+        if (i === 0) {
+          var dist0 = ptDistFt(fieldedPoint(flight), toFt);
+          return dist0 == null
+            ? { drawMs: throwDrawMsForFt(BASE_DIAG_FT, mph), throwerPos: throwerPos, toFt: toFt }
+            : { drawMs: throwDrawMsForFt(dist0, mph), distFt: dist0, throwerPos: throwerPos, toFt: toFt };
+        }
         var dist = ptDistFt(legPointFt(targets[i - 1]), toFt);
         return dist == null
           ? { drawMs: THROW_DRAW_MS, throwerPos: throwerPos, toFt: toFt }
