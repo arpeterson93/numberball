@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reconciler knob audit</title>
+<style>
+:root{
+  --navy:#0f2238; --red:#c8102e; --blue:#1550a1; --green:#1e7d32;
+  --bg:#eef1f4; --card:#ffffff; --border:#e0e4e9; --text:#1a1d24; --muted:#6b7280;
+  --tint:#f3f5f8; --tint-blue:#eef4fd; --tint-blue-border:#b9d0f0;
+  --tint-red:#fdeeee; --tint-red-border:#f0c2c2; --gold:#d9a300;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --navy:#3f6699; --red:#ff8494; --blue:#6ea8f0; --green:#55c47a;
+    --bg:#12161c; --card:#1a2029; --border:#2b323d; --text:#e8eaed; --muted:#9aa4b2;
+    --tint:#232b36; --tint-blue:#1c2a3d; --tint-blue-border:#2c3f57;
+    --tint-red:#3a2224; --tint-red-border:#5a2e30; --gold:#e0b13c;
+  }
+}
+*{box-sizing:border-box;}
+body{margin:0; background:var(--bg); color:var(--text); font-family:Arial,"Helvetica Neue",Helvetica,sans-serif; font-size:14px;}
+.wrap{max-width:1320px; margin:0 auto; padding:18px 20px 60px;}
+h1{font-size:19px; margin:0 0 4px;}
+.lede{color:var(--muted); font-size:12.5px; margin:0 0 16px; max-width:900px;}
+code{background:var(--tint); border-radius:3px; padding:0 3px;}
+
+.status-row{display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px;}
+.status{font-size:12.5px; color:var(--muted);}
+.btn{font:inherit; font-size:12.5px; font-weight:700; background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 13px; cursor:pointer; color:var(--text);}
+.btn:hover{border-color:var(--muted);}
+.btn.primary{background:var(--navy); color:#fff; border-color:var(--navy);}
+.err-box{font-size:11.5px; color:var(--red); background:var(--tint-red); border:1px solid var(--tint-red-border); border-radius:6px; padding:8px 10px; margin-bottom:12px; max-height:120px; overflow:auto;}
+
+.filters{
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--card);
+  border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:12px;
+}
+.filters label{font-size:11px; font-weight:700; color:var(--muted); display:flex; flex-direction:column; gap:3px;}
+.filters input[type=text], .filters input[type=number], .filters select{
+  font:inherit; font-size:12.5px; padding:6px 8px; border:1px solid var(--border); border-radius:5px;
+  background:var(--card); color:var(--text);
+}
+.filters input[type=text]{width:200px;}
+.filters input[type=number]{width:90px;}
+.filters .flag{flex-direction:row; align-items:center; gap:6px; font-weight:600; color:var(--text);}
+.result-count{font-size:12px; color:var(--muted); margin-left:auto;}
+
+table{width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+thead th{
+  position:sticky; top:0; background:var(--tint); border-bottom:1px solid var(--border);
+  font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted);
+  padding:8px 9px; text-align:left; cursor:pointer; white-space:nowrap; user-select:none;
+}
+thead th:hover{color:var(--text);}
+thead th.sorted{color:var(--navy);}
+thead th .arrow{font-size:9px; margin-left:3px;}
+tbody td{padding:7px 9px; border-bottom:1px solid var(--border); font-size:12.5px; vertical-align:top;}
+tbody tr.play-row{cursor:pointer;}
+tbody tr.play-row:hover{background:var(--tint);}
+tbody tr.play-row.expanded{background:var(--tint-blue);}
+td.num{text-align:right; font-variant-numeric:tabular-nums;}
+td.knobs{font-size:11px; color:var(--muted); max-width:220px;}
+.unresolved-pill{
+  font-size:10px; font-weight:800; padding:2px 7px; border-radius:20px;
+  background:var(--tint-red); color:var(--red); border:1px solid var(--tint-red-border);
+}
+a.open-link{font-size:11.5px; font-weight:700; color:var(--blue); text-decoration:none; white-space:nowrap;}
+a.open-link:hover{text-decoration:underline;}
+
+tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
+.detail-wrap{padding:10px 14px 14px 28px; background:var(--tint);}
+.detail-table{width:100%; border-collapse:collapse; font-size:11.5px;}
+.detail-table th{text-align:left; color:var(--muted); font-weight:700; padding:3px 8px; border-bottom:1px solid var(--border);}
+.detail-table td{padding:3px 8px; border-bottom:1px solid var(--border);}
+.detail-table td.num{text-align:right; font-variant-numeric:tabular-nums;}
+.reason-cell{color:var(--muted); font-size:11px; max-width:420px;}
+/* border-left, not just padding - the "ms" column (a bare number, right-
+   aligned) sitting directly next to this one (also a number, left-aligned:
+   mph/pace before-after) read as one concatenated figure at a glance - e.g.
+   a real "485ms" + "90 -> 75 mph" misread as "48590". The "ms" suffix above
+   plus this rule line together make the boundary unmissable. */
+.detail-cell{padding-left:16px; border-left:1px solid var(--border);}
+
+@media (max-width: 900px){
+  .wrap{padding:14px 10px 40px;}
+  table, thead, tbody, tr{display:block;}
+  thead{display:none;}
+  tbody tr.play-row{border-bottom:2px solid var(--border); padding:8px 0;}
+  tbody td{display:flex; justify-content:space-between; gap:10px; border-bottom:none; padding:2px 4px;}
+  tbody td::before{content:attr(data-label); font-weight:700; color:var(--muted); font-size:10.5px;}
+}
+
+/* Play-preview overlay - loads the site's own index.html (a relative,
+   same-origin src, so this always points at wherever THIS tool page itself
+   is being served from - localhost, a preview branch, or production - never
+   a hardcoded mlngameday.com) in an iframe and shows it as a modal on top of
+   the audit table, instead of navigating away to see one play. The embedded
+   page's own deep-link handling (?game=&play=) auto-opens its Replay modal
+   on load with no extra interaction needed. */
+.play-modal-backdrop{
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1000;
+  align-items:center; justify-content:center; padding:2vh 2vw;
+}
+.play-modal-backdrop.open{display:flex;}
+.play-modal-card{
+  position:relative; width:min(96vw,1300px); height:92vh; background:var(--card);
+  border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.4); overflow:hidden;
+}
+.play-modal-card iframe{width:100%; height:100%; border:0; display:block;}
+.play-modal-close{
+  position:absolute; top:8px; right:8px; z-index:1; font:inherit; font-size:20px; line-height:1;
+  width:32px; height:32px; border-radius:50%; border:none; background:rgba(0,0,0,0.55); color:#fff;
+  cursor:pointer;
+}
+.play-modal-close:hover{background:rgba(0,0,0,0.75);}
+</style>
+</head>
+<body>
+<div class="play-modal-backdrop" id="play-modal-backdrop">
+  <div class="play-modal-card">
+    <button type="button" class="play-modal-close" id="play-modal-close" title="Close" aria-label="Close">&times;</button>
+    <iframe id="play-modal-iframe" src="about:blank"></iframe>
+  </div>
+</div>
+<div class="wrap">
+  <h1>Reconciler knob audit</h1>
+  <p class="lede">
+    Sweeps every play in the renderable corpus (<code>docs/data/{s01..sNN,current}/key_moments.json</code>)
+    through the real reconciliation pipeline (<code>resolvePlayFlight &rarr; deriveRunnerMoves &rarr;
+    throwSchedule &rarr; chainMoverPlan &rarr; reconcileCoverage</code> - the exact production functions, not a
+    re-derivation) and lists every play that needed at least one tuning knob, sorted by how hard the reconciler
+    leaned on it in total. A play with <code>total_abs_ms</code> in the thousands "worked" (no residual), but only
+    by pushing one or two knobs very far - click a row to see exactly which ones, or the play link to open it live.
+  </p>
+
+  <div class="status-row">
+    <button type="button" class="btn primary" id="run-btn">Run audit</button>
+    <button type="button" class="btn" id="export-btn" disabled>Export CSV</button>
+    <span class="status" id="status-text">Not run yet.</span>
+  </div>
+  <div class="err-box" id="err-box" style="display:none"></div>
+
+  <div class="filters" id="filters" style="display:none">
+    <label>Season
+      <select id="f-season"><option value="">All</option></select>
+    </label>
+    <label>Search
+      <input type="text" id="f-search" placeholder="result, batter, knob, moment id...">
+    </label>
+    <label>Min total ms
+      <input type="number" id="f-min-ms" value="0" min="0" step="50">
+    </label>
+    <label class="flag">
+      <input type="checkbox" id="f-unresolved-only"> Unresolved only
+    </label>
+    <span class="result-count" id="result-count"></span>
+  </div>
+
+  <div style="overflow-x:auto">
+    <table id="results-table" style="display:none">
+      <thead>
+        <tr>
+          <th data-key="season">Season</th>
+          <th data-key="moment_id">Play</th>
+          <th data-key="result">Result</th>
+          <th data-key="throw_order">Throw order</th>
+          <th data-key="fielder">Fielder</th>
+          <th data-key="n_adjustments">#Knobs</th>
+          <th>Knobs used</th>
+          <th data-key="total_abs_ms">Total ms</th>
+          <th data-key="max_single_ms">Max single</th>
+          <th data-key="had_unresolved">Unresolved</th>
+          <th>Open</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="../js/theme.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/favorites.js"></script>
+<script src="../js/trajectory.js"></script>
+<script src="../js/app.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var SITE_BASE = "https://mlngameday.com/";
+  var $ = function (id) { return document.getElementById(id); };
+
+  var allPlays = [];   // per-play summary + raw adjustments
+  var sweepErrors = [];
+  var sortKey = "total_abs_ms";
+  var sortDir = -1;    // -1 desc, 1 asc
+  var expandedKey = null;
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  // {cache:"no-store"} - same convention as app.js's own getJSON. Without
+  // it a season file edited/rebuilt after this tab was first opened could
+  // keep reading back the browser's cached copy, silently sweeping stale
+  // data next to a fresh "Run audit" click.
+  function fetchJSON(url) {
+    return fetch(url, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(url + ": " + r.status);
+      return r.json();
+    });
+  }
+
+  function escapeHtml(v) {
+    return String(v == null ? "" : v).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // ---- the sweep itself - mirrors tools/reconciliation_knobs_probe.py's
+  // PROBE_JS exactly (same functions, same "one row per adjustment, rolled
+  // up into a per-play summary" shape), just called directly in-browser
+  // instead of through Playwright's page.evaluate. KMFlight.setProbeFlightTables
+  // is a shared global the real pipeline reads from - seasons MUST be swept
+  // one at a time, never interleaved, or a later season's tables would leak
+  // into an earlier season's still-in-flight resolvePlayFlight calls. ----
+  function sweepSeason(seasonLabel, moments, flightTables) {
+    window.KMFlight.setProbeFlightTables(flightTables);
+    moments.forEach(function (m) {
+      try {
+        var flight = window.KMFlight.resolvePlayFlight(m);
+        if (!flight) return;
+        var before = String(m.obc_before || "000");
+        var after = String(m.obc_after || "000");
+        var moves = window.KMFlight.deriveRunnerMoves(before, after, m.runs || 0);
+        var schedule = window.KMFlight.throwSchedule(m, moves, flight);
+        if (!schedule || !schedule.length) return;
+        var plan = window.KMFlight.chainMoverPlan(m, flight, moves);
+        var coverage = plan ? window.KMFlight.reconcileCoverage(m, flight, plan, schedule) : { adjustments: [] };
+
+        var adjustments = [];
+        (schedule.adjustments || []).forEach(function (adj) {
+          adjustments.push(Object.assign({ source: "schedule" }, adj));
+        });
+        (coverage.adjustments || []).forEach(function (adj) {
+          adjustments.push(Object.assign({ source: "coverage" }, adj));
+        });
+        if (!adjustments.length) return;
+
+        var knobbed = adjustments.filter(function (a) { return a.knob !== "unresolved"; });
+        var unresolved = adjustments.filter(function (a) { return a.knob === "unresolved"; });
+        var absVals = knobbed.map(function (a) { return Math.abs(a.ms || 0); });
+        var totalAbsMs = absVals.reduce(function (s, v) { return s + v; }, 0);
+        var maxSingleMs = absVals.length ? Math.max.apply(null, absVals) : 0;
+        var distinctKnobs = knobbed.map(function (a) { return a.knob; })
+          .filter(function (k, i, arr) { return arr.indexOf(k) === i; }).sort();
+
+        allPlays.push({
+          season: seasonLabel, moment_id: String(m.moment_id), result: m.result || "",
+          throw_order: m.throw_order || "", batter_name: m.batter_name || "",
+          fielder: flight.fielder || "", game_code: m.game_code, play_num: m.play_num,
+          n_adjustments: knobbed.length, distinct_knobs: distinctKnobs.join(","),
+          total_abs_ms: Math.round(totalAbsMs), max_single_ms: Math.round(maxSingleMs),
+          had_unresolved: unresolved.length > 0,
+          unresolved_ms: Math.round(unresolved.reduce(function (s, a) { return s + Math.abs(a.ms || 0); }, 0)),
+          chargePaceScale: (flight.fieldingAdjust && flight.fieldingAdjust.paceScale != null)
+            ? flight.fieldingAdjust.paceScale : null,
+          adjustments: adjustments,
+        });
+      } catch (e) {
+        sweepErrors.push(seasonLabel + ":" + (m.moment_id || "?") + ": " + e.message);
+      }
+    });
+  }
+
+  // Archive seasons have no manifest to read - probe s01.. upward and stop
+  // at the first missing directory, same discovery key_moments_build.py's
+  // own --archive-all does server-side against the Games tab, just against
+  // the committed files instead.
+  function sweepArchiveSeasons(fromN, chain) {
+    var n = fromN;
+    function next() {
+      var label = "s" + pad2(n);
+      return fetchJSON("../data/" + label + "/meta.json").then(function (meta) {
+        return fetchJSON("../data/" + label + "/key_moments.json").then(function (moments) {
+          sweepSeason(label, moments, meta.flight);
+          n++;
+          return next();
+        });
+      }).catch(function () {
+        return; // first missing sNN - archive list ends here
+      });
+    }
+    return chain.then(next);
+  }
+
+  function runAudit() {
+    $("run-btn").disabled = true;
+    $("export-btn").disabled = true;
+    allPlays = [];
+    sweepErrors = [];
+    expandedKey = null;
+    $("err-box").style.display = "none";
+    $("status-text").textContent = "Loading current season...";
+
+    fetchJSON("../data/meta.json").then(function (meta) {
+      return fetchJSON("../data/key_moments.json").then(function (moments) {
+        sweepSeason("current (s" + pad2(meta.season) + ")", moments, meta.flight);
+      }).then(function () {
+        $("status-text").textContent = "Loading archive seasons...";
+        return sweepArchiveSeasons(1, Promise.resolve());
+      });
+    }).catch(function (e) {
+      sweepErrors.push("top-level: " + e.message);
+    }).then(function () {
+      finishAudit();
+    });
+  }
+
+  function finishAudit() {
+    $("run-btn").disabled = false;
+    var seasons = allPlays.map(function (p) { return p.season; })
+      .filter(function (s, i, arr) { return arr.indexOf(s) === i; });
+    $("status-text").textContent =
+      allPlays.length + " plays with at least one knob adjustment, across " + seasons.length + " season(s).";
+    if (sweepErrors.length) {
+      $("err-box").style.display = "";
+      $("err-box").textContent = sweepErrors.length + " play(s) raised an exception during the sweep: " +
+        sweepErrors.slice(0, 10).join(" | ") + (sweepErrors.length > 10 ? " ..." : "");
+    }
+    populateSeasonFilter(seasons);
+    $("filters").style.display = allPlays.length ? "" : "none";
+    $("results-table").style.display = allPlays.length ? "" : "none";
+    $("export-btn").disabled = !allPlays.length;
+    render();
+  }
+
+  function populateSeasonFilter(seasons) {
+    var sel = $("f-season");
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + seasons.map(function (s) {
+      return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + "</option>";
+    }).join("");
+    sel.value = current;
+  }
+
+  // ---- filter/sort/render ----
+  function filteredSorted() {
+    var season = $("f-season").value;
+    var search = $("f-search").value.trim().toLowerCase();
+    var minMs = Number($("f-min-ms").value) || 0;
+    var unresolvedOnly = $("f-unresolved-only").checked;
+
+    var rows = allPlays.filter(function (p) {
+      if (season && p.season !== season) return false;
+      if (p.total_abs_ms < minMs) return false;
+      if (unresolvedOnly && !p.had_unresolved) return false;
+      if (search) {
+        var hay = (p.moment_id + " " + p.result + " " + p.batter_name + " " + p.distinct_knobs + " " +
+          p.throw_order + " " + p.fielder).toLowerCase();
+        if (hay.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
+
+    rows.sort(function (a, b) {
+      var av = a[sortKey], bv = b[sortKey];
+      if (typeof av === "boolean") { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+      if (typeof av === "string") { av = av.toLowerCase(); bv = (bv || "").toLowerCase(); }
+      if (av < bv) return -1 * sortDir;
+      if (av > bv) return 1 * sortDir;
+      return 0;
+    });
+    return rows;
+  }
+
+  function deepLink(gameCode, playNum) {
+    return SITE_BASE + "?game=" + gameCode + "&play=" + (playNum % 1000);
+  }
+
+  function playKey(p) { return p.season + ":" + p.moment_id; }
+
+  function knobBadgeHtml(k) {
+    if (k === "unresolved") return '<span class="unresolved-pill">unresolved</span>';
+    return escapeHtml(k);
+  }
+
+  function detailRowHtml(p) {
+    var rows = p.adjustments.map(function (a) {
+      var extra = "";
+      if (a.mphFrom != null) extra = a.mphFrom + " &rarr; " + a.mphTo + " mph";
+      else if (a.paceFrom != null) extra = a.paceFrom + " &rarr; " + a.paceTo + " ft/s";
+      else if (a.paceScaleFrom != null) extra = a.paceScaleFrom + " &rarr; " + a.paceScaleTo + "x pace";
+      return "<tr>" +
+        "<td>" + escapeHtml(a.source) + "</td>" +
+        "<td>" + knobBadgeHtml(a.knob) + "</td>" +
+        "<td>" + escapeHtml(a.who) + "</td>" +
+        "<td>" + (a.legIndex != null ? a.legIndex : "") + "</td>" +
+        '<td class="num">' + (a.ms != null ? a.ms + "ms" : "") + "</td>" +
+        '<td class="detail-cell">' + extra + "</td>" +
+        '<td class="reason-cell">' + escapeHtml(a.reason || "") + "</td>" +
+      "</tr>";
+    }).join("");
+    return '<tr class="detail-row"><td colspan="11"><div class="detail-wrap">' +
+      '<table class="detail-table"><thead><tr>' +
+      "<th>Side</th><th>Knob</th><th>Who</th><th>Leg</th><th>ms</th><th>Detail</th><th>Reason</th>" +
+      "</tr></thead><tbody>" + rows + "</tbody></table></div></td></tr>";
+  }
+
+  function rowHtml(p) {
+    var key = playKey(p);
+    var knobsHtml = (p.distinct_knobs ? p.distinct_knobs.split(",") : []).map(knobBadgeHtml).join(", ");
+    var mainRow = '<tr class="play-row' + (expandedKey === key ? " expanded" : "") + '" data-key="' + escapeHtml(key) + '">' +
+      '<td data-label="Season">' + escapeHtml(p.season) + "</td>" +
+      '<td data-label="Play">' + escapeHtml(p.moment_id) + "</td>" +
+      '<td data-label="Result">' + escapeHtml(p.result) + "</td>" +
+      '<td data-label="Throw order">' + escapeHtml(p.throw_order) + "</td>" +
+      '<td data-label="Fielder">' + escapeHtml(p.fielder) + "</td>" +
+      '<td data-label="#Knobs" class="num">' + p.n_adjustments + "</td>" +
+      '<td data-label="Knobs used" class="knobs">' + knobsHtml + "</td>" +
+      '<td data-label="Total ms" class="num">' + p.total_abs_ms + "</td>" +
+      '<td data-label="Max single" class="num">' + p.max_single_ms + "</td>" +
+      '<td data-label="Unresolved">' + (p.had_unresolved ? '<span class="unresolved-pill">' + p.unresolved_ms + "ms</span>" : "") + "</td>" +
+      '<td data-label="Open"><a class="open-link" href="#" data-game="' + escapeHtml(p.game_code) +
+        '" data-play="' + p.play_num + '">Open &#8599;</a></td>' +
+    "</tr>";
+    return mainRow + (expandedKey === key ? detailRowHtml(p) : "");
+  }
+
+  // ---- play-preview modal (same-server iframe, not the mlngameday link) ----
+  function openPlayModal(gameCode, playNum) {
+    var url = "../index.html?game=" + encodeURIComponent(gameCode) + "&play=" + (playNum % 1000);
+    $("play-modal-iframe").src = url;
+    $("play-modal-backdrop").classList.add("open");
+  }
+  function closePlayModal() {
+    $("play-modal-backdrop").classList.remove("open");
+    // Fully unload the embedded app (stops any running replay/animation)
+    // rather than just hiding it - about:blank, not "" (a same-document
+    // empty src is a same-origin no-op in some browsers and never actually
+    // tears the page down).
+    $("play-modal-iframe").src = "about:blank";
+  }
+  $("play-modal-close").addEventListener("click", closePlayModal);
+  $("play-modal-backdrop").addEventListener("click", function (e) {
+    if (e.target === $("play-modal-backdrop")) closePlayModal();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && $("play-modal-backdrop").classList.contains("open")) closePlayModal();
+  });
+
+  function render() {
+    var rows = filteredSorted();
+    $("result-count").textContent = rows.length + " / " + allPlays.length + " plays";
+    $("results-body").innerHTML = rows.map(rowHtml).join("");
+
+    Array.prototype.forEach.call(document.querySelectorAll("thead th[data-key]"), function (th) {
+      th.classList.toggle("sorted", th.getAttribute("data-key") === sortKey);
+      var arrow = th.querySelector(".arrow");
+      if (arrow) arrow.remove();
+      if (th.getAttribute("data-key") === sortKey) {
+        th.insertAdjacentHTML("beforeend", '<span class="arrow">' + (sortDir === 1 ? "&uarr;" : "&darr;") + "</span>");
+      }
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("tr.play-row"), function (tr) {
+      tr.addEventListener("click", function () {
+        var key = tr.getAttribute("data-key");
+        expandedKey = expandedKey === key ? null : key;
+        render();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("a.open-link"), function (a) {
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation(); // don't also toggle the row's own knob-detail expand
+        openPlayModal(a.getAttribute("data-game"), Number(a.getAttribute("data-play")));
+      });
+    });
+  }
+
+  document.querySelector("thead").addEventListener("click", function (e) {
+    var th = e.target.closest("th[data-key]");
+    if (!th) return;
+    var key = th.getAttribute("data-key");
+    if (sortKey === key) { sortDir = -sortDir; } else { sortKey = key; sortDir = -1; }
+    render();
+  });
+
+  ["f-season", "f-search", "f-min-ms", "f-unresolved-only"].forEach(function (id) {
+    $(id).addEventListener("input", render);
+    $(id).addEventListener("change", render);
+  });
+
+  $("run-btn").addEventListener("click", runAudit);
+
+  // ---- CSV export (current filter/sort, so an exported file matches
+  // whatever's on screen) ----
+  function csvField(v) {
+    v = v == null ? "" : String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  $("export-btn").addEventListener("click", function () {
+    var rows = filteredSorted();
+    var headers = ["season", "moment_id", "result", "throw_order", "fielder", "batter_name",
+      "n_adjustments", "distinct_knobs", "total_abs_ms", "max_single_ms", "had_unresolved",
+      "unresolved_ms", "chargePaceScale", "link"];
+    var lines = [headers.join(",")];
+    rows.forEach(function (p) {
+      var rec = Object.assign({}, p, { link: deepLink(p.game_code, p.play_num) });
+      lines.push(headers.map(function (h) { return csvField(rec[h]); }).join(","));
+    });
+    var blob = new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "reconciliation_play_summary.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+
+  // Auto-run on load - the whole point is a quick reference tool, not
+  // another click before it's useful.
+  runAudit();
+})();
+</script>
+</body>
+</html>

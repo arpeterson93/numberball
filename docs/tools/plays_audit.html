@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plays data audit</title>
+<style>
+:root{
+  --navy:#0f2238; --red:#c8102e; --blue:#1550a1; --green:#1e7d32;
+  --bg:#eef1f4; --card:#ffffff; --border:#e0e4e9; --text:#1a1d24; --muted:#6b7280;
+  --tint:#f3f5f8; --tint-blue:#eef4fd; --tint-blue-border:#b9d0f0;
+  --tint-red:#fdeeee; --tint-red-border:#f0c2c2; --gold:#d9a300;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --navy:#3f6699; --red:#ff8494; --blue:#6ea8f0; --green:#55c47a;
+    --bg:#12161c; --card:#1a2029; --border:#2b323d; --text:#e8eaed; --muted:#9aa4b2;
+    --tint:#232b36; --tint-blue:#1c2a3d; --tint-blue-border:#2c3f57;
+    --tint-red:#3a2224; --tint-red-border:#5a2e30; --gold:#e0b13c;
+  }
+}
+*{box-sizing:border-box;}
+body{margin:0; background:var(--bg); color:var(--text); font-family:Arial,"Helvetica Neue",Helvetica,sans-serif; font-size:14px;}
+.wrap{max-width:1320px; margin:0 auto; padding:18px 20px 60px;}
+h1{font-size:19px; margin:0 0 4px;}
+.lede{color:var(--muted); font-size:12.5px; margin:0 0 16px; max-width:900px;}
+code{background:var(--tint); border-radius:3px; padding:0 3px;}
+
+.status-row{display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px;}
+.status{font-size:12.5px; color:var(--muted);}
+.btn{font:inherit; font-size:12.5px; font-weight:700; background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 13px; cursor:pointer; color:var(--text);}
+.btn:hover{border-color:var(--muted);}
+.btn.primary{background:var(--navy); color:#fff; border-color:var(--navy);}
+.err-box{font-size:11.5px; color:var(--red); background:var(--tint-red); border:1px solid var(--tint-red-border); border-radius:6px; padding:8px 10px; margin-bottom:12px; max-height:120px; overflow:auto;}
+
+.cat-tabs{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;}
+.cat-tab{font:inherit; font-size:12px; font-weight:700; background:var(--card); border:1px solid var(--border); border-radius:20px; padding:6px 13px; cursor:pointer; color:var(--muted);}
+.cat-tab:hover{color:var(--text);}
+.cat-tab.active{background:var(--navy); color:#fff; border-color:var(--navy);}
+.cat-tab .count{font-weight:800;}
+
+.filters{
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--card);
+  border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:12px;
+}
+.filters label{font-size:11px; font-weight:700; color:var(--muted); display:flex; flex-direction:column; gap:3px;}
+.filters input[type=text], .filters select{
+  font:inherit; font-size:12.5px; padding:6px 8px; border:1px solid var(--border); border-radius:5px;
+  background:var(--card); color:var(--text);
+}
+.filters input[type=text]{width:200px;}
+.result-count{font-size:12px; color:var(--muted); margin-left:auto;}
+.cat-desc{font-size:12px; color:var(--muted); margin:0 0 10px;}
+
+table{width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+thead th{
+  position:sticky; top:0; background:var(--tint); border-bottom:1px solid var(--border);
+  font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted);
+  padding:8px 9px; text-align:left; white-space:nowrap;
+}
+tbody td{padding:7px 9px; border-bottom:1px solid var(--border); font-size:12.5px; vertical-align:top;}
+tbody tr.finding-row{cursor:pointer;}
+tbody tr.finding-row:hover{background:var(--tint);}
+tbody tr.finding-row.expanded{background:var(--tint-blue);}
+td.num{text-align:right; font-variant-numeric:tabular-nums;}
+td.bad{color:var(--red); font-weight:700;}
+a.open-link{font-size:11.5px; font-weight:700; color:var(--blue); text-decoration:none; white-space:nowrap;}
+a.open-link:hover{text-decoration:underline;}
+
+tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
+.detail-wrap{padding:10px 14px 14px 14px; background:var(--tint);}
+.detail-table{width:100%; border-collapse:collapse; font-size:11.5px;}
+.detail-table th{text-align:left; color:var(--muted); font-weight:700; padding:3px 8px; border-bottom:1px solid var(--border);}
+.detail-table td{padding:3px 8px; border-bottom:1px solid var(--border);}
+.detail-table td.num{text-align:right; font-variant-numeric:tabular-nums;}
+.detail-table tr.flagged{background:var(--tint-red);}
+.detail-table tr.flagged td{font-weight:700;}
+
+@media (max-width: 900px){
+  .wrap{padding:14px 10px 40px;}
+  table, thead, tbody, tr{display:block;}
+  thead{display:none;}
+  tbody tr.finding-row{border-bottom:2px solid var(--border); padding:8px 0;}
+  tbody td{display:flex; justify-content:space-between; gap:10px; border-bottom:none; padding:2px 4px;}
+  tbody td::before{content:attr(data-label); font-weight:700; color:var(--muted); font-size:10.5px;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Plays data audit</h1>
+  <p class="lede">
+    Sweeps every play across every season in <code>docs/data/{s01..sNN,current}/plays_*.json</code> - the same
+    files the Gameday viewer itself loads, built from the MLN Google Sheets - and checks that baserunners, outs,
+    and score flow correctly from one play to the next within each game, that every game's plays are numbered
+    without gaps, and that no whole sessions are missing. Entirely client-side: no database connection, just the
+    site's own already-published data. Click a row to see the surrounding plays in that game.
+  </p>
+
+  <div class="status-row">
+    <button type="button" class="btn primary" id="run-btn">Run audit</button>
+    <span class="status" id="status-text">Not run yet.</span>
+  </div>
+  <div class="err-box" id="err-box" style="display:none"></div>
+
+  <div class="cat-tabs" id="cat-tabs" style="display:none"></div>
+  <p class="cat-desc" id="cat-desc"></p>
+
+  <div class="filters" id="filters" style="display:none">
+    <label>Season
+      <select id="f-season"><option value="">All</option></select>
+    </label>
+    <label>Search
+      <input type="text" id="f-search" placeholder="game code, team, result...">
+    </label>
+    <span class="result-count" id="result-count"></span>
+  </div>
+
+  <div style="overflow-x:auto">
+    <table id="results-table" style="display:none">
+      <thead><tr id="results-head"></tr></thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SITE_BASE = "https://mlngameday.com/";
+  var $ = function (id) { return document.getElementById(id); };
+
+  // season -> "gameCode|" -> sorted plays array, kept for drill-down context
+  var gamePlays = {};
+  var findings = {};   // category -> array of finding objects
+  var activeCat = null;
+  var expandedKey = null;
+  var sweepErrors = [];
+
+  var CATEGORIES = {
+    play_num_gaps: {
+      label: "Missing play indexes",
+      desc: "Within one game, a play's own sequence number should run 1..N with no gaps. A gap usually means a play was never entered or was dropped somewhere upstream of this data.",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"],
+        ["n_plays", "#Plays", "num"], ["missing", "Missing idx"], ["open", "Open"],
+      ],
+    },
+    session_gaps: {
+      label: "Missing sessions",
+      desc: "Session numbers within a season (one session = one round of games) should run 1..N with no gaps.",
+      cols: [
+        ["season", "Season"], ["n_sessions", "#Sessions present", "num"],
+        ["min_session", "Min", "num"], ["max_session", "Max", "num"], ["missing", "Missing session #"],
+      ],
+    },
+    baserunner_flow: {
+      label: "Baserunner/outs flow",
+      desc: "This play's own before-state (obc_before/outs_before) should equal the previous play's after-state in the same half-inning (or reset to empty/0 outs at a half-inning boundary).",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
+        ["inning_half", "Inn"], ["prev_result", "Prev result"],
+        ["expected_obc", "Expected OBC"], ["stored_obc", "Stored OBC", "bad-if-diff:expected_obc"],
+        ["expected_outs", "Expected outs", "num"], ["stored_outs", "Stored outs", "num bad-if-diff:expected_outs"],
+        ["open", "Open"],
+      ],
+    },
+    inning_half_errors: {
+      label: "Inning/half sequencing",
+      desc: "After a half-inning ends, the next play should be the correctly-incremented half (bottom of the same inning, or top of the next).",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
+        ["prev_inning_half", "Prev inn"], ["inning_half", "This inn"], ["expected_inning_half", "Expected"],
+        ["open", "Open"],
+      ],
+    },
+    score_flow: {
+      label: "Score flow",
+      desc: "away_score/home_score are the score AFTER each play resolves (verified against real data - key_moments_build.py normalizes every season to this convention regardless of how the source sheet stored it). So this play's own score should equal the previous play's score plus THIS play's own runs, credited to whichever side is batting now.",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
+        ["prev_result", "This play's result"], ["prev_runs", "This play's runs", "num"],
+        ["expected_away", "Exp away", "num"], ["stored_away", "Stored away", "num bad-if-diff:expected_away"],
+        ["expected_home", "Exp home", "num"], ["stored_home", "Stored home", "num bad-if-diff:expected_home"],
+        ["open", "Open"],
+      ],
+    },
+    runner_count_mismatches: {
+      label: "Runner count sanity",
+      desc: "The number of occupied bases in obc_before should equal the number of runners listed in runners_on_base for the same play (when that field is present) - a lightweight internal-consistency check on the data itself.",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
+        ["obc_before", "OBC before"], ["obc_count", "OBC runners", "num"],
+        ["runners_count", "runners_on_base", "num bad-if-diff:obc_count"],
+        ["open", "Open"],
+      ],
+    },
+  };
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function fetchJSON(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + ": " + r.status);
+      return r.json();
+    });
+  }
+
+  function escapeHtml(v) {
+    return String(v == null ? "" : v).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function decomposePlayNum(pn) {
+    var season = Math.floor(pn / 10000000);
+    var rem = pn % 10000000;
+    return { season: season, gameSeq: Math.floor(rem / 1000), idx: rem % 1000 };
+  }
+
+  function nextHalf(inning, half) {
+    return half === "top" ? { inning: inning, half: "bottom" } : { inning: inning + 1, half: "top" };
+  }
+
+  function groupBy(arr, key) {
+    var out = {};
+    arr.forEach(function (x) { (out[x[key]] = out[x[key]] || []).push(x); });
+    return out;
+  }
+
+  function range(a, b) { var r = []; for (var i = a; i <= b; i++) r.push(i); return r; }
+
+  function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function matchup(p) { return (p.away_team_abbr || "?") + " @ " + (p.home_team_abbr || "?"); }
+
+  // ---- fetch every season's full play-by-play ----
+
+  function loadSeason(dir, label) {
+    return fetchJSON(dir + "meta.json").then(function (meta) {
+      var sessions = meta.sessions || [];
+      return Promise.all(sessions.map(function (s) {
+        return fetchJSON(dir + "plays_" + pad2(s) + ".json").catch(function (e) {
+          sweepErrors.push(label + " session " + s + ": " + e.message);
+          return [];
+        });
+      })).then(function (chunks) {
+        var plays = [].concat.apply([], chunks);
+        auditSeason(label, plays);
+      });
+    });
+  }
+
+  function loadArchiveSeasons(fromN, chain) {
+    var n = fromN;
+    function next() {
+      var label = "s" + pad2(n);
+      $("status-text").textContent = "Loading " + label + "...";
+      return loadSeason("../data/" + label + "/", label).then(function () {
+        n++;
+        return next();
+      }).catch(function () {
+        return; // first missing sNN - archive list ends here
+      });
+    }
+    return chain.then(next);
+  }
+
+  function runAudit() {
+    $("run-btn").disabled = true;
+    Object.keys(CATEGORIES).forEach(function (c) { findings[c] = []; });
+    gamePlays = {};
+    sweepErrors = [];
+    expandedKey = null;
+    $("err-box").style.display = "none";
+    $("status-text").textContent = "Loading current season...";
+
+    loadSeason("../data/", "current").catch(function (e) {
+      sweepErrors.push("current: " + e.message);
+    }).then(function () {
+      $("status-text").textContent = "Loading archive seasons...";
+      return loadArchiveSeasons(1, Promise.resolve());
+    }).then(finishAudit);
+  }
+
+  // ---- the checks themselves ----
+
+  function auditSeason(seasonLabel, plays) {
+    if (!plays.length) return;
+
+    var byGame = groupBy(plays, "game_code");
+    var seasonSessions = {};
+
+    Object.keys(byGame).forEach(function (gc) {
+      var rows = byGame[gc].slice().sort(function (a, b) { return a.play_num - b.play_num; });
+      gamePlays[seasonLabel + "|" + gc] = rows;
+      rows.forEach(function (p) { seasonSessions[p.session_number] = true; });
+
+      // 1. play_num gap check
+      var idxs = rows.map(function (r) { return decomposePlayNum(r.play_num).idx; }).sort(function (a, b) { return a - b; });
+      var expectedIdxs = range(1, idxs.length);
+      if (!arraysEqual(idxs, expectedIdxs)) {
+        var missing = expectedIdxs.filter(function (i) { return idxs.indexOf(i) === -1; });
+        findings.play_num_gaps.push({
+          season: seasonLabel, game_code: gc, matchup: matchup(rows[0]),
+          n_plays: rows.length, missing: missing.join(";"),
+          open: deepLink(gc, rows[0].play_num),
+        });
+      }
+
+      // 2-5. row-to-row flow within the game
+      var prev = null;
+      rows.forEach(function (p) {
+        var isNewHalf = !prev || prev.inning !== p.inning || prev.half !== p.half;
+
+        if (prev && isNewHalf) {
+          var exp = nextHalf(prev.inning, prev.half);
+          if (exp.inning !== p.inning || exp.half !== p.half) {
+            findings.inning_half_errors.push({
+              season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+              prev_inning_half: prev.inning + " " + prev.half, inning_half: p.inning + " " + p.half,
+              expected_inning_half: exp.inning + " " + exp.half,
+              open: deepLink(gc, p.play_num),
+            });
+          }
+        }
+
+        var expectedObc = isNewHalf ? "000" : (prev ? prev.obc_after : "000");
+        var expectedOuts = isNewHalf ? 0 : (prev ? prev.outs_after : 0);
+        if (p.obc_before !== expectedObc || p.outs_before !== expectedOuts) {
+          findings.baserunner_flow.push({
+            season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+            inning_half: p.inning + " " + p.half, prev_result: prev ? prev.result : "(half start)",
+            expected_obc: expectedObc, stored_obc: p.obc_before,
+            expected_outs: expectedOuts, stored_outs: p.outs_before,
+            open: deepLink(gc, p.play_num),
+          });
+        }
+
+        if (prev) {
+          // away_score/home_score are the score AFTER each play - this play's own
+          // runs land in its own score, credited to whichever side is batting now.
+          var thisRuns = p.runs || 0;
+          var expectedAway = prev.away_score + (p.batting_is_home ? 0 : thisRuns);
+          var expectedHome = prev.home_score + (p.batting_is_home ? thisRuns : 0);
+          if (p.away_score !== expectedAway || p.home_score !== expectedHome) {
+            findings.score_flow.push({
+              season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+              prev_result: p.result, prev_runs: thisRuns,
+              expected_away: expectedAway, stored_away: p.away_score,
+              expected_home: expectedHome, stored_home: p.home_score,
+              open: deepLink(gc, p.play_num),
+            });
+          }
+        }
+
+        // runners_on_base pairs with obc_before (who's on when this play begins),
+        // and is sometimes legitimately absent (unresolved runner identity) rather
+        // than genuinely empty - only flag it when it's present but disagrees.
+        if (p.runners_on_base) {
+          var obcBefore = p.obc_before || "000";
+          var obcCount = (obcBefore.match(/1/g) || []).length;
+          var runnersCount = Object.keys(p.runners_on_base).length;
+          if (obcCount !== runnersCount) {
+            findings.runner_count_mismatches.push({
+              season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+              obc_before: obcBefore, obc_count: obcCount, runners_count: runnersCount,
+              open: deepLink(gc, p.play_num),
+            });
+          }
+        }
+
+        prev = p;
+      });
+    });
+
+    // 6. session gap check
+    var sessionNums = Object.keys(seasonSessions).map(Number).sort(function (a, b) { return a - b; });
+    if (sessionNums.length) {
+      var fullRange = range(sessionNums[0], sessionNums[sessionNums.length - 1]);
+      var missingSessions = fullRange.filter(function (s) { return sessionNums.indexOf(s) === -1; });
+      if (missingSessions.length) {
+        findings.session_gaps.push({
+          season: seasonLabel, n_sessions: sessionNums.length,
+          min_session: sessionNums[0], max_session: sessionNums[sessionNums.length - 1],
+          missing: missingSessions.join(";"),
+        });
+      }
+    }
+  }
+
+  function deepLink(gameCode, playNum) {
+    return SITE_BASE + "?game=" + gameCode + "&play=" + (playNum % 1000);
+  }
+
+  // ---- render ----
+
+  function finishAudit() {
+    $("run-btn").disabled = false;
+    var total = Object.keys(findings).reduce(function (s, c) { return s + findings[c].length; }, 0);
+    var seasons = Object.keys(gamePlays).map(function (k) { return k.split("|")[0]; })
+      .filter(function (s, i, arr) { return arr.indexOf(s) === i; });
+    $("status-text").textContent = total + " finding(s) across " + seasons.length + " season(s).";
+    if (sweepErrors.length) {
+      $("err-box").style.display = "";
+      $("err-box").textContent = sweepErrors.length + " fetch error(s): " + sweepErrors.slice(0, 8).join(" | ") +
+        (sweepErrors.length > 8 ? " ..." : "");
+    }
+    populateSeasonFilter(seasons);
+    renderTabs();
+    activeCat = activeCat || Object.keys(CATEGORIES)[0];
+    selectCategory(activeCat);
+    $("filters").style.display = "";
+  }
+
+  function populateSeasonFilter(seasons) {
+    var sel = $("f-season");
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + seasons.map(function (s) {
+      return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + "</option>";
+    }).join("");
+    sel.value = current;
+  }
+
+  function renderTabs() {
+    var html = Object.keys(CATEGORIES).map(function (c) {
+      return '<button type="button" class="cat-tab' + (c === activeCat ? " active" : "") + '" data-cat="' + c + '">' +
+        escapeHtml(CATEGORIES[c].label) + ' <span class="count">' + findings[c].length + "</span></button>";
+    }).join("");
+    $("cat-tabs").innerHTML = html;
+    $("cat-tabs").style.display = "";
+    Array.prototype.forEach.call($("cat-tabs").querySelectorAll(".cat-tab"), function (btn) {
+      btn.addEventListener("click", function () { selectCategory(btn.getAttribute("data-cat")); });
+    });
+  }
+
+  function selectCategory(cat) {
+    activeCat = cat;
+    expandedKey = null;
+    Array.prototype.forEach.call($("cat-tabs").querySelectorAll(".cat-tab"), function (btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-cat") === cat);
+    });
+    $("cat-desc").textContent = CATEGORIES[cat].desc;
+    var cols = CATEGORIES[cat].cols;
+    $("results-head").innerHTML = cols.map(function (c) { return "<th>" + escapeHtml(c[1]) + "</th>"; }).join("");
+    render();
+  }
+
+  function findingKey(cat, f) { return cat + ":" + f.season + ":" + f.game_code + ":" + (f.play_num || ""); }
+
+  function filtered() {
+    var cat = activeCat;
+    var season = $("f-season").value;
+    var search = $("f-search").value.trim().toLowerCase();
+    return (findings[cat] || []).filter(function (f) {
+      if (season && f.season !== season) return false;
+      if (search) {
+        var hay = (f.game_code + " " + (f.matchup || "") + " " + (f.prev_result || "")).toLowerCase();
+        if (hay.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function cellHtml(f, colDef) {
+    var key = colDef[0], label = colDef[1], flags = colDef[2] || "";
+    var v = f[key];
+    var isNum = flags.indexOf("num") !== -1;
+    var badIfDiffMatch = flags.match(/bad-if-diff:(\w+)/);
+    var cls = isNum ? "num" : "";
+    if (badIfDiffMatch && String(f[badIfDiffMatch[1]]) !== String(v)) cls += " bad";
+    if (key === "open") {
+      return '<td data-label="' + escapeHtml(label) + '"><a class="open-link" target="_blank" rel="noopener" href="' + v + '">Open &#8599;</a></td>';
+    }
+    return '<td data-label="' + escapeHtml(label) + '" class="' + cls + '">' + escapeHtml(v) + "</td>";
+  }
+
+  function detailRowHtml(cat, f) {
+    var rows = gamePlays[f.season + "|" + f.game_code] || [];
+    var idx = rows.findIndex(function (r) { return r.play_num === f.play_num; });
+    var lo = idx === -1 ? 0 : Math.max(0, idx - 4);
+    var hi = idx === -1 ? rows.length - 1 : Math.min(rows.length - 1, idx + 4);
+    var slice = rows.slice(lo, hi + 1);
+    var body = slice.map(function (r) {
+      var flagged = r.play_num === f.play_num;
+      return "<tr" + (flagged ? ' class="flagged"' : "") + ">" +
+        "<td>" + r.play_num + "</td>" +
+        "<td>" + r.inning + " " + r.half + "</td>" +
+        "<td>" + r.outs_before + "&rarr;" + r.outs_after + "</td>" +
+        "<td>" + r.obc_before + "&rarr;" + r.obc_after + "</td>" +
+        "<td>" + escapeHtml(r.result) + "</td>" +
+        "<td>" + escapeHtml(r.batter_name || "") + "</td>" +
+        '<td class="num">' + (r.runs || 0) + "</td>" +
+        '<td class="num">' + r.away_score + "-" + r.home_score + "</td>" +
+      "</tr>";
+    }).join("");
+    var colspan = CATEGORIES[cat].cols.length;
+    return '<tr class="detail-row"><td colspan="' + colspan + '"><div class="detail-wrap">' +
+      (rows.length ? '<table class="detail-table"><thead><tr>' +
+        "<th>Play</th><th>Inning</th><th>Outs</th><th>OBC</th><th>Result</th><th>Batter</th><th>Runs</th><th>Score</th>" +
+        "</tr></thead><tbody>" + body + "</tbody></table>" :
+        "<em>No play-by-play loaded for this game (session data may not have been fetched).</em>") +
+      "</div></td></tr>";
+  }
+
+  function rowHtml(cat, f) {
+    var key = findingKey(cat, f);
+    var cols = CATEGORIES[cat].cols;
+    var main = '<tr class="finding-row' + (expandedKey === key ? " expanded" : "") + '" data-key="' + escapeHtml(key) + '">' +
+      cols.map(function (c) { return cellHtml(f, c); }).join("") + "</tr>";
+    return main + (expandedKey === key ? detailRowHtml(cat, f) : "");
+  }
+
+  function render() {
+    var rows = filtered();
+    $("result-count").textContent = rows.length + " / " + (findings[activeCat] || []).length + " finding(s)";
+    $("results-body").innerHTML = rows.map(function (f) { return rowHtml(activeCat, f); }).join("");
+    $("results-table").style.display = "";
+
+    Array.prototype.forEach.call(document.querySelectorAll("tr.finding-row"), function (tr) {
+      tr.addEventListener("click", function (e) {
+        if (e.target.closest("a")) return;
+        var key = tr.getAttribute("data-key");
+        expandedKey = expandedKey === key ? null : key;
+        render();
+      });
+    });
+  }
+
+  ["f-season", "f-search"].forEach(function (id) {
+    $(id).addEventListener("input", render);
+    $(id).addEventListener("change", render);
+  });
+
+  $("run-btn").addEventListener("click", runAudit);
+
+  // Auto-run on load - the whole point is a quick reference tool.
+  runAudit();
+})();
+</script>
+</body>
+</html>
