@@ -1379,15 +1379,15 @@ def _shift_to_domain(lo, hi, dlo, dhi):
     return lo, hi
 
 
-def _centered_match_interval(center, bucket_size, domain_hi=500):
+def _centered_match_interval(center, bucket_size, domain_hi=500, domain_lo=0):
     """Inclusive [lo, hi] for a centered distance filter, widened-and-shifted to
-    stay inside [0, domain_hi] rather than truncating at an edge. Preserves the
-    shipped span of 2 * (bucket_size // 2) + 1 integers (half = bucket_size // 2);
+    stay inside [domain_lo, domain_hi] rather than truncating at an edge. Preserves
+    the shipped span of 2 * (bucket_size // 2) + 1 integers (half = bucket_size // 2);
     callers replace the `|v - center| <= half` mask with `series.between(lo, hi)`.
-    When 2 * half >= domain_hi (e.g. a 500-wide bucket) the interval is the whole
-    domain, i.e. unchanged behavior."""
+    When 2 * half >= domain_hi - domain_lo (e.g. a 500-wide bucket) the interval is
+    the whole domain, i.e. unchanged behavior."""
     half = bucket_size // 2
-    lo, hi = _shift_to_domain(center - half, center + half, 0, domain_hi)
+    lo, hi = _shift_to_domain(center - half, center + half, domain_lo, domain_hi)
     return int(lo), int(hi)
 
 

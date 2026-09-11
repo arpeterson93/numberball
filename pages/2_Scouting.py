@@ -2197,19 +2197,17 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # keyed across reruns even on runs where it isn't drawn.
             _cf_pitch_def_p  = _pf_pitches_p[-1] if _pf_pitches_p else 500
             _cf_pitch_w_pre  = st.session_state.get("ctx_pitch_w_p", 200)
-            _cf_pitch_v_pre  = st.session_state.get(f"ctx_pitch_v_p_{tab_p_pitcher}", _cf_pitch_def_p)
-            _cf_pitch_i_pre  = (int(_cf_pitch_v_pre) - 1) // _cf_pitch_w_pre
-            _cf_pitch_lbl_p  = (f"Prev pitch ({_cf_pitch_i_pre * _cf_pitch_w_pre + 1}-"
-                               f"{min((_cf_pitch_i_pre + 1) * _cf_pitch_w_pre, 1000)})")
+            _cf_pitch_v_pre  = int(st.session_state.get(f"ctx_pitch_v_p_{tab_p_pitcher}", _cf_pitch_def_p))
+            _cf_pitch_lo_pre, _cf_pitch_hi_pre = utils._centered_match_interval(
+                _cf_pitch_v_pre, _cf_pitch_w_pre, domain_hi=1000, domain_lo=1)
+            _cf_pitch_lbl_p  = f"Prev pitch ({_cf_pitch_lo_pre}-{_cf_pitch_hi_pre})"
 
             _cf_delta_def_p  = _pf_abs_delta_p[-1] if _pf_abs_delta_p else 100
             _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_p", 100)
-            _cf_delta_v_pre  = st.session_state.get(f"ctx_delta_v_p_{tab_p_pitcher}", _cf_delta_def_p)
-            _cf_delta_n_pre  = 500 // _cf_delta_w_pre
-            _cf_delta_i_pre  = min(max(0, (int(_cf_delta_v_pre) - 1) // _cf_delta_w_pre
-                                       if _cf_delta_v_pre > 0 else 0), _cf_delta_n_pre - 1)
-            _cf_delta_lbl_p  = (f"Prev |Δ| ({_cf_delta_i_pre * _cf_delta_w_pre}-"
-                               f"{(_cf_delta_i_pre + 1) * _cf_delta_w_pre})")
+            _cf_delta_v_pre  = int(st.session_state.get(f"ctx_delta_v_p_{tab_p_pitcher}", _cf_delta_def_p))
+            _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
+                _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500)
+            _cf_delta_lbl_p  = f"Prev |Δ| ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -2253,9 +2251,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         "Previous pitch value", min_value=1, max_value=1000, value=_cf_pitch_def_p,
                         step=1, key=f"ctx_pitch_v_p_{tab_p_pitcher}",
                     )
-                    _cf_pi_idx = (int(_cf_pitch_val_p) - 1) // _cf_pitch_w_p
-                    _cf_pitch_bucket_p = (_cf_pi_idx * _cf_pitch_w_p + 1,
-                                          min((_cf_pi_idx + 1) * _cf_pitch_w_p, 1000))
+                    _cf_pitch_bucket_p = utils._centered_match_interval(
+                        int(_cf_pitch_val_p), _cf_pitch_w_p, domain_hi=1000, domain_lo=1)
 
                 _cf_delta_on_p = st.toggle(_cf_delta_lbl_p, key="ctx_delta_on_p", value=False)
                 _cf_delta_bucket_p = None
@@ -2266,10 +2263,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         "Previous |Δ| value", min_value=0, max_value=500, value=_cf_delta_def_p,
                         step=1, key=f"ctx_delta_v_p_{tab_p_pitcher}",
                     )
-                    _n_cf_bkts_p = 500 // _cf_delta_w_p
-                    _cf_di_idx = min(max(0, (int(_cf_delta_val_p) - 1) // _cf_delta_w_p
-                                         if _cf_delta_val_p > 0 else 0), _n_cf_bkts_p - 1)
-                    _cf_delta_bucket_p = (_cf_di_idx * _cf_delta_w_p, (_cf_di_idx + 1) * _cf_delta_w_p)
+                    _cf_delta_bucket_p = utils._centered_match_interval(
+                        int(_cf_delta_val_p), _cf_delta_w_p, domain_hi=500)
 
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
