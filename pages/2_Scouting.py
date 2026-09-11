@@ -2294,11 +2294,20 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         step=0.1, format="%.1f", key=f"ctx_leverage_thresh_p_{tab_p_pitcher}",
                     )
 
+                _cf_fp_app_on_p = st.toggle("Pitch # in Appearance", key="ctx_fp_app_p", value=False,
+                                            help="On: only this pitcher's 1st pitch of the game appearance. "
+                                                 "Off: all pitches.")
+                _cf_fp_inn_on_p = st.toggle("Pitch # in Inning", key="ctx_fp_inn_p", value=False,
+                                            help="On: only the 1st pitch of the half-inning. "
+                                                 "Off: all pitches.")
+
             # Previous pitch range only narrows the Pitches radial; previous |Δ|
-            # range only narrows the Deltas radial - previous result and leverage
-            # are shared context, so they narrow both.
-            _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
-            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p])
+            # range only narrows the Deltas radial - previous result, leverage,
+            # and the 1st-pitch toggles are shared context, so they narrow both.
+            _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p,
+                                        _cf_fp_app_on_p, _cf_fp_inn_on_p])
+            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p,
+                                        _cf_fp_app_on_p, _cf_fp_inn_on_p])
             if (_cf_active_pitches_p or _cf_active_deltas_p) and not df_p_pred.empty:
                 _df_ctx_p = df_p_pred.copy()
                 if _cf_leverage_bucket_p is not None:
@@ -2309,6 +2318,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    first_pitch_appearance=_cf_fp_app_on_p,
+                    first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_pitches_p else _df_ctx_p
                 _df_radial_deltas_p = utils.filter_by_prior_context(
                     _df_ctx_p,
@@ -2316,6 +2327,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    first_pitch_appearance=_cf_fp_app_on_p,
+                    first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_deltas_p else _df_ctx_p
                 st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} "
                           "matching historical instance(s).")

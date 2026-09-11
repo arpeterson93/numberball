@@ -1004,6 +1004,8 @@ def filter_by_prior_context(
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
+    first_pitch_appearance: bool | None = None,
+    first_pitch_inning: bool | None = None,
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
 
@@ -1012,7 +1014,10 @@ def filter_by_prior_context(
     happened), so a row with no predecessor is dropped once any of those three
     is active. leverage_bucket looks at the row's OWN leverage (the stakes it
     was thrown into, from a '_leverage' column - see compute_play_leverage),
-    not its predecessor's.
+    not its predecessor's. first_pitch_appearance/first_pitch_inning also look
+    at the row's own is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only
+    the pitcher's first pitch of the game appearance/half-inning; left None,
+    all pitches pass through unfiltered.
     """
     d = df.sort_values("id").reset_index(drop=True)
     keep = pd.Series(True, index=d.index)
@@ -1032,6 +1037,12 @@ def filter_by_prior_context(
     if leverage_bucket is not None and "_leverage" in d.columns:
         keep &= (d["_leverage"] < leverage_threshold) if leverage_bucket == "low" \
                 else (d["_leverage"] >= leverage_threshold)
+
+    if first_pitch_appearance and "is_fp_app" in d.columns:
+        keep &= d["is_fp_app"].astype(bool)
+
+    if first_pitch_inning and "is_fp_inn" in d.columns:
+        keep &= d["is_fp_inn"].astype(bool)
 
     return d[keep]
 
