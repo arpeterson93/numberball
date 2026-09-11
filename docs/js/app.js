@@ -1062,25 +1062,34 @@
       escapeHtml(label) + arrow + "</th>";
   }
 
-  // Reuses the main feed's own card() renderer for the expand-panel
-  // drill-down (Alex's ask) rather than a second, thinner play template -
-  // one source of truth for "what a play looks like" everywhere on the page.
-  function statsExpandPlaysHtml(playerId, session) {
+  // Shared by statsExpandPlaysHtml (renders the cards) and the expand-row's
+  // own play-all button (feeds the same set into the slideshow) - one
+  // definition of "this player's plays for this session" so the button
+  // always plays exactly the cards visible below it.
+  function statsPlayerSessionPlays(playerId, session) {
     var loaded = data.playsBySession[session];
-    if (!loaded) return '<div class="stats-empty">Loading plays...</div>';
+    if (!loaded) return null;
     var plays = loaded.filter(function (p) {
       return p.result != null && (p.batter_id === playerId || p.pitcher_id === playerId);
     });
-    if (!plays.length) return '<div class="stats-empty">No plays found for this player.</div>';
     // Oldest first (Alex's ask) - same timestamp-then-play_num comparator
     // the main feed's own "chrono" sort uses (sorted() above), just always
     // ascending rather than following filters.sortDir, since this drill-down
     // has nothing to do with the Plays view's own sort state.
-    plays = plays.slice().sort(function (a, b) {
+    return plays.sort(function (a, b) {
       var ta = a.timestamp || "", tb = b.timestamp || "";
       if (ta !== tb) return ta < tb ? -1 : 1;
       return a.play_num - b.play_num;
     });
+  }
+
+  // Reuses the main feed's own card() renderer for the expand-panel
+  // drill-down (Alex's ask) rather than a second, thinner play template -
+  // one source of truth for "what a play looks like" everywhere on the page.
+  function statsExpandPlaysHtml(playerId, session) {
+    var plays = statsPlayerSessionPlays(playerId, session);
+    if (!plays) return '<div class="stats-empty">Loading plays...</div>';
+    if (!plays.length) return '<div class="stats-empty">No plays found for this player.</div>';
     return plays.map(card).join("");
   }
 
@@ -1276,6 +1285,20 @@
     return row.player_id + "|" + row.session;
   }
 
+  // Same round icon-badge as card()'s own play-jump-btn ("Watch this play"),
+  // reused here so the two read as the same affordance - this one just
+  // queues every one of the player's plays for this session instead of
+  // seeking Game Replay to a single one. Only ever rendered on an expanded
+  // row (Alex's ask): collapsed rows already have a click target (opening
+  // the row) that would otherwise fight this one for the same click.
+  function statsPlayAllBtnHtml(playerId, session) {
+    return '<button type="button" class="play-jump-btn stats-play-all-btn" data-play-all-id="' +
+      escapeHtml(playerId) + '" data-play-all-session="' + session +
+      '" title="Play all plays" aria-label="Play all of this player\'s plays this session">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
+      "</button>";
+  }
+
   function statsTableHtml(rows, cols, emptyNoun, sort, nameSuffixFn) {
     if (!rows.length) return '<div class="stats-empty">No ' + emptyNoun + ' match.</div>';
     var sorted = sortStatsRows(rows, sort);
@@ -1289,7 +1312,8 @@
           '" data-player-id="' + row.player_id + '" data-session="' + row.session + '">' +
         '<td title="' + escapeHtml(row.name) + '">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
           (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
-          statsGameAwardBadgeHtml(row.game_award) + "</td>" +
+          statsGameAwardBadgeHtml(row.game_award) +
+          (expanded ? statsPlayAllBtnHtml(row.player_id, row.session) : "") + "</td>" +
         cols.map(function (c) {
           var cls = c[0] === "session" ? ' class="stats-col-session"' : "";
           return "<td" + cls + ">" + statsCellText(row, c[0], c[2]) + "</td>";
@@ -12634,9 +12658,26 @@
       '" data-game="' + escapeHtml(m.game_code || "") + '">' + flash +
       sceneRecapHtml(slide.recap) +
       sceneScorebugHtml(m, flight, newHalf) +
-      sceneResultPillHtml(m, flight) +
-      sceneDefenseLineHtml(m, flight) +
-      scoringLine(m) +
+      // Wrapped as one .scene-result-block (Alex's report: on a tall/wide
+      // desktop window, .play-scene's own space-evenly justify-content
+      // distributes leftover height as EXTRA gap between every one of its
+      // flex items - proportional to the window's own free space, not the
+      // fixed 6px .play-scene{gap} these three rows' negative margins were
+      // tuned against. A wide-enough, short-enough window could leave less
+      // free space than the widescreen breakpoint's -21px/-23px margins
+      // assumed, pulling scene-defense/scoring-line up INTO the result pill
+      // instead of just closing the gap to it. Wrapping the trio in a single
+      // flex item makes .play-scene distribute its extra space only around
+      // the block as a whole, never between the rows inside it - .scene-
+      // result-block's own gap:6px (style.css) reproduces the fixed
+      // baseline those margins were actually tuned against, so they land
+      // the same way at every window size instead of fighting a variable
+      // one.
+      '<div class="scene-result-block">' +
+        sceneResultPillHtml(m, flight) +
+        sceneDefenseLineHtml(m, flight) +
+        scoringLine(m) +
+      "</div>" +
       '<div class="scene-top">' +
         sceneFieldHtml(m, flight) +
       "</div>" +
@@ -13306,6 +13347,27 @@
       $("replay-card").classList.remove("paused");
       $("replay-modal").hidden = false;
       showReplaySlide(0);
+    });
+  }
+
+  /* Stats tab's play-all button (statsPlayAllBtnHtml) - same replay modal
+     and buildFilteredPlaysSlides shape as openFilteredPlaysSlideshow above,
+     just fed the one player's plays for this session (statsPlayerSessionPlays,
+     shared with the expand row's own card list so the two always agree on
+     what "this player's plays" means) instead of the Plays feed's filters. */
+  function openPlayerSessionPlaysSlideshow(playerId, session) {
+    ensureSessionPlaysLoaded(session).then(function () {
+      var plays = statsPlayerSessionPlays(playerId, session) || [];
+      if (!plays.length) { toast("No plays found for this player."); return; }
+      replay.slides = buildFilteredPlaysSlides(plays);
+      replay.index = -1;   // no previous slide, so slide 0 gets the full fade in
+      replay.paused = false;
+      $("replay-pause-hint").hidden = true;
+      $("replay-card").classList.remove("paused");
+      $("replay-modal").hidden = false;
+      showReplaySlide(0);
+    }).catch(function () {
+      toast("Could not load this player's plays.");
     });
   }
 
@@ -15402,11 +15464,11 @@
 
     // Player-scores follows the fielding description on the same line
     // (Alex's ask) rather than its own row below it - sceneDefenseLineHtml
-    // and scoringLine are two separate sibling divs in playSceneHtml with no
-    // shared wrapper, and both are flex items of .play-scene, which forces
-    // each onto its own row regardless of their own display value - so this
-    // folds scoringLine's text into the end of the defense line's own
-    // element instead, and scoring-line's row is hidden in CSS.
+    // and scoringLine are separate sibling divs inside playSceneHtml's
+    // .scene-result-block, each still a block-level element that takes its
+    // own row regardless of its own display value - so this folds
+    // scoringLine's text into the end of the defense line's own element
+    // instead, and scoring-line's row is hidden in CSS.
     var defEl = pane.el.querySelector(".scene-defense");
     var scoreEl = pane.el.querySelector(".scoring-line");
     if (defEl && scoreEl && scoreEl.textContent.trim()) {
@@ -16189,6 +16251,18 @@
     // plays-detail panel below the table.
     $("stats-view").addEventListener("click", function (e) {
       if (handleMomentCardClick(e)) return;
+      var playAllBtn = e.target.closest("[data-play-all-id]");
+      if (playAllBtn) {
+        // player_id is numeric everywhere else it's compared (row.player_id,
+        // play.batter_id/pitcher_id) - a DOM attribute only ever gives back a
+        // string, and statsPlayerSessionPlays' === check needs the real type
+        // to match anything.
+        openPlayerSessionPlaysSlideshow(
+          Number(playAllBtn.getAttribute("data-play-all-id")),
+          Number(playAllBtn.getAttribute("data-play-all-session"))
+        );
+        return;
+      }
       var subtab = e.target.closest(".stats-subtab");
       if (subtab) { setStatsSubView(subtab.getAttribute("data-subview")); return; }
       if (e.target.closest("#stats-filters-toggle")) { toggleStatsFiltersExpanded(); return; }

@@ -601,6 +601,11 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .play-jump-btn svg{width:9px;height:9px;fill:currentColor;margin-left:1px;}
 .play-jump-btn:hover,.play-jump-btn:focus-visible{color:var(--blue);border-color:var(--blue);}
 .play-jump-btn.loading{opacity:0.4;pointer-events:none;}
+/* Stats tab's play-all button (statsPlayAllBtnHtml) - same round icon-badge
+   as .play-jump-btn above, just sitting inline in the player-name cell
+   (next to the name/badges) instead of a card's own absolutely-positioned
+   .corner-actions, so it needs its own spacing rather than that wrapper's. */
+.stats-play-all-btn{display:inline-flex;margin-left:6px;vertical-align:middle;}
 /* Absolutely positioned, not a flex child - a flex item stretched with
    align-items:stretch only fills the flex line's content-box height, which
    sits inset by .moment's own top/bottom padding, so the bar fell short of
@@ -974,6 +979,24 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    (sceneResultPillHtml uses the plain .result-pill.offense class, no
    separate on-deck treatment anymore). */
 .on-deck-tag{background:var(--navy);color:#fff;border-color:var(--navy);}
+/* Wraps .scene-result-line/.scene-defense/.scoring-line as ONE flex item of
+   .play-scene (Alex's report: the three were separate flex items, so
+   .catchup-slide's own justify-content:space-evenly on .play-scene was
+   distributing leftover window height as extra gap BETWEEN them too - a
+   variable amount that grows with the window, not the fixed 6px .play-scene
+   gap their margin-top values below were tuned against. On a wide-enough,
+   short-enough window that extra gap came out smaller than the widescreen
+   breakpoint's -21px/-23px margins assumed, pulling scene-defense up INTO
+   the result pill instead of just closing the gap above it. A single wrapper
+   item means space-evenly only ever adds room around this trio, never
+   inside it. Its own gap:6px reproduces that same fixed 6px baseline as a
+   constant instead of a space-evenly-inflated one, so the margins below -
+   tuned against that exact baseline - land the same way at every window
+   size (not display:block/gap:0: that would remove the baseline they're
+   tuned against entirely rather than just stop it from growing, making
+   every one of them overlap unconditionally instead of only at some
+   sizes). */
+.scene-result-block{display:flex;flex-direction:column;gap:6px;}
 /* The result pill, seated right under the leverage meter and above the
    defense text line (Alex's spec) - everything else that used to share its
    row (diff pill, LA/EV readout) stayed behind in .scene-play-line, below
@@ -990,10 +1013,15 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    flex gap read as too spread out for this trio of short text rows there),
    now applied at every width since both this line and .scoring-line share
    the exact same 10.5px font-size everywhere - nothing about the mobile fix
-   was actually mobile-specific, it's just where Alex first noticed it. */
+   was actually mobile-specific, it's just where Alex first noticed it.
+   -2px (not the tighter value this used to carry): Alex's ask for a few
+   more px of breathing room above this line once .scene-result-block's
+   gap:6px baseline made that gap a reliable, fixed thing to tune against.
+   .scoring-line below is now set to the same -2px (Alex's ask: match the
+   two gaps) rather than sitting on its own tighter value. */
 .scene-defense{
   min-height:13px;text-align:center;font-size:10.5px;font-weight:600;
-  color:var(--muted);margin-top:-6px;
+  color:var(--muted);margin-top:-2px;
 }
 .scene-top{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:-4px;}
 
@@ -1865,12 +1893,14 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    does for its own row. */
 /* Alex's ask: match .scene-defense's own size (the "Fielded by ..." line
    right above it) instead of the larger 12.5px this used to carry, and pull
-   it up slightly closer to that line - a targeted margin on this row alone
-   (flex gap governs the space above every OTHER row in .play-scene's own
-   column; this only tightens the one gap between these two short text rows,
-   same idea as the max-width:600px block's own -3px compaction below, just
-   a smaller nudge here since these two rows already sit closer on desktop). */
-.play-scene .scoring-line{font-size:10.5px;color:var(--green);font-weight:700;text-align:center;margin-top:-8.3px;}
+   it up closer to that line - a targeted margin on this row alone (flex gap
+   governs the space above every OTHER row in .play-scene's own column; this
+   only tightens the one gap between these two short text rows, same idea as
+   the max-width:600px block's own -3px compaction below).
+   -2px (Alex's ask): matches .scene-defense's own margin-top above, so the
+   result-pill -> description gap and the description -> "X scores" gap
+   read as the same size instead of the second one sitting tighter. */
+.play-scene .scoring-line{font-size:10.5px;color:var(--green);font-weight:700;text-align:center;margin-top:-2px;}
 
 /* Debug mode (reconciler knob inspector, Settings' Debug mode toggle) -
    hidden by default; app.js always renders it (cheap - reuses the exact
@@ -2384,16 +2414,18 @@ html[data-km-debug="1"] .km-tuning-panel{
   .scene-diamond-wrap{width:min(57.75%,531px);}
   .scene-play-line{font-size:18px;}
   .mu-name{font-size:17px;}
-  /* Alex's ask: narrower still on a wide screen - the base -6px/-8.3px
-     margins (shared with mobile, since both read the same 10.5px font
-     there) leave a visibly bigger gap here than on mobile, because
-     .scene-result-line's own pill is larger at this breakpoint (its
-     own line-height room grows with it, widening the gap above
-     .scene-defense even though the margin pulling it up hasn't changed).
-     Extra negative margin on top of the shared base, tuned to land close to
-     the same real gap mobile already has. */
-  .scene-defense{margin-top:-21px;}
-  .play-scene .scoring-line{margin-top:-23px;}
+  /* An earlier -21px/-23px override here (on top of the shared -6px/-8.3px
+     base) was tuned against a gap that isn't actually pill-related: before
+     .scene-result-block existed, .scene-result-line/.scene-defense/
+     .scoring-line were three separate flex items of .play-scene, so
+     .catchup-slide > .play-scene's justify-content:space-evenly spread this
+     breakpoint's own taller .catchup-card height across the gaps BETWEEN
+     them too, not just its fixed 6px .play-scene gap - and that extra
+     amount grows with the window, so a fixed override could only ever be
+     right for one specific size (Alex's report: overlap at others). Now
+     that the trio is one flex item, space-evenly has nothing to add inside
+     it at any width, so the shared base margins above are already correct
+     here - no override left to add. */
   /* The equal-thirds scorebug grid (Alex's spec) is now the unconditional
      base rule above, not a widescreen-only override - nothing left to add
      here. */
@@ -2524,6 +2556,11 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Hugs the top rather than centring (Alex's ask - centring left dead space
    above the scorebug that the restored rows below now need instead). */
 .live-grid-pane .play-scene{gap:1px;height:100%;justify-content:flex-start;}
+/* .scene-result-block carries its own fixed gap (see the full slideshow's
+   own rule) rather than inheriting .play-scene's - needs its own 1px match
+   here too, or the result-pill/defense/scoring-line trio would fall back to
+   that rule's 6px while every other row in this pane sits 1px apart. */
+.live-grid-pane .scene-result-block{gap:1px;}
 /* Base .scene-defense pulls itself up toward the result pill with a -6px
    margin (tuned for the full slideshow's own 6px flex gap) - against this
    pane's much smaller 1px gap that reads as glued to the pill instead of a
