@@ -1000,7 +1000,7 @@ def compute_play_leverage(df: pd.DataFrame) -> pd.Series:
 def filter_by_prior_context(
     df: pd.DataFrame,
     prev_pitch_bucket: tuple[int, int] | None = None,
-    prev_abs_delta_bucket: tuple[int, int] | None = None,
+    prev_delta_bucket: tuple[int, int] | None = None,
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
@@ -1009,15 +1009,18 @@ def filter_by_prior_context(
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
 
-    prev_pitch_bucket/prev_abs_delta_bucket/prev_result_cat look at the row
+    prev_pitch_bucket/prev_delta_bucket/prev_result_cat look at the row
     immediately BEFORE each one (what the pitcher just threw/what just
     happened), so a row with no predecessor is dropped once any of those three
-    is active. leverage_bucket looks at the row's OWN leverage (the stakes it
-    was thrown into, from a '_leverage' column - see compute_play_leverage),
-    not its predecessor's. first_pitch_appearance/first_pitch_inning also look
-    at the row's own is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only
-    the pitcher's first pitch of the game appearance/half-inning; left None,
-    all pitches pass through unfiltered.
+    is active. prev_delta_bucket matches the signed pitch_circ_delta directly
+    (not its absolute value), so a bucket centered on +50 with width 200 keeps
+    predecessors whose signed delta fell in [-50, 150]. leverage_bucket looks
+    at the row's OWN leverage (the stakes it was thrown into, from a
+    '_leverage' column - see compute_play_leverage), not its predecessor's.
+    first_pitch_appearance/first_pitch_inning also look at the row's own
+    is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only the pitcher's
+    first pitch of the game appearance/half-inning; left None, all pitches
+    pass through unfiltered.
     """
     d = df.sort_values("id").reset_index(drop=True)
     keep = pd.Series(True, index=d.index)
@@ -1026,9 +1029,9 @@ def filter_by_prior_context(
         lo, hi = prev_pitch_bucket
         keep &= pd.to_numeric(d["pitch"], errors="coerce").shift(1).between(lo, hi)
 
-    if prev_abs_delta_bucket is not None:
-        lo, hi = prev_abs_delta_bucket
-        keep &= pd.to_numeric(d["pitch_circ_delta"], errors="coerce").shift(1).abs().between(lo, hi)
+    if prev_delta_bucket is not None:
+        lo, hi = prev_delta_bucket
+        keep &= pd.to_numeric(d["pitch_circ_delta"], errors="coerce").shift(1).between(lo, hi)
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(1).map(lambda r: seq_result_category(r) if pd.notna(r) else None)

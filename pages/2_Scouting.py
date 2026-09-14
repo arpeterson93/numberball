@@ -2188,7 +2188,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                        "Active filters combine together.")
             _pf_sorted_p    = df_p_pred.sort_values("id") if not df_p_pred.empty else df_p_pred
             _pf_pitches_p   = _pf_sorted_p["pitch"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
-            _pf_abs_delta_p = _pf_sorted_p["pitch_circ_delta"].dropna().abs().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_delta_p     = _pf_sorted_p["pitch_circ_delta"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
             # Pre-read each widget's current (or preset-default) value from
@@ -2202,12 +2202,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 _cf_pitch_v_pre, _cf_pitch_w_pre, domain_hi=1000, domain_lo=1)
             _cf_pitch_lbl_p  = f"Prev pitch ({_cf_pitch_lo_pre}-{_cf_pitch_hi_pre})"
 
-            _cf_delta_def_p  = _pf_abs_delta_p[-1] if _pf_abs_delta_p else 100
+            _cf_delta_def_p  = _pf_delta_p[-1] if _pf_delta_p else 100
             _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_p", 100)
             _cf_delta_v_pre  = int(st.session_state.get(f"ctx_delta_v_p_{tab_p_pitcher}", _cf_delta_def_p))
             _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
-                _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500)
-            _cf_delta_lbl_p  = f"Prev |Δ| ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
+                _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_delta_lbl_p  = f"Prev Δ ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -2260,11 +2260,11 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _cf_delta_w_p = st.select_slider("Bucket size (Δ)", options=[25, 50, 100, 125, 250, 500],
                                                       value=100, key="ctx_delta_w_p")
                     _cf_delta_val_p = st.number_input(
-                        "Previous |Δ| value", min_value=0, max_value=500, value=_cf_delta_def_p,
+                        "Previous Δ value", min_value=-500, max_value=500, value=_cf_delta_def_p,
                         step=1, key=f"ctx_delta_v_p_{tab_p_pitcher}",
                     )
                     _cf_delta_bucket_p = utils._centered_match_interval(
-                        int(_cf_delta_val_p), _cf_delta_w_p, domain_hi=500)
+                        int(_cf_delta_val_p), _cf_delta_w_p, domain_hi=500, domain_lo=-500)
 
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
@@ -2296,7 +2296,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                             help="On: only the 1st pitch of the half-inning. "
                                                  "Off: all pitches.")
 
-            # Previous pitch range only narrows the Pitches radial; previous |Δ|
+            # Previous pitch range only narrows the Pitches radial; previous Δ
             # range only narrows the Deltas radial - previous result, leverage,
             # and the 1st-pitch toggles are shared context, so they narrow both.
             _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p,
@@ -2318,7 +2318,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 ) if _cf_active_pitches_p else _df_ctx_p
                 _df_radial_deltas_p = utils.filter_by_prior_context(
                     _df_ctx_p,
-                    prev_abs_delta_bucket=_cf_delta_bucket_p,
+                    prev_delta_bucket=_cf_delta_bucket_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
