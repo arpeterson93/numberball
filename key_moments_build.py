@@ -298,6 +298,42 @@ def _scoring_ids(play: dict, batter_id: int | None) -> list[int]:
     return ids
 
 
+def _er_pitcher_ids(play: dict) -> list[int]:
+    """Pitcher id(s) explicitly credited with each earned run scored on this
+    play, from the sheet's er1-er4 cells - er1 credits the BATTER's own run
+    (HR only, the sole way a batter scores on their own plate appearance in
+    this league's taxonomy), er2/er3/er4 credit the run scored by the
+    runner who started this play on 1st/2nd/3rd respectively (same mapping
+    _scoring_ids uses for scored2/scored3/scored4 - verified 1:1 against
+    those cells on real data: a blank scored<N> cell always pairs with a
+    blank er<N> cell, and vice versa).
+
+    This is how a relief pitcher who lets an INHERITED runner score still
+    charges that earned run back to whichever pitcher actually put the
+    runner on base, instead of the reliever who happened to be on the mound
+    when it crossed the plate - per this project's explicit-data-over-
+    heuristics rule (season 13 session 6 POR @ KC, Muncy, is the motivating
+    example: the reliever who took over mid-inning is never charged with
+    the run Muncy's own inherited runner later scores).
+
+    Order: 3rd, 2nd, 1st runner (matching _scoring_ids), then the batter's
+    own run last if this was a HR. A blank cell is simply dropped here, not
+    defaulted to the current pitcher - _session_stats pads any shortfall
+    against the play's real run count with the current pitcher itself, so
+    this function stays a pure read of the explicit sheet data.
+    """
+    ids = []
+    for key in ("er4", "er3", "er2"):
+        pid = _safe_player_id(play.get(key))
+        if pid is not None:
+            ids.append(pid)
+    if (play.get("result") or "") in HOME_RUN_CODES:
+        pid = _safe_player_id(play.get("er1"))
+        if pid is not None:
+            ids.append(pid)
+    return ids
+
+
 def _scoring_names(ref: dict, play: dict, batter_id: int | None) -> list[str]:
     """Last names of runners who scored on this play (see _scoring_ids),
     in the same 3rd/2nd/1st order. The page renders these as "X scores"
@@ -833,6 +869,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
     session_number = int(game_code[2:4]) if len(game_code) >= 4 and game_code[2:4].isdigit() else None
     scoring_ids = _scoring_ids(play, feat["batter"]["id"])
     scoring_names = [_player_view(ref, pid)["last_name"] for pid in scoring_ids]
+    er_ids = _er_pitcher_ids(play)
     position_override = utils.get_position_override(play.get("play_code"))
 
     away_score = state["away_score_before"] + (0 if state["batting_is_home"] else state["runs"])
@@ -926,6 +963,11 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         # credit (see _session_stats) is the only reader; not otherwise
         # rendered client-side today.
         "scoring_ids": scoring_ids,
+        # Pitcher id explicitly credited with each run scored on this play
+        # (see _er_pitcher_ids) - session-stats' pitching ER credit (see
+        # _session_stats) is the only reader; not otherwise rendered
+        # client-side today.
+        "er_ids": er_ids,
 
         "batter_name": feat["batter"]["name"],
         "batter_id": feat["batter"]["id"],
@@ -1789,15 +1831,18 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
     etc., this module's own copies) and summed across every game in the
     session instead of recomputed per game on open.
 
-    Two known approximations, both inherited from the scorecard this is
-    modeled on (see its own doc comment above _scoreboard/computeDecisions in
-    app.js): RBI is the play's own `runs` field, since no explicit RBI column
-    exists; and ER is just runs allowed, since this league's result-code
-    taxonomy has no error/misplay distinction to separate earned from
-    unearned. Decisions (W/L/SV/HD) come only from the Games tab's own
-    Winning/Losing Pitcher/Save/Hold columns via _pitcher_decisions_from_game
-    - the same source the live scorecard prefers - never app.js's
-    computeDecisions heuristic fallback, which isn't ported here.
+    One known approximation, inherited from the scorecard this is modeled on
+    (see its own doc comment above _scoreboard/computeDecisions in app.js):
+    RBI is the play's own `runs` field, since no explicit RBI column exists.
+    ER, by contrast, is real per-pitcher earned-run credit from the sheet's
+    er1-er4 cells (see _er_pitcher_ids) rather than a blanket "runs allowed
+    by whoever's pitching now" - the whole point being that a relief
+    pitcher who lets an INHERITED runner score doesn't get charged with
+    that run; the pitcher who put the runner on base does. Decisions (W/L/
+    SV/HD) come only from the Games tab's own Winning/Losing Pitcher/Save/
+    Hold columns via _pitcher_decisions_from_game - the same source the
+    live scorecard prefers - never app.js's computeDecisions heuristic
+    fallback, which isn't ported here.
 
     `award` on each row (None when this player won nothing) is looked up
     from `awards` (_load_session_awards' output, keyed by season/session/
@@ -1927,7 +1972,23 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
                 _bump(p, "k")
             if result in DOUBLE_PLAY_CODES:
                 _bump(p, "dp")
-            _bump(p, "er", runs)
+            # Earned runs: explicit per-run pitcher credit from the sheet's
+            # er1-er4 cells (m["er_ids"], see _er_pitcher_ids) - a relief
+            # pitcher who lets an INHERITED runner score charges that run
+            # back to whichever pitcher actually put the runner on base,
+            # never the pitcher on the mound when it crosses the plate.
+            # Any run this play's er cells don't explicitly cover (a rare
+            # data-entry gap in the historical archive, or any other
+            # situation with no er credit) falls back to the CURRENT
+            # pitcher (Alex's call) rather than going unattributed.
+            er_ids = list(m.get("er_ids") or [])
+            if len(er_ids) < runs:
+                er_ids = er_ids + [pitcher_id] * (runs - len(er_ids))
+            for er_pid in er_ids:
+                if not er_pid:
+                    continue
+                er_name = m["pitcher_name"] if er_pid == pitcher_id else _player_view(ref, er_pid)["name"]
+                _bump(_row(pitching, er_pid, er_name), "er")
             # Pitching team's own WPA is the negative of the batting team's
             # (same `wpa` value every play already carries) - every play
             # this pitcher was on the mound for, same "outs always count"

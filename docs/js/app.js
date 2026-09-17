@@ -13806,14 +13806,22 @@
 
   function buildPitchingStints(teamAbbr, plays) {
     var stints = [];
+    var stintByPitcher = {};
     plays.forEach(function (p) {
       if (p.def_team_abbr !== teamAbbr) return;
       var last = stints[stints.length - 1];
       if (!last || last.pitcherId !== p.pitcher_id) {
-        stints.push({ pitcherId: p.pitcher_id, name: p.pitcher_name, startPlayNum: p.play_num, plays: [p] });
-      } else {
-        last.plays.push(p);
+        last = { pitcherId: p.pitcher_id, name: p.pitcher_name, startPlayNum: p.play_num, plays: [] };
+        stints.push(last);
       }
+      last.plays.push(p);
+      // Last stint seen for this pitcher id wins - covers the rare case of
+      // a pitcher re-entering the same game; every earlier-inherited-runner
+      // ER credit below (stintByPitcher lookups happen only after this
+      // whole loop finishes) lands on whichever of their stints was their
+      // most recent by the end of the game, same call as the "last name
+      // seen wins" precedent elsewhere in this file for a short session.
+      stintByPitcher[p.pitcher_id] = last;
     });
     stints.forEach(function (stint) {
       var outs = 0, bf = 0, h = 0, r = 0, bb = 0, k = 0;
@@ -13835,6 +13843,30 @@
       stint.outs = outs;
       stint.ip = Math.floor(outs / 3) + "." + (outs % 3);
       stint.bf = bf; stint.h = h; stint.r = r; stint.bb = bb; stint.k = k;
+      stint.er = 0;
+    });
+    // Earned runs: explicit per-run pitcher credit from each play's er_ids
+    // (key_moments_build.py's _er_pitcher_ids/build_moment) - a relief
+    // pitcher who lets an INHERITED runner score doesn't get charged with
+    // that run; the pitcher who actually put the runner on base does, even
+    // when that's an earlier stint than the one the run itself falls in.
+    // Any run a play's er_ids doesn't explicitly cover (a rare sheet
+    // data-entry gap, or a season with no er data at all) falls back to
+    // that play's own CURRENT pitcher (Alex's call) - same fallback
+    // key_moments_build.py's server-side session-stats ER uses, so a
+    // season with no er cells degrades to the old runs-allowed-only
+    // behavior automatically.
+    plays.forEach(function (p) {
+      if (p.def_team_abbr !== teamAbbr) return;
+      var runs = p.runs || 0;
+      if (!runs) return;
+      var erIds = (p.er_ids || []).slice();
+      while (erIds.length < runs) erIds.push(p.pitcher_id);
+      erIds.forEach(function (pid) {
+        if (pid == null) return;
+        var stint = stintByPitcher[pid];
+        if (stint) stint.er += 1;
+      });
     });
     return stints;
   }
@@ -14801,7 +14833,7 @@
         '<span class="sc-pitch-name">' + escapeHtml(stint.name || "") +
           (decision ? ' <span class="pitch-decision">' + decision + "</span>" : "") +
         "</span>" +
-        pitchStatLineHtml(stint.ip, stint.bf, stint.h, stint.r, stint.bb, stint.k) +
+        pitchStatLineHtml(stint.ip, stint.bf, stint.h, stint.er, stint.bb, stint.k) +
       "</div>" +
       groups.map(function (g) { return pitchInningRowHtml(box, oppAbbr, g); }).join("") +
       "</div>";
@@ -14811,13 +14843,13 @@
     var abbr = teamKey === "away" ? box.awayAbbr : box.homeAbbr;
     var oppAbbr = teamKey === "away" ? box.homeAbbr : box.awayAbbr;
     var stints = box[teamKey].pitching;
-    var totals = { outs: 0, bf: 0, h: 0, r: 0, bb: 0, k: 0 };
+    var totals = { outs: 0, bf: 0, h: 0, er: 0, bb: 0, k: 0 };
     stints.forEach(function (s) {
-      totals.outs += s.outs; totals.bf += s.bf; totals.h += s.h; totals.r += s.r; totals.bb += s.bb; totals.k += s.k;
+      totals.outs += s.outs; totals.bf += s.bf; totals.h += s.h; totals.er += s.er; totals.bb += s.bb; totals.k += s.k;
     });
     var totalsIp = Math.floor(totals.outs / 3) + "." + (totals.outs % 3);
     return scorecardTeamHeaderHtml(abbr,
-      pitchStatLineHtml(totalsIp, totals.bf, totals.h, totals.r, totals.bb, totals.k)) +
+      pitchStatLineHtml(totalsIp, totals.bf, totals.h, totals.er, totals.bb, totals.k)) +
       '<div class="sc-pitch-team">' +
         stints.map(function (s) { return pitcherSectionHtml(box, oppAbbr, s); }).join("") +
       "</div>";
