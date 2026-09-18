@@ -166,6 +166,33 @@ def get_plays_for_pitcher_id(player_id: int, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+def get_plays_for_catcher(catcher_name: str, leagues: list[str] | None = None) -> list[dict]:
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("catcher_name", catcher_name)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
+
+
+def get_plays_for_catcher_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
+    """Plays by catcher_id - ties a human's history together across name changes."""
+    q = (
+        _client().table("plays")
+        .select("*, games(season, session_number, home_team, away_team, game_code)")
+        .eq("catcher_id", player_id)
+        .order("id", desc=False)
+    )
+    if leagues:
+        q = q.in_("league", leagues)
+    raw = _fetch_all(q)
+    return [p for p in raw if p.get("game_type") != "scrimmage"]
+
+
 def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")

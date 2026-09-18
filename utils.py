@@ -1006,6 +1006,11 @@ def filter_by_prior_context(
     leverage_threshold: float = 1.5,
     first_pitch_appearance: bool | None = None,
     first_pitch_inning: bool | None = None,
+    pitch_col: str = "pitch",
+    delta_col: str = "pitch_circ_delta",
+    fp_app_col: str = "is_fp_app",
+    fp_inn_col: str = "is_fp_inn",
+    result_category_fn=None,
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
 
@@ -1021,31 +1026,38 @@ def filter_by_prior_context(
     is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only the pitcher's
     first pitch of the game appearance/half-inning; left None, all pitches
     pass through unfiltered.
+
+    pitch_col/delta_col/fp_app_col/fp_inn_col/result_category_fn default to
+    the pitch/swing page's column names and seq_result_category; pass the
+    Catcher tab's throw-side equivalents (throw_num column, throw_circ_delta,
+    is_ft_app, is_ft_inn, steal_result_category) to reuse this for throws.
     """
+    if result_category_fn is None:
+        result_category_fn = seq_result_category
     d = df.sort_values("id").reset_index(drop=True)
     keep = pd.Series(True, index=d.index)
 
     if prev_pitch_bucket is not None:
         lo, hi = prev_pitch_bucket
-        keep &= pd.to_numeric(d["pitch"], errors="coerce").shift(1).between(lo, hi)
+        keep &= pd.to_numeric(d[pitch_col], errors="coerce").shift(1).between(lo, hi)
 
     if prev_delta_bucket is not None:
         lo, hi = prev_delta_bucket
-        keep &= pd.to_numeric(d["pitch_circ_delta"], errors="coerce").shift(1).between(lo, hi)
+        keep &= pd.to_numeric(d[delta_col], errors="coerce").shift(1).between(lo, hi)
 
     if prev_result_cat is not None:
-        prev_cat = d["result"].shift(1).map(lambda r: seq_result_category(r) if pd.notna(r) else None)
+        prev_cat = d["result"].shift(1).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
         keep &= (prev_cat == prev_result_cat)
 
     if leverage_bucket is not None and "_leverage" in d.columns:
         keep &= (d["_leverage"] < leverage_threshold) if leverage_bucket == "low" \
                 else (d["_leverage"] >= leverage_threshold)
 
-    if first_pitch_appearance and "is_fp_app" in d.columns:
-        keep &= d["is_fp_app"].astype(bool)
+    if first_pitch_appearance and fp_app_col in d.columns:
+        keep &= d[fp_app_col].astype(bool)
 
-    if first_pitch_inning and "is_fp_inn" in d.columns:
-        keep &= d["is_fp_inn"].astype(bool)
+    if first_pitch_inning and fp_inn_col in d.columns:
+        keep &= d[fp_inn_col].astype(bool)
 
     return d[keep]
 
@@ -1220,6 +1232,15 @@ def compute_game_wp_series(
 
 
 # Result ranges: (result, diff_low, diff_high) - from the league result table
+def steal_result_ranges(safe_range: int) -> list[tuple[str, int, int]]:
+    """Synthetic 2-category result_ranges for a steal attempt: diffs at or
+    under safe_range are Safe (SB), everything past it is Caught Stealing
+    (CS). Lets the OBR-style scoring/chart machinery (swing_predictor_chart,
+    suggest_swing, optimal_swing_chart, etc.) reuse directly for catchers by
+    treating "SB" as the on-base-equivalent category via obr_extra={"SB"}."""
+    return [("SB", 0, safe_range), ("CS", safe_range + 1, 500)]
+
+
 RESULT_RANGES = [
     ("HR",    0,   20),
     ("3B",   21,   25),
@@ -1275,6 +1296,9 @@ _RESULT_ZONE_COLORS = {
     "LODP":  "#2d000f",
     "TP":    "#220009",
     "LOTP":  "#180006",
+    # Steal attempts (catcher throw vs runner steal)
+    "SB":    "#2ca02c",
+    "CS":    "#b10026",
 }
 
 # Bunt result -> swing equivalent for color lookup
@@ -1297,25 +1321,21 @@ def _result_color(result: str) -> str:
     return "#cccccc"
 
 
+# 10 even 100-wide buckets, matching the radial views' 10 fixed 36-degree
+# slices (see _slice_counts / zone_polar) - value v's slice is (v-1)//100.
 ZONES = [
-    (1,   111,  "1-111"),
-    (112, 222,  "112-222"),
-    (223, 333,  "223-333"),
-    (334, 444,  "334-444"),
-    (445, 555,  "445-555"),
-    (556, 666,  "556-666"),
-    (667, 777,  "667-777"),
-    (778, 888,  "778-888"),
-    (889, 1000, "889-1000"),
+    (1,   100,  "1-100"),
+    (101, 200,  "101-200"),
+    (201, 300,  "201-300"),
+    (301, 400,  "301-400"),
+    (401, 500,  "401-500"),
+    (501, 600,  "501-600"),
+    (601, 700,  "601-700"),
+    (701, 800,  "701-800"),
+    (801, 900,  "801-900"),
+    (901, 1000, "901-1000"),
 ]
 ZONE_LABELS = [z[2] for z in ZONES]
-
-# Zone grid: displayed high→low, left→right, top→bottom (matches spreadsheet layout)
-ZONE_GRID = [
-    ["223-333", "112-222", "1-111"],
-    ["556-666", "445-555", "334-444"],
-    ["889-1000", "778-888", "667-777"],
-]
 
 # Delta range buckets (pitch change from previous at-bat)
 DELTA_RANGES = [
@@ -1524,6 +1544,15 @@ _SEQ_RESULT_ORDER = list(_RESULT_ZONE_COLORS.keys())
 _SEQ_K_OR_WORSE = set(_SEQ_RESULT_ORDER[_SEQ_RESULT_ORDER.index("K"):]) | {"KCS", "BDP"}
 # Fixed display / axis order for the prior-result signals.
 SEQ_RESULT_CATEGORIES = ["XBH", "BB-1B", "Out", "K+"]
+# Prior-result categories for the Catcher tab's Context Filters - steal
+# attempts are binary (Safe/Caught), unlike the four-way batting buckets above.
+STEAL_RESULT_CATEGORIES = ["Safe", "Out"]
+
+
+def steal_result_category(result: str) -> str:
+    """Safe / Out bucket for a steal-attempt result string (SB*/AutoSB -> Safe,
+    everything else, incl. CS* and any stray code, -> Out)."""
+    return "Safe" if str(result).startswith("SB") else "Out"
 # Live result strings that carry none of the usual spellings but are plainly one
 # of the four buckets. Found by diffing the plays table's distinct results
 # against _RESULT_ZONE_COLORS; without these they would silently default to
@@ -1856,6 +1885,64 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def enrich_catcher_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Catcher-throw counterpart to enrich_df: keeps only Steal-type rows and
+    adds diff, zone, res_category, FT flags, and delta columns for throw_num
+    (the catcher's roll) / steal_num (the runner's roll).
+
+    Unlike enrich_df, deltas are grouped by catcher only (not catcher+game) -
+    catcher-throw volume per player is low enough that Alex wants deltas to
+    span games rather than reset at each game boundary.
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+    if "play_type" not in df.columns:
+        return df.iloc[0:0]
+    df = df[df["play_type"].str.lower() == "steal"]
+    if df.empty:
+        return df
+    df["half"] = df["half"].fillna("top")
+
+    th = df["throw_num"].notna() & df["steal_num"].notna()
+    df.loc[th, "diff"] = df.loc[th].apply(
+        lambda r: circular_diff(int(r["throw_num"]), int(r["steal_num"])), axis=1
+    )
+
+    df["throw_zone"] = df["throw_num"].apply(lambda t: get_zone(int(t)) if pd.notna(t) else None)
+    df["res_category"] = df["result"].apply(steal_result_category)
+    df["is_meme_throw"] = df["throw_num"].isin(MEME_NUMBERS)
+    df["throw_last2"] = df["throw_num"].apply(
+        lambda t: int(str(int(t)).zfill(2)[-2:]) if pd.notna(t) else None
+    )
+    df["inning_label"] = df.apply(lambda r: inning_label(r["inning"], r["half"]), axis=1)
+
+    df = df.sort_values("id")
+    df["is_ft_inn"] = ~df.duplicated(subset=["game_id", "inning", "half"], keep="first")
+    df["is_ft_app"] = ~df.duplicated(subset=["game_id", "catcher_name"], keep="first")
+
+    # Named throw_num_circ_delta (not throw_circ_delta) to match the
+    # f"{value_col}_circ_delta" convention swing_predictor_chart derives from
+    # value_col="throw_num".
+    df["throw_num_circ_delta"] = pd.NA
+    df["throw_num_circ_delta2"] = pd.NA
+    df["throw_num_circ_delta2_signed"] = pd.NA
+    if th.any():
+        th_df = df[th]
+        gk_cat = th_df["catcher_name"].fillna("")
+        df.loc[th, "throw_num_circ_delta"] = th_df.groupby(
+            gk_cat, group_keys=False
+        )["throw_num"].apply(_circ_delta_group)
+        th_df2 = df[th]
+        gk_cat2 = th_df2["catcher_name"].fillna("")
+        df.loc[th, "throw_num_circ_delta2_signed"] = th_df2.groupby(
+            gk_cat2, group_keys=False
+        )["throw_num_circ_delta"].apply(lambda g: _wrap_delta2(g.diff()))
+        df.loc[th, "throw_num_circ_delta2"] = df.loc[th, "throw_num_circ_delta2_signed"].abs()
+
+    return df
+
+
 def flatten_games(plays: list[dict]) -> pd.DataFrame:
     """Flatten nested game data from Supabase join into flat columns."""
     rows = []
@@ -1897,48 +1984,6 @@ def flatten_scrimmage(plays: list[dict]) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ charts
 
-def zone_heatmap(
-    zone_counts: dict[str, int],
-    title: str = "Zone Frequency",
-    pct: bool = True,
-) -> go.Figure:
-    """3×3 heatmap of zone frequencies."""
-    total = sum(zone_counts.values()) or 1
-    z_vals = []
-    z_text = []
-    for row in ZONE_GRID:
-        z_row, t_row = [], []
-        for zone in row:
-            count = zone_counts.get(zone, 0)
-            z_row.append(count / total * 100)
-            pct_str = f"{count / total * 100:.1f}%" if pct else ""
-            t_row.append(f"<b>{zone}</b><br>{count}{f'<br>{pct_str}' if pct else ''}")
-        z_vals.append(z_row)
-        z_text.append(t_row)
-
-    fig = go.Figure(go.Heatmap(
-        z=z_vals,
-        text=z_text,
-        texttemplate="%{text}",
-        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
-        showscale=False,
-        xgap=3,
-        ygap=3,
-        hovertemplate="%{text}<extra></extra>",
-    ))
-    fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
-        height=260,
-        xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        margin=dict(l=10, r=10, t=45, b=10),
-        dragmode=False,
-        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
-                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
-    )
-    return fig
-
-
 def zone_polar(
     zone_counts: dict[str, int],
     title: str = "Zone Frequency",
@@ -1946,15 +1991,12 @@ def zone_polar(
 ) -> go.Figure:
     """Doughnut polar chart of zone frequencies.
 
-    Zones are laid out clockwise from the top (pitch 1 at 12 o'clock).
-    Coloring matches the 3x3 heatmap: blue=least frequent, white=mid, red=most frequent.
+    Zones are laid out clockwise from the top (pitch 1 at 12 o'clock), one
+    slice per ZONE_LABELS entry - the same 10 fixed slices the radial views use.
+    Coloring: blue=least frequent, white=mid, red=most frequent.
     compact=True uses smaller font and omits per-slice counts (for narrow column layouts).
     """
-    zones_ordered = [
-        "1-111", "112-222", "223-333",
-        "334-444", "445-555", "556-666",
-        "667-777", "778-888", "889-1000",
-    ]
+    zones_ordered = ZONE_LABELS
     total = sum(zone_counts.values()) or 1
     n = len(zones_ordered)
     deg_each = 360 / n
@@ -1962,7 +2004,7 @@ def zone_polar(
     min_c, max_c = min(counts), max(counts)
 
     def _bwr(count: int) -> str:
-        # Blue (#2166ac) -> white (#f7f7f7) -> red (#d6604d), matching zone_heatmap colorscale.
+        # Blue (#2166ac) -> white (#f7f7f7) -> red (#d6604d) diverging colorscale.
         t = (count - min_c) / (max_c - min_c) if max_c > min_c else 0.5
         if t <= 0.5:
             s = t * 2
@@ -2040,8 +2082,8 @@ def zone_polar(
 
 
 def _freq_bwr_color(count: float, min_c: float, max_c: float, alpha: float = 1.0) -> str:
-    """Blue (least frequent) -> white (mid) -> red (most frequent), matching
-    zone_heatmap's colorscale. Same formula as zone_polar's internal _bwr."""
+    """Blue (least frequent) -> white (mid) -> red (most frequent). Same
+    formula as zone_polar's internal _bwr."""
     t = (count - min_c) / (max_c - min_c) if max_c > min_c else 0.5
     if t <= 0.5:
         s = t * 2
@@ -2454,18 +2496,28 @@ def last_n_combined_chart(
     tick_weights: list[float] | None = None,
     pannable: bool = False,
     est_delta_overlay: bool = False,
+    value_col: str = "pitch",
+    opp_col: str = "swing",
+    value_label: str = "Pitch",
+    opp_label: str = "Swing",
+    pa_label: str = "PA",
+    highlight_col: str = "batter_name",
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
     highlight_name: swing markers for that batter use a star symbol.
     segment_games: breaks lines at game boundaries; dashes lines across inning boundaries.
+
+    value_col/opp_col/value_label/opp_label/pa_label/highlight_col default to
+    the pitch/swing page's names; pass the Catcher tab's throw/steal
+    equivalents to reuse this chart for throws.
     """
-    _df_filtered = df[df["pitch"].notna() & df["swing"].notna()].sort_values("id")
+    _df_filtered = df[df[value_col].notna() & df[opp_col].notna()].sort_values("id")
     df_last = _df_filtered.reset_index(drop=True) if pannable else _df_filtered.tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
-    pitches = df_last["pitch"].astype(int).tolist()
-    swings  = df_last["swing"].astype(int).tolist()
+    pitches = df_last[value_col].astype(int).tolist()
+    swings  = df_last[opp_col].astype(int).tolist()
     results = df_last["result"].tolist() if "result" in df_last.columns else [None] * n_actual
     delta_vals = df_last[delta_col].dropna().astype(int).tolist()
 
@@ -2474,7 +2526,7 @@ def last_n_combined_chart(
     x_delta = list(range(2, n_actual + 1))
     colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in deltas]
     hover = [
-        f"PA {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
+        f"{pa_label} {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
         for i in range(1, n_actual)
     ]
 
@@ -2485,8 +2537,8 @@ def last_n_combined_chart(
         swing_text = [str(s) for s in swing_y]
         n_swing_rows = n_actual - 1
         highlight_mask = (
-            df_last["batter_name"].iloc[:-1].eq(highlight_name).tolist()
-            if highlight_name and "batter_name" in df_last.columns else [False] * len(swing_x)
+            df_last[highlight_col].iloc[:-1].eq(highlight_name).tolist()
+            if highlight_name and highlight_col in df_last.columns else [False] * len(swing_x)
         )
     else:
         swing_x    = x_all
@@ -2495,8 +2547,8 @@ def last_n_combined_chart(
         result_offset = results
         n_swing_rows = n_actual
         highlight_mask = (
-            df_last["batter_name"].eq(highlight_name).tolist()
-            if highlight_name and "batter_name" in df_last.columns else [False] * n_actual
+            df_last[highlight_col].eq(highlight_name).tolist()
+            if highlight_name and highlight_col in df_last.columns else [False] * n_actual
         )
 
     # ── segmentation helper ───────────────────────────────────────────────────
@@ -2546,7 +2598,7 @@ def last_n_combined_chart(
     if can_segment:
         p_sx, p_sy, p_dx, p_dy = _segs(x_all, pitches, n_actual)
         fig.add_trace(go.Scatter(
-            x=p_sx, y=p_sy, mode="lines+markers+text", name="Pitch",
+            x=p_sx, y=p_sy, mode="lines+markers+text", name=value_label,
             legendgroup="pitch",
             text=_text(p_sy), textposition="top center", textfont=dict(size=10),
             line=dict(color="#d6604d", width=2), marker=dict(size=5),
@@ -2559,14 +2611,14 @@ def last_n_combined_chart(
             ), row=1, col=1)
     else:
         fig.add_trace(go.Scatter(
-            x=x_all, y=pitches, mode="lines+markers+text", name="Pitch",
+            x=x_all, y=pitches, mode="lines+markers+text", name=value_label,
             legendgroup="pitch",
             text=[str(p) for p in pitches], textposition="top center",
             textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
         ), row=1, col=1)
 
     # Swing trace
-    swing_name = "Swing" + (" (offset +1)" if swing_offset else "")
+    swing_name = opp_label + (" (offset +1)" if swing_offset else "")
     if highlight_name and any(highlight_mask):
         # Connecting line (segmented or plain), then separate marker traces
         if can_segment:
@@ -2649,7 +2701,7 @@ def last_n_combined_chart(
         ]
         est_colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in est_deltas]
         est_hover  = [
-            f"PA {x}: batter swing {swings[j+1]} vs prev pitch {pitches[j]} → est Δ {est_deltas[j]:+d}"
+            f"{pa_label} {x}: {opp_label.lower()} {swings[j+1]} vs prev {value_label.lower()} {pitches[j]} → est Δ {est_deltas[j]:+d}"
             for j, x in enumerate(x_delta)
         ]
         fig.add_trace(go.Scatter(
@@ -2721,7 +2773,7 @@ def last_n_combined_chart(
     x_range = [_view_start, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
     fig.update_xaxes(
-        title_text="← Older  ·  PA #  ·  Newer →",
+        title_text=f"← Older  ·  {pa_label} #  ·  Newer →",
         tickmode="linear", dtick=1, range=x_range, row=2, col=1,
     )
     fig.update_yaxes(range=[0, 1080], fixedrange=pannable, row=1, col=1)
@@ -2780,7 +2832,7 @@ def _radial_recency_figure(
     ticktext: list[str],
 ) -> go.Figure:
     """Shared doughnut-style polar scatter: recency sets both radius and color
-    (oldest at the center, newest at the rim, blue-white-red matching zone_heatmap).
+    (oldest at the center, newest at the rim, blue-white-red diverging scale).
     A thin hole keeps the center open. theta/hover must already be angle-mapped
     for the caller's value domain; tickvals/ticktext supply the spoke labels.
     A background wedge ring (see _slice_background_trace) shows how the plotted
@@ -3212,8 +3264,10 @@ def parse_gameplay_from_sheet(sheet_url: str) -> dict:
 
     Outs: gid 1498066521 (Gameday), L8 (row 7, col 11)
     Runners: gid 533199361, S6/T6/U6 (row 5, cols 18/19/20) - non-zero = runner present
+    Catcher/Batter: gid 533199361, BE17/BE18 (row 16/17, col 56) - raw sheet player id
 
-    Returns dict with keys: outs (int|None), obc (str|None), steal_runners (list).
+    Returns dict with keys: outs (int|None), obc (str|None), steal_runners (list),
+    runner_ids (dict), catcher_id (str|None), batter_id (str|None).
     """
     import re as _re
     sheet_id_match = _re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
@@ -3275,7 +3329,19 @@ def parse_gameplay_from_sheet(sheet_url: str) -> dict:
     if on_3b and u6 and u6 != "0":
         runner_ids["3B"] = u6
 
-    return {"outs": outs, "obc": obc, "steal_runners": runners, "runner_ids": runner_ids}
+    # Current catcher/batter raw sheet player ids - BE17/BE18 (row 16/17, col 56)
+    catcher_id = None
+    batter_id = None
+    if raw_runners is not None:
+        _cid = _cell(raw_runners, 16, 56)
+        if _cid and _cid != "0":
+            catcher_id = _cid
+        _bid = _cell(raw_runners, 17, 56)
+        if _bid and _bid != "0":
+            batter_id = _bid
+
+    return {"outs": outs, "obc": obc, "steal_runners": runners, "runner_ids": runner_ids,
+            "catcher_id": catcher_id, "batter_id": batter_id}
 
 
 def _default_safe_rng_for(base: str, raw_runners) -> int:
@@ -3381,6 +3447,10 @@ _BATTING_QUALITY: dict[str, float] = {
     "DP31": 0.00, "DPH1": 0.00, "TP": 0.00, "LOTP": 0.00,
     "B1BWH": 0.60, "B1B": 0.55,
     "SacB": 0.20, "DSacB": 0.25, "BDP": 0.00,
+    # Steal attempts (Catcher tab's Relevance Weighting "Result" axis: 0=weight
+    # good catcher throws (CS) more, 100=weight good runner steals (SB) more)
+    "SB": 1.00, "SB2": 1.00, "SB3": 1.00, "SB4": 1.00, "AutoSB": 1.00,
+    "CS": 0.00, "CS2": 0.00, "CS3": 0.00, "CS4": 0.00,
 }
 
 
@@ -3669,13 +3739,19 @@ def optimal_swing_chart(
     compact: bool = False,
     weights: list[float] | None = None,
     obr_extra: frozenset[str] = frozenset(),
+    metric_label: str | None = None,
+    x_label: str = "Swing",
 ) -> go.Figure:
     """1-row gradient heatmap showing expected OBP or SLG for every possible swing value.
 
     Marks both the best value (green vline) and the counter/worst value (orange dotted vline).
     weights: optional per-value relevance weights (same length as recent_opp_vals).
+    metric_label/x_label override the displayed metric/axis name (e.g. "Safe%"/
+    "Steal" for the Catcher tab's Optimal Steal reuse of this chart) without
+    changing which scoring branch `metric` selects.
     """
     import numpy as np
+    _label = metric_label or metric.upper()
     scores = _scores_via_fft(
         _build_weight_array(recent_opp_vals, weights),
         _diff_score_array(result_ranges, metric, obr_extra),
@@ -3695,8 +3771,8 @@ def optimal_swing_chart(
         y=[0],
         colorscale=colorscale,
         showscale=not compact,
-        colorbar=dict(title=dict(text=metric.upper(), side="right"), thickness=12, len=0.8),
-        hovertemplate=f"Swing: %{{x}}<br>Expected {metric.upper()}: %{{z:.3f}}<extra></extra>",
+        colorbar=dict(title=dict(text=_label, side="right"), thickness=12, len=0.8),
+        hovertemplate=f"{x_label}: %{{x}}<br>Expected {_label}: %{{z:.3f}}<extra></extra>",
     ))
 
     # Best vline: two-layer (dark outline + white center)
@@ -3818,7 +3894,7 @@ def hint_bars_figure(
     """Stacked horizontal range bars for swing/pitch suggestions.
 
     hints keys: Signal, Strength, lo, hi, lo2, hi2, _zone_dist (optional list[int]).
-    mode: "best" highlights the top zone(s) in green; "all" colors all 9 ZONES
+    mode: "best" highlights the top zone(s) in green; "all" colors all ZONES
           by relative frequency using a diverging green/red scale.
     mobile: compact layout - labels inside bars, l/r margins collapsed to ~5px.
     prior_val: most-recent pitch/swing; draws a dotted reference line + ▼ marker.
@@ -3917,7 +3993,7 @@ def hint_bars_figure(
                 # Non-delta row: color by zone bucket frequency (existing behavior).
                 total_dist = sum(zone_dist)
                 if total_dist > 0:
-                    _zbkt = h.get("_zone_bucket_size", 111)
+                    _zbkt = h.get("_zone_bucket_size", 100)
                     _zn   = 1000 // _zbkt
                     for bi in range(_zn):
                         lo_z  = bi * _zbkt + 1
@@ -5075,7 +5151,7 @@ def context_zone_hint(
 
 
 def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
-    """Return top-zone hint for the highest-count ZONES grid cell (111-unit buckets).
+    """Return top-zone hint for the highest-count ZONES grid cell (100-unit buckets).
 
     Handles ties by collecting all tied zones, merging contiguous ones.
     Returns: {lo, hi, lo2, hi2, prob, n, _zone_dist} or None.
@@ -5083,13 +5159,17 @@ def best_zone_hint(df: pd.DataFrame, value_col: str) -> dict | None:
     zone_col = f"{value_col}_zone"
     if zone_col not in df.columns:
         return None
+    _idx = {z[2]: i for i, z in enumerate(ZONES)}
+    # Drop any zone label that isn't one of the current ZONES buckets - stale
+    # cached rows can carry an older bucketing's labels (e.g. after ZONES'
+    # width changes) until their st.cache_data entry expires/reruns.
     counts = df[zone_col].dropna().value_counts()
+    counts = counts[counts.index.isin(_idx)]
     if counts.empty:
         return None
     total = int(counts.sum())
     top_n = int(counts.iloc[0])
 
-    _idx = {z[2]: i for i, z in enumerate(ZONES)}
     tied = sorted((lbl for lbl, c in counts.items() if c == top_n),
                   key=lambda l: _idx.get(l, 99))
 
@@ -5210,7 +5290,7 @@ def hint_zscore(prob: float, n: int, n_bkts: int) -> float:
 
 def delta_next_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
-    centered: bool = False, zone_bucket_size: int = 111,
+    centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Bucket counts of the next pitch when the current pitch's circular delta is in the same bucket."""
     delta_col = f"{value_col}_circ_delta"
@@ -5413,9 +5493,11 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
     # Zone bucket (hz_bkt-wide) - outcome for the pitch-sequence indications,
     # mirroring seq2_hint / seq3_hint.
     zone_bkt = np.clip((vals - 1) // hz_bkt, 0, hz_n - 1).astype(int)
-    # 9-cell ZONES grid (111-unit; final cell 889-1000) - outcome for the
-    # context-zone indications, mirroring best_zone_hint's displayed rows.
-    zone9 = np.clip((vals - 1) // 111, 0, 8).astype(int)
+    # ZONES grid (100-unit buckets) - outcome for the context-zone indications,
+    # mirroring best_zone_hint's displayed rows. Width/count derived from ZONES
+    # itself so this stays in sync if that constant's bucketing ever changes.
+    _zone9_width = ZONES[0][1] - ZONES[0][0] + 1
+    zone9 = np.clip((vals - 1) // _zone9_width, 0, len(ZONES) - 1).astype(int)
 
     # |Delta| into each pitch (per game; NaN at each game's first pitch), then
     # bucketed two ways: variable dd_bkt bins and fixed 100-unit bins.
@@ -5526,20 +5608,20 @@ def _recency_indications(sw, value_col: str, hz_bkt: int, dd_bkt: int, dd2_bkt: 
     ind["Between-Inning Δ"] = (
         ["bi" if (bool(fp_inn[i]) and not bool(fp_app[i])) else None for i in range(n)],
         da100, len(_DELTA_HM_BINS) - 1)
-    # The context-zone indications below use the 9-cell ZONES grid (zb9) as the
+    # The context-zone indications below use the ZONES grid (zb9) as the
     # outcome, matching their displayed best_zone_hint rows.
     # Outs: outs value -> zone9 (no sequence, so no game guard).
     ind["Outs"] = (
-        [_int_or_none(outs[i]) for i in range(n)], zb9, 9)
+        [_int_or_none(outs[i]) for i in range(n)], zb9, len(ZONES))
     # Base state: empty vs runners-on -> zone9.
     ind["Base state"] = (
         [None if (obc[i] is None or (isinstance(obc[i], float) and np.isnan(obc[i])))
-         else ("empty" if str(obc[i]) == "000" else "runners") for i in range(n)], zb9, 9)
+         else ("empty" if str(obc[i]) == "000" else "runners") for i in range(n)], zb9, len(ZONES))
     # First pitch of appearance / inning: constant context over eligible rows.
     ind["1st pitch appearance"] = (
-        ["fpa" if bool(fp_app[i]) else None for i in range(n)], zb9, 9)
+        ["fpa" if bool(fp_app[i]) else None for i in range(n)], zb9, len(ZONES))
     ind["1st pitch inning"] = (
-        ["fpi" if bool(fp_inn[i]) else None for i in range(n)], zb9, 9)
+        ["fpi" if bool(fp_inn[i]) else None for i in range(n)], zb9, len(ZONES))
     return ind
 
 
@@ -6287,7 +6369,7 @@ def scouting_recency_linechart(detail: dict) -> go.Figure:
 def delta3_next_zone_dist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
     prior_delta_1: int, prior_delta_2: int,
-    centered: bool = False, zone_bucket_size: int = 111,
+    centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Bucket counts of the next pitch when the prior two circular deltas match the given buckets."""
     delta_col = f"{value_col}_circ_delta"
@@ -6379,7 +6461,7 @@ def _delta_hist_to_pitch_zones(
 
 def delta_zone_via_delta_hist(
     df: pd.DataFrame, value_col: str, bucket_size: int, prior_delta: int,
-    prior_pitch: int, centered: bool = False, zone_bucket_size: int = 111,
+    prior_pitch: int, centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Pitch zone dist for 2-delta rows: next-delta histogram converted via prior_pitch."""
     delta_col = f"{value_col}_circ_delta"
@@ -6404,7 +6486,7 @@ def delta_zone_via_delta_hist(
 def delta3_zone_via_delta_hist(
     df: pd.DataFrame, value_col: str, bucket_size: int,
     prior_delta_1: int, prior_delta_2: int, prior_pitch: int,
-    centered: bool = False, zone_bucket_size: int = 111,
+    centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Pitch zone dist for 3-delta rows: next-delta histogram converted via prior_pitch."""
     delta_col = f"{value_col}_circ_delta"
@@ -6432,7 +6514,7 @@ def delta3_zone_via_delta_hist(
 
 def diff_next_zone_dist(
     df: pd.DataFrame, value_col: str, prior_diff: int,
-    centered: bool = False, zone_bucket_size: int = 111,
+    centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Bucket counts of the next pitch when the current diff falls in the same quality bucket."""
     if "diff" not in df.columns or df[value_col].isna().all():
@@ -6458,7 +6540,7 @@ def diff_next_zone_dist(
 
 def diff_to_delta_zone_dist(
     df: pd.DataFrame, value_col: str, prior_diff: int, prior_pitch: int,
-    centered: bool = False, zone_bucket_size: int = 111,
+    centered: bool = False, zone_bucket_size: int = 100,
 ) -> list[int] | None:
     """Zone distribution for Prior-diff->delta row: projects next-delta histogram via prior_pitch.
     Conditions on current diff bucket (same as diff_to_delta_hint) then uses delta projection
@@ -6577,7 +6659,7 @@ def swing_predictor_chart(
             line=dict(width=0.5, color="white"),
         ),
         name="Recent Pitches",
-        hovertemplate=f"{value_col.capitalize()}: %{{x}}<extra></extra>",
+        hovertemplate=f"{x_label.replace(' Values', '').replace(' Value', '')}: %{{x}}<extra></extra>",
     ))
 
     # Delta scale - tick marks above the zone bar showing Δ from the most recent value
@@ -7930,15 +8012,25 @@ def next_delta_vs_prior_delta_heatmap(
     title: str = "Next Pitch Δ vs Prior Pitch Δ",
     value_col: str = "pitch",
     bucket_size: int = 50,
+    delta_col: str | None = None,
+    group_cols: list[str] | None = None,
 ) -> go.Figure:
     """Heatmap: next delta vs prior delta for consecutive plays.
 
     Shows how pitcher/batter adjusts their next movement based on their previous movement.
     X = prior pitch/swing delta bin; Y = next pitch/swing delta bin.
     bucket_size must divide 500 evenly.
+
+    delta_col/group_cols default to the pitch/swing derivation below when left
+    None; pass them explicitly for a different value column (e.g. the Catcher
+    tab's throw_num, grouped by catcher_name only - no game_id - so deltas
+    span games).
     """
-    delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
-    group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+    if delta_col is None:
+        delta_col = "pitch_circ_delta" if value_col == "pitch" else "swing_circ_delta"
+    if group_cols is None:
+        group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
+        group_cols = ["game_id", group_col]
 
     bins = list(range(0, 501, bucket_size))
     labels = [f"{i}-{i + bucket_size}" for i in range(0, 500, bucket_size)]
@@ -7947,16 +8039,16 @@ def next_delta_vs_prior_delta_heatmap(
     if len(df_sw) < 2:
         return go.Figure()
 
-    df_sw = df_sw.sort_values(["game_id", group_col, "id"])
+    df_sw = df_sw.sort_values(group_cols + ["id"])
 
     # Always recalculate deltas fresh to ensure proper grouping for filtered data
-    df_sw[delta_col] = df_sw.groupby(["game_id", group_col], group_keys=False)[value_col].apply(_circ_delta_group)
+    df_sw[delta_col] = df_sw.groupby(group_cols, group_keys=False)[value_col].apply(_circ_delta_group)
 
     df_sw = df_sw[df_sw[delta_col].notna()].copy()
     if len(df_sw) < 2:
         return go.Figure()
 
-    df_sw["_next_delta"] = df_sw.groupby(["game_id", group_col])[delta_col].shift(-1)
+    df_sw["_next_delta"] = df_sw.groupby(group_cols)[delta_col].shift(-1)
     df_sw = df_sw.dropna(subset=["_next_delta"])
     if df_sw.empty:
         return go.Figure()

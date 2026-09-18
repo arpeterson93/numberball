@@ -404,6 +404,14 @@ def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int =
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
+def _load_catcher_plays(catcher_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
+    _pid = _player_dir()["name_to_pid"].get(catcher_name)
+    _lg = list(leagues) if leagues else None
+    raw = (db.get_plays_for_catcher_id(_pid, _lg) if _pid is not None
+           else db.get_plays_for_catcher(catcher_name, _lg))
+    return utils.enrich_catcher_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
 def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
     raw = db.get_plays_for_team_offense(team_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
@@ -416,6 +424,13 @@ def _load_all_games(data_v: int = 0) -> list:
 def _load_scrimmage_plays() -> pd.DataFrame:
     raw = db.get_all_scrimmage_plays()
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def _load_scrimmage_catcher_plays() -> pd.DataFrame:
+    # enrich_df (behind _load_scrimmage_plays) drops Steal rows, so the Catcher
+    # tab needs its own scrimmage load through enrich_catcher_df instead.
+    raw = db.get_all_scrimmage_plays()
+    return utils.enrich_catcher_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def _load_all_players() -> list:
@@ -637,6 +652,9 @@ def _on_tab_p_team():
 
 def _on_tab_b_team():
     st.session_state["tab_b_batter"] = "All"
+
+def _on_tab_c_team():
+    st.session_state["tab_c_catcher"] = "All"
 
 # ── import helper ─────────────────────────────────────────────────────────────
 
@@ -1059,6 +1077,27 @@ elif pred_mode == "Fetch Live Matchup":
                     st.session_state[f"pred_calc_{_base_ltr}b_spd"] = int(_rspd)
                 else:
                     st.session_state.pop(f"pred_calc_{_base_ltr}b_spd", None)
+
+            # Resolve the current catcher/batter (Gameplay BE17/BE18) the same way,
+            # and drive the Catcher/Batter tabs' own Data Filters dropdowns from them -
+            # more reliable than the name-matched _fp/_fb above since it's id-based.
+            def _resolve_sheet_player_name(_raw_id):
+                if not _raw_id:
+                    return ""
+                _sheet: dict = {}
+                if _is_mln_mg and _season_mg:
+                    _sheet = _p_by_sid.get(f"{_season_mg}_{_raw_id}", {})
+                if not _sheet:
+                    _sheet = _p_by_pid.get(str(_raw_id), {})
+                return _sheet.get("name", "") if _sheet else ""
+
+            _gp_catcher_name = _resolve_sheet_player_name(_gp.get("catcher_id"))
+            if _gp_catcher_name in _all_player_names:
+                st.session_state["tab_c_catcher"] = _gp_catcher_name
+            _gp_batter_name = _resolve_sheet_player_name(_gp.get("batter_id"))
+            if _gp_batter_name in _all_player_names:
+                st.session_state["tab_b_batter"] = _gp_batter_name
+
             st.session_state["mgr_away_score"] = int(_mg["away_score"]) if _mg.get("away_score") is not None else 0
             st.session_state["mgr_home_score"] = int(_mg["home_score"]) if _mg.get("home_score") is not None else 0
             _gplays = _load_game_plays(_mg["id"], st.session_state.get("_data_v", 0))
@@ -1333,7 +1372,7 @@ st.divider()
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-tab_p, tab_b, tab_m, tab_g = st.tabs(["⚾ Pitcher", "🦇 Batter", "📊 Manager", "📈 Game"])
+tab_p, tab_b, tab_c, tab_m, tab_g = st.tabs(["⚾ Pitcher", "🦇 Batter", "🧤 Catcher", "📊 Manager", "📈 Game"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PITCHER TAB
@@ -1763,10 +1802,10 @@ with tab_p:
                     _hint_rows_p.append({"Signal": f"Outs({_h_outs})",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             if "obc" in df_p.columns:
                 _obc_is_zero = (_h_obc == "000")
@@ -1777,10 +1816,10 @@ with tab_p:
                     _hint_rows_p.append({"Signal": f"Base state ({_obc_lbl_p})",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             _cur_game_id  = st.session_state.get("game_tab_sel")
             _cur_inn      = int(st.session_state.get("mgr_inning", 1))
@@ -1812,10 +1851,10 @@ with tab_p:
                     _hint_rows_p.append({"Signal": "1st pitch inning",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             if "is_fp_app" in df_p.columns and _show_fp_app_p:
                 _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
@@ -1823,10 +1862,10 @@ with tab_p:
                     _hint_rows_p.append({"Signal": "1st pitch appearance",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             # Sort ALL rows by z-score descending - OBP rows are no longer pinned
             # at top; their z-scores are now on the same statistical footing as
@@ -2559,20 +2598,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 width="stretch", config={"displayModeBar": False}, key="p_shadow_delta_hm",
             )
 
-            # ── zone charts (shared polar toggle) ────────────────────────────────
+            # ── zone charts ──────────────────────────────────────────────────────
             st.divider()
             @st.fragment
             def _zone_delta_section_p(df_p, _deltas_p, _obr_lo, _obr_hi, _swing_val):
-                _polar_p = st.toggle("Polar view", value=True, key="polar_p")
-
                 st.subheader("Zone Distribution (All)")
                 _zone_counts_p = df_p["pitch_zone"].value_counts().to_dict()
-                if _polar_p:
-                    st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
-                                    width="stretch", key="p_zone_all")
-                else:
-                    st.plotly_chart(utils.zone_heatmap(_zone_counts_p, title="Pitch Zone Frequency"),
-                                    width="stretch", key="p_zone_all")
+                st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
+                                width="stretch", key="p_zone_all")
 
                 # ── OBR pitch frequency (speedometer) ──────────────────────────────────
                 st.subheader("OBR Pitch Frequency")
@@ -2606,20 +2639,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 col_a_p, col_b_p = st.columns(2)
                 with col_a_p:
                     _fpa_counts = _fpa["pitch_zone"].value_counts().to_dict() if not _fpa.empty else {}
-                    if _polar_p:
-                        st.plotly_chart(utils.zone_polar(_fpa_counts, title="First Pitch of Appearance"),
-                                        width="stretch", config={"displayModeBar": False}, key="p_fpa")
-                    else:
-                        st.plotly_chart(utils.zone_heatmap(_fpa_counts, title=f"First Pitch of Appearance (n={len(_fpa)})"),
-                                        width="stretch", config={"displayModeBar": False}, key="p_fpa")
+                    st.plotly_chart(utils.zone_polar(_fpa_counts, title="First Pitch of Appearance"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpa")
                 with col_b_p:
                     _fpi_counts = _fpi["pitch_zone"].value_counts().to_dict() if not _fpi.empty else {}
-                    if _polar_p:
-                        st.plotly_chart(utils.zone_polar(_fpi_counts, title="First Pitch of Inning"),
-                                        width="stretch", config={"displayModeBar": False}, key="p_fpi")
-                    else:
-                        st.plotly_chart(utils.zone_heatmap(_fpi_counts, title=f"First Pitch of Inning (n={len(_fpi)})"),
-                                        width="stretch", config={"displayModeBar": False}, key="p_fpi")
+                    st.plotly_chart(utils.zone_polar(_fpi_counts, title="First Pitch of Inning"),
+                                    width="stretch", config={"displayModeBar": False}, key="p_fpi")
 
                 # ── zone by out count ─────────────────────────────────────────────────
                 st.subheader("Zone by Out Count")
@@ -2628,12 +2653,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _dfo = df_p[df_p["outs"] == _oc]
                     _oc_counts = _dfo["pitch_zone"].value_counts().to_dict() if not _dfo.empty else {}
                     with _cols_p[_i]:
-                        if _polar_p:
-                            st.plotly_chart(utils.zone_polar(_oc_counts, title=f"{_oc} Outs", compact=True),
-                                            width="stretch", key=f"p_oc_{_oc}")
-                        else:
-                            st.plotly_chart(utils.zone_heatmap(_oc_counts, title=f"{_oc} Outs (n={len(_dfo)})"),
-                                            width="stretch", key=f"p_oc_{_oc}")
+                        st.plotly_chart(utils.zone_polar(_oc_counts, title=f"{_oc} Outs", compact=True),
+                                        width="stretch", key=f"p_oc_{_oc}")
 
                 # ── zone by base state ────────────────────────────────────────────────
                 st.subheader("Zone by Base State")
@@ -2645,12 +2666,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _df_obc = df_p[df_p["obc"].isin(_obc_vals)]
                     _obc_counts = _df_obc["pitch_zone"].value_counts().to_dict() if not _df_obc.empty else {}
                     with _col:
-                        if _polar_p:
-                            st.plotly_chart(utils.zone_polar(_obc_counts, title=_lbl),
-                                            width="stretch", key=f"p_obc_{_lbl}")
-                        else:
-                            st.plotly_chart(utils.zone_heatmap(_obc_counts, title=f"{_lbl} (n={len(_df_obc)})"),
-                                            width="stretch", key=f"p_obc_{_lbl}")
+                        st.plotly_chart(utils.zone_polar(_obc_counts, title=_lbl),
+                                        width="stretch", key=f"p_obc_{_lbl}")
 
                 # ── pitch delta distributions ─────────────────────────────────────────
                 st.subheader("Pitch Delta Distributions")
@@ -2950,10 +2967,10 @@ with tab_b:
                     _hint_rows_b.append({"Signal": f"Outs({_hb_outs})",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             if "obc" in df_b.columns:
                 _obc_is_zero_b = (_hb_obc == "000")
@@ -2964,10 +2981,10 @@ with tab_b:
                     _hint_rows_b.append({"Signal": f"Base state ({_obc_lbl_b})",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             _cur_game_id_b = st.session_state.get("game_tab_sel")
             _cur_inn_b     = int(st.session_state.get("mgr_inning", 1))
@@ -2989,10 +3006,10 @@ with tab_b:
                     _hint_rows_b.append({"Signal": "1st pitch inning",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             if "is_fp_app" in df_b.columns and _show_fp_app_b:
                 _h = utils.best_zone_hint(df_b[df_b["is_fp_app"] == True], "swing")
@@ -3000,10 +3017,10 @@ with tab_b:
                     _hint_rows_b.append({"Signal": "1st pitch appearance",
                                          "lo": _h["lo"], "hi": _h["hi"],
                                          "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hbstr(_h["prob"], _h["n"], 9),
+                                         "Strength": _hbstr(_h["prob"], _h["n"], len(utils.ZONES)),
                                          "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 111,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], 9)})
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
 
             # Sort ALL rows by z-score descending - OBP rows are no longer pinned
             # at top; their z-scores are now on the same statistical footing as
@@ -3322,27 +3339,22 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             @st.fragment
             def _zone_delta_section_b(df_b, _deltas_b):
                 st.subheader("Swing Zone Distribution (All)")
-                _zone_polar_b = st.toggle("Polar view", value=True, key="zone_polar_b")
                 _zone_counts_b = df_b["swing_zone"].value_counts().to_dict()
-                if _zone_polar_b:
-                    st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
-                                    width="stretch", key="b_zone_all")
-                else:
-                    st.plotly_chart(utils.zone_heatmap(_zone_counts_b, title="Swing Zone Frequency"),
-                                    width="stretch", key="b_zone_all")
+                st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
+                                width="stretch", key="b_zone_all")
 
                 # ── first pitch swing tendencies ──────────────────────────────────────
                 st.subheader("First Pitch Swing Tendencies")
                 col_a_b, col_b_b = st.columns(2)
                 with col_a_b:
                     _fpab = df_b[df_b["is_fp_app"] == True]
-                    st.plotly_chart(utils.zone_heatmap(_fpab["swing_zone"].value_counts().to_dict() if not _fpab.empty else {},
-                                                       title=f"First Pitch of Appearance (n={len(_fpab)})"),
+                    st.plotly_chart(utils.zone_polar(_fpab["swing_zone"].value_counts().to_dict() if not _fpab.empty else {},
+                                                     title="First Pitch of Appearance"),
                                     width="stretch", config={"displayModeBar": False}, key="b_fpa")
                 with col_b_b:
                     _fpib = df_b[df_b["is_fp_inn"] == True]
-                    st.plotly_chart(utils.zone_heatmap(_fpib["swing_zone"].value_counts().to_dict() if not _fpib.empty else {},
-                                                       title=f"First Pitch of Inning (n={len(_fpib)})"),
+                    st.plotly_chart(utils.zone_polar(_fpib["swing_zone"].value_counts().to_dict() if not _fpib.empty else {},
+                                                     title="First Pitch of Inning"),
                                     width="stretch", config={"displayModeBar": False}, key="b_fpi")
 
                 # ── zone by out count ─────────────────────────────────────────────────
@@ -3351,8 +3363,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 for _i, _oc in enumerate([0, 1, 2]):
                     _dfo_b = df_b[df_b["outs"] == _oc]
                     with _cols_b[_i]:
-                        st.plotly_chart(utils.zone_heatmap(_dfo_b["swing_zone"].value_counts().to_dict() if not _dfo_b.empty else {},
-                                                           title=f"{_oc} Outs (n={len(_dfo_b)})"), width="stretch", key=f"b_oc_{_oc}")
+                        st.plotly_chart(utils.zone_polar(_dfo_b["swing_zone"].value_counts().to_dict() if not _dfo_b.empty else {},
+                                                         title=f"{_oc} Outs", compact=True), width="stretch", key=f"b_oc_{_oc}")
 
                 # ── zone by base state ────────────────────────────────────────────────
                 st.subheader("Swing Zone by Base State")
@@ -3363,8 +3375,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 ]):
                     _df_obc_b = df_b[df_b["obc"].isin(_obc_vals)]
                     with _col:
-                        st.plotly_chart(utils.zone_heatmap(_df_obc_b["swing_zone"].value_counts().to_dict() if not _df_obc_b.empty else {},
-                                                           title=f"{_lbl} (n={len(_df_obc_b)})"), width="stretch", key=f"b_obc_{_lbl}")
+                        st.plotly_chart(utils.zone_polar(_df_obc_b["swing_zone"].value_counts().to_dict() if not _df_obc_b.empty else {},
+                                                         title=_lbl), width="stretch", key=f"b_obc_{_lbl}")
 
                 # ── swing delta distributions ─────────────────────────────────────────
                 st.subheader("Swing Delta Distributions")
@@ -3430,6 +3442,541 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                 "Pitch","Swing","Diff","Result","Category"]
             _disp_b = _disp_b.iloc[::-1].reset_index(drop=True)
             st.dataframe(_disp_b, use_container_width=True, hide_index=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CATCHER TAB
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Scouts a catcher's throw numbers (throw_num) on steal attempts the same way
+# the Pitcher tab scouts pitch numbers - throw_num is the catcher's roll,
+# steal_num is the runner's roll (see utils.enrich_catcher_df). Unlike the
+# Pitcher/Batter tabs, catcher-throw volume per player is low enough that
+# deltas here span games rather than resetting at each game boundary -
+# enrich_catcher_df already builds throw_num_circ_delta* that way, so every
+# delta-based view below inherits it for free.
+
+with tab_c:
+    # ── per-tab data filters ──────────────────────────────────────────────────
+    with st.expander("Data Filters", expanded=False):
+        _cf1, _cf2 = st.columns(2)
+        with _cf1:
+            tab_c_seasons = st.multiselect("Season", _meta_seasons, default=_meta_seasons, key="tab_c_seasons")
+        _cf3, _cf4 = st.columns(2)
+        with _cf3:
+            if st.session_state.get("tab_c_team", "All") not in (["All"] + _all_teams):
+                st.session_state["tab_c_team"] = "All"
+            tab_c_team = st.selectbox("Catcher Team", ["All"] + _all_teams,
+                                      key="tab_c_team", on_change=_on_tab_c_team)
+        with _cf4:
+            _tab_c_catchers = _players_for_team(tab_c_team)
+            if st.session_state.get("tab_c_catcher", "All") not in (["All"] + _tab_c_catchers):
+                st.session_state["tab_c_catcher"] = "All"
+            tab_c_catcher = st.selectbox("Catcher", ["All"] + _tab_c_catchers,
+                                         key="tab_c_catcher")
+
+    # Build catcher tab df on demand
+    if tab_c_catcher != "All":
+        _c_dfs = []
+        if _source_key in ("real", "all") and _leagues_tuple:
+            _c_dfs.append(_load_catcher_plays(tab_c_catcher, _leagues_tuple, st.session_state.get("_data_v", 0)))
+        if _source_key in ("scrimmage", "all"):
+            _c_scrim_all = _load_scrimmage_catcher_plays()
+            _c_scrim = _c_scrim_all[_c_scrim_all["catcher_name"] == tab_c_catcher] \
+                if "catcher_name" in _c_scrim_all.columns else pd.DataFrame()
+            if not _c_scrim.empty:
+                _c_dfs.append(_c_scrim)
+        df_c = pd.concat(_c_dfs, ignore_index=True) if _c_dfs else pd.DataFrame()
+        if not df_c.empty and tab_c_seasons:
+            _is_scrim_c = (df_c.get("game_type") == "scrimmage") if "game_type" in df_c.columns else pd.Series(False, index=df_c.index)
+            df_c = df_c[df_c["season"].isin(tab_c_seasons) | _is_scrim_c]
+        if not df_c.empty and tab_c_team != "All":
+            df_c = df_c[df_c["def_team"] == tab_c_team]
+    else:
+        df_c = pd.DataFrame()
+
+    df_c_pred = df_c[df_c["id"] < hist_id] if hist_id else df_c
+
+    # ── recent window - shared by Steal Analyzer weighting and Last N chart ────
+    if tab_c_catcher != "All":
+        n_throws = st.slider("Recent Throw Window", 5, 100, 20, step=5, key="last_n_throw")
+    else:
+        n_throws = st.session_state.get("last_n_throw", 20)
+
+    if df_c.empty:
+        if tab_c_catcher == "All":
+            st.info("Select a catcher in the filters above to load data.")
+        else:
+            st.warning("No steal attempts found for this catcher with the current filters.")
+    else:
+        # A pending pill selection (Optimal Steal "use this steal" pills, set
+        # further down and consumed here) must land in session_state BEFORE the
+        # Proposed Steal widget below instantiates with key="pred_steal".
+        if "_pend_steal" in st.session_state:
+            st.session_state["pred_steal"] = st.session_state.pop("_pend_steal")
+        for _pk in st.session_state.pop("_pills_rst_c", []):
+            st.session_state[_pk] = None
+
+        if "pred_steal" not in st.session_state:
+            st.session_state["pred_steal"] = 500
+        st.number_input("Proposed Steal", min_value=1, max_value=1000, step=1, key="pred_steal")
+
+        # Safe range comes from the currently-loaded live matchup's runner tab
+        # (utils.parse_gameplay_from_sheet -> steal_runners, cached in
+        # session_state by the Range Calculator above the tabs - same source
+        # the Manager tab's own steal EV panel reads).
+        _c_steal_runners = st.session_state.get("steal_runner_data") or []
+        if _c_steal_runners:
+            _c_safe_opts = {
+                f"{r['base']} (range: {r['safe_range']})": r["safe_range"]
+                for r in _c_steal_runners
+            }
+            _c_safe_sel = st.selectbox("Stealing runner (safe range source)",
+                                       list(_c_safe_opts.keys()), key="c_safe_runner_sel")
+            _c_safe_range = _c_safe_opts[_c_safe_sel]
+        else:
+            st.caption("No live matchup runner loaded above (Fetch Live Matchup) - using a default safe range of 50.")
+            _c_safe_range = 50
+
+        _pred_steal_val_c = int(st.session_state.get("pred_steal", 500))
+        _safe_lo_c = ((_pred_steal_val_c - _c_safe_range - 1) % 1000) + 1
+        _safe_hi_c = ((_pred_steal_val_c + _c_safe_range - 1) % 1000) + 1
+
+        with st.expander("Set Proposed Steal via Safe edge"):
+            st.caption(f"Safe range is currently ±{_c_safe_range} around your steal "
+                       f"({_safe_lo_c}-{_safe_hi_c}). Enter one edge to back-solve the steal.")
+            _sedge_c1, _sedge_c2, _sedge_c3 = st.columns([1, 1, 1])
+            with _sedge_c1:
+                _safe_edge_side_c = st.radio("Edge", ["Low", "High"], key="c_safe_edge_side", horizontal=True)
+            with _sedge_c2:
+                _safe_edge_val_c = st.number_input("Safe edge value", min_value=1, max_value=1000,
+                                                    step=1, key="c_safe_edge_val")
+            with _sedge_c3:
+                st.write("")
+                st.write("")
+                if st.button("Apply", key="c_safe_edge_apply"):
+                    if _safe_edge_side_c == "Low":
+                        _new_steal_c = ((int(_safe_edge_val_c) + _c_safe_range - 1) % 1000) + 1
+                    else:
+                        _new_steal_c = ((int(_safe_edge_val_c) - _c_safe_range - 1) % 1000) + 1
+                    st.session_state["_pend_steal"] = _new_steal_c
+                    st.rerun()
+
+        _c_steal_ranges = utils.steal_result_ranges(_c_safe_range)
+
+        # ── steal analyzer ──────────────────────────────────────────────────────
+        st.subheader("Steal Analyzer")
+        st.caption("Enter a proposed steal to see what each of this catcher's recent throws would give.")
+        _lnc_weights_c: list[float] = []
+
+        with st.expander("Relevance Weighting", expanded=not _simple_mode):
+            st.caption("Weight how recent throws influence the Optimal Steal. At 50 on Recency and Result and 0 on State, weighting is equal for each recent throw.")
+            _crw1, _crw2, _crw3 = st.columns(3)
+            with _crw1:
+                st.markdown("**1 - Recency**")
+                st.slider("Older vs Newer", 0, 100, value=50, key="c_rel_recency",
+                          help="50=equal. 0=weight older throws more. 100=weight recent throws more.")
+                st.number_input("Weight", 0, 100, value=20, step=1, key="c_rel_g1")
+            with _crw2:
+                st.markdown("**2 - Result**")
+                st.slider("Catcher vs Runner", 0, 100, value=50, key="c_rel_result",
+                          help="50=equal. 0=upweight good catcher results (CS). 100=upweight good runner results (SB).")
+                st.number_input("Weight ", 0, 100, value=40, step=1, key="c_rel_g2")
+                st.toggle("Previous result", key="c_rel_result_offset", value=True,
+                          help="Weight each throw by the result of the previous throw instead of its own result.")
+            with _crw3:
+                st.markdown("**3 - State**")
+                st.slider("Any vs Similar", 0, 100, value=0, key="c_rel_state",
+                          help="50=equal. 100=upweight throws from similar OBC + outs situations.")
+                st.number_input("Weight  ", 0, 100, value=40, step=1, key="c_rel_g3")
+            _crg1 = st.session_state.get("c_rel_g1", 20)
+            _crg2 = st.session_state.get("c_rel_g2", 40)
+            _crg3 = st.session_state.get("c_rel_g3", 40)
+            _crg_tot = max(_crg1 + _crg2 + _crg3, 1)
+            st.caption(
+                f"Normalized: Recency {_crg1/_crg_tot*100:.0f}% | "
+                f"Result {_crg2/_crg_tot*100:.0f}% | "
+                f"State {_crg3/_crg_tot*100:.0f}%"
+            )
+
+        _pa_df_c = (df_c_pred[df_c_pred["throw_num"].notna()].sort_values("id").tail(n_throws)
+                    if not df_c_pred.empty else pd.DataFrame())
+        _c_cur_obc  = (st.session_state.get("mgr_sheet_obc") or "000")
+        _c_cur_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
+        _c_rel_kwargs = dict(
+            recency_slider=st.session_state.get("c_rel_recency", 50),
+            result_slider=st.session_state.get("c_rel_result",  50),
+            state_slider=st.session_state.get("c_rel_state",   50),
+            g1=st.session_state.get("c_rel_g1", 20),
+            g2=st.session_state.get("c_rel_g2", 40),
+            g3=st.session_state.get("c_rel_g3", 40),
+            result_offset=bool(st.session_state.get("c_rel_result_offset", True)),
+        )
+        _pa_weights_c = utils.compute_pa_weights(
+            _pa_df_c, _c_cur_obc, _c_cur_outs, **_c_rel_kwargs,
+        ) if not _pa_df_c.empty else []
+        _lnc_df_c = (df_c_pred[df_c_pred["throw_num"].notna() & df_c_pred["steal_num"].notna()]
+                     .sort_values("id").tail(n_throws)
+                     if not df_c_pred.empty else pd.DataFrame())
+        _lnc_weights_c = utils.compute_pa_weights(
+            _lnc_df_c, _c_cur_obc, _c_cur_outs, **_c_rel_kwargs,
+        ) if not _lnc_df_c.empty else []
+
+        _df_tick_c = _pa_df_c if not _pa_df_c.empty else pd.DataFrame(columns=["id", "throw_num", "steal_num"])
+        _tick_lbl_c = f"Last {n_throws} throws (pre-attempt)" if hist_id and not df_c_pred.empty \
+                      else f"Last {n_throws} throws"
+        st.plotly_chart(
+            utils.swing_predictor_chart(_df_tick_c, swing=int(st.session_state["pred_steal"]), n=n_throws,
+                                        result_ranges=_c_steal_ranges, tick_label=_tick_lbl_c,
+                                        value_col="throw_num", x_label="Throw Values", ref_label="Steal",
+                                        tick_weights=_pa_weights_c, obr_extra=frozenset({"SB"})),
+            width="stretch", key="c_throw_pred",
+        )
+
+        st.markdown("**Optimal Steal**")
+        _recent_c = _pa_df_c["throw_num"].astype(int).tolist() if not _pa_df_c.empty else []
+        _delta_c  = utils.project_from_deltas(_recent_c)
+        _delta2_c = utils.project_from_delta2s(_recent_c)
+        _delta_weights_c  = (_pa_weights_c[1:] if len(_pa_weights_c) > 1 else None)
+        _delta2_weights_c = (
+            [w for w in _pa_weights_c[2:] for _ in range(2)]
+            if len(_pa_weights_c) > 2 else None
+        )
+        _opt_rows_c = [
+            ("Based on Recent Throw Values", _recent_c, _pa_weights_c or None),
+            ("Based on Recent Throw Δ",      _delta_c,  _delta_weights_c),
+            ("Based on Recent Throw Δ²",     _delta2_c, _delta2_weights_c),
+        ]
+        for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_c):
+            st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
+                        unsafe_allow_html=True)
+            if _vals:
+                _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, _c_steal_ranges, "obp", True,
+                                                         weights=_wts, obr_extra=frozenset({"SB"}))
+                _sig_c_tgt = utils.swing_signal_strength(_vals, _c_steal_ranges, "obp", True,
+                                                         weights=_wts, zone="best", obr_extra=frozenset({"SB"}))
+                _sig_c_avd = utils.swing_signal_strength(_vals, _c_steal_ranges, "obp", True,
+                                                         weights=_wts, zone="worst", obr_extra=frozenset({"SB"}))
+                _pk = f"pill_steal_{_i}_c"
+                _opts = {
+                    f"↑ {_bv} ({_bs:.3f}) · {_sig_c_tgt:.0f}%": _bv,
+                    f"↓ {_cv} ({_cs:.3f}) · {_sig_c_avd:.0f}%": _cv,
+                }
+                _sel = st.pills("", list(_opts.keys()), key=_pk)
+                if _sel:
+                    st.session_state["_pend_steal"] = _opts[_sel]
+                    st.session_state.setdefault("_pills_rst_c", []).append(_pk)
+                    st.rerun()
+                st.plotly_chart(
+                    utils.optimal_swing_chart(_vals, _c_steal_ranges, "obp", True,
+                                              compact=True, weights=_wts, obr_extra=frozenset({"SB"}),
+                                              metric_label="Safe%", x_label="Steal"),
+                    use_container_width=True, key=f"c_opt_steal_{_i}")
+
+        # ── last N throws ────────────────────────────────────────────────────────
+        st.divider()
+        _actual_throws_c = len(df_c_pred.sort_values("id").tail(n_throws)) if not df_c_pred.empty else 0
+        st.subheader(f"Last {_actual_throws_c} Throws")
+        _c_chart_c1, _c_chart_c2 = st.columns([3, 2])
+        with _c_chart_c1:
+            steal_off_c = st.radio("Steal offset", ["Off", "+1"], horizontal=True, key="steal_off_c",
+                                   help="+1: shifts steal markers right by one attempt.")
+        with _c_chart_c2:
+            est_delta_c = st.toggle("Est. Δ overlay", key="est_delta_c", value=False,
+                                    help="Shows runner's estimated delta (steal vs prior throw) as a diamond line on the delta chart.")
+        st.plotly_chart(
+            utils.last_n_combined_chart(df_c_pred, n=n_throws, value_col="throw_num", opp_col="steal_num",
+                                        delta_col="throw_num", title=f"Last {_actual_throws_c} Throws",
+                                        swing_offset=(steal_off_c == "+1"),
+                                        segment_games=True,
+                                        tick_weights=_lnc_weights_c or None,
+                                        pannable=True,
+                                        est_delta_overlay=est_delta_c,
+                                        value_label="Throw", opp_label="Steal", pa_label="Attempt"),
+            width="stretch", key="c_last_n",
+        )
+
+        # ── context filters for the radial views ────────────────────────────────
+        with st.expander("Context Filters", expanded=True):
+            st.caption("Condition both radial views below on what led into each historical throw. "
+                       "Active filters combine together.")
+            _cf_sorted_c    = df_c_pred.sort_values("id") if not df_c_pred.empty else df_c_pred
+            _cf_throws_c    = _cf_sorted_c["throw_num"].dropna().astype(int).tolist() if not _cf_sorted_c.empty else []
+            _cf_delta_c     = _cf_sorted_c["throw_num_circ_delta"].dropna().astype(int).tolist() if not _cf_sorted_c.empty else []
+            _cf_results_c   = _cf_sorted_c["result"].dropna().tolist() if not _cf_sorted_c.empty else []
+
+            _cf_throw_def_c  = _cf_throws_c[-1] if _cf_throws_c else 500
+            _cf_throw_w_pre  = st.session_state.get("ctx_throw_w_c", 200)
+            _cf_throw_v_pre  = int(st.session_state.get(f"ctx_throw_v_c_{tab_c_catcher}", _cf_throw_def_c))
+            _cf_throw_lo_pre, _cf_throw_hi_pre = utils._centered_match_interval(
+                _cf_throw_v_pre, _cf_throw_w_pre, domain_hi=1000, domain_lo=1)
+            _cf_throw_lbl_c  = f"Prev throw ({_cf_throw_lo_pre}-{_cf_throw_hi_pre})"
+
+            _cf_delta_def_c  = _cf_delta_c[-1] if _cf_delta_c else 100
+            _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_c", 100)
+            _cf_delta_v_pre  = int(st.session_state.get(f"ctx_delta_v_c_{tab_c_catcher}", _cf_delta_def_c))
+            _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
+                _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_delta_lbl_c  = f"Prev Δ ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
+
+            _cf_result_def_c = (utils.steal_result_category(_cf_results_c[-1])
+                                if _cf_results_c else utils.STEAL_RESULT_CATEGORIES[1])
+            _cf_result_pre_c = st.session_state.get("ctx_result_v_c", _cf_result_def_c)
+            _cf_result_lbl_c = f"Prev result ({_cf_result_pre_c})"
+
+            _cf_gs_outs_c    = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _cf_gs_obc_c     = st.session_state.get("mgr_sheet_obc") or "000"
+            _cf_gs_inn_c     = int(st.session_state.get("mgr_inning", 1))
+            _cf_gs_half_c    = str(st.session_state.get("mgr_half", "Top")).lower()
+            _cf_gs_away_c    = int(st.session_state.get("mgr_away_score", 0))
+            _cf_gs_home_c    = int(st.session_state.get("mgr_home_score", 0))
+            _cf_gs_remaining_c = utils.remaining_half_innings(
+                _cf_gs_inn_c, _cf_gs_half_c, utils.game_innings(st.session_state.get("mgr_league", "MLN")))
+            _cf_gs_lead_c    = (_cf_gs_home_c - _cf_gs_away_c if _cf_gs_half_c == "bottom"
+                                else _cf_gs_away_c - _cf_gs_home_c)
+            _cf_cur_leverage_c = utils.compute_leverage_re24(_cf_gs_remaining_c, _cf_gs_outs_c, _cf_gs_obc_c, _cf_gs_lead_c)
+            _cf_leverage_lbl_c = (f"Leverage ({_cf_cur_leverage_c:.2f})" if _cf_cur_leverage_c is not None
+                                  else "Leverage (n/a)")
+
+            _cfc1, _cfc2 = st.columns(2)
+            with _cfc1:
+                _cf_throw_on_c = st.toggle(_cf_throw_lbl_c, key="ctx_throw_on_c", value=False)
+                _cf_throw_bucket_c = None
+                if _cf_throw_on_c:
+                    _cf_throw_w_c = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
+                                                      value=200, key="ctx_throw_w_c")
+                    _cf_throw_val_c = st.number_input(
+                        "Previous throw value", min_value=1, max_value=1000, value=_cf_throw_def_c,
+                        step=1, key=f"ctx_throw_v_c_{tab_c_catcher}",
+                    )
+                    _cf_throw_bucket_c = utils._centered_match_interval(
+                        int(_cf_throw_val_c), _cf_throw_w_c, domain_hi=1000, domain_lo=1)
+
+                _cf_delta_on_c = st.toggle(_cf_delta_lbl_c, key="ctx_delta_on_c", value=False)
+                _cf_delta_bucket_c = None
+                if _cf_delta_on_c:
+                    _cf_delta_w_c = st.select_slider("Bucket size (Δ)", options=[25, 50, 100, 125, 250, 500],
+                                                      value=100, key="ctx_delta_w_c")
+                    _cf_delta_val_c = st.number_input(
+                        "Previous Δ value", min_value=-500, max_value=500, value=_cf_delta_def_c,
+                        step=1, key=f"ctx_delta_v_c_{tab_c_catcher}",
+                    )
+                    _cf_delta_bucket_c = utils._centered_match_interval(
+                        int(_cf_delta_val_c), _cf_delta_w_c, domain_hi=500, domain_lo=-500)
+
+            with _cfc2:
+                _cf_result_on_c = st.toggle(_cf_result_lbl_c, key="ctx_result_on_c", value=False)
+                _cf_result_cat_c = None
+                if _cf_result_on_c:
+                    _cf_result_cat_c = st.selectbox(
+                        "Previous result category", utils.STEAL_RESULT_CATEGORIES,
+                        index=utils.STEAL_RESULT_CATEGORIES.index(_cf_result_def_c), key="ctx_result_v_c",
+                    )
+
+                st.markdown(f"**{_cf_leverage_lbl_c}**")
+                _cf_leverage_label_c = st.radio(
+                    "Leverage entering the play", ["Off", "Low (<)", "High (≥)"],
+                    horizontal=True, key="ctx_leverage_c", label_visibility="collapsed",
+                )
+                _cf_leverage_bucket_c = {"Off": None, "Low (<)": "low", "High (≥)": "high"}[_cf_leverage_label_c]
+                _cf_leverage_threshold_c = 1.5
+                if _cf_leverage_bucket_c is not None:
+                    _cf_leverage_threshold_c = st.number_input(
+                        "Threshold", min_value=0.0, max_value=10.0,
+                        value=st.session_state.get(f"ctx_leverage_thresh_c_{tab_c_catcher}", 1.5),
+                        step=0.1, format="%.1f", key=f"ctx_leverage_thresh_c_{tab_c_catcher}",
+                    )
+
+                _cf_ft_app_on_c = st.toggle("Throw # in Appearance", key="ctx_ft_app_c", value=False,
+                                            help="On: only this catcher's 1st throw of the game appearance. "
+                                                 "Off: all throws.")
+                _cf_ft_inn_on_c = st.toggle("Throw # in Inning", key="ctx_ft_inn_c", value=False,
+                                            help="On: only the 1st throw of the half-inning. "
+                                                 "Off: all throws.")
+
+            _cf_active_throws_c = any([_cf_throw_bucket_c, _cf_result_cat_c, _cf_leverage_bucket_c,
+                                       _cf_ft_app_on_c, _cf_ft_inn_on_c])
+            _cf_active_deltas_c  = any([_cf_delta_bucket_c, _cf_result_cat_c, _cf_leverage_bucket_c,
+                                        _cf_ft_app_on_c, _cf_ft_inn_on_c])
+            if (_cf_active_throws_c or _cf_active_deltas_c) and not df_c_pred.empty:
+                _df_ctx_c = df_c_pred.copy()
+                if _cf_leverage_bucket_c is not None:
+                    _df_ctx_c["_leverage"] = utils.compute_play_leverage(_df_ctx_c)
+                _cf_kwargs_c = dict(
+                    pitch_col="throw_num", delta_col="throw_num_circ_delta",
+                    fp_app_col="is_ft_app", fp_inn_col="is_ft_inn",
+                    result_category_fn=utils.steal_result_category,
+                )
+                _df_radial_throws_c = utils.filter_by_prior_context(
+                    _df_ctx_c,
+                    prev_pitch_bucket=_cf_throw_bucket_c,
+                    prev_result_cat=_cf_result_cat_c,
+                    leverage_bucket=_cf_leverage_bucket_c,
+                    leverage_threshold=_cf_leverage_threshold_c,
+                    first_pitch_appearance=_cf_ft_app_on_c,
+                    first_pitch_inning=_cf_ft_inn_on_c,
+                    **_cf_kwargs_c,
+                ) if _cf_active_throws_c else _df_ctx_c
+                _df_radial_deltas_c = utils.filter_by_prior_context(
+                    _df_ctx_c,
+                    prev_delta_bucket=_cf_delta_bucket_c,
+                    prev_result_cat=_cf_result_cat_c,
+                    leverage_bucket=_cf_leverage_bucket_c,
+                    leverage_threshold=_cf_leverage_threshold_c,
+                    first_pitch_appearance=_cf_ft_app_on_c,
+                    first_pitch_inning=_cf_ft_inn_on_c,
+                    **_cf_kwargs_c,
+                ) if _cf_active_deltas_c else _df_ctx_c
+                st.caption(f"Throws: {len(_df_radial_throws_c)} · Deltas: {len(_df_radial_deltas_c)} "
+                          "matching historical instance(s).")
+            else:
+                _df_radial_throws_c = df_c_pred
+                _df_radial_deltas_c  = df_c_pred
+
+        _actual_throws_radial_c = len(_df_radial_throws_c["throw_num"].dropna().tail(n_throws)) if not _df_radial_throws_c.empty else 0
+        st.plotly_chart(
+            utils.radial_recent_pitches_chart(_df_radial_throws_c, n=n_throws, value_col="throw_num",
+                                              title=f"Last {_actual_throws_radial_c} Throws"),
+            width="stretch", key="c_radial",
+        )
+        _actual_deltas_radial_c = len(_df_radial_deltas_c["throw_num_circ_delta"].dropna().tail(n_throws)) if not _df_radial_deltas_c.empty else 0
+        _center_deltas_c = st.session_state.get("c_radial_delta_center", False)
+        _deltas_radial_title_c = (f"Last {_actual_deltas_radial_c} Implied Throws" if _center_deltas_c
+                                  else f"Last {_actual_deltas_radial_c} Deltas")
+        _cf_true_anchor_c = _cf_throws_c[-1] if _cf_throws_c else None
+        st.plotly_chart(
+            utils.radial_recent_deltas_chart(_df_radial_deltas_c, n=n_throws, delta_col="throw_num_circ_delta",
+                                             value_col="throw_num", title=_deltas_radial_title_c,
+                                             center_on_prev=_center_deltas_c,
+                                             anchor=_cf_true_anchor_c),
+            width="stretch", key="c_radial_delta",
+        )
+        st.toggle(
+            "Map onto previous throw", key="c_radial_delta_center", value=False,
+            help="Shows each recent delta applied to the last actual throw, on the 1-1000 "
+                 "throw scale - i.e. the implied next throw given the spread of recent deltas.",
+        )
+        _actual_combined_radial_c = max(_actual_throws_radial_c, _actual_deltas_radial_c)
+        st.plotly_chart(
+            utils.radial_combined_chart(_df_radial_throws_c, _df_radial_deltas_c, n=n_throws,
+                                        value_col="throw_num", delta_col="throw_num_circ_delta",
+                                        title=f"Last {_actual_combined_radial_c} Combined",
+                                        anchor=_cf_true_anchor_c),
+            width="stretch", key="c_radial_combined",
+        )
+
+        # rebind so all sections below are ITD
+        df_c = df_c_pred
+        _c_total = len(df_c)
+        _deltas_c = df_c["throw_num_circ_delta"].dropna()
+
+        st.divider()
+        with st.expander("Throw Analysis", expanded=not _simple_mode):
+            st.subheader("Next Throw Delta vs Prior Throw Delta")
+            st.caption("How does a catcher adjust their next throw movement based on their previous throw movement?")
+            dd_bucket_c = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_c")
+            st.plotly_chart(
+                utils.next_delta_vs_prior_delta_heatmap(
+                    df_c, title="Next Throw Δ vs Prior Throw Δ", value_col="throw_num", bucket_size=dd_bucket_c,
+                    delta_col="throw_num_circ_delta", group_cols=["catcher_name"],
+                ),
+                width="stretch", config={"displayModeBar": False}, key="c_delta_delta_hm",
+            )
+
+            st.divider()
+            st.subheader("Hot Zone Throw Matrix")
+            st.caption("How often each throw range is followed by each other throw range.")
+            _hzc_sl1, _hzc_sl2 = st.columns(2)
+            with _hzc_sl1:
+                init_bucket_c   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=200, key="hz_init_bucket_c")
+            with _hzc_sl2:
+                follow_bucket_c = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=200, key="hz_follow_bucket_c")
+            st.plotly_chart(
+                utils.hot_zone_matrix(df_c, value_col="throw_num", group_cols=["catcher_name"],
+                                      title="Hot Zone Throw Matrix",
+                                      init_bucket_size=init_bucket_c, follow_bucket_size=follow_bucket_c),
+                width="stretch", key="c_hot_zone",
+            )
+
+            st.divider()
+            @st.fragment
+            def _zone_delta_section_c(df_c, _deltas_c, _safe_lo, _safe_hi, _steal_val):
+                st.subheader("Zone Distribution (All)")
+                _zone_counts_c = df_c["throw_zone"].value_counts().to_dict()
+                st.plotly_chart(utils.zone_polar(_zone_counts_c, title="Throw Zone Frequency"),
+                                width="stretch", key="c_zone_all")
+
+                st.subheader("Safe Range Throw Frequency")
+                if _safe_lo is not None and _safe_hi is not None:
+                    _sfg_c1, _sfg_c2 = st.columns(2)
+                    with _sfg_c1:
+                        _sfg_bucket = st.select_slider(
+                            "Throw bucket size", options=[5, 10, 15, 20, 25, 50], value=10, key="obr_gauge_bucket_c",
+                        )
+                    with _sfg_c2:
+                        _sfg_pad = st.number_input(
+                            "Padding outside safe range", min_value=0, max_value=300, value=100, step=10,
+                            key="obr_gauge_pad_c",
+                        )
+                    _sfg_vals_c = df_c[df_c["throw_num"].notna()]["throw_num"].astype(int).tolist()
+                    st.plotly_chart(
+                        utils.obr_gauge_donut(
+                            _sfg_vals_c, _safe_lo, _safe_hi, _steal_val,
+                            padding=int(_sfg_pad), bucket_width=int(_sfg_bucket),
+                            title="Safe Range Throw Frequency",
+                        ),
+                        width="stretch", key="c_obr_gauge",
+                    )
+                else:
+                    st.caption("Set a Proposed Steal above to see this catcher's throw frequency across the safe range.")
+
+                st.subheader("Throw Delta Distributions")
+                st.caption("Consecutive steal attempts against this catcher (spans games - throw volume per catcher is low).")
+                _c_delta_signed = st.toggle("Signed", value=True, key="c_delta_signed",
+                                            help="Signed shows +/- direction with green/red. Unsigned shows magnitude only.")
+                if not _deltas_c.empty:
+                    st.plotly_chart(
+                        utils.delta_histogram(_deltas_c, title="Previous AB", signed=_c_delta_signed),
+                        width="stretch", config={"displayModeBar": False}, key="c_delta",
+                    )
+                else:
+                    st.caption("Need at least 2 steal attempts against the same catcher.")
+            _zone_delta_section_c(df_c, _deltas_c, _safe_lo_c, _safe_hi_c, _pred_steal_val_c)
+
+        # ── tendencies ────────────────────────────────────────────────────────
+        st.divider()
+        with st.expander("Tendencies", expanded=not _simple_mode):
+            _tm_c, _tl_c = st.columns(2)
+            with _tm_c:
+                st.markdown("**Meme Throws (1, 67, 69, 420, 666, 1000)**")
+                _mc_c = {str(n): int((df_c["throw_num"] == n).sum()) for n in utils.MEME_NUMBERS}
+                _mt_c = sum(_mc_c.values())
+                st.metric("Meme Throws", _mt_c, help=f"{_mt_c / _c_total * 100:.1f}% of all throws" if _c_total else "")
+                for _num, _cnt in _mc_c.items():
+                    st.write(f"  **{_num}**: {_cnt} ({_cnt / _c_total * 100:.1f}%)" if _c_total else f"  **{_num}**: {_cnt}")
+            with _tl_c:
+                st.markdown("**Most Common Last 2 Digits**")
+                _last2_c = df_c["throw_last2"].value_counts().head(5)
+                for _dig, _cnt in _last2_c.items():
+                    _dig = int(_dig)
+                    st.write(f"  **{_dig:02d}**: {_cnt} ({_cnt / _c_total * 100:.1f}%)" if _c_total else f"  **{_dig:02d}**: {_cnt}")
+
+        # ── raw data ──────────────────────────────────────────────────────────
+        with st.expander("Raw Throw Data"):
+            _disp_c = df_c[["season","game_id","inning","outs","obc","catcher_name","runner_name",
+                             "throw_num","steal_num","diff","result","res_category"]].copy()
+            _disp_c["obc"] = _disp_c["obc"].map(utils.obc_display)
+            _disp_c["_delta_abs"] = df_c["throw_num_circ_delta"].abs()
+            _disp_c["throw_num_circ_delta"] = df_c["throw_num_circ_delta"]
+            _disp_c["throw_num_circ_delta2_signed"] = df_c["throw_num_circ_delta2_signed"]
+            _disp_c["throw_num_circ_delta2"] = df_c["throw_num_circ_delta2"]
+            _disp_c = _disp_c[["season","game_id","inning","outs","obc","catcher_name","runner_name",
+                                "throw_num","steal_num","diff","result","res_category",
+                                "throw_num_circ_delta","_delta_abs","throw_num_circ_delta2_signed","throw_num_circ_delta2"]]
+            _disp_c.columns = ["Season","Game","Inn","Outs","Runners","Catcher","Runner",
+                                "Throw","Steal","Diff","Result","Category",
+                                "Δ","|Δ|","Δ²","|Δ²|"]
+            _disp_c = _disp_c.iloc[::-1].reset_index(drop=True)
+            st.dataframe(_disp_c, use_container_width=True, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GAME TAB
