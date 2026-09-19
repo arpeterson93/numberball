@@ -11164,12 +11164,32 @@
       s.hex = ((s.a.y + s.b.y) / 2 <= midY) ? awayHex : homeHex;
       s.len = Math.sqrt(Math.pow(s.b.x - s.a.x, 2) + Math.pow(s.b.y - s.a.y, 2)) || 1;
     });
-    var fills = subs.map(function (s) {
-      if (Math.abs(s.a.y - midY) < 0.05 && Math.abs(s.b.y - midY) < 0.05) return "";
-      return '<path class="rb-fill" fill="' + escapeHtml(s.hex) + '" d="M' +
-        s.a.x.toFixed(1) + "," + midY.toFixed(1) + " L" + s.a.x.toFixed(1) + "," + s.a.y.toFixed(1) +
-        " L" + s.b.x.toFixed(1) + "," + s.b.y.toFixed(1) +
-        " L" + s.b.x.toFixed(1) + "," + midY.toFixed(1) + ' Z"></path>';
+    /* One <path> per same-colour run, not one per play. Two adjacent
+       same-colour quads sharing an edge get anti-aliased as separate draw
+       operations - on a scaled-up SVG (preserveAspectRatio="none" stretching
+       a 300x64 viewBox to whatever width/height the page gives it) that
+       leaves a hairline seam right at the shared edge, worst at the 50% line
+       since that's where every quad's baseline sits (Alex's report: gaps in
+       the fill at every play boundary, background "rectangles" showing
+       through). Tracing one continuous polygon per run - up from midY,
+       across every point in the run, back down to midY, Z - draws it as a
+       single shape with no internal edge to seam against. Runs only change
+       colour at a lead-crossing point, and adjacent runs there share just
+       one point sitting on midY, not an edge, so that boundary doesn't seam. */
+    var fillRuns = [];
+    subs.forEach(function (s) {
+      var run = fillRuns[fillRuns.length - 1];
+      if (run && run.hex === s.hex) run.pts.push(s.b);
+      else fillRuns.push({ hex: s.hex, pts: [s.a, s.b] });
+    });
+    var fills = fillRuns.map(function (run) {
+      var pts = run.pts;
+      var flat = pts.every(function (p) { return Math.abs(p.y - midY) < 0.05; });
+      if (flat) return "";
+      var d = "M" + pts[0].x.toFixed(1) + "," + midY.toFixed(1) +
+        pts.map(function (p) { return " L" + p.x.toFixed(1) + "," + p.y.toFixed(1); }).join("") +
+        " L" + pts[pts.length - 1].x.toFixed(1) + "," + midY.toFixed(1) + " Z";
+      return '<path class="rb-fill" fill="' + escapeHtml(run.hex) + '" d="' + d + '"></path>';
     }).join("");
     var strokes = subs.map(function (s) {
       return '<line class="rb-seg' + (s.seen ? " seen" : "") + (s.last ? " rb-new" : "") +
@@ -14859,23 +14879,259 @@
     return pitchingTeamHtml(box, "away") + pitchingTeamHtml(box, "home");
   }
 
+  // ---- Fielding tab: one field diagram per pitcher, aggregating that
+  // pitcher's own strikeouts/walks/balls in play/hits onto whichever field
+  // position handled them (Alex's ask, modeled on a "20 K game" reference
+  // chart - reused via a picker earlier in the conversation, now scoped to
+  // "one pitcher at a time" but rendered for every pitcher in the game,
+  // stacked vertically per team, same as the Pitching tab's own sections).
+  // The one piece of real work here - which fielder handled a given batted
+  // ball - is never re-derived: it's the exact same resolvePlayFlight/
+  // flight.fielder the scorecard notation (fieldingNotation, above) already
+  // draws on for every play, just re-bucketed instead of formatted as
+  // "6-4-3"/"F8".
+  var FIELDER_CHART_BUCKETS = {
+    K:   { label: "Strikeout", cls: "fc-k" },
+    BIP: { label: "Ball In Play (out)", cls: "fc-bip" },
+    BB:  { label: "Walk", cls: "fc-bb" },
+    HIT: { label: "Hit", cls: "fc-hit" },
+  };
+  var FIELDER_CHART_BUCKET_ORDER = { K: 0, BIP: 1, BB: 2, HIT: 3 };
+
+  // Every genuine turn falls into exactly one bucket - BIP is just "none of
+  // the other three", which is right for this data model: there's no HBP
+  // code here, and everything left over (GO, FO, DP, FC, a sac out, ...)
+  // really is a ball fielded for an out. No separate error bucket either -
+  // this data model has no E-code (realOutThrowCount's own comment, above).
+  function fielderChartBucket(result) {
+    if (STRIKEOUT_RESULTS[result]) return "K";
+    if (WALK_RESULTS[result]) return "BB";
+    if (HIT_RESULTS[result]) return "HIT";
+    return "BIP";
+  }
+
+  // Which outfield third (LF/CF/RF) a landing angle falls in - same table,
+  // same domain (angle 45 = dead centre) coveringPosition/applyAirPosition
+  // Override already key the real defensive-third logic off (OF_ANGLE_
+  // THIRDS, above). Clamped rather than null outside 5-85 (a HR hugging a
+  // foul pole) - it still belongs to whichever corner it's closest to, not
+  // nowhere.
+  function ofThirdForAngle(angle) {
+    var keys = ["LF", "CF", "RF"];
+    for (var i = 0; i < keys.length; i++) {
+      var r = OF_ANGLE_THIRDS[keys[i]];
+      if (angle >= r[0] && angle <= r[1]) return keys[i];
+    }
+    return angle < OF_ANGLE_THIRDS.LF[0] ? "LF" : "RF";
+  }
+
+  // Counts, keyed "POS|BUCKET" - POS is one of FIELDER_ANCHORS_FT's nine
+  // position keys, "HOME" for the two bucket types with no batted ball at
+  // all (a strikeout/walk never reaches a fielder), or "HR_LF"/"HR_CF"/
+  // "HR_RF" for a home run.
+  //
+  // A home run needs its own position, not flight.fielder: flightParams
+  // (above) unconditionally sets flight.fielder to nearestFielder(landing
+  // point) before the clearedFence check even runs, since that's also the
+  // BRC-exclusion/fielding-notation code's own starting point - so a HR's
+  // "fielder" is really just whichever infielder/outfielder anchor happens
+  // to sit closest to a landing spot well past the fence, not anyone who
+  // touched the ball. Folding that into the normal fielder bubbles was the
+  // original bug (Alex's report: no HR badge ever showed up, because the
+  // HR silently counted as an ordinary Hit at that fielder's own spot
+  // instead). flight.angle (already in OF_ANGLE_THIRDS' own domain) sorts
+  // it into a third instead - real landing side, not a fielder guess -
+  // rendered beyond the fence by fielderChartSvgHtml below.
+  function pitcherFielderTally(stint) {
+    var tally = {};
+    stint.plays.forEach(function (p) {
+      if (!isGenuineTurn(p)) return;
+      var bucket = fielderChartBucket(p.result);
+      var pos;
+      if (bucket === "K" || bucket === "BB") {
+        pos = "HOME";
+      } else {
+        var flight = resolvePlayFlight(p);
+        if (!flight) return;
+        pos = flight.clearedFence ? "HR_" + ofThirdForAngle(flight.angle) : flight.fielder;
+        if (!pos) return;
+      }
+      var key = pos + "|" + bucket;
+      tally[key] = (tally[key] || 0) + 1;
+    });
+    return tally;
+  }
+
+  // Bubble radius grows with sqrt(count) (area, not radius, proportional to
+  // the number it represents) rather than linearly, so a 16-strikeout game
+  // doesn't draw a circle literally 16x the width of a 1-count bubble.
+  var FC_BUBBLE_R_MIN = 8, FC_BUBBLE_R_SCALE = 4.5, FC_BUBBLE_GAP = 3;
+  function fcBubbleRadius(count) { return FC_BUBBLE_R_MIN + FC_BUBBLE_R_SCALE * Math.sqrt(count); }
+
+  // When two bucket types land on the same position (say a fly out AND a
+  // single both caught/fielded by CF), their bubbles sit side by side,
+  // centered as a group on the real anchor point, rather than one drawn on
+  // top of the other.
+  function fcPackBubbles(anchorPx, entries) {
+    var totalW = entries.reduce(function (sum, e) { return sum + e.r * 2; }, 0) +
+      FC_BUBBLE_GAP * (entries.length - 1);
+    var x = anchorPx.x - totalW / 2;
+    return entries.map(function (e) {
+      var cx = x + e.r;
+      x += e.r * 2 + FC_BUBBLE_GAP;
+      return { cx: cx, cy: anchorPx.y, r: e.r, cls: e.cls, count: e.count };
+    });
+  }
+
+  function fcBubbleHtml(b) {
+    return '<g class="fc-bubble ' + b.cls + '">' +
+      '<circle cx="' + b.cx.toFixed(1) + '" cy="' + b.cy.toFixed(1) + '" r="' + b.r.toFixed(1) + '"></circle>' +
+      '<text x="' + b.cx.toFixed(1) + '" y="' + b.cy.toFixed(1) + '">' + b.count + "</text>" +
+    "</g>";
+  }
+
+  // Bases/plate only, no occupancy - this is a static aggregate chart, not
+  // a moment in the game, so the sceneFieldHtml "post-play occupancy" fill
+  // (and everything else that comes with it - runners, throws, timing)
+  // doesn't apply here. Same plate/base geometry sceneFieldHtml itself
+  // draws, kept as its own small copy rather than a shared extraction - that
+  // function is a single, heavily-tuned live-animation pipeline, not
+  // somewhere this static chart should be reaching in to un-thread pieces
+  // out of.
+  function fcFieldStaticHtml() {
+    var baseMarks = ["3B", "2B", "1B"].map(function (b) {
+      var p = SCENE_BASES[b];
+      return '<rect class="dm-base fc-base" x="-' + BASE_R + '" y="-' + BASE_R + '" width="' + (BASE_R * 2) +
+        '" height="' + (BASE_R * 2) + '" rx="1.5" transform="translate(' +
+        p.x.toFixed(1) + "," + p.y.toFixed(1) + ') rotate(45)"></rect>';
+    }).join("");
+    var h = SCENE_BASES.HOME, plateR = HOME_PLATE_R;
+    var platePath = "M" + (h.x - plateR).toFixed(1) + "," + (h.y - plateR * 1.15).toFixed(1) +
+      " L" + (h.x + plateR).toFixed(1) + "," + (h.y - plateR * 1.15).toFixed(1) +
+      " L" + (h.x + plateR).toFixed(1) + "," + h.y.toFixed(1) +
+      " L" + h.x.toFixed(1) + "," + (h.y + plateR * 1.15).toFixed(1) +
+      " L" + (h.x - plateR).toFixed(1) + "," + h.y.toFixed(1) + " Z";
+    return baseMarks + '<path class="dm-plate fc-plate" d="' + platePath + '"></path>';
+  }
+
+  // A third's own badge sits well past the fence on that third's own
+  // bearing (its OF_ANGLE_THIRDS range's midpoint) - fenceAt(angle) rather
+  // than a flat depth, so if the fence table ever stops being one uniform
+  // FENCE_DEPTH_FT (ball-flight-plan.md's current simplification) this still
+  // sits outside whatever the real fence depth is at that bearing, instead
+  // of drifting onto the field or floating unrealistically far out. 100
+  // (was 45, then 75, then rounded up to an even 100 per Alex's asks) -
+  // clear of the fence WALL's own drawn height too (FENCE_WALL_HEIGHT_FT
+  // projects a few extra px outward in this fan projection, on top of the
+  // ground-plane fence point).
+  var HR_BADGE_OFFSET_FT = 100;
+  function hrBadgeAnchorFt(third) {
+    var r = OF_ANGLE_THIRDS[third];
+    var midAngle = (r[0] + r[1]) / 2;
+    return landingPoint(fenceAt(midAngle) + HR_BADGE_OFFSET_FT, midAngle);
+  }
+
+  function fielderChartSvgHtml(tally) {
+    var groups = {};
+    Object.keys(tally).forEach(function (key) {
+      var parts = key.split("|"), pos = parts[0], bucket = parts[1];
+      (groups[pos] = groups[pos] || []).push({ bucket: bucket, count: tally[key] });
+    });
+    var bubbles = "";
+    Object.keys(groups).forEach(function (pos) {
+      if (pos.indexOf("HR_") === 0) return; // drawn separately, beyond the fence - see below
+      var anchorFt = pos === "HOME" ? { x: 0, y: 0 } : FIELDER_ANCHORS_FT[pos];
+      if (!anchorFt) return;
+      var anchorPx = ftToSvg(anchorFt.x, anchorFt.y);
+      var entries = groups[pos].slice().sort(function (a, b) {
+        return FIELDER_CHART_BUCKET_ORDER[a.bucket] - FIELDER_CHART_BUCKET_ORDER[b.bucket];
+      }).map(function (e) {
+        return { cls: FIELDER_CHART_BUCKETS[e.bucket].cls, count: e.count, r: fcBubbleRadius(e.count) };
+      });
+      bubbles += fcPackBubbles(anchorPx, entries).map(fcBubbleHtml).join("");
+    });
+    // Same green as a fielded Hit (a HR is still fundamentally a hit) - only
+    // the position tells the two apart, on the field vs. well beyond the
+    // fence - no separate "HR" caption needed (Alex's call): sitting out
+    // past the wall already says what it is.
+    var hrBadges = ["LF", "CF", "RF"].map(function (third) {
+      var entry = groups["HR_" + third] && groups["HR_" + third][0];
+      var count = entry ? entry.count : 0;
+      if (!count) return "";
+      var pt = ftToSvg(hrBadgeAnchorFt(third).x, hrBadgeAnchorFt(third).y);
+      var r = fcBubbleRadius(count);
+      return '<g class="fc-bubble fc-hit fc-hr">' +
+        '<circle cx="' + pt.x.toFixed(1) + '" cy="' + pt.y.toFixed(1) + '" r="' + r.toFixed(1) + '"></circle>' +
+        '<text x="' + pt.x.toFixed(1) + '" y="' + pt.y.toFixed(1) + '">' + count + "</text>" +
+      "</g>";
+    }).join("");
+    return '<div class="sc-fc-wrap"><svg class="sc-fc-field" viewBox="0 0 ' + FIELD_W + " " + FIELD_H +
+      '" aria-hidden="true">' +
+        '<path class="dm-grass" d="' + grassPathD() + '"></path>' +
+        '<path class="dm-warning-track" fill-rule="evenodd" d="' + warningTrackPathD() + '"></path>' +
+        '<path class="dm-fence-wall" d="' + fenceWallPathD() + '"></path>' +
+        '<path class="dm-fence" d="' + fencePathD() + '"></path>' +
+        infieldSkinHtml() +
+        '<path class="dm-foul-line" d="' + foulLineD(0) + '"></path>' +
+        '<path class="dm-foul-line" d="' + foulLineD(90) + '"></path>' +
+        fcFieldStaticHtml() +
+        bubbles + hrBadges +
+      "</svg></div>";
+  }
+
+  function fielderChartLegendHtml() {
+    return '<div class="fc-legend">' +
+      Object.keys(FIELDER_CHART_BUCKETS).map(function (k) {
+        var b = FIELDER_CHART_BUCKETS[k];
+        return '<span class="fc-legend-item ' + b.cls + '"><i></i>' + escapeHtml(b.label) + "</span>";
+      }).join("") +
+    "</div>";
+  }
+
+  function pitcherFielderSectionHtml(stint) {
+    var tally = pitcherFielderTally(stint);
+    return '<div class="sc-fielder-pitcher">' +
+      '<div class="sc-pitch-pitcher-head">' +
+        '<span class="sc-pitch-name">' + escapeHtml(stint.name || "") + "</span>" +
+        pitchStatLineHtml(stint.ip, stint.bf, stint.h, stint.er, stint.bb, stint.k) +
+      "</div>" +
+      fielderChartSvgHtml(tally) +
+    "</div>";
+  }
+
+  function fielderChartTeamHtml(box, teamKey) {
+    var abbr = teamKey === "away" ? box.awayAbbr : box.homeAbbr;
+    var stints = box[teamKey].pitching;
+    return scorecardTeamHeaderHtml(abbr) +
+      '<div class="sc-fielder-team">' +
+        stints.map(pitcherFielderSectionHtml).join("") +
+      "</div>";
+  }
+
+  function scorecardFieldingBodyHtml(box) {
+    return fielderChartLegendHtml() + fielderChartTeamHtml(box, "away") + fielderChartTeamHtml(box, "home");
+  }
+
+  var SCORECARD_TABS = [
+    { key: "batting", label: "Batting" },
+    { key: "pitching", label: "Pitching" },
+    { key: "fielding", label: "Fielding" },
+  ];
+  var SCORECARD_TAB_BODY = {
+    batting: scorecardBattingBodyHtml, pitching: scorecardPitchingBodyHtml, fielding: scorecardFieldingBodyHtml,
+  };
+
   function scorecardBodyHtml(box) {
-    var battingActive = scorecard.activeTab !== "pitching";
-    return (
-      linescoreHtml(box) +
-      '<div class="sc-tabs">' +
-        '<button type="button" class="chip sc-tab' + (battingActive ? " active" : "") +
-          '" data-scorecard-tab="batting">Batting</button>' +
-        '<button type="button" class="chip sc-tab' + (battingActive ? "" : " active") +
-          '" data-scorecard-tab="pitching">Pitching</button>' +
-      "</div>" +
-      '<div id="scorecard-batting-pane"' + (battingActive ? "" : " hidden") + ">" +
-        scorecardBattingBodyHtml(box) +
-      "</div>" +
-      '<div id="scorecard-pitching-pane"' + (battingActive ? " hidden" : "") + ">" +
-        scorecardPitchingBodyHtml(box) +
-      "</div>"
-    );
+    var active = scorecard.activeTab;
+    var tabsHtml = SCORECARD_TABS.map(function (t) {
+      return '<button type="button" class="chip sc-tab' + (t.key === active ? " active" : "") +
+        '" data-scorecard-tab="' + t.key + '">' + t.label + "</button>";
+    }).join("");
+    var panesHtml = SCORECARD_TABS.map(function (t) {
+      return '<div id="scorecard-' + t.key + '-pane"' + (t.key === active ? "" : " hidden") + ">" +
+        SCORECARD_TAB_BODY[t.key](box) + "</div>";
+    }).join("");
+    return linescoreHtml(box) + '<div class="sc-tabs">' + tabsHtml + "</div>" + panesHtml;
   }
 
   // ---- open/close/refresh ----
@@ -15099,13 +15355,14 @@
   // display:none hid it - a live-refresh or a resize that happened while
   // the Pitching tab was showing would otherwise leave it stale.
   function switchScorecardTab(tab) {
-    if (tab !== "batting" && tab !== "pitching") return;
+    if (!SCORECARD_TAB_BODY[tab]) return;
     scorecard.activeTab = tab;
     Array.prototype.forEach.call(document.querySelectorAll("#scorecard-body [data-scorecard-tab]"), function (btn) {
       btn.classList.toggle("active", btn.getAttribute("data-scorecard-tab") === tab);
     });
-    $("scorecard-batting-pane").hidden = tab !== "batting";
-    $("scorecard-pitching-pane").hidden = tab !== "pitching";
+    SCORECARD_TABS.forEach(function (t) {
+      $("scorecard-" + t.key + "-pane").hidden = t.key !== tab;
+    });
     if (tab === "batting") applyMobileScorecardZoom();
   }
 

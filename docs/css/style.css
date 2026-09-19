@@ -18,6 +18,7 @@
   --green: #1e7d32;
   --gold: #d9a300;
   --orange: #c05a00;            /* scorecard: thrown-out-on-the-bases fill */
+  --slate: #5b6472;             /* fielding-chart tab: ball-in-play-out fill */
 
   --tint: #f3f5f8;              /* neutral fill: badges, hover rows, tag pills */
   --tint-red: #fdeef0;
@@ -72,6 +73,7 @@
   --green: #55c47a;
   --gold: #e0b13c;
   --orange: #e08a3c;
+  --slate: #8a93a3;
 
   --tint: #232b36;
   --tint-red: #3a1e22;
@@ -2854,10 +2856,43 @@ html[data-km-debug="1"] .km-tuning-panel{
   flex-shrink:0;
 }
 
-/* Batting/Pitching tab switcher (Alex's ask) - sits right beneath the
-   linescore, above either tab's own content. Reuses the site's existing
-   .chip toggle look rather than inventing a new control. */
-.sc-tabs{display:flex;justify-content:center;gap:8px;margin:0 0 16px;}
+/* Batting/Pitching/Fielding tab switcher (Alex's ask) - sits right beneath
+   the linescore, above whichever tab's own content. Reuses the site's
+   existing .chip toggle look rather than inventing a new control. */
+.sc-tabs{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:0 0 16px;}
+
+/* ---- Fielding tab: one static field diagram per pitcher, aggregating that
+   pitcher's own strikeouts/walks/balls in play/hits onto whichever field
+   position handled them. Reuses the exact same field art the live replay
+   scene draws (.dm-grass/.dm-infield-dirt/.dm-foul-line, style.css above) -
+   just a smaller, non-animated tile per pitcher instead of the full-size
+   live diamond, so it reads as the same field rather than a second one. */
+.sc-fielder-pitcher{margin:0 0 22px;}
+.sc-fc-wrap{width:min(92%,340px);margin:8px auto 4px;}
+.sc-fc-field{width:100%;height:auto;display:block;overflow:visible;}
+.fc-base,.fc-plate{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:1.5;opacity:0.8;}
+.fc-bubble circle{stroke:rgba(255,255,255,0.7);stroke-width:1.5;}
+.fc-bubble text{
+  font-size:11px;font-weight:800;fill:#fff;text-anchor:middle;dominant-baseline:middle;
+  paint-order:stroke;stroke:rgba(0,0,0,0.35);stroke-width:2px;stroke-linejoin:round;
+  font-variant-numeric:tabular-nums;
+}
+.fc-k circle{fill:var(--red);}
+.fc-bip circle{fill:var(--slate);}
+.fc-bb circle{fill:var(--gold);}
+.fc-hit circle{fill:var(--green);}
+/* A HR badge reuses .fc-hit's own green fill (still fundamentally a hit) -
+   only its position (well beyond the fence, via fielderChartSvgHtml's own
+   hrBadgeAnchorFt) tells it apart from a ball fielded on the grass. */
+/* One shared Key above both teams' charts (Alex's reference image), not
+   repeated per pitcher. */
+.fc-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin:0 0 18px;}
+.fc-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text);}
+.fc-legend-item i{width:12px;height:12px;border-radius:50%;display:inline-block;}
+.fc-legend-item.fc-k i{background:var(--red);}
+.fc-legend-item.fc-bip i{background:var(--slate);}
+.fc-legend-item.fc-bb i{background:var(--gold);}
+.fc-legend-item.fc-hit i{background:var(--green);}
 
 /* Linescore - classic inning-by-inning runs, plus total R/H (Alex's ask) -
    sits above the two full batting grids. */
