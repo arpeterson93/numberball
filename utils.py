@@ -2560,9 +2560,11 @@ def cooldown_radial_chart(
     Each open (resolved=False) trigger draws as a small dot at its trigger
     pitch's angular position. Its radius encodes RELATIVE recency among the
     open triggers themselves (min-max scaled off elapsed pitches, same
-    "newer -> outer rim, older -> center" convention as the other radial
-    charts on this tab) - the trigger that fired most recently sits at the
-    rim, the one that's been open longest sits nearest the polar hole.
+    "newer -> outer, older -> center" convention as the other radial charts
+    on this tab) - the trigger that fired most recently sits closest to the
+    rim (with a buffer short of it, so its label stays inside the colored
+    ring rather than crowding the transparent edge), the one that's been
+    open longest sits nearest the polar hole.
 
     The colored ring is the +/- radius zone around EVERY open trigger at
     once, rasterized into `n_bins` thin angular slices rather than drawn as
@@ -2687,13 +2689,18 @@ def cooldown_radial_chart(
 
     # Dot radius encodes relative recency among the open triggers themselves
     # (elapsed pitches, min-max scaled) - smaller elapsed = fired more
-    # recently = outer rim; larger elapsed = been open longer = inner, near
-    # the hole. A single trigger, or several tied on elapsed, default to the
-    # rim (nothing to spread across an otherwise-degenerate scale).
+    # recently = closer to the rim; larger elapsed = been open longer =
+    # inner, near the hole. Capped at dot_r_max rather than r_max itself, so
+    # even the most recent trigger's dot (and its label) stays inside the
+    # colored ring with some buffer instead of crowding the very edge of the
+    # plot, where it would sit over the chart's transparent background - a
+    # single trigger, or several tied on elapsed, default to dot_r_max
+    # (nothing to spread across an otherwise-degenerate scale).
+    dot_r_max = hole + (r_max - hole) * 0.8
     elapsed_vals = [e for _, _, _, e, _ in triggers]
     e_lo, e_hi = min(elapsed_vals), max(elapsed_vals)
     dot_r = [
-        r_max if e_hi == e_lo else r_max - (r_max - hole) * (e - e_lo) / (e_hi - e_lo)
+        dot_r_max if e_hi == e_lo else dot_r_max - (dot_r_max - hole) * (e - e_lo) / (e_hi - e_lo)
         for e in elapsed_vals
     ]
     dot_theta = [t * 360.0 / 1000.0 for t, _, _, _, _ in triggers]
@@ -2712,12 +2719,10 @@ def cooldown_radial_chart(
         r=dot_r, theta=dot_theta, mode="markers+text",
         marker=dict(size=7, color=dot_colors, line=dict(color="white", width=1)),
         text=[r for _, _, r, _, _ in triggers], textposition="middle right",
-        # Dots near the rim can sit past the colored ring, over the chart's
-        # transparent background - Streamlit's dark theme shows through
-        # there, so dark text disappears. Yellow (same as the live-cooldown
-        # labels on the per-category CDF charts) reads on both light and
-        # dark backgrounds.
-        textfont=dict(size=10, color="#FFD54A"),
+        # dot_r_max's buffer keeps every dot (and this label) inside the
+        # colored ring rather than crowding the transparent edge, so plain
+        # dark text reads fine here without needing a special dark-mode color.
+        textfont=dict(size=10, color="#222222"),
         hovertext=dot_hover, hoverinfo="text", showlegend=False,
     ))
 
