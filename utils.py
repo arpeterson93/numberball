@@ -2705,9 +2705,10 @@ def cooldown_radial_chart(
     ]
     dot_theta = [t * 360.0 / 1000.0 for t, _, _, _, _ in triggers]
     dot_hover = [
-        f"{t} ({r}): {p:.0f}% chance closed by the next pitch" if p is not None
-        else f"{t} ({r}): n/a chance closed by the next pitch"
-        for t, p, r, _, _ in triggers
+        f"Pitch {t} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>"
+        + (f"{p:.0f}% chance closed by the next pitch" if p is not None
+           else "n/a chance closed by the next pitch")
+        for t, p, r, e, _ in triggers
     ]
     # Dot fill color is the trigger's own result category, worst-for-the-
     # pitcher to best (matching SEQ_RESULT_CATEGORIES' own order): dark blue
