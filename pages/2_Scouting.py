@@ -2827,12 +2827,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 # ── pitch zone cooldown ─────────────────────────────────────────────
                 st.subheader("Pitch Zone Cooldown")
                 st.caption(
-                    "For every historical pitch that gave up a result, how many pitches "
-                    "(anywhere in this pitcher's full history) until they threw another "
-                    "pitch value back within the radius of that same pitch? Grouped by "
-                    "what the triggering pitch resulted in. Dashed yellow lines are still-"
-                    "open cooldowns - a trigger with no return yet - labeled with the pitch "
-                    "value and specific result that started them.")
+                    "For every historical pitch that gave up a result, what's the % chance "
+                    "(across this pitcher's full history) that they'd have thrown another "
+                    "pitch value back within the radius of that same pitch by X pitches "
+                    "later? Grouped by what the triggering pitch resulted in. Yellow diamonds "
+                    "are still-open cooldowns sitting on the curve - reading their height "
+                    "answers 'what's the chance they'd have returned by now' - labeled below "
+                    "the axis with their specific result and the trigger pitch value.")
                 _cd_radius_p = st.select_slider(
                     "Radius (±)", options=[25, 50, 100, 125, 250, 500], value=50, key="p_cooldown_radius",
                     help="How close (circular pitch-value distance) a later pitch must land "
@@ -2854,7 +2855,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         with _cd_cols_p[_cd_i % _cd_n_cols_p]:
                             if not _cd_resolved_p.empty or not _cd_live_p.empty:
                                 st.plotly_chart(
-                                    utils.cooldown_histogram(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
+                                    utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
                                     width="stretch", config={"displayModeBar": False},
                                     key=f"p_cooldown_{_cd_cat}",
                                 )

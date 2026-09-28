@@ -2399,44 +2399,50 @@ def cooldown_events(
     return pd.DataFrame(rows, columns=["id", "category", "result", "trigger_pitch", "pitches", "resolved"])
 
 
-def cooldown_histogram(
+def cooldown_cdf_chart(
     return_pitches: pd.Series,
     title: str = "Cooldown",
     cap: int = 20,
     live: pd.DataFrame | None = None,
 ) -> go.Figure:
-    """Bar chart of resolved pitches-until-return counts (>=1) from
-    cooldown_events (pass the rows where resolved=True). Values above `cap`
-    pool into one overflow bin so a handful of very slow returns don't
-    stretch a mostly-fast-decaying distribution across a huge x-axis. Mean is
-    exact (computed pre-cap) and shown in the title, not as a vline, since the
-    overflow bin makes the x-axis non-linear past `cap`.
+    """Cumulative-distribution step line of resolved pitches-until-return
+    counts (>=1) from cooldown_events (pass the rows where resolved=True): the
+    curve's height at x is the empirical P(returned within x pitches), so it
+    reads directly as "historically, X% chance they'd have returned by now."
+    Values above `cap` pool into one overflow bin (the curve always finishes
+    at 100% there) so a handful of very slow returns don't stretch the x-axis.
 
     live: optional cooldown_events rows where resolved=False, already
-    filtered to this chart's category. Each is overlaid as a dashed line
-    spanning the full plot height at its own (capped) pitches-so-far position,
-    labeled above the plot with its trigger pitch value and specific result -
-    these are cooldowns still running, not yet part of the closed
-    distribution the bars show.
+    filtered to this chart's category. Each is drawn as a diamond marker
+    sitting directly ON the curve at its own (capped) elapsed-pitches x - the
+    marker's height on the y-axis IS the percent-chance answer for that live
+    trigger. Default x tick labels are replaced with fully custom rows below
+    the axis (bin number always; for a live trigger's own x, its specific
+    result just above the bin number, and its trigger pitch value - rotated
+    vertical to save horizontal room - just below it) since Plotly's built-in
+    ticks can't mix a per-position extra row with the shared label row.
     """
     vals = return_pitches.dropna().astype(int)
     if vals.empty and (live is None or live.empty):
         return go.Figure()
 
-    capped = vals.clip(upper=cap) if not vals.empty else vals
     total = len(vals)
     labels = [str(i) for i in range(1, cap)] + [f"{cap}+"]
-    counts = (capped.value_counts().reindex(range(1, cap + 1), fill_value=0).sort_index()
-              if not vals.empty else pd.Series([0] * cap, index=range(1, cap + 1)))
-    hover = [
-        f"{labels[k]}: {counts.iloc[k]} ({counts.iloc[k] / total * 100:.1f}%)" if total else f"{labels[k]}: 0"
-        for k in range(len(counts))
-    ]
+    if total:
+        capped = vals.clip(upper=cap)
+        counts = capped.value_counts().reindex(range(1, cap + 1), fill_value=0).sort_index()
+        cum_pct = counts.cumsum() / total * 100.0
+    else:
+        cum_pct = pd.Series([0.0] * cap, index=range(1, cap + 1))
+    cum_by_label = dict(zip(labels, cum_pct.values))
+
+    hover = [f"By {labels[k]}: {cum_pct.iloc[k]:.0f}% returned" for k in range(len(labels))]
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=labels, y=counts.values,
-        marker_color="#4C78A8", marker_line_width=0,
+    fig.add_trace(go.Scatter(
+        x=labels, y=cum_pct.values, mode="lines+markers",
+        line=dict(shape="hv", color="#4C78A8", width=2),
+        marker=dict(size=5, color="#4C78A8"),
         hovertext=hover, hoverinfo="text", name="",
     ))
 
@@ -2445,30 +2451,60 @@ def cooldown_histogram(
         title_text += f", mean={float(vals.mean()):.1f}"
     title_text += ")"
 
-    _n_live = 0 if live is None else len(live)
-    if _n_live:
-        for _k, (_, _row) in enumerate(live.sort_values("pitches").iterrows()):
-            _label = str(int(_row["pitches"])) if _row["pitches"] < cap else f"{cap}+"
-            fig.add_shape(
-                type="line", xref="x", yref="y domain",
-                x0=_label, x1=_label, y0=0, y1=1,
-                line=dict(color="#FFD54A", width=2, dash="dash"),
+    # y offsets (y-axis-domain fraction, negative = below the axis line at
+    # y=0%) for the custom rows that replace the default x tick labels - the
+    # bin number is always shown; a live trigger's result/pitch rows only
+    # appear at that trigger's own x, stacked closer-to-axis to farther.
+    _Y_RESULT, _Y_BIN, _Y_PITCH, _Y_TITLE = -0.09, -0.20, -0.34, -0.52
+
+    for _lbl in labels:
+        fig.add_annotation(
+            x=_lbl, y=_Y_BIN, xref="x", yref="y domain",
+            xanchor="center", yanchor="top", showarrow=False,
+            text=_lbl, font=dict(size=10),
+        )
+    fig.add_annotation(
+        x=0.5, y=_Y_TITLE, xref="paper", yref="y domain",
+        xanchor="center", yanchor="top", showarrow=False,
+        text="Pitches until return", font=dict(size=11),
+    )
+
+    if live is not None and not live.empty:
+        # Two live triggers can land in the same bin - stagger their rows a
+        # little in that case so the text/markers stay legible.
+        _seen: dict[str, int] = {}
+        for _, _row in live.sort_values("pitches").iterrows():
+            _pitches = int(_row["pitches"])
+            _label = str(_pitches) if _pitches < cap else f"{cap}+"
+            _dup = _seen.get(_label, 0)
+            _seen[_label] = _dup + 1
+            _y_curve = float(cum_by_label.get(_label, 0.0))
+            fig.add_trace(go.Scatter(
+                x=[_label], y=[_y_curve], mode="markers",
+                marker=dict(size=10, color="#FFD54A", symbol="diamond",
+                            line=dict(color="rgba(80,80,80,0.6)", width=1)),
+                hovertext=[f"{int(_row['trigger_pitch'])} ({_row['result']}): "
+                           f"{_y_curve:.0f}% would have returned by now"],
+                hoverinfo="text", showlegend=False,
+            ))
+            fig.add_annotation(
+                x=_label, y=_Y_RESULT - 0.09 * _dup, xref="x", yref="y domain",
+                xanchor="center", yanchor="top", showarrow=False,
+                text=str(_row["result"]), font=dict(size=10, color="#FFD54A"),
             )
             fig.add_annotation(
-                x=_label, y=1.0 + 0.22 * (_k + 1), xref="x", yref="y domain",
-                xanchor="center", yanchor="bottom", showarrow=False,
-                text=f"{int(_row['trigger_pitch'])} ({_row['result']})",
-                font=dict(size=10, color="#FFD54A"),
+                x=_label, y=_Y_PITCH - 0.09 * _dup, xref="x", yref="y domain",
+                xanchor="center", yanchor="top", showarrow=False, textangle=90,
+                text=str(int(_row["trigger_pitch"])), font=dict(size=10, color="#FFD54A"),
             )
 
     fig.update_layout(
         title=dict(text=title_text, x=0.5, xanchor="center"),
-        xaxis=dict(title="Pitches until return", type="category"),
-        yaxis_title="Count",
-        height=300 + 20 * _n_live,
+        xaxis=dict(type="category", showticklabels=False, title=None, showgrid=False),
+        yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
+        height=340,
         showlegend=False,
-        bargap=0.06,
-        margin=dict(l=45, r=10, t=52 + 20 * _n_live, b=45),
+        margin=dict(l=45, r=10, t=52, b=100),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
