@@ -2550,29 +2550,38 @@ def cooldown_radial_chart(
     unfiltered.
 
     Each open (resolved=False) trigger draws as a small dot at its trigger
-    pitch's angular position, sitting right at the polar hole's edge, labeled
-    with its specific result. The colored ring running from there out to the
-    rim is the +/- radius zone around EVERY open trigger at once, rasterized
-    into `n_bins` thin angular slices rather than drawn as one wedge per
-    trigger - that's what avoids the overlap problem two-plus open triggers
-    would otherwise create: alpha-blending two differently-colored wedges
-    produces a muddy third color that doesn't clearly read as either one's
-    actual value, so instead each slice resolves to exactly ONE color, the
-    highest (most "overdue") probability among every trigger whose zone
-    covers it.
+    pitch's angular position. Its radius encodes RELATIVE recency among the
+    open triggers themselves (min-max scaled off elapsed pitches, same
+    "newer -> outer rim, older -> center" convention as the other radial
+    charts on this tab) - the trigger that fired most recently sits at the
+    rim, the one that's been open longest sits nearest the polar hole.
 
-    That probability - from a slice-covering trigger's own category's
-    resolved distribution - is the historical chance a cooldown would
-    already be closed within one more pitch than this one has run so far,
-    i.e. CDF_category(elapsed + 1) (a return on the very next pitch is the
-    most immediate way a cooldown could end). It maps through the same blue
-    (low) -> white (mid) -> red (high) diverging scale used for recency
-    elsewhere on this tab (_freq_bwr_color), so a red slice means "historically
-    almost always resolved by now - this one running long is notable," blue
-    means "still well within normal," and a slice no open trigger's zone
-    reaches, or whose only covering trigger(s) have no resolved history to
-    judge from, renders neutral white - same treatment for "nothing to
-    report" and "no data," since both mean there's nothing alarming to show.
+    The colored ring is the +/- radius zone around EVERY open trigger at
+    once, rasterized into `n_bins` thin angular slices rather than drawn as
+    one wedge per trigger - that avoids the overlap problem two-plus open
+    triggers would otherwise create (alpha-blending two differently-colored
+    wedges produces a muddy third color that doesn't clearly read as either
+    one's actual value). Each slice instead resolves to exactly one color:
+    the AVERAGE probability among every trigger whose zone covers it (equal
+    weight per trigger, regardless of category). That probability - from a
+    slice-covering trigger's own category's resolved distribution - is the
+    historical chance a cooldown would already be closed within one more
+    pitch than this one has run so far, i.e. CDF_category(elapsed + 1) (a
+    return on the very next pitch is the most immediate way a cooldown could
+    end). It maps through the same blue (low) -> white (mid) -> red (high)
+    diverging scale used for recency elsewhere on this tab (_freq_bwr_color),
+    so a red slice means "historically almost always resolved by now - this
+    one running long is notable," blue means "still well within normal," and
+    a slice no open trigger's zone reaches, or whose only covering
+    trigger(s) have no resolved history to judge from, renders neutral white.
+
+    Maximal contiguous runs of equal-valued slices (in practice: the part of
+    a trigger's own zone that no OTHER open trigger's zone overlaps, or two
+    zones whose averaged overlap happens to match a neighboring solo run) get
+    a "%" text label at their angular midpoint - short runs below
+    `n_bins // 40` slices wide are skipped as too thin to label legibly, and
+    "no data"/"no coverage" runs are never labeled since there's no number to
+    show.
     """
     if events.empty:
         return go.Figure()
@@ -2594,25 +2603,29 @@ def cooldown_radial_chart(
             max_needed = max(max_needed, int(resolved_vals.max()) + 1)
         cdf_by_cat[cat] = _cooldown_empirical_cdf(resolved_vals, max_needed)
 
-    triggers = []  # (trigger_pitch, probability-or-None, result)
+    triggers = []  # (trigger_pitch, probability-or-None, result, elapsed_pitches)
     for _, row in live.iterrows():
         prob = cdf_by_cat.get(row["category"], {}).get(int(row["pitches"]) + 1)
-        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"])))
+        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"]), int(row["pitches"])))
 
     bin_width = 1000.0 / n_bins
     bin_vals = [(i + 0.5) * bin_width for i in range(n_bins)]
-    bin_colors = []
+    bin_probs: list[float | None] = []
     for v in bin_vals:
-        best = None
-        for trig, prob, _ in triggers:
+        covering = []
+        for trig, prob, _, _ in triggers:
             if prob is None:
                 continue
             d = abs(v - trig)
             if d > 500:
                 d = 1000 - d
             if d <= radius:
-                best = prob if best is None else max(best, prob)
-        bin_colors.append(_freq_bwr_color(best, 0, 100) if best is not None else _freq_bwr_color(50, 0, 100))
+                covering.append(prob)
+        bin_probs.append(sum(covering) / len(covering) if covering else None)
+    bin_colors = [
+        _freq_bwr_color(p, 0, 100) if p is not None else _freq_bwr_color(50, 0, 100)
+        for p in bin_probs
+    ]
 
     fig = go.Figure()
     fig.add_trace(go.Barpolar(
@@ -2623,16 +2636,63 @@ def cooldown_radial_chart(
         base=0, hoverinfo="skip", showlegend=False,
     ))
 
-    dot_theta = [t * 360.0 / 1000.0 for t, _, _ in triggers]
+    # Label each maximal contiguous run of equal-valued (numeric) slices with
+    # its % at the run's angular midpoint - found by walking the bins in
+    # circular order starting just after a value change, so a run that wraps
+    # across the 0/360 seam isn't split in two.
+    min_run = max(1, n_bins // 40)
+    seam = 0
+    for i in range(n_bins):
+        if bin_probs[i] != bin_probs[(i - 1) % n_bins]:
+            seam = i
+            break
+    order = [(seam + k) % n_bins for k in range(n_bins)]
+    run_start, run_val, run_len = order[0], bin_probs[order[0]], 1
+    runs = []
+    for idx in order[1:]:
+        if bin_probs[idx] == run_val:
+            run_len += 1
+        else:
+            runs.append((run_start, run_len, run_val))
+            run_start, run_val, run_len = idx, bin_probs[idx], 1
+    runs.append((run_start, run_len, run_val))
+
+    label_theta, label_text = [], []
+    for start, length, val in runs:
+        if val is None or length < min_run:
+            continue
+        mid_bin = (start + (length - 1) / 2.0) % n_bins
+        mid_pitch = (mid_bin + 0.5) * bin_width
+        label_theta.append(mid_pitch * 360.0 / 1000.0)
+        label_text.append(f"{val:.0f}%")
+    if label_theta:
+        fig.add_trace(go.Scatterpolar(
+            r=[r_max * 0.6] * len(label_theta), theta=label_theta, mode="text",
+            text=label_text, textfont=dict(size=10, color="#222222"),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    # Dot radius encodes relative recency among the open triggers themselves
+    # (elapsed pitches, min-max scaled) - smaller elapsed = fired more
+    # recently = outer rim; larger elapsed = been open longer = inner, near
+    # the hole. A single trigger, or several tied on elapsed, default to the
+    # rim (nothing to spread across an otherwise-degenerate scale).
+    elapsed_vals = [e for _, _, _, e in triggers]
+    e_lo, e_hi = min(elapsed_vals), max(elapsed_vals)
+    dot_r = [
+        r_max if e_hi == e_lo else r_max - (r_max - hole) * (e - e_lo) / (e_hi - e_lo)
+        for e in elapsed_vals
+    ]
+    dot_theta = [t * 360.0 / 1000.0 for t, _, _, _ in triggers]
     dot_hover = [
         f"{t} ({r}): {p:.0f}% chance closed by the next pitch" if p is not None
         else f"{t} ({r}): n/a chance closed by the next pitch"
-        for t, p, r in triggers
+        for t, p, r, _ in triggers
     ]
     fig.add_trace(go.Scatterpolar(
-        r=[hole] * len(triggers), theta=dot_theta, mode="markers+text",
+        r=dot_r, theta=dot_theta, mode="markers+text",
         marker=dict(size=7, color="#222222", line=dict(color="white", width=1)),
-        text=[r for _, _, r in triggers], textposition="middle right",
+        text=[r for _, _, r, _ in triggers], textposition="middle right",
         textfont=dict(size=10, color="#222222"),
         hovertext=dot_hover, hoverinfo="text", showlegend=False,
     ))
