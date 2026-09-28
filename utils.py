@@ -2471,7 +2471,7 @@ def cooldown_cdf_chart(
     # live-trigger result/pitch rows - those need their exact x regardless of
     # the every-5 tick spacing, so they're custom annotations too, kept close
     # together since they're always a pair describing the same trigger.
-    _Y_AXIS_TITLE, _Y_RESULT, _Y_PITCH = -0.14, -0.26, -0.31
+    _Y_AXIS_TITLE, _Y_RESULT, _Y_PITCH = -0.14, -0.26, -0.35
 
     fig.add_annotation(
         x=0.5, y=_Y_AXIS_TITLE, xref="paper", yref="y domain",
@@ -2518,7 +2518,7 @@ def cooldown_cdf_chart(
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
         height=340,
         showlegend=False,
-        margin=dict(l=45, r=10, t=52, b=95),
+        margin=dict(l=45, r=10, t=52, b=105),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
