@@ -2349,16 +2349,19 @@ def cooldown_events(
     A trigger with no return before the last pitch in df is still "live" -
     its cooldown hasn't closed yet, just hasn't had the chance. Those rows
     are kept (resolved=False, pitches=how many pitches have been thrown
-    since the trigger so far) rather than dropped, so callers can overlay
-    them on the distribution instead of silently losing them; a trigger that
-    IS the very last pitch (zero pitches thrown since) is dropped since there
-    is nothing yet to show.
+    since the trigger so far - 0 if the trigger IS the very last pitch)
+    rather than dropped, so callers can overlay them on the distribution
+    instead of silently losing them. Even at pitches=0 there's a well-defined
+    historical answer - the chance a cooldown of that category closes within
+    ONE more pitch, i.e. CDF_category(pitches + 1) - so it's kept rather than
+    treated as "nothing to show yet."
 
     Returns one row per trigger with columns: id (trigger row's id), category
     (via result_category_fn, default seq_result_category), result (the raw,
     specific result string, e.g. "3B"/"HR"/"BB"), trigger_pitch, pitches
-    (>= 1 - pitches from the trigger to the first return if resolved, else
-    pitches thrown since the trigger with no return yet), resolved (bool).
+    (>= 0 - pitches from the trigger to the first return if resolved [always
+    >= 1 there], else pitches thrown since the trigger with no return yet),
+    resolved (bool).
     """
     if result_category_fn is None:
         result_category_fn = seq_result_category
@@ -2385,8 +2388,6 @@ def cooldown_events(
         resolved = pitches is not None
         if not resolved:
             pitches = (n - 1) - i
-            if pitches < 1:
-                continue
         rows.append({
             "id": ids[i],
             "category": result_category_fn(r),
@@ -2531,7 +2532,12 @@ def cooldown_cdf_chart(
         xaxis=dict(
             title=None,
             tickmode="linear", tick0=0, dtick=dtick,
-            range=[0.5, display_max_x + 0.5],
+            # Lower bound is -0.5, not 0.5, so a trigger that's still at
+            # pitches=0 (it just fired - zero pitches thrown since) gets a
+            # diamond at x=0 without it being clipped off the left edge; the
+            # resolved-return line itself never has an x below 1, so this
+            # doesn't change what that line shows.
+            range=[-0.5, display_max_x + 0.5],
             showgrid=True, gridcolor="rgba(128,128,128,0.25)",
         ),
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
