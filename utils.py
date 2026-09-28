@@ -2416,28 +2416,39 @@ def cooldown_cdf_chart(
     filtered to this chart's category. Each is drawn as a small diamond
     marker sitting directly ON the curve at its own elapsed-pitches x - the
     marker's height on the y-axis IS the percent-chance answer for that live
-    trigger. The x-axis only labels/gridlines every 5 pitches (not every
-    point); a live trigger's specific result and trigger pitch value (rotated
-    vertical to save width) render as their own rows below the axis instead,
-    since they need to appear at that trigger's exact x regardless of whether
-    it falls on a labeled tick.
+    trigger. A live trigger's specific result and trigger pitch value
+    (rotated vertical to save width) render as their own rows below the axis,
+    since they need to appear at that trigger's exact x regardless of
+    whether it falls on a labeled tick.
+
+    The visible x-axis window zooms to the smaller of the full data range and
+    the 90th percentile of the RESOLVED counts (never cropping past a live
+    trigger's own elapsed count, so an open cooldown is always visible) - a
+    smaller radius makes returns rarer and pushes a few very slow ones far
+    out, and without this the typical/helpful range would get flattened into
+    a sliver on the left. Gridline spacing scales with that window (every 5
+    pitches for a short window, coarser for a long one) instead of a fixed 5.
     """
     vals = return_pitches.dropna().astype(int)
     if vals.empty and (live is None or live.empty):
         return go.Figure()
 
     total = len(vals)
-    max_x = max(
-        int(vals.max()) if not vals.empty else 0,
-        int(live["pitches"].max()) if live is not None and not live.empty else 0,
-        5,  # floor so the every-5 gridline always has at least one tick to show
-    )
+    live_max = int(live["pitches"].max()) if live is not None and not live.empty else 0
+    real_max_x = max(int(vals.max()) if not vals.empty else 0, live_max, 5)
+
     if total:
-        counts = vals.value_counts().reindex(range(1, max_x + 1), fill_value=0).sort_index()
+        counts = vals.value_counts().reindex(range(1, real_max_x + 1), fill_value=0).sort_index()
         cum_pct = counts.cumsum() / total * 100.0
+        pctl_90 = int(np.ceil(float(vals.quantile(0.90))))
     else:
-        cum_pct = pd.Series([0.0] * max_x, index=range(1, max_x + 1))
+        cum_pct = pd.Series([0.0] * real_max_x, index=range(1, real_max_x + 1))
+        pctl_90 = 0
     cum_by_x = dict(zip(cum_pct.index, cum_pct.values))
+
+    display_max_x = min(real_max_x, max(pctl_90, live_max, 5))
+    _dtick_steps = [5, 10, 25, 50, 100, 250, 500, 1000]
+    dtick = next((s for s in _dtick_steps if display_max_x / s <= 8), _dtick_steps[-1])
 
     hover = [f"By {x}: {cum_pct.loc[x]:.0f}% returned" for x in cum_pct.index]
 
@@ -2500,8 +2511,8 @@ def cooldown_cdf_chart(
         title=dict(text=title_text, x=0.5, xanchor="center"),
         xaxis=dict(
             title=None,
-            tickmode="linear", tick0=0, dtick=5,
-            range=[0.5, max_x + 0.5],
+            tickmode="linear", tick0=0, dtick=dtick,
+            range=[0.5, display_max_x + 0.5],
             showgrid=True, gridcolor="rgba(128,128,128,0.25)",
         ),
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
