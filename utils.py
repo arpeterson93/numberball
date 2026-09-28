@@ -2556,14 +2556,13 @@ def cooldown_cdf_overlay_chart(
     the full cooldown_events output for this pitcher (both resolved=True and
     resolved=False rows, any category) - the function groups it itself.
 
-    Lines only (no per-point dot markers) - with four curves already sharing
-    one axis, a dot at every x would be far too busy. Live (still-open)
-    triggers still mark as small yellow diamonds sitting on their own
-    category's curve, at CDF_category(elapsed) - the same value the
-    individual per-category chart's diamond for that same trigger shows, so
-    the two views never disagree. No per-point result/pitch text here - the
-    legend names the lines, and each category's own chart above carries
-    that per-trigger detail already.
+    Lines only - no per-point dot markers and no live-trigger diamonds, since
+    with four curves already sharing one axis those would be too busy here.
+    The x-axis window still stretches to cover every live trigger's elapsed
+    count (so a category's curve is never cropped shorter than an open
+    cooldown it should still be able to show), but the trigger itself isn't
+    individually marked - that detail lives on each category's own chart
+    above (see cooldown_cdf_chart) and the Open Cooldowns radial below.
     """
     if events.empty:
         return go.Figure()
@@ -2592,7 +2591,7 @@ def cooldown_cdf_overlay_chart(
 
     fig = go.Figure()
     for cat in cats:
-        resolved_vals, live_rows = per_cat[cat]
+        resolved_vals, _live_rows = per_cat[cat]
         color = _COOLDOWN_CAT_COLORS.get(cat, "#4C78A8")
         cum_by_x = _cooldown_empirical_cdf(resolved_vals, real_max_x)
         total = len(resolved_vals)
@@ -2603,16 +2602,6 @@ def cooldown_cdf_overlay_chart(
             x=x_vals, y=y_vals, mode="lines", line=dict(color=color, width=2),
             name=f"{cat} (n={total})", hovertext=hover, hoverinfo="text",
         ))
-        if not live_rows.empty:
-            live_x = live_rows["pitches"].astype(int).tolist()
-            live_y = [cum_by_x.get(x, 0.0) for x in live_x]
-            live_hover = [f"{cat}: {y:.0f}% would have returned by now" for y in live_y]
-            fig.add_trace(go.Scatter(
-                x=live_x, y=live_y, mode="markers",
-                marker=dict(size=7, color="#FFD54A", symbol="diamond",
-                            line=dict(color="rgba(80,80,80,0.6)", width=1)),
-                hovertext=live_hover, hoverinfo="text", showlegend=False,
-            ))
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
@@ -2623,9 +2612,13 @@ def cooldown_cdf_overlay_chart(
             showgrid=True, gridcolor="rgba(128,128,128,0.25)",
         ),
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
-        height=360,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        margin=dict(l=45, r=10, t=52, b=45),
+        height=390,
+        # Legend below the plot, not above it - a horizontal legend anchored
+        # near the title (as this originally had it) can wrap onto a second
+        # line on a narrow/mobile viewport and collide with the title text
+        # sitting at a fixed position right above it.
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
+        margin=dict(l=45, r=10, t=52, b=70),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

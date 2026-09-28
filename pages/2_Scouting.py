@@ -2867,8 +2867,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.caption(
                         "All four categories' cooldown curves on one chart, colored the "
                         "same as the Open Cooldowns dots below, so you can compare how "
-                        "fast each one typically resolves. Yellow diamonds mark still-open "
-                        "cooldowns on their own category's curve.")
+                        "fast each one typically resolves.")
                     st.plotly_chart(
                         utils.cooldown_cdf_overlay_chart(_cd_events_p),
                         width="stretch", config={"displayModeBar": False},
