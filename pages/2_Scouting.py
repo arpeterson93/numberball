@@ -2823,6 +2823,34 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     )
                 else:
                     st.caption("Need at least 2 at-bats from the same pitcher.")
+
+                # ── pitch zone cooldown ─────────────────────────────────────────────
+                st.subheader("Pitch Zone Cooldown")
+                st.caption(
+                    "For every historical pitch that gave up a result, how many pitches "
+                    "(anywhere in this pitcher's full history) until they threw another "
+                    "pitch value back within the radius of that same pitch? Grouped by "
+                    "what the triggering pitch resulted in.")
+                _cd_radius_p = st.select_slider(
+                    "Radius (±)", options=[25, 50, 100, 125, 250, 500], value=50, key="p_cooldown_radius",
+                    help="How close (circular pitch-value distance) a later pitch must land "
+                         "to the trigger pitch to count as 'returning' to that zone.")
+                _cd_events_p = utils.cooldown_return_events(df_p, value_col="pitch", radius=_cd_radius_p)
+                if _cd_events_p.empty:
+                    st.caption("Not enough history to compute cooldown returns.")
+                else:
+                    _cd_cols_p = st.columns(2)
+                    for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                        _cd_vals = _cd_events_p.loc[_cd_events_p["category"] == _cd_cat, "return_pitches"]
+                        with _cd_cols_p[_cd_i % 2]:
+                            if not _cd_vals.empty:
+                                st.plotly_chart(
+                                    utils.cooldown_histogram(_cd_vals, title=_cd_cat),
+                                    width="stretch", config={"displayModeBar": False},
+                                    key=f"p_cooldown_{_cd_cat}",
+                                )
+                            else:
+                                st.caption(f"No {_cd_cat} triggers with a resolved return.")
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
         # ── tendencies ────────────────────────────────────────────────────────

@@ -2324,6 +2324,110 @@ def delta_histogram(
     return fig
 
 
+def cooldown_return_events(
+    df: pd.DataFrame,
+    value_col: str = "pitch",
+    result_col: str = "result",
+    radius: int = 50,
+    result_category_fn=None,
+) -> pd.DataFrame:
+    """For every pitch whose plate appearance carries a result, scan strictly
+    forward through this pitcher's full id-sorted pitch history (every row
+    with a value_col value, not only rows with a result - a called pitch that
+    wasn't swung at still counts toward the pitch count) and find the first
+    later pitch whose circular distance from the trigger's value is <=
+    radius. That gap in pitches - "how long until the pitcher came back
+    around to a pitch value near the one that just got this result" - is one
+    cooldown data point.
+
+    Each trigger is scanned independently: overlapping triggers (a second bad
+    result before the first one has "returned") each get their own full scan
+    from their own position, so one later pitch can resolve more than one
+    open trigger at once. Scans run across the pitcher's entire history with
+    no game/appearance reset - see project memory on this design choice.
+    Triggers with no return before the last pitch in df are right-censored
+    and dropped (we don't know how long they'd have taken).
+
+    Returns one row per resolved trigger: id (trigger row's id), category
+    (via result_category_fn, default seq_result_category), trigger_pitch,
+    return_pitches (>= 1, pitch count from the trigger to the first return,
+    inclusive of the returning pitch).
+    """
+    if result_category_fn is None:
+        result_category_fn = seq_result_category
+    d = df[df[value_col].notna()].sort_values("id")
+    ids = d["id"].tolist()
+    vals = d[value_col].astype(int).tolist()
+    raw_results = d[result_col].tolist() if result_col in d.columns else [None] * len(d)
+    n = len(vals)
+
+    rows = []
+    for i in range(n):
+        r = raw_results[i]
+        if pd.isna(r):
+            continue
+        trigger_val = vals[i]
+        for j in range(i + 1, n):
+            dv = abs(vals[j] - trigger_val)
+            if dv > 500:
+                dv = 1000 - dv
+            if dv <= radius:
+                rows.append({
+                    "id": ids[i],
+                    "category": result_category_fn(r),
+                    "trigger_pitch": trigger_val,
+                    "return_pitches": j - i,
+                })
+                break
+
+    return pd.DataFrame(rows, columns=["id", "category", "trigger_pitch", "return_pitches"])
+
+
+def cooldown_histogram(
+    return_pitches: pd.Series,
+    title: str = "Cooldown",
+    cap: int = 20,
+) -> go.Figure:
+    """Bar chart of pitches-until-return counts (>=1) from cooldown_return_events.
+    Values above `cap` pool into one overflow bin so a handful of very slow
+    returns don't stretch a mostly-fast-decaying distribution across a huge
+    x-axis. Mean is exact (computed pre-cap) and shown in the title, not as a
+    vline, since the overflow bin makes the x-axis non-linear past `cap`."""
+    vals = return_pitches.dropna().astype(int)
+    if vals.empty:
+        return go.Figure()
+    total = len(vals)
+    mean_val = float(vals.mean())
+
+    capped = vals.clip(upper=cap)
+    counts = capped.value_counts().reindex(range(1, cap + 1), fill_value=0).sort_index()
+    labels = [str(i) for i in range(1, cap)] + [f"{cap}+"]
+    hover = [
+        f"{labels[k]}: {counts.iloc[k]} ({counts.iloc[k] / total * 100:.1f}%)"
+        for k in range(len(counts))
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=labels, y=counts.values,
+        marker_color="#4C78A8", marker_line_width=0,
+        hovertext=hover, hoverinfo="text", name="",
+    ))
+    fig.update_layout(
+        title=dict(text=f"{title} (n={total}, mean={mean_val:.1f})", x=0.5, xanchor="center"),
+        xaxis=dict(title="Pitches until return", type="category"),
+        yaxis_title="Count",
+        height=300,
+        showlegend=False,
+        bargap=0.06,
+        margin=dict(l=45, r=10, t=52, b=45),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def between_inning_deltas(df: pd.DataFrame, value_col: str = "pitch") -> pd.Series:
     """Signed delta from last pitch of one inning to first pitch of the next, same game and pitcher/batter."""
     group_col = "pitcher_name" if value_col == "pitch" else "batter_name"
