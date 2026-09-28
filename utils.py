@@ -2455,10 +2455,18 @@ def cooldown_cdf_chart(
     title_text += ")"
 
     # y offsets (y-axis-domain fraction, negative = below the axis line at
-    # y=0%) for a live trigger's own result/pitch rows - they need their exact
-    # x regardless of the every-5 tick spacing, so they're custom annotations
-    # rather than axis ticks.
-    _Y_RESULT, _Y_PITCH = -0.14, -0.32
+    # y=0%). The axis title is drawn as its own annotation (not the native
+    # xaxis title) so it can be pinned just below the tick numbers, above the
+    # live-trigger result/pitch rows - those need their exact x regardless of
+    # the every-5 tick spacing, so they're custom annotations too, kept close
+    # together since they're always a pair describing the same trigger.
+    _Y_AXIS_TITLE, _Y_RESULT, _Y_PITCH = -0.14, -0.26, -0.31
+
+    fig.add_annotation(
+        x=0.5, y=_Y_AXIS_TITLE, xref="paper", yref="y domain",
+        xanchor="center", yanchor="top", showarrow=False,
+        text="Pitches until return", font=dict(size=11),
+    )
 
     if live is not None and not live.empty:
         # Two live triggers can land on the same pitch count - stagger their
@@ -2478,12 +2486,12 @@ def cooldown_cdf_chart(
                 hoverinfo="text", showlegend=False,
             ))
             fig.add_annotation(
-                x=_pitches, y=_Y_RESULT - 0.09 * _dup, xref="x", yref="y domain",
+                x=_pitches, y=_Y_RESULT - 0.05 * _dup, xref="x", yref="y domain",
                 xanchor="center", yanchor="top", showarrow=False,
                 text=str(_row["result"]), font=dict(size=10, color="#FFD54A"),
             )
             fig.add_annotation(
-                x=_pitches, y=_Y_PITCH - 0.09 * _dup, xref="x", yref="y domain",
+                x=_pitches, y=_Y_PITCH - 0.05 * _dup, xref="x", yref="y domain",
                 xanchor="center", yanchor="top", showarrow=False, textangle=90,
                 text=str(int(_row["trigger_pitch"])), font=dict(size=10, color="#FFD54A"),
             )
@@ -2491,7 +2499,7 @@ def cooldown_cdf_chart(
     fig.update_layout(
         title=dict(text=title_text, x=0.5, xanchor="center"),
         xaxis=dict(
-            title=dict(text="Pitches until return", standoff=60),
+            title=None,
             tickmode="linear", tick0=0, dtick=5,
             range=[0.5, max_x + 0.5],
             showgrid=True, gridcolor="rgba(128,128,128,0.25)",
@@ -2499,7 +2507,7 @@ def cooldown_cdf_chart(
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
         height=340,
         showlegend=False,
-        margin=dict(l=45, r=10, t=52, b=110),
+        margin=dict(l=45, r=10, t=52, b=95),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
