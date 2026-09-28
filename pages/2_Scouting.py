@@ -2223,11 +2223,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
         # ── context filters for the radial views ────────────────────────────────
         with st.expander("Context Filters", expanded=True):
-            st.caption("Condition both radial views below on what led into each historical pitch. "
+            st.caption("Condition the radial views below on what led into each historical pitch. "
                        "Active filters combine together.")
             _pf_sorted_p    = df_p_pred.sort_values("id") if not df_p_pred.empty else df_p_pred
             _pf_pitches_p   = _pf_sorted_p["pitch"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_delta_p     = _pf_sorted_p["pitch_circ_delta"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_delta2_p    = _pf_sorted_p["pitch_circ_delta2_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
             # Pre-read each widget's current (or preset-default) value from
@@ -2247,6 +2248,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
                 _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500, domain_lo=-500)
             _cf_delta_lbl_p  = f"Prev Δ ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
+
+            _cf_delta2_def_p = _pf_delta2_p[-1] if _pf_delta2_p else 100
+            _cf_delta2_w_pre = st.session_state.get("ctx_delta2_w_p", 100)
+            _cf_delta2_v_pre = int(st.session_state.get(f"ctx_delta2_v_p_{tab_p_pitcher}", _cf_delta2_def_p))
+            _cf_delta2_lo_pre, _cf_delta2_hi_pre = utils._centered_match_interval(
+                _cf_delta2_v_pre, _cf_delta2_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_delta2_lbl_p = f"Prev Δ² ({_cf_delta2_lo_pre}-{_cf_delta2_hi_pre})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -2283,6 +2291,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             with _cfp1:
                 _cf_pitch_on_p = st.toggle(_cf_pitch_lbl_p, key="ctx_pitch_on_p", value=False)
                 _cf_pitch_bucket_p = None
+                _cf_pitch_bucket2_p = None
                 if _cf_pitch_on_p:
                     _cf_pitch_w_p = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
                                                       value=200, key="ctx_pitch_w_p")
@@ -2292,9 +2301,23 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     )
                     _cf_pitch_bucket_p = utils._centered_match_interval(
                         int(_cf_pitch_val_p), _cf_pitch_w_p, domain_hi=1000, domain_lo=1)
+                    _cf_pitch_seq3_on_p = st.toggle(
+                        "3-pitch pattern", key="ctx_pitch_seq3_p", value=False,
+                        help="Also require the pitch two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-pitch match above "
+                             "into a 3-pitch one.")
+                    if _cf_pitch_seq3_on_p:
+                        _cf_pitch_def2_p = _pf_pitches_p[-2] if len(_pf_pitches_p) >= 2 else _cf_pitch_def_p
+                        _cf_pitch_val2_p = st.number_input(
+                            "Prev-2 pitch value", min_value=1, max_value=1000, value=_cf_pitch_def2_p,
+                            step=1, key=f"ctx_pitch_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_pitch_bucket2_p = utils._centered_match_interval(
+                            int(_cf_pitch_val2_p), _cf_pitch_w_p, domain_hi=1000, domain_lo=1)
 
                 _cf_delta_on_p = st.toggle(_cf_delta_lbl_p, key="ctx_delta_on_p", value=False)
                 _cf_delta_bucket_p = None
+                _cf_delta_bucket2_p = None
                 if _cf_delta_on_p:
                     _cf_delta_w_p = st.select_slider("Bucket size (Δ)", options=[25, 50, 100, 125, 250, 500],
                                                       value=100, key="ctx_delta_w_p")
@@ -2304,6 +2327,51 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     )
                     _cf_delta_bucket_p = utils._centered_match_interval(
                         int(_cf_delta_val_p), _cf_delta_w_p, domain_hi=500, domain_lo=-500)
+                    _cf_delta_seq3_on_p = st.toggle(
+                        "3-Δ pattern", key="ctx_delta_seq3_p", value=False,
+                        help="Also require the Δ two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-Δ match above "
+                             "into a 3-Δ one.")
+                    if _cf_delta_seq3_on_p:
+                        _cf_delta_def2_p = _pf_delta_p[-2] if len(_pf_delta_p) >= 2 else _cf_delta_def_p
+                        _cf_delta_val2_p = st.number_input(
+                            "Prev-2 Δ value", min_value=-500, max_value=500, value=_cf_delta_def2_p,
+                            step=1, key=f"ctx_delta_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_delta_bucket2_p = utils._centered_match_interval(
+                            int(_cf_delta_val2_p), _cf_delta_w_p, domain_hi=500, domain_lo=-500)
+
+                _cf_delta2_on_p = st.toggle(_cf_delta2_lbl_p, key="ctx_delta2_on_p", value=False)
+                _cf_delta2_bucket_p = None
+                _cf_delta2_bucket2_p = None
+                if _cf_delta2_on_p:
+                    _cf_delta2_w_p = st.select_slider("Bucket size (Δ²)", options=[25, 50, 100, 125, 250, 500],
+                                                       value=100, key="ctx_delta2_w_p")
+                    _cf_delta2_val_p = st.number_input(
+                        "Previous Δ² value", min_value=-500, max_value=500, value=_cf_delta2_def_p,
+                        step=1, key=f"ctx_delta2_v_p_{tab_p_pitcher}",
+                    )
+                    _cf_delta2_bucket_p = utils._centered_match_interval(
+                        int(_cf_delta2_val_p), _cf_delta2_w_p, domain_hi=500, domain_lo=-500)
+                    _cf_delta2_seq3_on_p = st.toggle(
+                        "3-Δ² pattern", key="ctx_delta2_seq3_p", value=False,
+                        help="Also require the Δ² two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-Δ² match above "
+                             "into a 3-Δ² one.")
+                    if _cf_delta2_seq3_on_p:
+                        _cf_delta2_def2_p = _pf_delta2_p[-2] if len(_pf_delta2_p) >= 2 else _cf_delta2_def_p
+                        _cf_delta2_val2_p = st.number_input(
+                            "Prev-2 Δ² value", min_value=-500, max_value=500, value=_cf_delta2_def2_p,
+                            step=1, key=f"ctx_delta2_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_delta2_bucket2_p = utils._centered_match_interval(
+                            int(_cf_delta2_val2_p), _cf_delta2_w_p, domain_hi=500, domain_lo=-500)
+
+                _cf_delta2_combined_on_p = st.toggle(
+                    "Include Δ² in Combined", key="ctx_delta2_combined_p", value=False,
+                    help="Off: the Combined radial overlays only actual pitches and implied-Δ "
+                         "points. On: it also overlays the implied-Δ² points shown on the "
+                         "Delta² radial above.")
 
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
@@ -2336,19 +2404,23 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                                  "Off: all pitches.")
 
             # Previous pitch range only narrows the Pitches radial; previous Δ
-            # range only narrows the Deltas radial - previous result, leverage,
-            # and the 1st-pitch toggles are shared context, so they narrow both.
-            _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p,
-                                        _cf_fp_app_on_p, _cf_fp_inn_on_p])
-            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_result_cat_p, _cf_leverage_bucket_p,
-                                        _cf_fp_app_on_p, _cf_fp_inn_on_p])
-            if (_cf_active_pitches_p or _cf_active_deltas_p) and not df_p_pred.empty:
+            # range only narrows the Deltas radial; previous Δ² range only
+            # narrows the Delta² radial - previous result, leverage, and the
+            # 1st-pitch toggles are shared context, so they narrow all three.
+            _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_pitch_bucket2_p, _cf_result_cat_p,
+                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p, _cf_result_cat_p,
+                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+            _cf_active_delta2_p  = any([_cf_delta2_bucket_p, _cf_delta2_bucket2_p, _cf_result_cat_p,
+                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+            if (_cf_active_pitches_p or _cf_active_deltas_p or _cf_active_delta2_p) and not df_p_pred.empty:
                 _df_ctx_p = df_p_pred.copy()
                 if _cf_leverage_bucket_p is not None:
                     _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
                 _df_radial_pitches_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_pitch_bucket=_cf_pitch_bucket_p,
+                    prev_pitch_bucket2=_cf_pitch_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
@@ -2358,17 +2430,29 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 _df_radial_deltas_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_delta_bucket=_cf_delta_bucket_p,
+                    prev_delta_bucket2=_cf_delta_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_deltas_p else _df_ctx_p
-                st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} "
-                          "matching historical instance(s).")
+                _df_radial_delta2_p = utils.filter_by_prior_context(
+                    _df_ctx_p,
+                    prev_delta2_bucket=_cf_delta2_bucket_p,
+                    prev_delta2_bucket2=_cf_delta2_bucket2_p,
+                    prev_result_cat=_cf_result_cat_p,
+                    leverage_bucket=_cf_leverage_bucket_p,
+                    leverage_threshold=_cf_leverage_threshold_p,
+                    first_pitch_appearance=_cf_fp_app_on_p,
+                    first_pitch_inning=_cf_fp_inn_on_p,
+                ) if _cf_active_delta2_p else _df_ctx_p
+                st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} · "
+                          f"Delta²: {len(_df_radial_delta2_p)} matching historical instance(s).")
             else:
                 _df_radial_pitches_p = df_p_pred
                 _df_radial_deltas_p  = df_p_pred
+                _df_radial_delta2_p  = df_p_pred
 
         _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
@@ -2397,12 +2481,43 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             help="Shows each recent delta applied to the last actual pitch, on the 1-1000 "
                  "pitch scale - i.e. the implied next pitch given the spread of recent deltas.",
         )
-        _actual_combined_radial_p = max(_actual_pitches_radial_p, _actual_deltas_radial_p)
+        _actual_delta2_radial_p = len(_df_radial_delta2_p["pitch_circ_delta2_signed"].dropna().tail(n_pitches)) if not _df_radial_delta2_p.empty else 0
+        _center_delta2_p = st.session_state.get("p_radial_delta2_center", False)
+        _delta2_radial_title_p = (f"Last {_actual_delta2_radial_p} Implied Pitches (Δ²)" if _center_delta2_p
+                                  else f"Last {_actual_delta2_radial_p} Delta²s")
+        # True most-recent signed delta, from the unfiltered df - mirrors
+        # _pf_true_anchor_p's reasoning: context filters can drop this
+        # pitcher's actual last delta from _df_radial_delta2_p, but implied-
+        # pitch points should still anchor to it.
+        _pf_true_anchor_delta_p = _pf_delta_p[-1] if _pf_delta_p else None
+        st.plotly_chart(
+            utils.radial_recent_delta2_chart(_df_radial_delta2_p, n=n_pitches, delta2_col="pitch_circ_delta2_signed",
+                                             delta_col="pitch_circ_delta", value_col="pitch",
+                                             title=_delta2_radial_title_p,
+                                             center_on_prev=_center_delta2_p,
+                                             anchor=_pf_true_anchor_p,
+                                             anchor_delta=_pf_true_anchor_delta_p),
+            width="stretch", key="p_radial_delta2",
+        )
+        st.toggle(
+            "Map onto previous pitch", key="p_radial_delta2_center", value=False,
+            help="Shows each recent delta² applied to the last actual pitch and delta, on the "
+                 "1-1000 pitch scale - i.e. the implied next pitch given the spread of recent "
+                 "delta²s.",
+        )
+        _actual_combined_radial_p = max(
+            _actual_pitches_radial_p, _actual_deltas_radial_p,
+            _actual_delta2_radial_p if _cf_delta2_combined_on_p else 0,
+        )
         st.plotly_chart(
             utils.radial_combined_chart(_df_radial_pitches_p, _df_radial_deltas_p, n=n_pitches,
                                         value_col="pitch", delta_col="pitch_circ_delta",
                                         title=f"Last {_actual_combined_radial_p} Combined",
-                                        anchor=_pf_true_anchor_p),
+                                        anchor=_pf_true_anchor_p,
+                                        df_delta2=_df_radial_delta2_p if _cf_delta2_combined_on_p else None,
+                                        delta2_col="pitch_circ_delta2_signed",
+                                        anchor_delta=_pf_true_anchor_delta_p,
+                                        include_delta2=_cf_delta2_combined_on_p),
             width="stretch", key="p_radial_combined",
         )
 

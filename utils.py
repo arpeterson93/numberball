@@ -1000,7 +1000,11 @@ def compute_play_leverage(df: pd.DataFrame) -> pd.Series:
 def filter_by_prior_context(
     df: pd.DataFrame,
     prev_pitch_bucket: tuple[int, int] | None = None,
+    prev_pitch_bucket2: tuple[int, int] | None = None,
     prev_delta_bucket: tuple[int, int] | None = None,
+    prev_delta_bucket2: tuple[int, int] | None = None,
+    prev_delta2_bucket: tuple[int, int] | None = None,
+    prev_delta2_bucket2: tuple[int, int] | None = None,
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
@@ -1008,29 +1012,38 @@ def filter_by_prior_context(
     first_pitch_inning: bool | None = None,
     pitch_col: str = "pitch",
     delta_col: str = "pitch_circ_delta",
+    delta2_col: str = "pitch_circ_delta2_signed",
     fp_app_col: str = "is_fp_app",
     fp_inn_col: str = "is_fp_inn",
     result_category_fn=None,
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
 
-    prev_pitch_bucket/prev_delta_bucket/prev_result_cat look at the row
-    immediately BEFORE each one (what the pitcher just threw/what just
-    happened), so a row with no predecessor is dropped once any of those three
-    is active. prev_delta_bucket matches the signed pitch_circ_delta directly
-    (not its absolute value), so a bucket centered on +50 with width 200 keeps
-    predecessors whose signed delta fell in [-50, 150]. leverage_bucket looks
-    at the row's OWN leverage (the stakes it was thrown into, from a
-    '_leverage' column - see compute_play_leverage), not its predecessor's.
-    first_pitch_appearance/first_pitch_inning also look at the row's own
-    is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only the pitcher's
-    first pitch of the game appearance/half-inning; left None, all pitches
-    pass through unfiltered.
+    prev_pitch_bucket/prev_delta_bucket/prev_delta2_bucket/prev_result_cat look
+    at the row immediately BEFORE each one (what the pitcher just threw/what
+    just happened), so a row with no predecessor is dropped once any of those
+    is active. prev_delta_bucket/prev_delta2_bucket match the signed
+    pitch_circ_delta/pitch_circ_delta2_signed directly (not their absolute
+    value), so a bucket centered on +50 with width 200 keeps predecessors whose
+    signed value fell in [-50, 150]. The *_bucket2 variants are the same
+    condition applied TWO rows back (shift(2)) instead of one - turning a
+    2-point sequence match (only the immediate predecessor) into a 3-point one
+    (predecessor AND the one before it), e.g. a 3-pitch pattern instead of a
+    2-pitch one. They only add a constraint when the corresponding *_bucket is
+    also set; passing a *_bucket2 alone still filters on it, but callers should
+    treat it as a refinement of the 1-back bucket, not a standalone one.
+    leverage_bucket looks at the row's OWN leverage (the stakes it was thrown
+    into, from a '_leverage' column - see compute_play_leverage), not its
+    predecessor's. first_pitch_appearance/first_pitch_inning also look at the
+    row's own is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only the
+    pitcher's first pitch of the game appearance/half-inning; left None, all
+    pitches pass through unfiltered.
 
-    pitch_col/delta_col/fp_app_col/fp_inn_col/result_category_fn default to
-    the pitch/swing page's column names and seq_result_category; pass the
-    Catcher tab's throw-side equivalents (throw_num column, throw_circ_delta,
-    is_ft_app, is_ft_inn, steal_result_category) to reuse this for throws.
+    pitch_col/delta_col/delta2_col/fp_app_col/fp_inn_col/result_category_fn
+    default to the pitch/swing page's column names and seq_result_category;
+    pass the Catcher tab's throw-side equivalents (throw_num column,
+    throw_circ_delta, is_ft_app, is_ft_inn, steal_result_category) to reuse
+    this for throws.
     """
     if result_category_fn is None:
         result_category_fn = seq_result_category
@@ -1041,9 +1054,25 @@ def filter_by_prior_context(
         lo, hi = prev_pitch_bucket
         keep &= pd.to_numeric(d[pitch_col], errors="coerce").shift(1).between(lo, hi)
 
+    if prev_pitch_bucket2 is not None:
+        lo, hi = prev_pitch_bucket2
+        keep &= pd.to_numeric(d[pitch_col], errors="coerce").shift(2).between(lo, hi)
+
     if prev_delta_bucket is not None:
         lo, hi = prev_delta_bucket
         keep &= pd.to_numeric(d[delta_col], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_delta_bucket2 is not None:
+        lo, hi = prev_delta_bucket2
+        keep &= pd.to_numeric(d[delta_col], errors="coerce").shift(2).between(lo, hi)
+
+    if prev_delta2_bucket is not None:
+        lo, hi = prev_delta2_bucket
+        keep &= pd.to_numeric(d[delta2_col], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_delta2_bucket2 is not None:
+        lo, hi = prev_delta2_bucket2
+        keep &= pd.to_numeric(d[delta2_col], errors="coerce").shift(2).between(lo, hi)
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(1).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
@@ -2948,6 +2977,95 @@ def _implied_pitch_points(
     return theta, hover
 
 
+def _implied_pitch_points_delta2(
+    df: pd.DataFrame,
+    n: int,
+    delta2_col: str = "pitch_circ_delta2_signed",
+    delta_col: str = "pitch_circ_delta",
+    value_col: str = "pitch",
+    anchor: int | None = None,
+    anchor_delta: int | None = None,
+) -> tuple[list[float], list[str]]:
+    """Each of the last n signed delta² values re-mapped onto an anchor actual
+    pitch value via an anchor delta - implied_delta = anchor_delta + d2,
+    implied_pitch = anchor + implied_delta, wrapped on the 1-1000 wheel. The
+    implied-next-pitch points shared by radial_recent_delta2_chart's
+    center_on_prev mode and radial_combined_chart's optional Δ² overlay.
+    anchor/anchor_delta fall back to df's own most recent actual pitch/delta
+    when not given - pass the caller's true most-recent (pre-context-filter)
+    values explicitly when df has itself been filtered down, so they don't
+    silently drift to whatever pitch/delta survived the filter. Returns
+    ([], []) if there's no delta² history or no anchor available.
+    """
+    vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
+    n_actual = len(vals)
+    if n_actual == 0:
+        return [], []
+    if anchor is None:
+        pitch_vals = df[df[value_col].notna()].sort_values("id")[value_col]
+        if pitch_vals.empty:
+            return [], []
+        anchor = int(pitch_vals.iloc[-1])
+    if anchor_delta is None:
+        delta_vals = df[df[delta_col].notna()].sort_values("id")[delta_col]
+        if delta_vals.empty:
+            return [], []
+        anchor_delta = int(delta_vals.iloc[-1])
+    implied = [((anchor + anchor_delta + d2 - 1) % 1000) + 1 for d2 in vals]
+    theta = [v * 360.0 / 1000.0 for v in implied]
+    hover = [
+        f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>"
+        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+        for i, (v, d2) in enumerate(zip(implied, vals))
+    ]
+    return theta, hover
+
+
+def radial_recent_delta2_chart(
+    df: pd.DataFrame,
+    n: int = 20,
+    delta2_col: str = "pitch_circ_delta2_signed",
+    delta_col: str = "pitch_circ_delta",
+    value_col: str = "pitch",
+    title: str = "Recent Delta² - Radial View",
+    center_on_prev: bool = False,
+    anchor: int | None = None,
+    anchor_delta: int | None = None,
+) -> go.Figure:
+    """Signed delta² (-500..+500) sets angle, same convention as
+    radial_recent_deltas_chart: 0 at 12 o'clock, positive Δ² (the delta is
+    growing/accelerating) sweeps clockwise, negative Δ² (shrinking/
+    decelerating) sweeps counterclockwise, both meeting at +/-500 on the
+    bottom spoke. Recency sets radius and color. See _radial_recency_figure.
+
+    center_on_prev=True re-maps each Δ² onto the implied next pitch value:
+    anchor_delta (the most recent actual signed delta) + Δ² gives the implied
+    next delta, then anchor (the most recent actual pitch) + that implied
+    delta gives the implied next pitch, wrapped on the 1-1000 wheel - see
+    _implied_pitch_points_delta2. Switches the spokes to the same fixed
+    absolute grid as radial_recent_pitches_chart. anchor/anchor_delta override
+    the "most recent" values - pass the caller's true unfiltered most-recent
+    pitch/delta when df has been narrowed by a context filter.
+    """
+    if center_on_prev:
+        theta, hover = _implied_pitch_points_delta2(
+            df, n, delta2_col, delta_col, value_col, anchor=anchor, anchor_delta=anchor_delta)
+        tickvals, ticktext = _pitch_value_ticks()
+    else:
+        vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
+        n_actual = len(vals)
+        theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
+        hover = [
+            f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
+            for i, d in enumerate(vals)
+        ]
+        tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
+        tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
+        ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
+
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+
+
 def radial_recent_deltas_chart(
     df: pd.DataFrame,
     n: int = 20,
@@ -2995,6 +3113,10 @@ def radial_combined_chart(
     delta_col: str = "pitch_circ_delta",
     title: str = "Recent Combined - Radial View",
     anchor: int | None = None,
+    df_delta2: pd.DataFrame | None = None,
+    delta2_col: str = "pitch_circ_delta2_signed",
+    anchor_delta: int | None = None,
+    include_delta2: bool = False,
 ) -> go.Figure:
     """Overlays radial_recent_pitches_chart's actual-pitch points (from
     df_pitches) with the implied-next-pitch points radial_recent_deltas_chart
@@ -3010,25 +3132,42 @@ def radial_combined_chart(
     shared recency scale built from the union of their rows' ids (oldest to
     newest), so a point's radius/color reflects how many actual pitches back
     its own row really is. Circles mark actual pitches, diamonds mark implied
-    ones. The background slice ring reflects both groups combined. anchor
-    overrides the implied group's "most recent pitch" - pass the caller's
-    true unfiltered most-recent pitch when df_deltas has been narrowed by a
-    context filter.
+    ones. The background slice ring reflects all included groups combined.
+    anchor overrides the implied group's "most recent pitch" - pass the
+    caller's true unfiltered most-recent pitch when df_deltas has been
+    narrowed by a context filter.
+
+    include_delta2=True adds a third group (squares) of implied-next-pitch
+    points from df_delta2's Δ² values, mapped via _implied_pitch_points_delta2
+    - anchor_delta (the most recent actual signed delta) overrides that
+    mapping's own "most recent delta", the same way anchor overrides the most
+    recent pitch. df_delta2/delta2_col are ignored when include_delta2 is
+    False, so existing callers that never pass them are unaffected.
     """
     pitch_rows = df_pitches[df_pitches[value_col].notna()].sort_values("id").tail(n)
     delta_rows = df_deltas[df_deltas[delta_col].notna()].sort_values("id").tail(n)
+    delta2_rows = (df_delta2[df_delta2[delta2_col].notna()].sort_values("id").tail(n)
+                   if include_delta2 and df_delta2 is not None else df_deltas.iloc[0:0])
 
     if anchor is None:
         _anchor_vals = df_deltas[df_deltas[value_col].notna()].sort_values("id")[value_col]
         anchor = int(_anchor_vals.iloc[-1]) if not _anchor_vals.empty else None
     if anchor is None:
         delta_rows = delta_rows.iloc[0:0]
+        delta2_rows = delta2_rows.iloc[0:0]
 
-    n_a, n_b = len(pitch_rows), len(delta_rows)
-    if n_a == 0 and n_b == 0:
+    if not delta2_rows.empty and anchor_delta is None:
+        _anchor_delta_vals = df_delta2[df_delta2[delta_col].notna()].sort_values("id")[delta_col] \
+            if delta_col in df_delta2.columns else pd.Series(dtype=float)
+        anchor_delta = int(_anchor_delta_vals.iloc[-1]) if not _anchor_delta_vals.empty else None
+    if anchor_delta is None:
+        delta2_rows = delta2_rows.iloc[0:0]
+
+    n_a, n_b, n_c = len(pitch_rows), len(delta_rows), len(delta2_rows)
+    if n_a == 0 and n_b == 0 and n_c == 0:
         return go.Figure()
 
-    all_ids = sorted(set(pitch_rows["id"]) | set(delta_rows["id"]))
+    all_ids = sorted(set(pitch_rows["id"]) | set(delta_rows["id"]) | set(delta2_rows["id"]))
     rank = {id_: r for r, id_ in enumerate(all_ids, start=1)}
     n_total = len(all_ids)
 
@@ -3052,6 +3191,17 @@ def radial_combined_chart(
         r_b.append(r)
         hover_b.append(f"{v} (prev {anchor} {d:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago")
 
+    theta_c, r_c, hover_c = [], [], []
+    for pid, d2 in zip(delta2_rows["id"], delta2_rows[delta2_col].astype(int)):
+        r = rank[pid]
+        ago = n_total - r + 1
+        v = ((anchor + anchor_delta + d2 - 1) % 1000) + 1
+        theta_c.append(v * 360.0 / 1000.0)
+        r_c.append(r)
+        hover_c.append(
+            f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago"
+        )
+
     r_max = n_total * 1.05
     marker_base = dict(
         size=6.7,
@@ -3060,7 +3210,7 @@ def radial_combined_chart(
     )
 
     fig = go.Figure()
-    fig.add_trace(_slice_background_trace(theta_a + theta_b, r_max))
+    fig.add_trace(_slice_background_trace(theta_a + theta_b + theta_c, r_max))
     if n_a:
         fig.add_trace(go.Scatterpolar(
             r=r_a, theta=theta_a, mode="markers", name="Actual",
@@ -3078,6 +3228,12 @@ def radial_combined_chart(
             r=r_b, theta=theta_b, mode="markers", name="Implied",
             marker=dict(**marker_base, symbol="diamond", color=r_b, cmin=1, cmax=n_total, showscale=False),
             text=hover_b, hoverinfo="text", showlegend=True,
+        ))
+    if n_c:
+        fig.add_trace(go.Scatterpolar(
+            r=r_c, theta=theta_c, mode="markers", name="Implied Δ²",
+            marker=dict(**marker_base, symbol="square", color=r_c, cmin=1, cmax=n_total, showscale=False),
+            text=hover_c, hoverinfo="text", showlegend=True,
         ))
 
     tickvals, ticktext = _pitch_value_ticks()
