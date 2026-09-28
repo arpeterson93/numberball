@@ -3296,15 +3296,16 @@ def radial_combined_chart(
         hover_b.append(f"{v} (prev {anchor} {d:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago")
 
     theta_c, r_c, hover_c = [], [], []
-    for pid, d2 in zip(delta2_rows["id"], delta2_rows[delta2_col].astype(int)):
-        r = rank[pid]
-        ago = n_total - r + 1
-        v = ((anchor + anchor_delta + d2 - 1) % 1000) + 1
-        theta_c.append(v * 360.0 / 1000.0)
-        r_c.append(r)
-        hover_c.append(
-            f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago"
-        )
+    if n_c:
+        for pid, d2 in zip(delta2_rows["id"], delta2_rows[delta2_col].astype(int)):
+            r = rank[pid]
+            ago = n_total - r + 1
+            v = ((anchor + anchor_delta + d2 - 1) % 1000) + 1
+            theta_c.append(v * 360.0 / 1000.0)
+            r_c.append(r)
+            hover_c.append(
+                f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago"
+            )
 
     r_max = n_total * 1.05
     marker_base = dict(
