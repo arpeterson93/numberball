@@ -2324,7 +2324,7 @@ def delta_histogram(
     return fig
 
 
-def cooldown_return_events(
+def cooldown_events(
     df: pd.DataFrame,
     value_col: str = "pitch",
     result_col: str = "result",
@@ -2345,13 +2345,20 @@ def cooldown_return_events(
     from their own position, so one later pitch can resolve more than one
     open trigger at once. Scans run across the pitcher's entire history with
     no game/appearance reset - see project memory on this design choice.
-    Triggers with no return before the last pitch in df are right-censored
-    and dropped (we don't know how long they'd have taken).
 
-    Returns one row per resolved trigger: id (trigger row's id), category
-    (via result_category_fn, default seq_result_category), trigger_pitch,
-    return_pitches (>= 1, pitch count from the trigger to the first return,
-    inclusive of the returning pitch).
+    A trigger with no return before the last pitch in df is still "live" -
+    its cooldown hasn't closed yet, just hasn't had the chance. Those rows
+    are kept (resolved=False, pitches=how many pitches have been thrown
+    since the trigger so far) rather than dropped, so callers can overlay
+    them on the distribution instead of silently losing them; a trigger that
+    IS the very last pitch (zero pitches thrown since) is dropped since there
+    is nothing yet to show.
+
+    Returns one row per trigger with columns: id (trigger row's id), category
+    (via result_category_fn, default seq_result_category), result (the raw,
+    specific result string, e.g. "3B"/"HR"/"BB"), trigger_pitch, pitches
+    (>= 1 - pitches from the trigger to the first return if resolved, else
+    pitches thrown since the trigger with no return yet), resolved (bool).
     """
     if result_category_fn is None:
         result_category_fn = seq_result_category
@@ -2367,43 +2374,62 @@ def cooldown_return_events(
         if pd.isna(r):
             continue
         trigger_val = vals[i]
+        pitches = None
         for j in range(i + 1, n):
             dv = abs(vals[j] - trigger_val)
             if dv > 500:
                 dv = 1000 - dv
             if dv <= radius:
-                rows.append({
-                    "id": ids[i],
-                    "category": result_category_fn(r),
-                    "trigger_pitch": trigger_val,
-                    "return_pitches": j - i,
-                })
+                pitches = j - i
                 break
+        resolved = pitches is not None
+        if not resolved:
+            pitches = (n - 1) - i
+            if pitches < 1:
+                continue
+        rows.append({
+            "id": ids[i],
+            "category": result_category_fn(r),
+            "result": r,
+            "trigger_pitch": trigger_val,
+            "pitches": pitches,
+            "resolved": resolved,
+        })
 
-    return pd.DataFrame(rows, columns=["id", "category", "trigger_pitch", "return_pitches"])
+    return pd.DataFrame(rows, columns=["id", "category", "result", "trigger_pitch", "pitches", "resolved"])
 
 
 def cooldown_histogram(
     return_pitches: pd.Series,
     title: str = "Cooldown",
     cap: int = 20,
+    live: pd.DataFrame | None = None,
 ) -> go.Figure:
-    """Bar chart of pitches-until-return counts (>=1) from cooldown_return_events.
-    Values above `cap` pool into one overflow bin so a handful of very slow
-    returns don't stretch a mostly-fast-decaying distribution across a huge
-    x-axis. Mean is exact (computed pre-cap) and shown in the title, not as a
-    vline, since the overflow bin makes the x-axis non-linear past `cap`."""
-    vals = return_pitches.dropna().astype(int)
-    if vals.empty:
-        return go.Figure()
-    total = len(vals)
-    mean_val = float(vals.mean())
+    """Bar chart of resolved pitches-until-return counts (>=1) from
+    cooldown_events (pass the rows where resolved=True). Values above `cap`
+    pool into one overflow bin so a handful of very slow returns don't
+    stretch a mostly-fast-decaying distribution across a huge x-axis. Mean is
+    exact (computed pre-cap) and shown in the title, not as a vline, since the
+    overflow bin makes the x-axis non-linear past `cap`.
 
-    capped = vals.clip(upper=cap)
-    counts = capped.value_counts().reindex(range(1, cap + 1), fill_value=0).sort_index()
+    live: optional cooldown_events rows where resolved=False, already
+    filtered to this chart's category. Each is overlaid as a dashed line
+    spanning the full plot height at its own (capped) pitches-so-far position,
+    labeled above the plot with its trigger pitch value and specific result -
+    these are cooldowns still running, not yet part of the closed
+    distribution the bars show.
+    """
+    vals = return_pitches.dropna().astype(int)
+    if vals.empty and (live is None or live.empty):
+        return go.Figure()
+
+    capped = vals.clip(upper=cap) if not vals.empty else vals
+    total = len(vals)
     labels = [str(i) for i in range(1, cap)] + [f"{cap}+"]
+    counts = (capped.value_counts().reindex(range(1, cap + 1), fill_value=0).sort_index()
+              if not vals.empty else pd.Series([0] * cap, index=range(1, cap + 1)))
     hover = [
-        f"{labels[k]}: {counts.iloc[k]} ({counts.iloc[k] / total * 100:.1f}%)"
+        f"{labels[k]}: {counts.iloc[k]} ({counts.iloc[k] / total * 100:.1f}%)" if total else f"{labels[k]}: 0"
         for k in range(len(counts))
     ]
 
@@ -2413,14 +2439,36 @@ def cooldown_histogram(
         marker_color="#4C78A8", marker_line_width=0,
         hovertext=hover, hoverinfo="text", name="",
     ))
+
+    title_text = f"{title} (n={total}"
+    if total:
+        title_text += f", mean={float(vals.mean()):.1f}"
+    title_text += ")"
+
+    _n_live = 0 if live is None else len(live)
+    if _n_live:
+        for _k, (_, _row) in enumerate(live.sort_values("pitches").iterrows()):
+            _label = str(int(_row["pitches"])) if _row["pitches"] < cap else f"{cap}+"
+            fig.add_shape(
+                type="line", xref="x", yref="y domain",
+                x0=_label, x1=_label, y0=0, y1=1,
+                line=dict(color="#FFD54A", width=2, dash="dash"),
+            )
+            fig.add_annotation(
+                x=_label, y=1.0 + 0.22 * (_k + 1), xref="x", yref="y domain",
+                xanchor="center", yanchor="bottom", showarrow=False,
+                text=f"{int(_row['trigger_pitch'])} ({_row['result']})",
+                font=dict(size=10, color="#FFD54A"),
+            )
+
     fig.update_layout(
-        title=dict(text=f"{title} (n={total}, mean={mean_val:.1f})", x=0.5, xanchor="center"),
+        title=dict(text=title_text, x=0.5, xanchor="center"),
         xaxis=dict(title="Pitches until return", type="category"),
         yaxis_title="Count",
-        height=300,
+        height=300 + 20 * _n_live,
         showlegend=False,
         bargap=0.06,
-        margin=dict(l=45, r=10, t=52, b=45),
+        margin=dict(l=45, r=10, t=52 + 20 * _n_live, b=45),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

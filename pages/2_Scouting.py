@@ -2830,27 +2830,36 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     "For every historical pitch that gave up a result, how many pitches "
                     "(anywhere in this pitcher's full history) until they threw another "
                     "pitch value back within the radius of that same pitch? Grouped by "
-                    "what the triggering pitch resulted in.")
+                    "what the triggering pitch resulted in. Dashed yellow lines are still-"
+                    "open cooldowns - a trigger with no return yet - labeled with the pitch "
+                    "value and specific result that started them.")
                 _cd_radius_p = st.select_slider(
                     "Radius (±)", options=[25, 50, 100, 125, 250, 500], value=50, key="p_cooldown_radius",
                     help="How close (circular pitch-value distance) a later pitch must land "
                          "to the trigger pitch to count as 'returning' to that zone.")
-                _cd_events_p = utils.cooldown_return_events(df_p, value_col="pitch", radius=_cd_radius_p)
+                _cd_events_p = utils.cooldown_events(df_p, value_col="pitch", radius=_cd_radius_p)
                 if _cd_events_p.empty:
                     st.caption("Not enough history to compute cooldown returns.")
                 else:
-                    _cd_cols_p = st.columns(2)
+                    # Stack single-column on mobile so the categories read top
+                    # to bottom in SEQ_RESULT_CATEGORIES order - a 2-col grid
+                    # would otherwise interleave as XBH, Out, BB-1B, K+ once
+                    # narrow columns stack.
+                    _cd_n_cols_p = 1 if _is_mobile else 2
+                    _cd_cols_p = st.columns(_cd_n_cols_p)
                     for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
-                        _cd_vals = _cd_events_p.loc[_cd_events_p["category"] == _cd_cat, "return_pitches"]
-                        with _cd_cols_p[_cd_i % 2]:
-                            if not _cd_vals.empty:
+                        _cd_cat_events_p = _cd_events_p[_cd_events_p["category"] == _cd_cat]
+                        _cd_resolved_p = _cd_cat_events_p.loc[_cd_cat_events_p["resolved"], "pitches"]
+                        _cd_live_p = _cd_cat_events_p.loc[~_cd_cat_events_p["resolved"]]
+                        with _cd_cols_p[_cd_i % _cd_n_cols_p]:
+                            if not _cd_resolved_p.empty or not _cd_live_p.empty:
                                 st.plotly_chart(
-                                    utils.cooldown_histogram(_cd_vals, title=_cd_cat),
+                                    utils.cooldown_histogram(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
                                     width="stretch", config={"displayModeBar": False},
                                     key=f"p_cooldown_{_cd_cat}",
                                 )
                             else:
-                                st.caption(f"No {_cd_cat} triggers with a resolved return.")
+                                st.caption(f"No {_cd_cat} triggers yet.")
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
