@@ -2399,6 +2399,20 @@ def cooldown_events(
     return pd.DataFrame(rows, columns=["id", "category", "result", "trigger_pitch", "pitches", "resolved"])
 
 
+def _cooldown_empirical_cdf(vals: pd.Series, upto: int) -> dict[int, float]:
+    """Empirical CDF (as a %) of an integer-valued Series at each x in
+    1..upto - shared by cooldown_cdf_chart and cooldown_radial_chart so both
+    read a category's historical return-time distribution the exact same
+    way. Returns {} if vals is empty or upto < 1 (nothing to compute)."""
+    vals = vals.dropna().astype(int)
+    total = len(vals)
+    if total == 0 or upto < 1:
+        return {}
+    counts = vals.value_counts().reindex(range(1, upto + 1), fill_value=0).sort_index()
+    cum_pct = counts.cumsum() / total * 100.0
+    return dict(zip(cum_pct.index, cum_pct.values))
+
+
 def cooldown_cdf_chart(
     return_pitches: pd.Series,
     title: str = "Cooldown",
@@ -2437,24 +2451,20 @@ def cooldown_cdf_chart(
     live_max = int(live["pitches"].max()) if live is not None and not live.empty else 0
     real_max_x = max(int(vals.max()) if not vals.empty else 0, live_max, 5)
 
-    if total:
-        counts = vals.value_counts().reindex(range(1, real_max_x + 1), fill_value=0).sort_index()
-        cum_pct = counts.cumsum() / total * 100.0
-        pctl_90 = int(np.ceil(float(vals.quantile(0.90))))
-    else:
-        cum_pct = pd.Series([0.0] * real_max_x, index=range(1, real_max_x + 1))
-        pctl_90 = 0
-    cum_by_x = dict(zip(cum_pct.index, cum_pct.values))
+    cum_by_x = _cooldown_empirical_cdf(vals, real_max_x)
+    pctl_90 = int(np.ceil(float(vals.quantile(0.90)))) if total else 0
 
     display_max_x = min(real_max_x, max(pctl_90, live_max, 5))
     _dtick_steps = [5, 10, 25, 50, 100, 250, 500, 1000]
     dtick = next((s for s in _dtick_steps if display_max_x / s <= 8), _dtick_steps[-1])
 
-    hover = [f"By {x}: {cum_pct.loc[x]:.0f}% returned" for x in cum_pct.index]
+    x_vals = list(range(1, real_max_x + 1))
+    y_vals = [cum_by_x.get(x, 0.0) for x in x_vals]
+    hover = [f"By {x}: {y:.0f}% returned" for x, y in zip(x_vals, y_vals)]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=list(cum_pct.index), y=cum_pct.values, mode="lines+markers",
+        x=x_vals, y=y_vals, mode="lines+markers",
         line=dict(color="#4C78A8", width=2),
         marker=dict(size=5, color="#4C78A8"),
         hovertext=hover, hoverinfo="text", name="",
@@ -2519,6 +2529,96 @@ def cooldown_cdf_chart(
         height=340,
         showlegend=False,
         margin=dict(l=45, r=10, t=52, b=105),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def cooldown_radial_chart(
+    events: pd.DataFrame,
+    radius: int,
+    title: str = "Open Cooldowns",
+) -> go.Figure:
+    """Radial view (1-1000 pitch wheel, same convention as the other radial
+    charts on this tab) of every currently open cooldown at once, spanning
+    all result categories. events: the full cooldown_events output for this
+    pitcher (both resolved=True and resolved=False rows, any category) - the
+    function does its own filtering/grouping, so callers just pass it through
+    unfiltered.
+
+    Each open (resolved=False) trigger draws as a light gray wedge spanning
+    [trigger_pitch - radius, trigger_pitch + radius] on the wheel, from
+    center to the outer rim - the zone the pitcher hasn't come back to yet.
+    Overlapping wedges (two open triggers whose zones cross) stack semi-
+    transparent, so the overlap reads visibly darker. Each wedge is labeled
+    with its specific result and, from that SAME category's resolved
+    distribution, the historical chance a cooldown would have already closed
+    within one more pitch than this one has run so far - i.e.
+    CDF_category(elapsed + 1), since a return on the very next pitch is the
+    most immediate way this cooldown could end. "n/a" shows where a category
+    has no resolved history yet to estimate that from.
+    """
+    if events.empty:
+        return go.Figure()
+    live = events.loc[~events["resolved"]]
+    if live.empty:
+        return go.Figure()
+
+    r_max = 1.0
+    width_deg = min((2 * radius + 1) * 360.0 / 1000.0, 360.0)
+
+    # One CDF table per category actually needed, sized to cover every live
+    # trigger of that category (elapsed + 1) - computed once up front rather
+    # than per-row, since several open triggers can share a category.
+    cdf_by_cat: dict[str, dict[int, float]] = {}
+    for cat, grp in live.groupby("category"):
+        resolved_vals = events.loc[(events["category"] == cat) & events["resolved"], "pitches"]
+        max_needed = int(grp["pitches"].max()) + 1
+        if not resolved_vals.empty:
+            max_needed = max(max_needed, int(resolved_vals.max()) + 1)
+        cdf_by_cat[cat] = _cooldown_empirical_cdf(resolved_vals, max_needed)
+
+    fig = go.Figure()
+    for _, row in live.sort_values("pitches").iterrows():
+        trig = int(row["trigger_pitch"])
+        center_theta = trig * 360.0 / 1000.0
+        prob = cdf_by_cat.get(row["category"], {}).get(int(row["pitches"]) + 1)
+        prob_txt = f"{prob:.0f}%" if prob is not None else "n/a"
+
+        fig.add_trace(go.Barpolar(
+            r=[r_max], theta=[center_theta], width=[width_deg], base=0,
+            marker=dict(color="rgba(120,120,120,0.35)", line=dict(width=0)),
+            hovertext=[f"{trig} ({row['result']}): {prob_txt} chance closed by the next pitch"],
+            hoverinfo="text", showlegend=False,
+        ))
+        fig.add_trace(go.Scatterpolar(
+            r=[r_max * 0.62], theta=[center_theta], mode="text",
+            text=[f"{row['result']}<br>{prob_txt}"],
+            textfont=dict(size=10, color="#333333"),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    tickvals, ticktext = _pitch_value_ticks()
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        polar=dict(
+            hole=0.08,
+            angularaxis=dict(
+                direction="clockwise", rotation=90,
+                tickmode="array", tickvals=tickvals, ticktext=ticktext,
+                gridcolor="rgba(128,128,128,0.3)",
+            ),
+            radialaxis=dict(
+                showticklabels=False, ticks="", showline=False,
+                range=[0, r_max],
+                gridcolor="rgba(128,128,128,0.2)",
+            ),
+        ),
+        height=380,
+        showlegend=False,
+        margin=dict(l=30, r=30, t=36, b=10),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],

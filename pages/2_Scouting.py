@@ -2861,6 +2861,23 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                 )
                             else:
                                 st.caption(f"No {_cd_cat} triggers yet.")
+
+                    # ── open cooldowns, all categories at once ──────────────────────
+                    _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
+                    if not _cd_live_all_p.empty:
+                        st.markdown("**Open Cooldowns**")
+                        st.caption(
+                            "Every currently open cooldown across all categories at once, on "
+                            "the same 1-1000 pitch wheel used elsewhere on this tab. Each gray "
+                            "wedge is the +/- radius zone around that trigger pitch, still "
+                            "unreturned to - darker where zones overlap. The % is that "
+                            "category's historical chance a cooldown would already be closed "
+                            "within one more pitch than this one has run so far.")
+                        st.plotly_chart(
+                            utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
+                            width="stretch", config={"displayModeBar": False},
+                            key="p_cooldown_radial",
+                        )
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
