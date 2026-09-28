@@ -2619,9 +2619,11 @@ def cooldown_cdf_overlay_chart(
         # sitting at a fixed position right above it.
         legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
         margin=dict(l=45, r=10, t=52, b=70),
-        dragmode=False,
-        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
-                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+        # Unlike the other cooldown charts, this one allows drag-to-zoom -
+        # box-select a region to zoom into it; double-click resets. The
+        # modebar itself stays hidden (set via st.plotly_chart's config, not
+        # here), so this is reachable only by the drag gesture itself.
+        dragmode="zoom",
     )
     return fig
 
