@@ -2862,17 +2862,32 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                             else:
                                 st.caption(f"No {_cd_cat} triggers yet.")
 
+                    # ── all categories overlaid on one CDF ───────────────────────────
+                    st.markdown("**All Categories**")
+                    st.caption(
+                        "All four categories' cooldown curves on one chart, colored the "
+                        "same as the Open Cooldowns dots below, so you can compare how "
+                        "fast each one typically resolves. Yellow diamonds mark still-open "
+                        "cooldowns on their own category's curve.")
+                    st.plotly_chart(
+                        utils.cooldown_cdf_overlay_chart(_cd_events_p),
+                        width="stretch", config={"displayModeBar": False},
+                        key="p_cooldown_overlay",
+                    )
+
                     # ── open cooldowns, all categories at once ──────────────────────
                     _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
                     if not _cd_live_all_p.empty:
                         st.markdown("**Open Cooldowns**")
                         st.caption(
                             "Every currently open cooldown across all categories at once, on "
-                            "the same 1-1000 pitch wheel used elsewhere on this tab. Each gray "
-                            "wedge is the +/- radius zone around that trigger pitch, still "
-                            "unreturned to - darker where zones overlap. The % is that "
-                            "category's historical chance a cooldown would already be closed "
-                            "within one more pitch than this one has run so far.")
+                            "the same 1-1000 pitch wheel used elsewhere on this tab. The ring "
+                            "is the +/- radius zone around every open trigger, colored blue "
+                            "(low) to red (high) by the historical chance a cooldown would "
+                            "already be closed within one more pitch than this one has run - "
+                            "overlapping zones average together. Dots mark each open trigger's "
+                            "pitch, colored by its result category and positioned by relative "
+                            "recency (newer toward the rim).")
                         st.plotly_chart(
                             utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
                             width="stretch", config={"displayModeBar": False},

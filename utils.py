@@ -2399,9 +2399,10 @@ def cooldown_events(
     return pd.DataFrame(rows, columns=["id", "category", "result", "trigger_pitch", "pitches", "resolved"])
 
 
-# Dot fill colors for cooldown_radial_chart, keyed by SEQ_RESULT_CATEGORIES -
-# dark blue (worst for the pitcher) -> light blue -> light red -> dark red
-# (best for the pitcher), matching that list's own worst-to-best order.
+# Category colors shared by cooldown_cdf_overlay_chart and
+# cooldown_radial_chart, keyed by SEQ_RESULT_CATEGORIES - dark blue (worst
+# for the pitcher) -> light blue -> light red -> dark red (best for the
+# pitcher), matching that list's own worst-to-best order.
 _COOLDOWN_CAT_COLORS = {
     "XBH": "#2166ac", "BB-1B": "#67a9cf", "Out": "#f4a582", "K+": "#b2182b",
 }
@@ -2537,6 +2538,94 @@ def cooldown_cdf_chart(
         height=340,
         showlegend=False,
         margin=dict(l=45, r=10, t=52, b=105),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def cooldown_cdf_overlay_chart(
+    events: pd.DataFrame,
+    title: str = "All Categories",
+) -> go.Figure:
+    """Overlays every result category's cooldown CDF (see cooldown_cdf_chart)
+    on one chart, each its own color from _COOLDOWN_CAT_COLORS (dark blue
+    XBH -> light blue BB-1B -> light red Out -> dark red K+), so the four
+    categories' typical return-time shapes can be compared directly. events:
+    the full cooldown_events output for this pitcher (both resolved=True and
+    resolved=False rows, any category) - the function groups it itself.
+
+    Lines only (no per-point dot markers) - with four curves already sharing
+    one axis, a dot at every x would be far too busy. Live (still-open)
+    triggers still mark as small yellow diamonds sitting on their own
+    category's curve, at CDF_category(elapsed) - the same value the
+    individual per-category chart's diamond for that same trigger shows, so
+    the two views never disagree. No per-point result/pitch text here - the
+    legend names the lines, and each category's own chart above carries
+    that per-trigger detail already.
+    """
+    if events.empty:
+        return go.Figure()
+
+    cats = [c for c in SEQ_RESULT_CATEGORIES if c in set(events["category"])]
+    if not cats:
+        return go.Figure()
+
+    real_max_x = 5
+    display_candidates = []
+    per_cat = {}
+    for cat in cats:
+        cat_events = events[events["category"] == cat]
+        resolved_vals = cat_events.loc[cat_events["resolved"], "pitches"].dropna().astype(int)
+        live_rows = cat_events.loc[~cat_events["resolved"]]
+        live_max = int(live_rows["pitches"].max()) if not live_rows.empty else 0
+        cat_max = max(int(resolved_vals.max()) if not resolved_vals.empty else 0, live_max, 5)
+        real_max_x = max(real_max_x, cat_max)
+        pctl_90 = int(np.ceil(float(resolved_vals.quantile(0.90)))) if not resolved_vals.empty else 0
+        display_candidates.append(max(pctl_90, live_max, 5))
+        per_cat[cat] = (resolved_vals, live_rows)
+
+    display_max_x = min(real_max_x, max(display_candidates))
+    _dtick_steps = [5, 10, 25, 50, 100, 250, 500, 1000]
+    dtick = next((s for s in _dtick_steps if display_max_x / s <= 8), _dtick_steps[-1])
+
+    fig = go.Figure()
+    for cat in cats:
+        resolved_vals, live_rows = per_cat[cat]
+        color = _COOLDOWN_CAT_COLORS.get(cat, "#4C78A8")
+        cum_by_x = _cooldown_empirical_cdf(resolved_vals, real_max_x)
+        total = len(resolved_vals)
+        x_vals = list(range(1, real_max_x + 1))
+        y_vals = [cum_by_x.get(x, 0.0) for x in x_vals]
+        hover = [f"{cat} - by {x}: {y:.0f}% returned" for x, y in zip(x_vals, y_vals)]
+        fig.add_trace(go.Scatter(
+            x=x_vals, y=y_vals, mode="lines", line=dict(color=color, width=2),
+            name=f"{cat} (n={total})", hovertext=hover, hoverinfo="text",
+        ))
+        if not live_rows.empty:
+            live_x = live_rows["pitches"].astype(int).tolist()
+            live_y = [cum_by_x.get(x, 0.0) for x in live_x]
+            live_hover = [f"{cat}: {y:.0f}% would have returned by now" for y in live_y]
+            fig.add_trace(go.Scatter(
+                x=live_x, y=live_y, mode="markers",
+                marker=dict(size=7, color="#FFD54A", symbol="diamond",
+                            line=dict(color="rgba(80,80,80,0.6)", width=1)),
+                hovertext=live_hover, hoverinfo="text", showlegend=False,
+            ))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(
+            title="Pitches until return",
+            tickmode="linear", tick0=0, dtick=dtick,
+            range=[0.5, display_max_x + 0.5],
+            showgrid=True, gridcolor="rgba(128,128,128,0.25)",
+        ),
+        yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
+        height=360,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=45, r=10, t=52, b=45),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
