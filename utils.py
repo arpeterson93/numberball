@@ -2399,6 +2399,14 @@ def cooldown_events(
     return pd.DataFrame(rows, columns=["id", "category", "result", "trigger_pitch", "pitches", "resolved"])
 
 
+# Dot fill colors for cooldown_radial_chart, keyed by SEQ_RESULT_CATEGORIES -
+# dark blue (worst for the pitcher) -> light blue -> light red -> dark red
+# (best for the pitcher), matching that list's own worst-to-best order.
+_COOLDOWN_CAT_COLORS = {
+    "XBH": "#2166ac", "BB-1B": "#67a9cf", "Out": "#f4a582", "K+": "#b2182b",
+}
+
+
 def _cooldown_empirical_cdf(vals: pd.Series, upto: int) -> dict[int, float]:
     """Empirical CDF (as a %) of an integer-valued Series at each x in
     1..upto - shared by cooldown_cdf_chart and cooldown_radial_chart so both
@@ -2603,17 +2611,18 @@ def cooldown_radial_chart(
             max_needed = max(max_needed, int(resolved_vals.max()) + 1)
         cdf_by_cat[cat] = _cooldown_empirical_cdf(resolved_vals, max_needed)
 
-    triggers = []  # (trigger_pitch, probability-or-None, result, elapsed_pitches)
+    triggers = []  # (trigger_pitch, probability-or-None, result, elapsed_pitches, category)
     for _, row in live.iterrows():
         prob = cdf_by_cat.get(row["category"], {}).get(int(row["pitches"]) + 1)
-        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"]), int(row["pitches"])))
+        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"]),
+                         int(row["pitches"]), str(row["category"])))
 
     bin_width = 1000.0 / n_bins
     bin_vals = [(i + 0.5) * bin_width for i in range(n_bins)]
     bin_probs: list[float | None] = []
     for v in bin_vals:
         covering = []
-        for trig, prob, _, _ in triggers:
+        for trig, prob, _, _, _ in triggers:
             if prob is None:
                 continue
             d = abs(v - trig)
@@ -2622,25 +2631,13 @@ def cooldown_radial_chart(
             if d <= radius:
                 covering.append(prob)
         bin_probs.append(sum(covering) / len(covering) if covering else None)
-    bin_colors = [
-        _freq_bwr_color(p, 0, 100) if p is not None else _freq_bwr_color(50, 0, 100)
-        for p in bin_probs
-    ]
-
-    fig = go.Figure()
-    fig.add_trace(go.Barpolar(
-        r=[r_max] * n_bins,
-        theta=[v * 360.0 / 1000.0 for v in bin_vals],
-        width=[360.0 / n_bins] * n_bins,
-        marker=dict(color=bin_colors, line=dict(width=0)),
-        base=0, hoverinfo="skip", showlegend=False,
-    ))
-
-    # Label each maximal contiguous run of equal-valued (numeric) slices with
-    # its % at the run's angular midpoint - found by walking the bins in
-    # circular order starting just after a value change, so a run that wraps
-    # across the 0/360 seam isn't split in two.
-    min_run = max(1, n_bins // 40)
+    # Group the bins into maximal contiguous runs of equal value - found by
+    # walking them in circular order starting just after a value change, so
+    # a run that wraps across the 0/360 seam isn't split in two. Each run
+    # becomes ONE wedge bar (not one bar per bin), so the part of a single
+    # trigger's own zone that nothing else overlaps renders as one seamless
+    # merged wedge instead of many thin same-colored slivers sitting flush
+    # against each other.
     seam = 0
     for i in range(n_bins):
         if bin_probs[i] != bin_probs[(i - 1) % n_bins]:
@@ -2657,13 +2654,29 @@ def cooldown_radial_chart(
             run_start, run_val, run_len = idx, bin_probs[idx], 1
     runs.append((run_start, run_len, run_val))
 
-    label_theta, label_text = [], []
+    fig = go.Figure()
+    run_theta, run_width, run_colors = [], [], []
     for start, length, val in runs:
-        if val is None or length < min_run:
-            continue
         mid_bin = (start + (length - 1) / 2.0) % n_bins
         mid_pitch = (mid_bin + 0.5) * bin_width
-        label_theta.append(mid_pitch * 360.0 / 1000.0)
+        run_theta.append(mid_pitch * 360.0 / 1000.0)
+        run_width.append(length * 360.0 / n_bins)
+        run_colors.append(_freq_bwr_color(val, 0, 100) if val is not None else _freq_bwr_color(50, 0, 100))
+    fig.add_trace(go.Barpolar(
+        r=[r_max] * len(runs), theta=run_theta, width=run_width,
+        marker=dict(color=run_colors, line=dict(width=0)),
+        base=0, hoverinfo="skip", showlegend=False,
+    ))
+
+    # Label each run wide enough to read with its % at its angular midpoint -
+    # runs with no numeric value (nothing covers them, or only n/a triggers
+    # do) have nothing to show.
+    min_run = max(1, n_bins // 40)
+    label_theta, label_text = [], []
+    for (start, length, val), theta in zip(runs, run_theta):
+        if val is None or length < min_run:
+            continue
+        label_theta.append(theta)
         label_text.append(f"{val:.0f}%")
     if label_theta:
         fig.add_trace(go.Scatterpolar(
@@ -2677,23 +2690,34 @@ def cooldown_radial_chart(
     # recently = outer rim; larger elapsed = been open longer = inner, near
     # the hole. A single trigger, or several tied on elapsed, default to the
     # rim (nothing to spread across an otherwise-degenerate scale).
-    elapsed_vals = [e for _, _, _, e in triggers]
+    elapsed_vals = [e for _, _, _, e, _ in triggers]
     e_lo, e_hi = min(elapsed_vals), max(elapsed_vals)
     dot_r = [
         r_max if e_hi == e_lo else r_max - (r_max - hole) * (e - e_lo) / (e_hi - e_lo)
         for e in elapsed_vals
     ]
-    dot_theta = [t * 360.0 / 1000.0 for t, _, _, _ in triggers]
+    dot_theta = [t * 360.0 / 1000.0 for t, _, _, _, _ in triggers]
     dot_hover = [
         f"{t} ({r}): {p:.0f}% chance closed by the next pitch" if p is not None
         else f"{t} ({r}): n/a chance closed by the next pitch"
-        for t, p, r, _ in triggers
+        for t, p, r, _, _ in triggers
     ]
+    # Dot fill color is the trigger's own result category, worst-for-the-
+    # pitcher to best (matching SEQ_RESULT_CATEGORIES' own order): dark blue
+    # -> light blue -> light red -> dark red. Independent of the ring's
+    # blue/white/red probability scale underneath it - the white outline
+    # keeps a dot legible against a same-hued ring segment.
+    dot_colors = [_COOLDOWN_CAT_COLORS.get(c, "#222222") for _, _, _, _, c in triggers]
     fig.add_trace(go.Scatterpolar(
         r=dot_r, theta=dot_theta, mode="markers+text",
-        marker=dict(size=7, color="#222222", line=dict(color="white", width=1)),
-        text=[r for _, _, r, _ in triggers], textposition="middle right",
-        textfont=dict(size=10, color="#222222"),
+        marker=dict(size=7, color=dot_colors, line=dict(color="white", width=1)),
+        text=[r for _, _, r, _, _ in triggers], textposition="middle right",
+        # Dots near the rim can sit past the colored ring, over the chart's
+        # transparent background - Streamlit's dark theme shows through
+        # there, so dark text disappears. Yellow (same as the live-cooldown
+        # labels on the per-category CDF charts) reads on both light and
+        # dark backgrounds.
+        textfont=dict(size=10, color="#FFD54A"),
         hovertext=dot_hover, hoverinfo="text", showlegend=False,
     ))
 
