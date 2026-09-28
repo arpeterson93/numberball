@@ -2540,6 +2540,7 @@ def cooldown_radial_chart(
     events: pd.DataFrame,
     radius: int,
     title: str = "Open Cooldowns",
+    n_bins: int = 240,
 ) -> go.Figure:
     """Radial view (1-1000 pitch wheel, same convention as the other radial
     charts on this tab) of every currently open cooldown at once, spanning
@@ -2548,17 +2549,30 @@ def cooldown_radial_chart(
     function does its own filtering/grouping, so callers just pass it through
     unfiltered.
 
-    Each open (resolved=False) trigger draws as a light gray wedge spanning
-    [trigger_pitch - radius, trigger_pitch + radius] on the wheel, from
-    center to the outer rim - the zone the pitcher hasn't come back to yet.
-    Overlapping wedges (two open triggers whose zones cross) stack semi-
-    transparent, so the overlap reads visibly darker. Each wedge is labeled
-    with its specific result and, from that SAME category's resolved
-    distribution, the historical chance a cooldown would have already closed
-    within one more pitch than this one has run so far - i.e.
-    CDF_category(elapsed + 1), since a return on the very next pitch is the
-    most immediate way this cooldown could end. "n/a" shows where a category
-    has no resolved history yet to estimate that from.
+    Each open (resolved=False) trigger draws as a small dot at its trigger
+    pitch's angular position, sitting right at the polar hole's edge, labeled
+    with its specific result. The colored ring running from there out to the
+    rim is the +/- radius zone around EVERY open trigger at once, rasterized
+    into `n_bins` thin angular slices rather than drawn as one wedge per
+    trigger - that's what avoids the overlap problem two-plus open triggers
+    would otherwise create: alpha-blending two differently-colored wedges
+    produces a muddy third color that doesn't clearly read as either one's
+    actual value, so instead each slice resolves to exactly ONE color, the
+    highest (most "overdue") probability among every trigger whose zone
+    covers it.
+
+    That probability - from a slice-covering trigger's own category's
+    resolved distribution - is the historical chance a cooldown would
+    already be closed within one more pitch than this one has run so far,
+    i.e. CDF_category(elapsed + 1) (a return on the very next pitch is the
+    most immediate way a cooldown could end). It maps through the same blue
+    (low) -> white (mid) -> red (high) diverging scale used for recency
+    elsewhere on this tab (_freq_bwr_color), so a red slice means "historically
+    almost always resolved by now - this one running long is notable," blue
+    means "still well within normal," and a slice no open trigger's zone
+    reaches, or whose only covering trigger(s) have no resolved history to
+    judge from, renders neutral white - same treatment for "nothing to
+    report" and "no data," since both mean there's nothing alarming to show.
     """
     if events.empty:
         return go.Figure()
@@ -2567,7 +2581,7 @@ def cooldown_radial_chart(
         return go.Figure()
 
     r_max = 1.0
-    width_deg = min((2 * radius + 1) * 360.0 / 1000.0, 360.0)
+    hole = 0.18
 
     # One CDF table per category actually needed, sized to cover every live
     # trigger of that category (elapsed + 1) - computed once up front rather
@@ -2580,31 +2594,54 @@ def cooldown_radial_chart(
             max_needed = max(max_needed, int(resolved_vals.max()) + 1)
         cdf_by_cat[cat] = _cooldown_empirical_cdf(resolved_vals, max_needed)
 
-    fig = go.Figure()
-    for _, row in live.sort_values("pitches").iterrows():
-        trig = int(row["trigger_pitch"])
-        center_theta = trig * 360.0 / 1000.0
+    triggers = []  # (trigger_pitch, probability-or-None, result)
+    for _, row in live.iterrows():
         prob = cdf_by_cat.get(row["category"], {}).get(int(row["pitches"]) + 1)
-        prob_txt = f"{prob:.0f}%" if prob is not None else "n/a"
+        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"])))
 
-        fig.add_trace(go.Barpolar(
-            r=[r_max], theta=[center_theta], width=[width_deg], base=0,
-            marker=dict(color="rgba(120,120,120,0.35)", line=dict(width=0)),
-            hovertext=[f"{trig} ({row['result']}): {prob_txt} chance closed by the next pitch"],
-            hoverinfo="text", showlegend=False,
-        ))
-        fig.add_trace(go.Scatterpolar(
-            r=[r_max * 0.62], theta=[center_theta], mode="text",
-            text=[f"{row['result']}<br>{prob_txt}"],
-            textfont=dict(size=10, color="#333333"),
-            hoverinfo="skip", showlegend=False,
-        ))
+    bin_width = 1000.0 / n_bins
+    bin_vals = [(i + 0.5) * bin_width for i in range(n_bins)]
+    bin_colors = []
+    for v in bin_vals:
+        best = None
+        for trig, prob, _ in triggers:
+            if prob is None:
+                continue
+            d = abs(v - trig)
+            if d > 500:
+                d = 1000 - d
+            if d <= radius:
+                best = prob if best is None else max(best, prob)
+        bin_colors.append(_freq_bwr_color(best, 0, 100) if best is not None else _freq_bwr_color(50, 0, 100))
+
+    fig = go.Figure()
+    fig.add_trace(go.Barpolar(
+        r=[r_max] * n_bins,
+        theta=[v * 360.0 / 1000.0 for v in bin_vals],
+        width=[360.0 / n_bins] * n_bins,
+        marker=dict(color=bin_colors, line=dict(width=0)),
+        base=0, hoverinfo="skip", showlegend=False,
+    ))
+
+    dot_theta = [t * 360.0 / 1000.0 for t, _, _ in triggers]
+    dot_hover = [
+        f"{t} ({r}): {p:.0f}% chance closed by the next pitch" if p is not None
+        else f"{t} ({r}): n/a chance closed by the next pitch"
+        for t, p, r in triggers
+    ]
+    fig.add_trace(go.Scatterpolar(
+        r=[hole] * len(triggers), theta=dot_theta, mode="markers+text",
+        marker=dict(size=7, color="#222222", line=dict(color="white", width=1)),
+        text=[r for _, _, r in triggers], textposition="middle right",
+        textfont=dict(size=10, color="#222222"),
+        hovertext=dot_hover, hoverinfo="text", showlegend=False,
+    ))
 
     tickvals, ticktext = _pitch_value_ticks()
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
-            hole=0.08,
+            hole=hole,
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
