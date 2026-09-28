@@ -2684,7 +2684,7 @@ def cooldown_radial_chart(
         return go.Figure()
 
     r_max = 1.0
-    hole = 0.18
+    hole = 0.08  # matches the hole size used by the other radial charts on this tab
 
     # One CDF table per category actually needed, sized to cover every live
     # trigger of that category (elapsed + 1) - computed once up front rather
