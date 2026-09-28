@@ -2834,10 +2834,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     "are still-open cooldowns sitting on the curve - reading their height "
                     "answers 'what's the chance they'd have returned by now' - labeled below "
                     "the axis with their specific result and the trigger pitch value.")
-                _cd_radius_p = st.select_slider(
-                    "Radius (±)", options=[25, 50, 100, 125, 250, 500], value=50, key="p_cooldown_radius",
-                    help="How close (circular pitch-value distance) a later pitch must land "
-                         "to the trigger pitch to count as 'returning' to that zone.")
+                _cd_bucket_p = st.select_slider(
+                    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
+                    help="Same bucket sizes as the Hot Zone Pitch Matrix. A later pitch "
+                         "must land within +/- half this width (circular pitch-value "
+                         "distance) of the trigger pitch to count as 'returning' to that "
+                         "zone.")
+                _cd_radius_p = _cd_bucket_p / 2
                 _cd_events_p = utils.cooldown_events(df_p, value_col="pitch", radius=_cd_radius_p)
                 if _cd_events_p.empty:
                     st.caption("Not enough history to compute cooldown returns.")

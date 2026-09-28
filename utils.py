@@ -2328,7 +2328,7 @@ def cooldown_events(
     df: pd.DataFrame,
     value_col: str = "pitch",
     result_col: str = "result",
-    radius: int = 50,
+    radius: float = 50,
     result_category_fn=None,
 ) -> pd.DataFrame:
     """For every pitch whose plate appearance carries a result, scan strictly
@@ -2636,7 +2636,7 @@ def cooldown_cdf_overlay_chart(
 
 def cooldown_radial_chart(
     events: pd.DataFrame,
-    radius: int,
+    radius: float,
     title: str = "Open Cooldowns",
     n_bins: int = 240,
 ) -> go.Figure:
