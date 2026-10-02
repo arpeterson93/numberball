@@ -3719,10 +3719,15 @@ with tab_c:
             }
             _c_safe_sel = st.selectbox("Stealing runner (safe range source)",
                                        list(_c_safe_opts.keys()), key="c_safe_runner_sel")
-            _c_safe_range = _c_safe_opts[_c_safe_sel]
+            _c_sheet_safe_range = _c_safe_opts[_c_safe_sel]
         else:
             st.caption("No live matchup runner loaded above (Fetch Live Matchup) - using a default safe range of 50.")
-            _c_safe_range = 50
+            _c_sheet_safe_range = 50
+
+        _c_safe_range = st.number_input(
+            "Safe Range (override)", min_value=1, max_value=500,
+            value=int(_c_sheet_safe_range), step=1, key="c_safe_range_override",
+        )
 
         _pred_steal_val_c = int(st.session_state.get("pred_steal", 500))
         _safe_lo_c = ((_pred_steal_val_c - _c_safe_range - 1) % 1000) + 1
