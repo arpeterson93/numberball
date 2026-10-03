@@ -896,6 +896,18 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 }
 .catchup-speed:hover{color:var(--text);background:var(--tint);}
 
+/* Copy-link (Alex's ask) - replay-modal only, leftmost of the whole button
+   row, one slot further out than speed. No generic .catchup-share offset
+   (unlike fullscreen/loop/speed, nothing outside #replay-modal uses this
+   button) since Catch Me Up has no deep link to share. */
+#replay-modal .catchup-share{
+  position:absolute;top:8px;right:190px;z-index:2;
+  border:none;background:transparent;color:var(--muted);
+  width:30px;height:30px;padding:6px;cursor:pointer;border-radius:6px;
+}
+#replay-modal .catchup-share:hover{color:var(--text);background:var(--tint);}
+#replay-modal .catchup-share svg{width:100%;height:100%;}
+
 /* Progress doubles as the slide counter and the bar: the ::after strip is
    driven by --catchup-pct, which showCatchUpSlide() sets per slide. */
 /* Sits clear of the close button rather than running the bar underneath it -
@@ -2120,13 +2132,13 @@ html[data-km-debug="1"] .km-tuning-panel{
      top of the screen in a plain browser tab the way a PWA's own chrome
      does, so on phone they get nudged down slightly. .catchup-progress's own
      top padding grows to match, so the play counter still clears them. */
-  .catchup-close,.catchup-loop,.catchup-speed,.catchup-info{
+  .catchup-close,.catchup-loop,.catchup-speed,.catchup-info,#replay-modal .catchup-share{
     top:14px;
   }
   /* The card is already full-screen on phone (.catchup-card above), so
      there's nothing left for this button to toggle. */
   .catchup-fullscreen{display:none;}
-  /* With fullscreen hidden, loop/speed slide into its slot rather than
+  /* With fullscreen hidden, loop/speed/share slide into its slot rather than
      leaving a gap where it used to sit - same 36px spacing, just one slot
      closer to the close button. #replay-modal's own copies need their own
      override since their unconditional (desktop) offsets already win on
@@ -2135,6 +2147,7 @@ html[data-km-debug="1"] .km-tuning-panel{
   .catchup-speed{right:82px;}
   #replay-modal .catchup-loop{right:82px;}
   #replay-modal .catchup-speed{right:118px;}
+  #replay-modal .catchup-share{right:154px;}
   .catchup-progress{padding-top:36px;min-height:62px;}
 }
 

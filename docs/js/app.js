@@ -13576,6 +13576,56 @@
     $("replay-slide").innerHTML = "";
   }
 
+  /* Deep link for whatever's currently on screen (?game=.../handleDeepLink,
+     below) - the same &play= a shared link already understands. A non-play
+     slide (the game-replay title card) has no single play of its own, so the
+     link falls back to the game's first play slide for its game_code and
+     omits &play entirely, landing the recipient on the replay's normal start
+     rather than a specific moment. */
+  function replayShareUrl() {
+    var slide = replay.slides[replay.index];
+    var play = slide && slide.kind === "play" ? slide.play : null;
+    if (!play) {
+      var firstPlaySlide = replay.slides.filter(function (s) { return s.kind === "play"; })[0];
+      play = firstPlaySlide && firstPlaySlide.play;
+    }
+    if (!play) return null;
+    var url = new URL(location.href);
+    url.search = "";
+    url.searchParams.set("game", play.game_code);
+    if (slide && slide.kind === "play") url.searchParams.set("play", String(play.play_num % 1000));
+    return url.toString();
+  }
+
+  // execCommand fallback (Clipboard API needs a secure context - covers any
+  // odd http:// preview/embed setup where navigator.clipboard is undefined).
+  function copyTextFallback(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyReplayLink() {
+    var url = replayShareUrl();
+    if (!url) { toast("Nothing to share yet."); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast("Link copied to clipboard.");
+      }, function () {
+        toast(copyTextFallback(url) ? "Link copied to clipboard." : "Could not copy the link.");
+      });
+    } else {
+      toast(copyTextFallback(url) ? "Link copied to clipboard." : "Could not copy the link.");
+    }
+  }
+
   // Back control (only present when replay.returnTo is set - see
   // openReplayAtPlay/wireReplay) - closes the replay and reopens the
   // scorecard it came from, instead of closing to nothing.
@@ -16130,6 +16180,7 @@
     wireSpeedToggle("replay-speed");
     wireLoopToggle("replay-loop");
     $("replay-close").addEventListener("click", closeReplay);
+    $("replay-share").addEventListener("click", copyReplayLink);
     $("replay-back").addEventListener("click", backToScorecardFromReplay);
     $("replay-prev").addEventListener("click", function () { stepReplay(-1); });
     $("replay-next").addEventListener("click", function () { stepReplay(1); });

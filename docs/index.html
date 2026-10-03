@@ -393,6 +393,14 @@
      its own element ids, matching the separate state/timer machinery in app.js. -->
 <div class="modal catchup-modal" id="replay-modal" hidden>
   <div class="catchup-card" id="replay-card">
+    <!-- Leftmost button in the top bar (Alex's ask) - copies this play's
+         deep link (?game=...&play=...) to the clipboard so it can be shared. -->
+    <button type="button" class="catchup-share" id="replay-share" title="Copy link to this play" aria-label="Copy link to this play">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="12" height="12" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+    </button>
     <button type="button" class="catchup-speed" id="replay-speed" title="Playback speed" aria-label="Cycle playback speed">1.0x</button>
     <button type="button" class="catchup-loop" id="replay-loop" title="Repeat: All" aria-label="Cycle repeat mode" data-mode="all">
       <svg class="icon-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
