@@ -15061,7 +15061,16 @@
       " L" + (h.x + plateR).toFixed(1) + "," + h.y.toFixed(1) +
       " L" + h.x.toFixed(1) + "," + (h.y + plateR * 1.15).toFixed(1) +
       " L" + (h.x - plateR).toFixed(1) + "," + h.y.toFixed(1) + " Z";
-    return baseMarks + '<path class="dm-plate fc-plate" d="' + platePath + '"></path>';
+    // The pitcher's rubber (Alex's report: infieldSkinHtml only draws the
+    // round mound DIRT patch, not the rubber itself) - same fixed-px marker
+    // sceneFieldHtml draws on the live field, sized off BASE_R so it scales
+    // with everything else here too.
+    var moundPt = ftToSvg(0, PITCHER_MOUND_FT);
+    var rubberW = BASE_R * 2.1, rubberH = BASE_R * 0.65;
+    var rubberMark = '<rect class="dm-rubber" x="' + (moundPt.x - rubberW / 2).toFixed(1) +
+      '" y="' + (moundPt.y - rubberH / 2).toFixed(1) + '" width="' + rubberW.toFixed(1) +
+      '" height="' + rubberH.toFixed(1) + '" rx="0.8"></rect>';
+    return baseMarks + rubberMark + '<path class="dm-plate fc-plate" d="' + platePath + '"></path>';
   }
 
   // A third's own badge sits well past the fence on that third's own
