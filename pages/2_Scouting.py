@@ -3,6 +3,8 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import database as db
+import manager_calc
+import scouting_data
 import utils
 
 _MLN_QS_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
@@ -247,14 +249,7 @@ st.divider()
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_plays(pitcher_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
-    # Resolve the (most-recent) name to a player_id and pull the human's full
-    # history by id, so a name change doesn't split their plays. Fall back to
-    # name-based lookup if the player has no id yet (unsynced legacy rows).
-    _pid = _player_dir()["name_to_pid"].get(pitcher_name)
-    _lg = list(leagues) if leagues else None
-    raw = (db.get_plays_for_pitcher_id(_pid, _lg) if _pid is not None
-           else db.get_plays_for_pitcher(pitcher_name, _lg))
-    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+    return scouting_data.load_pitcher_plays(pitcher_name, leagues, data_v)
 
 @st.cache_data(ttl=3600)
 def _load_pitcher_stoplights(pitcher_name: str, leagues: tuple[str, ...], data_v: int,
@@ -397,19 +392,11 @@ def _stoplight_inspector(pitcher_name, leagues, data_v, window_n, hz_bkt, dd_bkt
 
 @st.cache_data(ttl=3600)
 def _load_batter_plays(batter_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
-    _pid = _player_dir()["name_to_pid"].get(batter_name)
-    _lg = list(leagues) if leagues else None
-    raw = (db.get_plays_for_batter_id(_pid, _lg) if _pid is not None
-           else db.get_plays_for_batter(batter_name, _lg))
-    return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+    return scouting_data.load_batter_plays(batter_name, leagues, data_v)
 
 @st.cache_data(ttl=3600)
 def _load_catcher_plays(catcher_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
-    _pid = _player_dir()["name_to_pid"].get(catcher_name)
-    _lg = list(leagues) if leagues else None
-    raw = (db.get_plays_for_catcher_id(_pid, _lg) if _pid is not None
-           else db.get_plays_for_catcher(catcher_name, _lg))
-    return utils.enrich_catcher_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
+    return scouting_data.load_catcher_plays(catcher_name, leagues, data_v)
 
 @st.cache_data(ttl=3600)
 def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...], data_v: int = 0) -> pd.DataFrame:
@@ -434,29 +421,11 @@ def _load_scrimmage_catcher_plays() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600)
 def _load_all_players() -> list:
-    return db.get_all_players()
+    return scouting_data.load_all_players()
 
 @st.cache_data(ttl=3600)
 def _player_dir() -> dict:
-    """Group player rows by player_id (the shared cross-season/-league human id).
-
-    Returns:
-      name_to_pid  - every name a human has used -> their player_id
-      pid_to_name  - player_id -> most-recent name (highest season)
-      pid_to_row   - player_id -> most-recent full row
-    Rows without a player_id (unsynced legacy) are skipped here; callers fall
-    back to name-based lookups for those.
-    """
-    ordered = sorted(_load_all_players(), key=lambda p: p.get("season") or 0)  # ascending
-    name_to_pid, pid_to_name, pid_to_row = {}, {}, {}
-    for p in ordered:
-        pid, nm = p.get("player_id"), p.get("name")
-        if pid is None or not nm:
-            continue
-        name_to_pid[nm] = pid   # later (more recent) season wins for a shared name
-        pid_to_name[pid] = nm   # most-recent name for the human
-        pid_to_row[pid] = p
-    return {"name_to_pid": name_to_pid, "pid_to_name": pid_to_name, "pid_to_row": pid_to_row}
+    return scouting_data.player_dir()
 
 @st.cache_data(ttl=3600)
 def _load_all_teams_data() -> list:
@@ -1142,6 +1111,47 @@ elif pred_mode == "Fetch Live Matchup":
             st.session_state["_dbg_scenario_errors"]  = _scenario_ranges.get("_errors", {})
         else:
             for _k in ("pred_hnr_ranges", "pred_ifinfield_ranges", "pred_hnr_ifin_ranges"):
+                st.session_state.pop(_k, None)
+
+        # Sandbox: a free-form scenario sheet (same Gameday+Gameplay template)
+        # a manager can hand-edit to model something the fixed strategies
+        # don't cover (pinch-run, pinch-hit, etc.). Pull its own inputs too -
+        # the Manager tab only shows it once those inputs actually diverge
+        # from the live matchup (see manager_calc.compare_sandbox_inputs).
+        _sandbox_url = _stadium_sheets.get("sheet_sandbox")
+        _sandbox_keys = ("pred_sandbox_ranges", "pred_sandbox_pitcher", "pred_sandbox_batter",
+                         "pred_sandbox_catcher", "pred_sandbox_swing_type", "pred_sandbox_infield_in",
+                         "pred_sandbox_obc")
+        if _sandbox_url:
+            _sb_season = _mg.get("season") if _mg else None
+            _sb_is_mln = str(_mg.get("league", "MLN")).upper() == "MLN" if _mg else False
+            try:
+                _sb_ranges, _, _sb_batter, _sb_pitcher, _sb_swing_type, _sb_infield_in = \
+                    utils.parse_result_ranges_from_sheet(_sandbox_url)
+                st.session_state["pred_sandbox_ranges"]     = _sb_ranges
+                st.session_state["pred_sandbox_pitcher"]    = _nl.get((_sb_pitcher or "").lower())
+                st.session_state["pred_sandbox_batter"]     = _nl.get((_sb_batter or "").lower())
+                st.session_state["pred_sandbox_swing_type"] = _sb_swing_type
+                st.session_state["pred_sandbox_infield_in"] = _sb_infield_in
+            except Exception:
+                for _k in _sandbox_keys:
+                    st.session_state.pop(_k, None)
+            try:
+                _sb_gp = utils.parse_gameplay_from_sheet(_sandbox_url)
+                st.session_state["pred_sandbox_obc"] = _sb_gp.get("obc") or "000"
+                _sb_catcher_id = _sb_gp.get("catcher_id")
+                _sb_catcher_row = {}
+                if _sb_catcher_id:
+                    if _sb_is_mln and _sb_season:
+                        _sb_catcher_row = _p_by_sid.get(f"{_sb_season}_{_sb_catcher_id}", {})
+                    if not _sb_catcher_row:
+                        _sb_catcher_row = _p_by_pid.get(str(_sb_catcher_id), {})
+                st.session_state["pred_sandbox_catcher"] = _sb_catcher_row.get("name")
+            except Exception:
+                st.session_state.pop("pred_sandbox_obc", None)
+                st.session_state.pop("pred_sandbox_catcher", None)
+        else:
+            for _k in _sandbox_keys:
                 st.session_state.pop(_k, None)
 
     # Auto-fetch saved/default sheet on first page load
@@ -4302,31 +4312,10 @@ with tab_m:
         nout_after = total outs after the play (eOuts from CSV).
         """
         o = _current_outs if outs is None else outs
-        entry = _run_lookup.get((result, obc, o))
-        if entry is not None and len(entry) == 3:
-            return entry
-        new_obc, _ = utils.advance_runners(result, obc, o)
-        return 0.0, new_obc, min(o + utils.outs_added(result), 3)
+        return manager_calc._lookup(_run_lookup, result, obc, o)
 
     def _calc_ev_and_probs(ranges):
-        ev = 0.0
-        _tprobs: dict[int, float] = {}
-        for entry in (ranges or []):
-            _r, _dl, _dh = _norm(entry)
-            _prob  = min((_dh - _dl + 1) * 2 / 1000, 1.0)
-            _runs, _nobc, _nout = _lookup(_r, _current_obc)
-            _nout  = min(_nout, 3)
-            _ner   = utils.get_expected_runs(_nout, _nobc) or 0 if _nout < 3 else 0
-            ev    += _prob * (_runs + _ner)
-            _imm   = int(_runs)
-            _adist = utils._re_dist.get((_nout, _nobc), {0: 1.0}) if _nout < 3 else {0: 1.0}
-            for _add, _p2 in _adist.items():
-                _n = _imm + _add
-                _tprobs[_n] = _tprobs.get(_n, 0.0) + _prob * _p2
-        p1r  = _tprobs.get(1, 0.0)
-        p2r  = _tprobs.get(2, 0.0)
-        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
-        return ev, p1r, p2r, p3pr
+        return manager_calc.calc_ev_and_probs(_run_lookup, ranges, _current_obc, _current_outs)
 
     def _outcome_grid(ranges, obc, outs, remaining=None, batting_lead=0):
         """Build flat outcome breakdown DataFrame sorted by (ER After + Runs) desc."""
@@ -4612,92 +4601,14 @@ with tab_m:
             st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
 
     def _calc_steal_ev_and_probs(safe_range):
-        safe_prob = min(safe_range * 2 / 1000, 1.0)
-        out_prob  = 1.0 - safe_prob
-        safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
-        safe_ner  = utils.get_expected_runs(_current_outs, safe_obc) or 0
-        out_obc, _ = utils.steal_cs(_current_obc)
-        out_nout = min(_current_outs + 1, 3)
-        out_ner  = utils.get_expected_runs(out_nout, out_obc) or 0 if out_nout < 3 else 0
-        ev = safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
-        _tprobs: dict[int, float] = {}
-        _simm   = int(safe_runs)
-        _sadist = utils._re_dist.get((_current_outs, safe_obc), {0: 1.0})
-        for _add, _p2 in _sadist.items():
-            _n = _simm + _add
-            _tprobs[_n] = _tprobs.get(_n, 0.0) + safe_prob * _p2
-        _oadist = utils._re_dist.get((out_nout, out_obc), {0: 1.0}) if out_nout < 3 else {0: 1.0}
-        for _add, _p2 in _oadist.items():
-            _tprobs[_add] = _tprobs.get(_add, 0.0) + out_prob * _p2
-        p1r  = _tprobs.get(1, 0.0)
-        p2r  = _tprobs.get(2, 0.0)
-        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
-        return ev, p1r, p2r, p3pr
+        return manager_calc.calc_steal_ev_and_probs(_current_obc, _current_outs, safe_range)
 
-    def _hnr_steal_advance_obc(obc: str) -> tuple[str, int]:
-        """Advance the H&R runner on a successful steal-on-K."""
-        on_3b, on_2b, on_1b = obc[0] == "1", obc[1] == "1", obc[2] == "1"
-        if on_1b and on_2b:
-            return "110", 0     # both advance: 1B->2B, 2B->3B
-        if on_1b:
-            return f"{obc[0]}10", 0  # 1B->2B, 3B stays
-        elif on_2b:
-            return "100", 0     # 2B->3B
-        elif on_3b:
-            return "000", 1     # 3B->home
-        return obc, 0
-
-    def _hnr_steal_cs_obc(obc: str) -> str:
-        """OBC after the H&R runner is caught stealing."""
-        if obc[1] == "1" and obc[2] == "1":  # 011: 2B runner caught at 3rd, 1B safely at 2nd
-            return "010"
-        if obc[2] == "1":       # 1B runner caught (001, 101)
-            return f"{obc[0]}00"
-        elif obc[1] == "1":     # 2B runner caught (010)
-            return f"{obc[0]}00"
-        else:                   # 3B runner caught
-            return "000"
+    _hnr_steal_advance_obc = manager_calc._hnr_steal_advance_obc
+    _hnr_steal_cs_obc      = manager_calc._hnr_steal_cs_obc
 
     def _calc_ev_hnr_and_probs(hnr_ranges, hnr_k_steal_safe_rng):
-        """EV for hit and run: non-K outcomes use BRC; K steal uses normal speed (no +1 boost)."""
-        sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
-        op = 1.0 - sp
-        ev = 0.0
-        _tprobs: dict[int, float] = {}
-        for entry in (hnr_ranges or []):
-            r, lo, hi = _norm(entry)
-            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
-            if r == "K":
-                _, _, k_nout = _lookup("K", _current_obc, _current_outs)
-                k_nout = min(k_nout, 3)
-                s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
-                s_ner  = utils.get_expected_runs(k_nout, s_obc) or 0 if k_nout < 3 else 0
-                cs_nout = min(k_nout + 1, 3)
-                cs_obc  = "000" if cs_nout >= 3 else _hnr_steal_cs_obc(_current_obc)
-                cs_ner  = utils.get_expected_runs(cs_nout, cs_obc) or 0 if cs_nout < 3 else 0
-                ev += prob * (sp * (s_runs + s_ner) + op * cs_ner)
-                _simm  = int(s_runs)
-                _sadist = utils._re_dist.get((k_nout, s_obc), {0: 1.0}) if k_nout < 3 else {0: 1.0}
-                for _add, _p2 in _sadist.items():
-                    _n = _simm + _add
-                    _tprobs[_n] = _tprobs.get(_n, 0.0) + prob * sp * _p2
-                _csdist = utils._re_dist.get((cs_nout, cs_obc), {0: 1.0}) if cs_nout < 3 else {0: 1.0}
-                for _add, _p2 in _csdist.items():
-                    _tprobs[_add] = _tprobs.get(_add, 0.0) + prob * op * _p2
-            else:
-                runs, new_obc, nout = _lookup(r, _current_obc, _current_outs)
-                nout = min(nout, 3)
-                ner = utils.get_expected_runs(nout, new_obc) or 0 if nout < 3 else 0
-                ev += prob * (runs + ner)
-                _imm   = int(runs)
-                _adist = utils._re_dist.get((nout, new_obc), {0: 1.0}) if nout < 3 else {0: 1.0}
-                for _add, _p2 in _adist.items():
-                    _n = _imm + _add
-                    _tprobs[_n] = _tprobs.get(_n, 0.0) + prob * _p2
-        p1r  = _tprobs.get(1, 0.0)
-        p2r  = _tprobs.get(2, 0.0)
-        p3pr = sum(p for r, p in _tprobs.items() if r >= 3)
-        return ev, p1r, p2r, p3pr
+        return manager_calc.calc_ev_hnr_and_probs(_run_lookup, _current_obc, _current_outs,
+                                                   hnr_ranges, hnr_k_steal_safe_rng)
 
     _bunt_ranges      = st.session_state.get("pred_bunt_ranges") or result_ranges
     _bunt_from_sheet  = bool(st.session_state.get("pred_bunt_ranges"))
@@ -4791,56 +4702,19 @@ with tab_m:
 
     _wp_table_ready = utils.get_win_probability(1, 0, "000", 0) is not None
 
-    def _wp_for_state(remaining, outs, obc, batting_lead):
-        """WP for the batting team given post-play state. Handles inning-end team switch."""
-        outs = min(outs, 3)
-        if outs < 3:
-            return utils.get_win_probability_interpolated(remaining, outs, obc, batting_lead) or 0.5
-        if remaining > 1:
-            return 1.0 - (utils.get_win_probability_interpolated(remaining - 1, 0, "000", -batting_lead) or 0.5)
-        return 1.0 if batting_lead > 0 else (0.5 if batting_lead == 0 else 0.0)
+    _wp_for_state = manager_calc.wp_for_state
 
     def _calc_wp_after(ranges, remaining, batting_lead):
-        total = 0.0
-        for entry in (ranges or []):
-            r, lo, hi = _norm(entry)
-            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
-            runs_f, new_obc, new_outs = _lookup(r, _current_obc)
-            new_bl = batting_lead + int(round(runs_f))
-            total += prob * _wp_for_state(remaining, min(new_outs, 3), new_obc, new_bl)
-        return total
+        return manager_calc.calc_wp_after(_run_lookup, ranges, _current_obc, _current_outs,
+                                           remaining, batting_lead)
 
     def _calc_steal_wp_after(steal_ev_rng, remaining, batting_lead):
-        safe_prob = min(steal_ev_rng * 2 / 1000, 1.0)
-        out_prob  = 1.0 - safe_prob
-        safe_obc, safe_runs = utils.steal_advance(_current_obc, _current_outs)
-        cs_obc, _ = utils.steal_cs(_current_obc)
-        cs_nout   = min(_current_outs + 1, 3)
-        safe_wp = _wp_for_state(remaining, _current_outs, safe_obc, batting_lead + int(safe_runs))
-        cs_wp   = _wp_for_state(remaining, cs_nout, cs_obc, batting_lead)
-        return safe_prob * safe_wp + out_prob * cs_wp
+        return manager_calc.calc_steal_wp_after(_current_obc, _current_outs, steal_ev_rng,
+                                                 remaining, batting_lead)
 
     def _calc_hnr_wp_after(hnr_ranges, hnr_k_steal_safe_rng, remaining, batting_lead):
-        sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
-        op = 1.0 - sp
-        total = 0.0
-        for entry in (hnr_ranges or []):
-            r, lo, hi = _norm(entry)
-            prob = min((hi - lo + 1) * 2 / 1000, 1.0)
-            if r == "K":
-                _, _, k_nout = _lookup("K", _current_obc, _current_outs)
-                k_nout = min(k_nout, 3)
-                s_obc, s_runs = _hnr_steal_advance_obc(_current_obc)
-                s_wp = _wp_for_state(remaining, k_nout, s_obc, batting_lead + int(s_runs))
-                cs_nout_wp = min(k_nout + 1, 3)
-                cs_obc = "000" if cs_nout_wp >= 3 else _hnr_steal_cs_obc(_current_obc)
-                cs_wp  = _wp_for_state(remaining, cs_nout_wp, cs_obc, batting_lead)
-                total += prob * (sp * s_wp + op * cs_wp)
-            else:
-                runs_f, new_obc, new_outs = _lookup(r, _current_obc, _current_outs)
-                new_bl = batting_lead + int(round(runs_f))
-                total += prob * _wp_for_state(remaining, min(new_outs, 3), new_obc, new_bl)
-        return total
+        return manager_calc.calc_hnr_wp_after(_run_lookup, _current_obc, _current_outs, hnr_ranges,
+                                               hnr_k_steal_safe_rng, remaining, batting_lead)
 
     @st.fragment
     def _manager_fragment():
@@ -4943,6 +4817,36 @@ with tab_m:
                 _p2r_col   += [f"{ii_p2r*100:.1f}%"]
                 _p3pr_col  += [f"{ii_p3pr*100:.1f}%"]
                 _wp_col    += [f"{wp_ifin*100:.1f}%" if wp_ifin is not None else "-"]
+
+            _sandbox_ranges = st.session_state.get("pred_sandbox_ranges")
+            _sandbox_diffs: list[str] = []
+            if _sandbox_ranges:
+                _sandbox_cmp_state = {
+                    "pitcher": tab_p_pitcher, "batter": tab_b_batter, "catcher": tab_c_catcher,
+                    "swing_type": st.session_state.get("pred_sheet_swing_type", "Normal Swing"),
+                    "infield_in": st.session_state.get("pred_sheet_if_in", False),
+                    "obc": _current_obc,
+                    "sandbox_pitcher": st.session_state.get("pred_sandbox_pitcher"),
+                    "sandbox_batter": st.session_state.get("pred_sandbox_batter"),
+                    "sandbox_catcher": st.session_state.get("pred_sandbox_catcher"),
+                    "sandbox_swing_type": st.session_state.get("pred_sandbox_swing_type"),
+                    "sandbox_infield_in": st.session_state.get("pred_sandbox_infield_in"),
+                    "sandbox_obc": st.session_state.get("pred_sandbox_obc"),
+                }
+                _sandbox_diffs = manager_calc.compare_sandbox_inputs(_sandbox_cmp_state)
+                if _sandbox_diffs:
+                    _sandbox_obc = st.session_state.get("pred_sandbox_obc") or "000"
+                    ev_sandbox, sb_p1r, sb_p2r, sb_p3pr = manager_calc.calc_ev_and_probs(
+                        _run_lookup, _sandbox_ranges, _sandbox_obc, _current_outs)
+                    wp_sandbox = (manager_calc.calc_wp_after(_run_lookup, _sandbox_ranges, _sandbox_obc,
+                                  _current_outs, _mgr_remaining, _mgr_batting_lead) if _wp_table_ready else None)
+                    _decisions += ["Sandbox *"]
+                    _exp_runs  += [f"{ev_sandbox:.2f}"]
+                    _p1r_col   += [f"{sb_p1r*100:.1f}%"]
+                    _p2r_col   += [f"{sb_p2r*100:.1f}%"]
+                    _p3pr_col  += [f"{sb_p3pr*100:.1f}%"]
+                    _wp_col    += [f"{wp_sandbox*100:.1f}%" if wp_sandbox is not None else "-"]
+
             _tbl_data = {"Decision": _decisions}
             if _wp_table_ready:
                 _tbl_data["Exp WP"] = _wp_col
@@ -4956,6 +4860,8 @@ with tab_m:
                 pd.DataFrame(_tbl_data),
                 use_container_width=True, hide_index=True,
             )
+            if _sandbox_diffs:
+                st.caption(f"\\* Sandbox differs from Normal Swing: {', '.join(_sandbox_diffs)}")
 
         _proposed  = st.number_input("Proposed Value", min_value=1, max_value=1000,
                                     value=500, step=1, key="mgr_proposed")

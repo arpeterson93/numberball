@@ -77,6 +77,19 @@ def get_game(game_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
+def get_game_by_code(game_code: int) -> dict | None:
+    """Look up a game by its user-facing game_code (e.g. 130820), rather than
+    the opaque internal id - game_code is what shows up in sheets/game logs."""
+    rows = (
+        _client().table("games")
+        .select("*")
+        .eq("game_code", game_code)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
 def create_game(
     season: int,
     session_number: int,
@@ -324,12 +337,12 @@ def get_all_teams() -> list[dict]:
 def get_stadium_sheets(ballpark_url: str, season: int) -> dict:
     """Return scenario sheet URLs for the stadium matching ballpark_url and season.
 
-    Columns fetched: sheet_hnr, sheet_ifinfield, sheet_hnr_ifin.
+    Columns fetched: sheet_hnr, sheet_ifinfield, sheet_hnr_ifin, sheet_sandbox.
     Returns an empty dict if no matching team row is found.
     """
     rows = _fetch_all(
         _client().table("teams")
-        .select("sheet_hnr, sheet_ifinfield, sheet_hnr_ifin")
+        .select("sheet_hnr, sheet_ifinfield, sheet_hnr_ifin, sheet_sandbox")
         .eq("ballpark_url", ballpark_url)
         .eq("season", season)
         .limit(1)

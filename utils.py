@@ -3050,6 +3050,8 @@ def last_n_combined_chart(
     opp_label: str = "Swing",
     pa_label: str = "PA",
     highlight_col: str = "batter_name",
+    show_value: bool = True,
+    show_opp: bool = True,
 ) -> go.Figure:
     """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
     swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
@@ -3059,13 +3061,22 @@ def last_n_combined_chart(
     value_col/opp_col/value_label/opp_label/pa_label/highlight_col default to
     the pitch/swing page's names; pass the Catcher tab's throw/steal
     equivalents to reuse this chart for throws.
+
+    show_value/show_opp: hide either line entirely (and drop that column's
+    notna requirement from the row filter, so e.g. hiding opp_col surfaces
+    pitches that had no swing instead of excluding them). est_delta_overlay
+    is ignored unless both are True, since it compares one series against
+    the other.
     """
-    _df_filtered = df[df[value_col].notna() & df[opp_col].notna()].sort_values("id")
+    _mask = df[value_col].notna() if show_value else pd.Series(True, index=df.index)
+    if show_opp:
+        _mask = _mask & df[opp_col].notna()
+    _df_filtered = df[_mask].sort_values("id")
     df_last = _df_filtered.reset_index(drop=True) if pannable else _df_filtered.tail(n).reset_index(drop=True)
     n_actual = len(df_last)
     x_all = list(range(1, n_actual + 1))
-    pitches = df_last[value_col].astype(int).tolist()
-    swings  = df_last[opp_col].astype(int).tolist()
+    pitches = df_last[value_col].fillna(0).astype(int).tolist()
+    swings  = df_last[opp_col].fillna(0).astype(int).tolist()
     results = df_last["result"].tolist() if "result" in df_last.columns else [None] * n_actual
     delta_vals = df_last[delta_col].dropna().astype(int).tolist()
 
@@ -3142,97 +3153,99 @@ def last_n_combined_chart(
         row_heights=[0.65, 0.35], vertical_spacing=0.06,
     )
 
-    # Pitch trace
-    if can_segment:
-        p_sx, p_sy, p_dx, p_dy = _segs(x_all, pitches, n_actual)
-        fig.add_trace(go.Scatter(
-            x=p_sx, y=p_sy, mode="lines+markers+text", name=value_label,
-            legendgroup="pitch",
-            text=_text(p_sy), textposition="top center", textfont=dict(size=10),
-            line=dict(color="#d6604d", width=2), marker=dict(size=5),
-        ), row=1, col=1)
-        if p_dx:
+    if show_value:
+        # Pitch trace
+        if can_segment:
+            p_sx, p_sy, p_dx, p_dy = _segs(x_all, pitches, n_actual)
             fig.add_trace(go.Scatter(
-                x=p_dx, y=p_dy, mode="lines",
-                legendgroup="pitch", showlegend=False, hoverinfo="skip",
-                line=dict(color="#d6604d", width=2, dash="dash"),
+                x=p_sx, y=p_sy, mode="lines+markers+text", name=value_label,
+                legendgroup="pitch",
+                text=_text(p_sy), textposition="top center", textfont=dict(size=10),
+                line=dict(color="#d6604d", width=2), marker=dict(size=5),
             ), row=1, col=1)
-    else:
-        fig.add_trace(go.Scatter(
-            x=x_all, y=pitches, mode="lines+markers+text", name=value_label,
-            legendgroup="pitch",
-            text=[str(p) for p in pitches], textposition="top center",
-            textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
-        ), row=1, col=1)
+            if p_dx:
+                fig.add_trace(go.Scatter(
+                    x=p_dx, y=p_dy, mode="lines",
+                    legendgroup="pitch", showlegend=False, hoverinfo="skip",
+                    line=dict(color="#d6604d", width=2, dash="dash"),
+                ), row=1, col=1)
+        else:
+            fig.add_trace(go.Scatter(
+                x=x_all, y=pitches, mode="lines+markers+text", name=value_label,
+                legendgroup="pitch",
+                text=[str(p) for p in pitches], textposition="top center",
+                textfont=dict(size=10), line=dict(color="#d6604d", width=2), marker=dict(size=5),
+            ), row=1, col=1)
 
-    # Swing trace
-    swing_name = opp_label + (" (offset +1)" if swing_offset else "")
-    if highlight_name and any(highlight_mask):
-        # Connecting line (segmented or plain), then separate marker traces
-        if can_segment:
-            s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
-            fig.add_trace(go.Scatter(
-                x=s_sx, y=s_sy, mode="lines", name=swing_name,
-                legendgroup="swing",
-                line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
-            ), row=1, col=1)
-            if s_dx:
+    if show_opp:
+        # Swing trace
+        swing_name = opp_label + (" (offset +1)" if swing_offset else "")
+        if highlight_name and any(highlight_mask):
+            # Connecting line (segmented or plain), then separate marker traces
+            if can_segment:
+                s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
                 fig.add_trace(go.Scatter(
-                    x=s_dx, y=s_dy, mode="lines",
-                    legendgroup="swing", showlegend=False, hoverinfo="skip",
-                    line=dict(color="#2166ac", width=2, dash="dash"),
+                    x=s_sx, y=s_sy, mode="lines", name=swing_name,
+                    legendgroup="swing",
+                    line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
+                ), row=1, col=1)
+                if s_dx:
+                    fig.add_trace(go.Scatter(
+                        x=s_dx, y=s_dy, mode="lines",
+                        legendgroup="swing", showlegend=False, hoverinfo="skip",
+                        line=dict(color="#2166ac", width=2, dash="dash"),
+                    ), row=1, col=1)
+            else:
+                fig.add_trace(go.Scatter(
+                    x=swing_x, y=swing_y, mode="lines", name=swing_name,
+                    legendgroup="swing",
+                    line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
+                ), row=1, col=1)
+            _cx = [x for x, h in zip(swing_x, highlight_mask) if not h]
+            _cy = [y for y, h in zip(swing_y, highlight_mask) if not h]
+            _ct = [t for t, h in zip(swing_text, highlight_mask) if not h]
+            if _cx:
+                fig.add_trace(go.Scatter(
+                    x=_cx, y=_cy, mode="markers+text", text=_ct,
+                    legendgroup="swing",
+                    textposition="bottom center", textfont=dict(size=10),
+                    marker=dict(size=5, color="#2166ac"),
+                    showlegend=False, name=swing_name, hoverinfo="skip",
+                ), row=1, col=1)
+            _hx = [x for x, h in zip(swing_x, highlight_mask) if h]
+            _hy = [y for y, h in zip(swing_y, highlight_mask) if h]
+            _ht = [t for t, h in zip(swing_text, highlight_mask) if h]
+            if _hx:
+                fig.add_trace(go.Scatter(
+                    x=_hx, y=_hy, mode="markers+text", text=_ht,
+                    legendgroup="swing",
+                    textposition="bottom center", textfont=dict(size=10),
+                    marker=dict(symbol="star", size=10, color="#2166ac",
+                                line=dict(color="white", width=0.5)),
+                    showlegend=False, name=swing_name, hoverinfo="skip",
                 ), row=1, col=1)
         else:
-            fig.add_trace(go.Scatter(
-                x=swing_x, y=swing_y, mode="lines", name=swing_name,
-                legendgroup="swing",
-                line=dict(color="#2166ac", width=2), showlegend=True, hoverinfo="skip",
-            ), row=1, col=1)
-        _cx = [x for x, h in zip(swing_x, highlight_mask) if not h]
-        _cy = [y for y, h in zip(swing_y, highlight_mask) if not h]
-        _ct = [t for t, h in zip(swing_text, highlight_mask) if not h]
-        if _cx:
-            fig.add_trace(go.Scatter(
-                x=_cx, y=_cy, mode="markers+text", text=_ct,
-                legendgroup="swing",
-                textposition="bottom center", textfont=dict(size=10),
-                marker=dict(size=5, color="#2166ac"),
-                showlegend=False, name=swing_name, hoverinfo="skip",
-            ), row=1, col=1)
-        _hx = [x for x, h in zip(swing_x, highlight_mask) if h]
-        _hy = [y for y, h in zip(swing_y, highlight_mask) if h]
-        _ht = [t for t, h in zip(swing_text, highlight_mask) if h]
-        if _hx:
-            fig.add_trace(go.Scatter(
-                x=_hx, y=_hy, mode="markers+text", text=_ht,
-                legendgroup="swing",
-                textposition="bottom center", textfont=dict(size=10),
-                marker=dict(symbol="star", size=10, color="#2166ac",
-                            line=dict(color="white", width=0.5)),
-                showlegend=False, name=swing_name, hoverinfo="skip",
-            ), row=1, col=1)
-    else:
-        if can_segment:
-            s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
-            fig.add_trace(go.Scatter(
-                x=s_sx, y=s_sy, mode="lines+markers+text", name=swing_name,
-                legendgroup="swing",
-                text=_text(s_sy), textposition="bottom center", textfont=dict(size=10),
-                line=dict(color="#2166ac", width=2), marker=dict(size=5),
-            ), row=1, col=1)
-            if s_dx:
+            if can_segment:
+                s_sx, s_sy, s_dx, s_dy = _segs(swing_x, swing_y, n_swing_rows)
                 fig.add_trace(go.Scatter(
-                    x=s_dx, y=s_dy, mode="lines",
-                    legendgroup="swing", showlegend=False, hoverinfo="skip",
-                    line=dict(color="#2166ac", width=2, dash="dash"),
+                    x=s_sx, y=s_sy, mode="lines+markers+text", name=swing_name,
+                    legendgroup="swing",
+                    text=_text(s_sy), textposition="bottom center", textfont=dict(size=10),
+                    line=dict(color="#2166ac", width=2), marker=dict(size=5),
                 ), row=1, col=1)
-        else:
-            fig.add_trace(go.Scatter(
-                x=swing_x, y=swing_y, mode="lines+markers+text", name=swing_name,
-                legendgroup="swing",
-                text=swing_text, textposition="bottom center",
-                textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
-            ), row=1, col=1)
+                if s_dx:
+                    fig.add_trace(go.Scatter(
+                        x=s_dx, y=s_dy, mode="lines",
+                        legendgroup="swing", showlegend=False, hoverinfo="skip",
+                        line=dict(color="#2166ac", width=2, dash="dash"),
+                    ), row=1, col=1)
+            else:
+                fig.add_trace(go.Scatter(
+                    x=swing_x, y=swing_y, mode="lines+markers+text", name=swing_name,
+                    legendgroup="swing",
+                    text=swing_text, textposition="bottom center",
+                    textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
+                ), row=1, col=1)
 
     # Bars first (no text — labels added as a separate trace on top of everything)
     fig.add_trace(go.Bar(
@@ -3242,7 +3255,7 @@ def last_n_combined_chart(
     ), row=2, col=1)
 
     # Estimated delta overlay on top of bars: swing[i] vs pitch[i-1] at each PA position
-    if est_delta_overlay and n_actual > 1:
+    if est_delta_overlay and show_value and show_opp and n_actual > 1:
         est_deltas = [
             circular_signed_delta(pitches[j], swings[j + 1])
             for j in range(n_actual - 1)
