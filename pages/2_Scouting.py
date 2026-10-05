@@ -1423,9 +1423,9 @@ with tab_p:
 
     # ── recent PA window - shared by the percentile card and the Last N chart ──
     if tab_p_pitcher != "All":
-        n_pitches = st.slider("Recent PA Window", 5, 100, 20, step=5, key="last_n_pitch")
+        n_pitches = st.slider("Recent PA Window", 5, 100, 50, step=5, key="last_n_pitch")
     else:
-        n_pitches = st.session_state.get("last_n_pitch", 20)
+        n_pitches = st.session_state.get("last_n_pitch", 50)
 
     # ── percentile card ───────────────────────────────────────────────────────
     if tab_p_pitcher != "All" and not df_p.empty:
@@ -3032,9 +3032,9 @@ with tab_b:
 
     # ── recent PA window - shared by predictor and Last N chart ───────────────
     if tab_b_batter != "All":
-        n_swings = st.slider("Recent PA Window", 5, 100, 20, step=5, key="last_n_swing")
+        n_swings = st.slider("Recent PA Window", 5, 100, 50, step=5, key="last_n_swing")
     else:
-        n_swings = st.session_state.get("last_n_swing", 20)
+        n_swings = st.session_state.get("last_n_swing", 50)
 
     if df_b.empty:
         if tab_b_batter == "All":
@@ -3730,9 +3730,9 @@ with tab_c:
 
     # ── recent window - shared by Steal Analyzer weighting and Last N chart ────
     if tab_c_catcher != "All":
-        n_throws = st.slider("Recent Throw Window", 5, 100, 20, step=5, key="last_n_throw")
+        n_throws = st.slider("Recent Throw Window", 5, 100, 50, step=5, key="last_n_throw")
     else:
-        n_throws = st.session_state.get("last_n_throw", 20)
+        n_throws = st.session_state.get("last_n_throw", 50)
 
     if df_c.empty:
         if tab_c_catcher == "All":

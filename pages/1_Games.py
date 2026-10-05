@@ -703,7 +703,7 @@ st.divider()
 
 # ── pitcher stats ─────────────────────────────────────────────────────────────
 st.subheader("Pitcher Stats")
-st.caption("Pre-compute behavioral stats (Avg |Δ|, Avg Δ², Shadow %, Shadow |Δ|, Meme Rate, Wraparound %, DD%, TD%) and their 20-pitch rolling-average distributions across all pitchers.")
+st.caption("Pre-compute behavioral stats (Avg |Δ|, Avg Δ², Shadow %, Shadow |Δ|, Meme Rate, Wraparound %, DD%, TD%) and their 50-pitch rolling-average distributions across all pitchers.")
 if st.button("Refresh Pitcher Stats", key="refresh_pitcher_stats"):
     import utils, pandas as pd
     _bar  = st.progress(0, text="Fetching RLN plays…")

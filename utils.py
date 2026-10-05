@@ -3225,7 +3225,7 @@ _HOT_ZONE_LABELS = [
 
 def last_n_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     pitch_col: str = "pitch",
     swing_col: str = "swing",
     title: str = "Last 20 At-Bats",
@@ -3268,7 +3268,7 @@ def last_n_chart(
 
 def last_n_delta_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     value_col: str = "pitch",
     title: str = "Pitch Delta",
 ) -> go.Figure:
@@ -3309,7 +3309,7 @@ def last_n_delta_chart(
 
 def last_n_combined_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     delta_col: str = "pitch",
     title: str = "Last N Pitches",
     swing_offset: bool = False,
@@ -3715,30 +3715,51 @@ def _ring_arc_theta(lo_deg: float, hi_deg: float) -> list[float]:
     return [(lo_deg + span * i / (steps - 1)) % 360 for i in range(steps)]
 
 
-def _range_ring_traces(rings: list[tuple[float, float, str, float]], r_max: float) -> list[go.Scatterpolar]:
+def _range_ring_traces(rings: list[tuple[float, float, str, float]],
+                        n_actual: float) -> tuple[list[go.Scatterpolar], float]:
     """rings: (lo_deg, hi_deg, color, width) per ring, primary (OBR) listed
-    first. Drawn as thin arcs within the chart's EXISTING r_max - right at
-    the rim for the first ring, each next one (e.g. SacF) a bit further in -
-    rather than growing r_max to fit them outside the data. Growing the axis
-    instead would shrink every point's apparent radius just because a ring
-    got added (verified: one ring pushed r_max up ~21%, visibly pulling the
-    whole scatter toward the center - not acceptable since the data itself
-    hasn't changed). r_max==0.952*(n_actual*1.05)'s own value already means
-    no real data point ever reaches r_max itself, so the first ring doesn't
-    overlap actual points; only a second, further-in ring risks grazing the
-    very newest one or two - the same tradeoff the original Discord-bot wedge
-    (which sits at 0.88-1.0 of r_max, well inside this) already accepted.
+    first (innermost) - e.g. SacF further out. Returns (traces, r_max).
+
+    Each ring is placed with a GUARANTEED gap from both the outermost actual
+    data point (r=n_actual, the single newest one) and the axis boundary -
+    sized off n_actual itself, not a fixed fraction of a padded r_max, which
+    an earlier version used and which could still land inside n_actual (a
+    ring at 0.95*r_max is only at 0.95*1.05=0.9975*n_actual - effectively
+    touching the newest dot whenever that dot's angle falls inside the arc).
+    r_max without any rings stays the plain n_actual*1.05 every other radial
+    chart uses - this only grows, and only just enough to fit the ring(s),
+    when a ring is actually requested; it never shrinks the apparent size of
+    the data (verified separately: one ring previously pushed r_max up ~21%
+    even with plenty of headroom to spare, visibly pulling the whole scatter
+    toward center for no reason - not acceptable, and not necessary either).
+
+    Each ring draws as a dark halo (wider, semi-transparent black) underneath
+    a lighter line on top, so it reads against any background color behind
+    it (page, a colored background wedge) instead of blending into whichever
+    one happens to match its own gray.
     """
+    if not rings:
+        return [], n_actual * 1.05
+    gap = max(n_actual * 0.08, 1.0)
+    spacing = max(n_actual * 0.09, 1.2)
     traces: list[go.Scatterpolar] = []
+    ring_r = n_actual + gap
     for i, (lo_deg, hi_deg, color, width) in enumerate(rings):
-        ring_r = r_max * (1.0 - 0.07 * i)
+        if i > 0:
+            ring_r += spacing
         arc = _ring_arc_theta(lo_deg, hi_deg)
+        traces.append(go.Scatterpolar(
+            r=[ring_r] * len(arc), theta=arc, mode="lines",
+            line=dict(color="rgba(0,0,0,0.55)", width=width + 4),
+            hoverinfo="skip", showlegend=False,
+        ))
         traces.append(go.Scatterpolar(
             r=[ring_r] * len(arc), theta=arc, mode="lines",
             line=dict(color=color, width=width),
             hoverinfo="skip", showlegend=False,
         ))
-    return traces
+    r_max = ring_r + gap
+    return traces, r_max
 
 
 def _radial_recency_figure(
@@ -3767,8 +3788,7 @@ def _radial_recency_figure(
     if n_actual == 0:
         return go.Figure()
     r = list(range(1, n_actual + 1))
-    r_max = n_actual * 1.05
-    ring_traces = _range_ring_traces(range_rings, r_max) if range_rings else []
+    ring_traces, r_max = _range_ring_traces(range_rings, n_actual)
 
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta, r_max))
@@ -3845,7 +3865,7 @@ def _build_range_rings(obr_lo: int | None, obr_hi: int | None, sacf_lo: int | No
 
 def radial_recent_pitches_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     value_col: str = "pitch",
     title: str = "Recent Pitches - Radial View",
     obr_lo: int | None = None,
@@ -3956,7 +3976,7 @@ def _implied_pitch_points_delta2(
 
 def radial_recent_delta2_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     delta2_col: str = "pitch_circ_delta2_signed",
     delta_col: str = "pitch_circ_delta",
     value_col: str = "pitch",
@@ -4020,7 +4040,7 @@ def radial_recent_delta2_chart(
 
 def radial_recent_deltas_chart(
     df: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     delta_col: str = "pitch_circ_delta",
     value_col: str = "pitch",
     title: str = "Recent Deltas - Radial View",
@@ -4074,7 +4094,7 @@ def radial_recent_deltas_chart(
 def radial_combined_chart(
     df_pitches: pd.DataFrame,
     df_deltas: pd.DataFrame,
-    n: int = 20,
+    n: int = 50,
     value_col: str = "pitch",
     delta_col: str = "pitch_circ_delta",
     title: str = "Recent Combined - Radial View",
@@ -4177,9 +4197,8 @@ def radial_combined_chart(
                 f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago"
             )
 
-    r_max = n_total * 1.05
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
-    ring_traces = _range_ring_traces(range_rings, r_max) if range_rings else []
+    ring_traces, r_max = _range_ring_traces(range_rings, n_total)
     marker_base = dict(
         size=6.7,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
@@ -7704,7 +7723,7 @@ def diff_to_delta_zone_dist(
 def swing_predictor_chart(
     df: pd.DataFrame,
     swing: int,
-    n: int = 20,
+    n: int = 50,
     title: str = "Swing Analyzer",
     result_ranges: list | None = None,
     tick_label: str = "Recent Pitches",
@@ -11314,8 +11333,8 @@ _MA_METRICS: dict[str, dict] = {
 }
 
 
-def pitcher_ma_pool(df: pd.DataFrame, window: int = 20) -> dict[str, np.ndarray]:
-    """Pool every pitcher's 20-pitch rolling average into one array per metric
+def pitcher_ma_pool(df: pd.DataFrame, window: int = 50) -> dict[str, np.ndarray]:
+    """Pool every pitcher's 50-pitch rolling average into one array per metric
     in _MA_METRICS - the distribution a RECENT rolling-average value should be
     graded against, instead of the career-average distribution. A rolling
     stat carries far more sampling variance than a career average, so
@@ -11354,7 +11373,7 @@ def pitcher_ma_pool(df: pd.DataFrame, window: int = 20) -> dict[str, np.ndarray]
 _MA_PCT_POINTS = 101  # percentile breakpoints 0..100 inclusive, 1-point resolution
 
 
-def ma_percentile_rows(pool: dict[str, np.ndarray], window: int = 20) -> list[dict]:
+def ma_percentile_rows(pool: dict[str, np.ndarray], window: int = 50) -> list[dict]:
     """Convert a pitcher_ma_pool() result into upsertable percentile-table rows
     (table pitcher_ma_percentiles, one row per metric): 101 breakpoints (the
     0th through 100th percentile) of that metric's pooled rolling-average
@@ -11363,7 +11382,7 @@ def ma_percentile_rows(pool: dict[str, np.ndarray], window: int = 20) -> list[di
     qs = np.linspace(0, 100, _MA_PCT_POINTS)
     rows = []
     for metric, vals in pool.items():
-        if vals.size < 20:
+        if vals.size < 20:  # min pooled rolling-average samples for a usable distribution, unrelated to `window`
             continue
         rows.append({
             "metric":      metric,
@@ -11374,8 +11393,8 @@ def ma_percentile_rows(pool: dict[str, np.ndarray], window: int = 20) -> list[di
     return rows
 
 
-def pitcher_ma_figure(df: pd.DataFrame, metric: str, window: int = 20) -> go.Figure | None:
-    """20-pitch rolling average of a behavioral tendency across a pitcher's filtered history."""
+def pitcher_ma_figure(df: pd.DataFrame, metric: str, window: int = 50) -> go.Figure | None:
+    """50-pitch rolling average of a behavioral tendency across a pitcher's filtered history."""
     defn = _MA_METRICS.get(metric)
     if defn is None:
         return None
