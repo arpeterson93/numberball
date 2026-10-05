@@ -2515,14 +2515,19 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
                 f"<div class='tsc-digit'>{label}</div>"
                 f"<div class='tsc-pct'>{pct:.1f}%</div></td>"
             )
-        body_rows.append(f"<tr><td class='tsc-name'>{b}</td>{''.join(cells)}</tr>")
+        body_rows.append(
+            f"<tr><td class='tsc-name'><div class='tsc-name-main'>{b}</div>"
+            f"<div class='tsc-name-sub'>{int(pa[b])} swings</div></td>{''.join(cells)}</tr>"
+        )
 
     return f"""
 <style>
 .tsc-table {{ border-collapse: collapse; width: 100%; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }}
 .tsc-table th, .tsc-table td {{ border: 1px solid {border}; padding: 6px 10px; text-align: center; }}
 .tsc-table th {{ color: {text_ink}; font-weight: 600; font-size: 0.85rem; }}
-.tsc-name {{ text-align: left; font-weight: 600; color: {text_ink}; background: {name_bg}; white-space: nowrap; }}
+.tsc-name {{ text-align: left; color: {text_ink}; background: {name_bg}; white-space: nowrap; }}
+.tsc-name-main {{ font-weight: 600; }}
+.tsc-name-sub {{ font-size: 0.75rem; opacity: 0.6; font-weight: 400; }}
 .tsc-cell {{ font-variant-numeric: tabular-nums; }}
 .tsc-digit {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
 .tsc-pct {{ font-size: 0.78rem; opacity: 0.85; line-height: 1.2; }}

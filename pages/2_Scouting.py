@@ -4228,31 +4228,49 @@ with tab_c:
 # TEAM TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
+_tt_current_season = max((t.get("season") or 0) for t in _teams_by_season) if _teams_by_season else None
+_tt_team_options = sorted({
+    t.get("name") or t.get("full_team") or t.get("team_name") or t["abbrev"]
+    for t in _teams_by_season if t.get("season") == _tt_current_season and t.get("abbrev")
+})
+
 with tab_team:
-    st.caption("Each hitter's most common swing values or ranges (last 2 digits), ranked left to right. Rows are "
-               "sorted by how concentrated that hitter's swings are - their own single most common value/range's "
-               "% - so the most predictable hitters float to the top.")
-    _tt1, _tt2, _tt3, _tt4 = st.columns(4)
+    # Default to the fetched/active matchup's batting team on first visit (same
+    # signal the Batter tab's own Team filter follows - pred_calc_b_team, kept
+    # current by both Fetch Live Matchup and manual player selection elsewhere
+    # in this page) - but only as a one-time seed, so picking a different team
+    # here doesn't get silently overwritten on every rerun.
+    if "tab_team_team" not in st.session_state:
+        _tt_fetched_team = st.session_state.get("pred_calc_b_team")
+        if _tt_fetched_team in _tt_team_options:
+            st.session_state["tab_team_team"] = _tt_fetched_team
+    _tt1, _tt2, _tt3 = st.columns(3)
     with _tt1:
-        tab_team_team = st.selectbox("Team", _all_teams, key="tab_team_team") if _all_teams else None
+        tab_team_team = st.selectbox("Team", _tt_team_options, key="tab_team_team") if _tt_team_options else None
     with _tt2:
-        tab_team_season = st.selectbox("Season", _meta_seasons, key="tab_team_season") if _meta_seasons else None
-    with _tt3:
         tab_team_topn = st.slider("Swings shown", 3, 10, 5, key="tab_team_topn")
-    with _tt4:
+    with _tt3:
         tab_team_bucket = st.slider("Bucket size", 1, 10, 1, key="tab_team_bucket",
                                      help="1 = exact swing values. Wider buckets group each hitter's top swings "
                                           "into ranges instead (e.g. 05-14), rolling through every possible "
                                           "10-wide start point rather than a fixed 00-09/10-19/... grid.")
 
     df_team = pd.DataFrame()
-    if tab_team_team and tab_team_season and _leagues_tuple:
-        df_team = _load_team_offense_plays(tab_team_team, _leagues_tuple, st.session_state.get("_data_v", 0))
-        if not df_team.empty:
-            df_team = df_team[df_team["season"] == tab_team_season]
+    if tab_team_team and _tt_current_season and _leagues_tuple:
+        _tt_roster_plays = _load_team_offense_plays(tab_team_team, _leagues_tuple, st.session_state.get("_data_v", 0))
+        _tt_roster = sorted(
+            _tt_roster_plays.loc[_tt_roster_plays["season"] == _tt_current_season, "batter_name"].dropna().unique()
+        ) if not _tt_roster_plays.empty else []
+        # The current season only narrows the ROSTER (who's actually on this team
+        # now) - the cheat sheet itself runs on each of those hitters' full career
+        # plays (every season, any team), not just this season's, so a player who
+        # just arrived doesn't get judged on a tiny, noisy sample.
+        _tt_dfs = [_load_batter_plays(name, _leagues_tuple, st.session_state.get("_data_v", 0)) for name in _tt_roster]
+        _tt_dfs = [d for d in _tt_dfs if not d.empty]
+        df_team = pd.concat(_tt_dfs, ignore_index=True) if _tt_dfs else pd.DataFrame()
 
     if df_team.empty:
-        st.info("No batting data for this team/season/league selection.")
+        st.info("No batting data for this team/league selection.")
     else:
         st.markdown(
             utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,
