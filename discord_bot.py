@@ -234,10 +234,21 @@ _CONTEXT_DESCRIBE = dict(
 )
 
 pitcher_group = app_commands.Group(name="pitcher", description="Pitcher scouting charts")
+pitcher_radial_group = app_commands.Group(name="pitcher-radial", description="Pitcher radial charts - pitches & deltas")
+pitcher_radial_adv_group = app_commands.Group(name="pitcher-radial-adv",
+                                               description="Pitcher radial charts - delta-squared & combined")
+pitcher_analysis_group = app_commands.Group(name="pitcher-analysis",
+                                             description="Pitcher heatmaps, swing & result analysis")
 batter_group = app_commands.Group(name="batter", description="Batter scouting charts")
 catcher_group = app_commands.Group(name="catcher", description="Catcher scouting charts")
+catcher_radial_group = app_commands.Group(name="catcher-radial", description="Catcher radial charts - throws & deltas")
 game_group = app_commands.Group(name="game", description="Tie scouting commands to a live game's active players")
 manager_group = app_commands.Group(name="manager", description="Manager decision-support tools")
+
+# Discord caps a top-level command's serialized definition (name/description/
+# options/choices, all subcommands included) at 8000 characters. /pitcher and
+# /catcher had grown past that with their full set of radial/heatmap/analysis
+# subcommands, so those are split out into sibling top-level groups above.
 
 
 # ── pitcher ──────────────────────────────────────────────────────────────────
@@ -271,7 +282,7 @@ async def pitcher_shadow(interaction: discord.Interaction, name: str | None = No
     await _run_chart_command(interaction, "pitcher", name, bot_charts.shadow_delta_fig, "shadow.png")
 
 
-@pitcher_group.command(name="radial-pitches", description="Recent pitches, radial view")
+@pitcher_radial_group.command(name="pitches", description="Recent pitches, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent pitches to show",
                         **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
 @app_commands.choices(value_width=_value_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
@@ -292,7 +303,7 @@ async def pitcher_radial_pitches(interaction: discord.Interaction, name: str | N
                               "pitches_radial.png", already_deferred=True, n=n, obr=obr, sacf=sacf, **ctx)
 
 
-@pitcher_group.command(name="radial-deltas", description="Recent pitch deltas, radial view")
+@pitcher_radial_group.command(name="deltas", description="Recent pitch deltas, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent deltas to show",
                         center_on_prev="Map each delta onto the last actual pitch (implied next pitch)",
                         **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
@@ -316,7 +327,7 @@ async def pitcher_radial_deltas(interaction: discord.Interaction, name: str | No
                               center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
-@pitcher_group.command(name="radial-delta2", description="Recent pitch delta-squareds, radial view")
+@pitcher_radial_adv_group.command(name="delta2", description="Recent pitch delta-squareds, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent delta-squareds to show",
                         center_on_prev="Map each delta-squared onto the last actual pitch (implied next pitch)",
                         **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
@@ -340,7 +351,7 @@ async def pitcher_radial_delta2(interaction: discord.Interaction, name: str | No
                               center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
-@pitcher_group.command(name="radial-combined", description="Pitches + deltas overlaid, radial view")
+@pitcher_radial_adv_group.command(name="combined", description="Pitches + deltas overlaid, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent points to show",
                         include_delta2="Also overlay implied-delta-squared points", **_CONTEXT_DESCRIBE,
                         **_OBR_DESCRIBE)
@@ -378,7 +389,7 @@ async def pitcher_lastn(interaction: discord.Interaction, name: str | None = Non
                               est_delta_overlay=est_delta_overlay)
 
 
-@pitcher_group.command(name="delta-heatmap", description="Next pitch delta vs prior pitch delta")
+@pitcher_analysis_group.command(name="delta-heatmap", description="Next pitch delta vs prior pitch delta")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), bucket="Bucket size")
 @app_commands.choices(bucket=_delta_bucket_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
@@ -388,7 +399,7 @@ async def pitcher_delta_heatmap(interaction: discord.Interaction, name: str | No
                               "delta_heatmap.png", bucket=bucket)
 
 
-@pitcher_group.command(name="delta2-heatmap", description="Next pitch delta-squared vs prior delta-squared")
+@pitcher_analysis_group.command(name="delta2-heatmap", description="Next pitch delta-squared vs prior delta-squared")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), bucket="Bucket size")
 @app_commands.choices(bucket=_delta_bucket_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
@@ -398,21 +409,21 @@ async def pitcher_delta2_heatmap(interaction: discord.Interaction, name: str | N
                               "delta2_heatmap.png", bucket=bucket)
 
 
-@pitcher_group.command(name="diff-delta-heatmap", description="Next pitch delta vs prior diff")
+@pitcher_analysis_group.command(name="diff-delta-heatmap", description="Next pitch delta vs prior diff")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"))
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_diff_delta_heatmap(interaction: discord.Interaction, name: str | None = None) -> None:
     await _run_chart_command(interaction, "pitcher", name, bot_charts.diff_delta_heatmap_fig, "diff_delta.png")
 
 
-@pitcher_group.command(name="result-delta-heatmap", description="Next pitch delta vs prior result")
+@pitcher_analysis_group.command(name="result-delta-heatmap", description="Next pitch delta vs prior result")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"))
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_result_delta_heatmap(interaction: discord.Interaction, name: str | None = None) -> None:
     await _run_chart_command(interaction, "pitcher", name, bot_charts.result_delta_heatmap_fig, "result_delta.png")
 
 
-@pitcher_group.command(name="result-sequence", description="Next pitch delta following a 2-PA result sequence")
+@pitcher_analysis_group.command(name="result-sequence", description="Next pitch delta following a 2-PA result sequence")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), older="Result 2 plate appearances ago",
                         newer="Most recent plate appearance's result")
 @app_commands.choices(older=_seq_result_choices, newer=_seq_result_choices)
@@ -423,7 +434,7 @@ async def pitcher_result_sequence(interaction: discord.Interaction, older: str, 
                               "result_sequence.png", older_cat=older, newer_cat=newer)
 
 
-@pitcher_group.command(name="obr-gauge", description="Pitch frequency across a result range (e.g. an OBR)")
+@pitcher_analysis_group.command(name="obr-gauge", description="Pitch frequency across a result range (e.g. an OBR)")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), low="Range low bound (1-1000)",
                         high="Range high bound (1-1000)", swing_value="A specific value to mark on the gauge",
                         bucket="Pitch bucket size", padding="Padding outside the range shown")
@@ -478,7 +489,7 @@ async def pitcher_cooldown(interaction: discord.Interaction, name: str | None = 
                         recent_n="How many recent pitches count as 'recent' for the comparison")
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_percentiles(interaction: discord.Interaction, name: str | None = None,
-                               recent_n: int = 20) -> None:
+                               recent_n: int = 50) -> None:
     await interaction.response.defer()
 
     # percentile_card_fig needs the resolved pitcher's name/player_id (for the
@@ -553,7 +564,7 @@ async def pitcher_sequence_viewer(interaction: discord.Interaction, name: str | 
                               "sequence_viewer.png", domain=domain, match_last=match_last, bucket=bucket)
 
 
-@pitcher_group.command(name="swing-analyzer", description="Color-coded result zones for a proposed swing")
+@pitcher_analysis_group.command(name="swing-analyzer", description="Color-coded result zones for a proposed swing")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), swing_value="Proposed swing value",
                         n="How many recent pitches to overlay", swing_type="Ranges table to use",
                         extend_sacf="Include SacF/DSacF/GORA in the OBR coloring",
@@ -561,7 +572,7 @@ async def pitcher_sequence_viewer(interaction: discord.Interaction, name: str | 
 @app_commands.choices(swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: int, name: str | None = None,
-                                  n: int = 20, swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                  n: int = 50, swing_type: str = "Normal Swing", extend_sacf: bool = False,
                                   game_code: int | None = None) -> None:
     await interaction.response.defer()
     extra = _SACF_EXTRA if extend_sacf else frozenset()
@@ -571,7 +582,7 @@ async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: 
                               result_ranges=ranges, obr_extra=extra)
 
 
-@pitcher_group.command(name="optimal-swing", description="Expected OBP/SLG across every possible swing value")
+@pitcher_analysis_group.command(name="optimal-swing", description="Expected OBP/SLG across every possible swing value")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), metric="Score to optimize",
                         basis="Project from recent pitch values, deltas, or delta-squareds",
                         n="How many recent pitches to base the projection on", swing_type="Ranges table to use",
@@ -584,7 +595,7 @@ async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: 
                        swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_optimal_swing(interaction: discord.Interaction, name: str | None = None, metric: str = "obp",
-                                 basis: str = "values", n: int = 20, swing_type: str = "Normal Swing",
+                                 basis: str = "values", n: int = 50, swing_type: str = "Normal Swing",
                                  extend_sacf: bool = False, game_code: int | None = None) -> None:
     await interaction.response.defer()
     extra = _SACF_EXTRA if extend_sacf else frozenset()
@@ -758,7 +769,7 @@ async def catcher_zones(interaction: discord.Interaction, name: str | None = Non
     await _run_chart_command(interaction, "catcher", name, bot_charts.catcher_zone_polar_fig, "zones.png")
 
 
-@catcher_group.command(name="radial-throws", description="Recent throws, radial view")
+@catcher_radial_group.command(name="throws", description="Recent throws, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="catcher"), n="How many recent throws to show", **_CONTEXT_DESCRIBE)
 @app_commands.choices(value_width=_value_bucket_choices, result_cat=_steal_result_choices, leverage=_leverage_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
@@ -773,7 +784,7 @@ async def catcher_radial_throws(interaction: discord.Interaction, name: str | No
                               "throws_radial.png", n=n, **ctx)
 
 
-@catcher_group.command(name="radial-deltas", description="Recent throw deltas, radial view")
+@catcher_radial_group.command(name="deltas", description="Recent throw deltas, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="catcher"), n="How many recent deltas to show",
                         center_on_prev="Map each delta onto the last actual throw (implied next throw)",
                         **_CONTEXT_DESCRIBE)
@@ -791,7 +802,7 @@ async def catcher_radial_deltas(interaction: discord.Interaction, name: str | No
                               "deltas_radial.png", n=n, center_on_prev=center_on_prev, **ctx)
 
 
-@catcher_group.command(name="radial-combined", description="Throws + deltas overlaid, radial view")
+@catcher_radial_group.command(name="combined", description="Throws + deltas overlaid, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="catcher"), n="How many recent points to show", **_CONTEXT_DESCRIBE)
 @app_commands.choices(value_width=_value_bucket_choices, result_cat=_steal_result_choices, leverage=_leverage_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
@@ -919,8 +930,12 @@ async def manager_strategy(interaction: discord.Interaction, game_code: int | No
 
 
 bot.tree.add_command(pitcher_group)
+bot.tree.add_command(pitcher_radial_group)
+bot.tree.add_command(pitcher_radial_adv_group)
+bot.tree.add_command(pitcher_analysis_group)
 bot.tree.add_command(batter_group)
 bot.tree.add_command(catcher_group)
+bot.tree.add_command(catcher_radial_group)
 bot.tree.add_command(game_group)
 bot.tree.add_command(manager_group)
 
