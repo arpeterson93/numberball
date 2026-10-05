@@ -2228,7 +2228,8 @@ def last2_digit_radial_chart(
     leans on it even harder than that already-elevated norm, rather than
     glowing red just for being a common human pick.
 
-    Two percentiles (see last2_digit_percentiles) are shown top-right, both
+    Two percentiles (see last2_digit_percentiles) are shown centered under
+    the title, both
     "of the real players in the league, how clustered is this one" rather
     than a random-chance test: whole-distribution evenness, and how much
     the single most-surprising digit (NOT necessarily the tallest bar - a
@@ -2323,7 +2324,7 @@ def last2_digit_radial_chart(
     # buffer (not just autoexpand=False with the old tight values) stops it
     # actually clipping that callout; autoexpand=False below then guarantees
     # these margins can never silently drift again regardless of the data.
-    margin_t, margin_b, margin_l, margin_r, fig_height = 70, 40, 30, 30, 420
+    margin_t, margin_b, margin_l, margin_r, fig_height = 96, 40, 30, 30, 420
     center_x = 0.5  # valid since margin_l == margin_r, regardless of actual rendered width
     center_y = 1 - (margin_t + (fig_height - margin_t - margin_b) / 2) / fig_height
     # Two SEPARATE single-line annotations (not one two-line block, and not
@@ -2350,9 +2351,21 @@ def last2_digit_radial_chart(
         text=count_label, font=dict(size=14, color=text_color),
     )
     domain = dict(x=[0, 1], y=[0, 1])
+    # Centered under the title (not corner-anchored) and kept inside the
+    # fixed-pixel margin_t strip above the domain, not positioned as a
+    # fraction of total width/height. A corner anchor (the old x=0.99) put
+    # this flush against the paper's right edge, which is fine on a wide
+    # desktop render (the circle, sized off the fixed height, leaves a wide
+    # blank gutter on each side) but collides with the angular axis's "10"
+    # tick label on a narrow mobile width - there, the circle's width-
+    # constrained rim (and its outside-the-rim tick labels) reaches much
+    # closer to that same edge, since there's no gutter left to reach into.
+    # Centering sits this above the "00" tick (the chart's own topmost
+    # point, directly under the title) instead, which no tick label can
+    # ever be above - so it stays clear of the rim at any screen width.
     fig.add_annotation(
-        x=0.99, y=1.0, xref="paper", yref="paper", xanchor="right", yanchor="top",
-        align="right", showarrow=False,
+        x=0.5, y=1 - 34 / fig_height, xref="paper", yref="paper", xanchor="center", yanchor="top",
+        align="center", showarrow=False,
         text=f"Clustering: {evenness_pct:.0f}%ile<br>Standout: {standout_pct:.0f}%ile",
         font=dict(size=11, color=text_color),
     )
@@ -2382,6 +2395,144 @@ def last2_digit_radial_chart(
         showlegend=False,
     )
     return fig
+
+
+def _swing_heat_color(pct: float, vmax: float, dark_mode: bool) -> tuple[str, str]:
+    """Background + text color for one team_swing_cheatsheet_html cell,
+    interpolating from the chart surface (0%) to a solid red (vmax%) - vmax
+    is the TABLE's own peak swing concentration (not a fixed 0-100 scale), so
+    how red a cell reads is relative to this team's actual spread. Text color
+    flips to white once the background gets dark enough that black text would
+    fail contrast, rather than a fixed color for every cell.
+    """
+    frac = 0.0 if vmax <= 0 else max(0.0, min(1.0, pct / vmax))
+    lo = (26, 26, 25) if dark_mode else (252, 252, 251)   # chart surface
+    hi = (230, 103, 103) if dark_mode else (227, 73, 72)  # categorical red (dark / light)
+    r = round(lo[0] + (hi[0] - lo[0]) * frac)
+    g = round(lo[1] + (hi[1] - lo[1]) * frac)
+    b = round(lo[2] + (hi[2] - lo[2]) * frac)
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    text = "#0b0b0b" if luminance > 0.55 else "#ffffff"
+    return f"rgb({r},{g},{b})", text
+
+
+def _top_swing_windows(pct_arr: np.ndarray, width: int, top_n: int) -> list[tuple[int, float]]:
+    """Up to top_n (start, window_pct) pairs for one batter's last-2-digit
+    distribution (pct_arr: 100 values, index = digit, already % of that
+    batter's own swings) - each window is `width` consecutive digits,
+    circularly wrapping 99->00 (the last-2-digit domain is a 100-point
+    wheel, same as the full 1-1000 pitch domain it's derived from: pitch
+    99 and pitch 100 are adjacent, so their last-2-digits 99/00 must be
+    too). "All possible groupings" means every one of the 100 possible
+    start points is a candidate, not just a fixed 00-09/10-19/... grid -
+    a real hot streak straddling a decade boundary (e.g. 95-04) would
+    otherwise get split and under-counted.
+
+    Candidates are picked greedily, highest window_pct first, skipping any
+    candidate that shares MORE THAN HALF its digits with an already-picked
+    window - without this, the top N would just be near-duplicates of the
+    same hot stretch (05-14, 06-15, 07-16, ...) instead of N genuinely
+    distinct hot zones. At width=1 this reduces exactly to the old
+    behavior (distinct single digits, ranked by their own %) since two
+    width-1 windows only "overlap" when they're the identical digit.
+    """
+    # Circular rolling sum of `width` consecutive cells, via a doubled array
+    # so the window can run past index 99 back through 0.
+    doubled = np.concatenate([pct_arr, pct_arr[:width - 1]]) if width > 1 else pct_arr
+    window_pct = np.array([doubled[s:s + width].sum() for s in range(100)])
+
+    # kind="stable": ties (common at low PA, or between adjacent single-digit
+    # windows) break by ascending start index every render, not whatever
+    # order quicksort's internal partitioning happens to leave them in.
+    order = np.argsort(-window_pct, kind="stable")
+    half = width / 2.0
+    picked: list[tuple[int, float]] = []
+    picked_sets: list[set[int]] = []
+    for s in order:
+        if window_pct[s] <= 0:
+            break
+        wset = {(s + i) % 100 for i in range(width)}
+        if any(len(wset & prev) > half for prev in picked_sets):
+            continue
+        picked.append((int(s), float(window_pct[s])))
+        picked_sets.append(wset)
+        if len(picked) == top_n:
+            break
+    return picked
+
+
+def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: int = 1,
+                                dark_mode: bool = False) -> str:
+    """Per-batter table of each hitter's top_n most common last-2-digit swing
+    values or ranges (rank 1 = most concentrated, see _top_swing_windows),
+    one column per rank left-to-right. bucket_size=1 shows single digits
+    (same last2 derivation as last2_digit_radial_chart); bucket_size>1
+    shows `bucket_size`-wide circular ranges instead.
+
+    Batters are sorted top to bottom by their OWN rank-1 %, so whoever leans
+    hardest on one value/range floats to the top - not alphabetical, not by
+    PA. Each cell stacks the digit(s) over its % (not "val (pct%)" on one
+    line) so both read at a glance down a column. Background color comes
+    from _swing_heat_color, scaled to this table's own max % across every
+    cell shown (not a fixed 0-100% scale) - "reddest" always means "this
+    team's single most over-used swing value/range," wherever that falls.
+    """
+    work = df[df["swing"].notna() & df["batter_name"].notna()].copy()
+    if work.empty:
+        return "<p>No swing data for this team/season.</p>"
+    work["swing_last2"] = work["swing"].astype(int).apply(lambda s: int(str(s).zfill(2)[-2:]))
+
+    pa = work.groupby("batter_name").size()
+    counts = work.groupby(["batter_name", "swing_last2"]).size()
+
+    windows: dict[str, list[tuple[int, float]]] = {}
+    for b, n in pa.items():
+        arr = np.zeros(100)
+        for digit, c in counts[b].items():
+            arr[digit] = c / n * 100
+        windows[b] = _top_swing_windows(arr, bucket_size, top_n)
+
+    batters = sorted((b for b in windows if windows[b]), key=lambda b: -windows[b][0][1])
+    vmax = max((pct for w in windows.values() for _, pct in w), default=0.0)
+
+    text_ink = "#ffffff" if dark_mode else "#0b0b0b"
+    border = "rgba(255,255,255,0.10)" if dark_mode else "rgba(11,11,11,0.10)"
+    name_bg = "#1a1a19" if dark_mode else "#fcfcfb"
+
+    header = "".join(f"<th>{k}</th>" for k in range(1, top_n + 1))
+    body_rows = []
+    for b in batters:
+        cells = []
+        for k in range(top_n):
+            if k >= len(windows[b]):
+                cells.append("<td class='tsc-cell tsc-empty'>&mdash;</td>")
+                continue
+            start, pct = windows[b][k]
+            label = f"{start:02d}" if bucket_size == 1 else f"{start:02d}-{(start + bucket_size - 1) % 100:02d}"
+            bg, txt = _swing_heat_color(pct, vmax, dark_mode)
+            cells.append(
+                f"<td class='tsc-cell' style='background:{bg};color:{txt}'>"
+                f"<div class='tsc-digit'>{label}</div>"
+                f"<div class='tsc-pct'>{pct:.1f}%</div></td>"
+            )
+        body_rows.append(f"<tr><td class='tsc-name'>{b}</td>{''.join(cells)}</tr>")
+
+    return f"""
+<style>
+.tsc-table {{ border-collapse: collapse; width: 100%; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }}
+.tsc-table th, .tsc-table td {{ border: 1px solid {border}; padding: 6px 10px; text-align: center; }}
+.tsc-table th {{ color: {text_ink}; font-weight: 600; font-size: 0.85rem; }}
+.tsc-name {{ text-align: left; font-weight: 600; color: {text_ink}; background: {name_bg}; white-space: nowrap; }}
+.tsc-cell {{ font-variant-numeric: tabular-nums; }}
+.tsc-digit {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
+.tsc-pct {{ font-size: 0.78rem; opacity: 0.85; line-height: 1.2; }}
+.tsc-empty {{ color: {text_ink}; opacity: 0.35; }}
+</style>
+<table class="tsc-table">
+<tr><th class="tsc-name">Batter</th>{header}</tr>
+{''.join(body_rows)}
+</table>
+"""
 
 
 def _freq_bwr_color(count: float, min_c: float, max_c: float, alpha: float = 1.0) -> str:

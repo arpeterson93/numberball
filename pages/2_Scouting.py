@@ -1375,7 +1375,8 @@ st.divider()
 
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-tab_p, tab_b, tab_c, tab_m, tab_g = st.tabs(["⚾ Pitcher", "🦇 Batter", "🧤 Catcher", "📊 Manager", "📈 Game"])
+tab_p, tab_b, tab_c, tab_team, tab_m, tab_g = st.tabs(
+    ["⚾ Pitcher", "🦇 Batter", "🧤 Catcher", "🏟️ Team", "📊 Manager", "📈 Game"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PITCHER TAB
@@ -4222,6 +4223,42 @@ with tab_c:
                                 "Δ","|Δ|","Δ²","|Δ²|"]
             _disp_c = _disp_c.iloc[::-1].reset_index(drop=True)
             st.dataframe(_disp_c, use_container_width=True, hide_index=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEAM TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_team:
+    st.caption("Each hitter's most common swing values or ranges (last 2 digits), ranked left to right. Rows are "
+               "sorted by how concentrated that hitter's swings are - their own single most common value/range's "
+               "% - so the most predictable hitters float to the top.")
+    _tt1, _tt2, _tt3, _tt4 = st.columns(4)
+    with _tt1:
+        tab_team_team = st.selectbox("Team", _all_teams, key="tab_team_team") if _all_teams else None
+    with _tt2:
+        tab_team_season = st.selectbox("Season", _meta_seasons, key="tab_team_season") if _meta_seasons else None
+    with _tt3:
+        tab_team_topn = st.slider("Swings shown", 3, 10, 5, key="tab_team_topn")
+    with _tt4:
+        tab_team_bucket = st.slider("Bucket size", 1, 10, 1, key="tab_team_bucket",
+                                     help="1 = exact swing values. Wider buckets group each hitter's top swings "
+                                          "into ranges instead (e.g. 05-14), rolling through every possible "
+                                          "10-wide start point rather than a fixed 00-09/10-19/... grid.")
+
+    df_team = pd.DataFrame()
+    if tab_team_team and tab_team_season and _leagues_tuple:
+        df_team = _load_team_offense_plays(tab_team_team, _leagues_tuple, st.session_state.get("_data_v", 0))
+        if not df_team.empty:
+            df_team = df_team[df_team["season"] == tab_team_season]
+
+    if df_team.empty:
+        st.info("No batting data for this team/season/league selection.")
+    else:
+        st.markdown(
+            utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,
+                                              dark_mode=_dark_mode),
+            unsafe_allow_html=True,
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GAME TAB
