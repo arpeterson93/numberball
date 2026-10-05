@@ -942,14 +942,18 @@ bot.tree.add_command(manager_group)
 
 @bot.event
 async def on_ready() -> None:
+    # Always sync globally so every server the bot is in eventually gets
+    # commands (can take up to an hour to propagate). If DISCORD_GUILD_ID is
+    # also set (for fast local iteration), additionally push to that one
+    # guild for instant feedback - but global sync never gets skipped just
+    # because a dev happened to have that var set in their shell.
+    await bot.tree.sync()
+    print("Synced commands globally (may take up to an hour to appear)")
     if TEST_GUILD_ID:
         guild = discord.Object(id=int(TEST_GUILD_ID))
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
-        print(f"Synced commands to test guild {TEST_GUILD_ID}")
-    else:
-        await bot.tree.sync()
-        print("Synced commands globally (may take up to an hour to appear)")
+        print(f"Also synced commands to test guild {TEST_GUILD_ID} for instant testing")
     print(f"Logged in as {bot.user}")
 
 
