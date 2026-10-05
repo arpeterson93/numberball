@@ -1,6 +1,7 @@
 """Derived stats, constants, and chart helpers for Numberball."""
 from __future__ import annotations
 
+import bisect
 import math
 import sys
 import numpy as np
@@ -2110,6 +2111,279 @@ def zone_polar(
     return fig
 
 
+def last2_digit_deviations(total: int, counts: dict[int, int], baseline_probs: list[float],
+                            n_buckets: int = 100) -> list[float]:
+    """Standardized deviation ((observed-expected)/sqrt(expected)) per digit
+    against baseline_probs' expected rate - positive means this player hits
+    that digit MORE than real players typically do, negative means less.
+    Also doubles as a wedge-coloring input: unlike raw share, it stays
+    near zero for digits everyone leans on (round numbers, repeats) unless
+    THIS player leans on them even harder than that already-elevated norm.
+    """
+    devs = []
+    for d in range(n_buckets):
+        k = counts.get(d, 0)
+        expected = total * baseline_probs[d]
+        devs.append((k - expected) / math.sqrt(expected) if expected > 0 else 0.0)
+    return devs
+
+
+def last2_digit_stats(total: int, counts: dict[int, int], baseline_probs: list[float],
+                       n_buckets: int = 100) -> tuple[int, float, float]:
+    """(best digit, whole-distribution chi-square, best digit's standardized
+    deviation) for one player's last-2-digit counts against baseline_probs'
+    expected rates - the two raw, per-player statistics that
+    last2_digit_percentiles ranks against the league to produce 0-100
+    scores.
+
+    chi-square (sum over every bucket of (observed-expected)^2/expected,
+    equivalently the sum of last2_digit_deviations' squares) is a
+    whole-shape "how uneven is this player overall" measure: under a player
+    who genuinely matches baseline_probs, its expected value is ~n_buckets
+    regardless of how much data they have, so it isolates real unevenness
+    from sample size rather than rewarding volume on its own.
+
+    The best digit is the one with the largest standardized deviation - not
+    necessarily the raw-highest count, since a smaller-share digit can
+    still be the bigger surprise if its typical rate is much lower - and
+    that deviation is the "how much does this one digit stand out" measure.
+
+    baseline_probs (from scouting_data.load_last2_digit_baseline, one
+    probability per digit, summing to ~1) judges each digit against what's
+    actually TYPICAL for it league-wide, rather than pure mathematical
+    randomness - real players, even with no individual tell at all,
+    systematically favor round numbers and repeated digits (00, 11, 50,
+    99...), so a flat 1/n_buckets null would flag nearly everyone as unusual
+    just for being human.
+    """
+    devs = last2_digit_deviations(total, counts, baseline_probs, n_buckets)
+    chi2 = sum(z * z for z in devs)
+    best_d = max(range(n_buckets), key=lambda d: devs[d])
+    return best_d, chi2, devs[best_d]
+
+
+def _percentile_rank(value: float, sorted_ref: list[float]) -> float:
+    """What % of sorted_ref falls at or below value, as 0-100 - the midpoint
+    of bisect's left/right insertion points splits ties evenly rather than
+    all-below or all-above, the same mid-p spirit as elsewhere in this file.
+    """
+    if not sorted_ref:
+        return 50.0
+    lo = bisect.bisect_left(sorted_ref, value)
+    hi = bisect.bisect_right(sorted_ref, value)
+    return max(0.0, min(100.0, (lo + hi) / 2 / len(sorted_ref) * 100.0))
+
+
+def last2_digit_percentiles(total: int, counts: dict[int, int], baseline_probs: list[float] | None = None,
+                             reference: dict[str, list[float]] | None = None,
+                             n_buckets: int = 100) -> tuple[int, float, float]:
+    """(best digit, evenness percentile, standout percentile) - where this
+    player's last-2-digit distribution ranks among real players, not
+    against an abstract random-chance null. evenness_pct is how clustered
+    their WHOLE distribution is (percentile of last2_digit_stats' chi2);
+    standout_pct is how much their single best digit alone stands out
+    (percentile of that digit's standardized deviation). Both are "of the
+    humans, is this one more clustered" scores: 50 is a typical real
+    player, 90 is more clustered than 90% of them.
+
+    reference (from scouting_data.load_last2_digit_reference) supplies the
+    sorted chi2_ref/best_dev_ref arrays - the same stats computed for every
+    other player in the league - to rank against. Without it (e.g. the
+    league loader hasn't run yet), both percentiles fall back to 50: "can't
+    tell, assume typical" rather than a misleading number.
+    """
+    if total <= 0:
+        return 0, 50.0, 50.0
+    if baseline_probs is None:
+        baseline_probs = [1.0 / n_buckets] * n_buckets
+    best_d, chi2, best_z = last2_digit_stats(total, counts, baseline_probs, n_buckets)
+    reference = reference or {}
+    evenness_pct = _percentile_rank(chi2, reference.get("chi2_ref", []))
+    standout_pct = _percentile_rank(best_z, reference.get("best_dev_ref", []))
+    return best_d, evenness_pct, standout_pct
+
+
+def last2_digit_radial_chart(
+    df: pd.DataFrame,
+    value_col: str = "pitch",
+    last2_col: str | None = None,
+    title: str = "Last 2 Digits",
+    count_label: str = "Pitches",
+    baseline_probs: list[float] | None = None,
+    reference: dict[str, list[float]] | None = None,
+    dark_mode: bool = False,
+) -> go.Figure:
+    """Doughnut-style polar BAR chart of last-2-digit frequency (00-99).
+
+    Unlike zone_polar/the recency radials, every wedge has the SAME angular
+    width (3.6 degrees, 100 wedges around the circle) - it's the RADIUS that
+    encodes frequency, as a percentage of all values. The radial axis
+    auto-scales to this player's own peak digit (so the chart always uses
+    its full space instead of looking like an empty ring - with 100 buckets,
+    real bias rarely pushes any single digit past a few percent).
+
+    Wedges are colored by last2_digit_deviations (how far each digit is from
+    its OWN baseline-expected rate), not raw share - a digit every player
+    leans on (round numbers, repeats) stays neutral unless this player
+    leans on it even harder than that already-elevated norm, rather than
+    glowing red just for being a common human pick.
+
+    Two percentiles (see last2_digit_percentiles) are shown top-right, both
+    "of the real players in the league, how clustered is this one" rather
+    than a random-chance test: whole-distribution evenness, and how much
+    the single most-surprising digit (NOT necessarily the tallest bar - a
+    digit with a smaller raw share can still be the bigger surprise if its
+    own typical/expected rate is much lower) stands out alone. reference
+    (from scouting_data.load_last2_digit_reference) supplies the league
+    values both are ranked against.
+
+    last2_col: a precomputed column (e.g. "pitch_last2"/"throw_last2" from
+    enrich_df/enrich_catcher_df). When None (no such column for value_col,
+    e.g. batter's "swing"), it's derived from value_col the same way those
+    columns are.
+
+    dark_mode: paper_bgcolor is transparent, so label text sits directly on
+    whatever page background surrounds it - pass the caller's actual
+    light/dark theme (e.g. Streamlit's st.context.theme.type == "dark")
+    rather than guessing, since a single hardcoded color can't read
+    correctly against both.
+    """
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    if last2_col and last2_col in df.columns:
+        last2 = df[last2_col].dropna().astype(int)
+    else:
+        last2 = df[value_col].dropna().apply(lambda v: int(str(int(v)).zfill(2)[-2:]))
+    total = len(last2)
+    if total == 0:
+        return go.Figure()
+
+    counts = last2.value_counts()
+    counts_dict = counts.to_dict()
+    digits = list(range(100))
+    pct = [counts.get(d, 0) / total * 100 for d in digits]
+    max_c = max(pct)
+    theta = [d * 3.6 + 1.8 for d in digits]  # wedge centers, 1.8deg half-width
+    hover = [f"{d:02d}: {p:.1f}% ({counts.get(d, 0)})" for d, p in zip(digits, pct)]
+
+    r_max = max(max_c * 1.25, 0.1)
+    if baseline_probs is None:
+        baseline_probs = [0.01] * 100
+    devs = last2_digit_deviations(total, counts_dict, baseline_probs)
+    # Symmetric about 0 (not an independent min/max like _freq_bwr_color's
+    # usual callers) so white always means "exactly as the baseline
+    # expects," regardless of whether this player's extreme is on the high
+    # or low side.
+    dev_mag = max(max(devs), -min(devs), 1e-9)
+    colors = [_freq_bwr_color(z, -dev_mag, dev_mag) for z in devs]
+    cred_digit, evenness_pct, standout_pct = last2_digit_percentiles(
+        total, counts_dict, baseline_probs, reference)
+
+    hole = 0.24
+
+    fig = go.Figure()
+    fig.add_trace(go.Barpolar(
+        r=pct, theta=theta, width=[3.6] * 100,
+        marker=dict(color=colors, line=dict(color="rgba(80,80,80,0.35)", width=0.5)),
+        text=hover, hoverinfo="text",
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=[pct[cred_digit] + r_max * 0.1], theta=[theta[cred_digit]], mode="text",
+        text=[f"<b>{cred_digit:02d}</b>: {pct[cred_digit]:.1f}%"],
+        textfont=dict(size=11, color=text_color),
+        hoverinfo="skip", showlegend=False,
+    ))
+    # The center label is a plain paper-coordinate annotation, not r=0 on the
+    # polar itself: with a "hole", r=0 maps to the hole's edge (in whatever
+    # direction theta points), not the chart's true geometric center - and
+    # Plotly hard-hides polar text at any r below the radial axis range, so
+    # there's no r on the main axis that renders text at the real center. A
+    # second, invisible polar subplot stacked on top sidesteps that, but
+    # also silently eats hover on everything beneath it (its hit-testing
+    # layer intercepts pointer events across the whole shared domain even
+    # with nothing visible drawn) - annotations don't capture pointer events
+    # at all, so this can't break hover no matter how it's positioned.
+    # center_y is computed from the actual margins/height below (not a
+    # hardcoded 0.5) because "paper" y=0.5 is the canvas's own vertical
+    # midpoint, not the off-center polar plot area's - margin.t > margin.b
+    # (title) pushes the plot area's true center down from paper's 0.5.
+    # Confirmed against Plotly's own internal subplot geometry
+    # (fig._fullLayout.polar._subplot.cx/cy) in a live render - this matches
+    # exactly, so a single annotation here would be correctly centered too.
+    #
+    # That match only holds if these margins are the figure's ACTUAL final
+    # margins, though - Plotly's margin autoexpand (on by default) silently
+    # grows a margin whenever anything would otherwise overflow it, which
+    # breaks this formula without any visible warning. The circle's own
+    # top/bottom edges sit at EXACTLY margin_t/margin_b with zero slack (by
+    # construction, since this subplot is square-fit to the shorter of the
+    # two net dimensions and this chart is always wider than tall) - so the
+    # standout-digit callout, whose angle is data-dependent, overflows top
+    # or bottom whenever it happens to land near the top/bottom of the
+    # circle, auto-growing that margin for THAT render only. Real extra
+    # buffer (not just autoexpand=False with the old tight values) stops it
+    # actually clipping that callout; autoexpand=False below then guarantees
+    # these margins can never silently drift again regardless of the data.
+    margin_t, margin_b, margin_l, margin_r, fig_height = 70, 40, 30, 30, 420
+    center_x = 0.5  # valid since margin_l == margin_r, regardless of actual rendered width
+    center_y = 1 - (margin_t + (fig_height - margin_t - margin_b) / 2) / fig_height
+    # Two SEPARATE single-line annotations (not one two-line block, and not
+    # two pieces anchored at a shared boundary - both tried and measured
+    # visibly low). Plotly's annotation yanchor="middle" itself - even for
+    # one line, nothing to do with multi-line estimation - carries a
+    # consistent downward bias at this font size: measured by rendering and
+    # reading getBoundingClientRect() in an actual Chrome tab (not just
+    # kaleido), text center landed ~11px below the target y every time,
+    # regardless of anchoring strategy. bias_px is that correction, applied
+    # uniformly to both lines so the pair's combined center lands correctly
+    # even though it doesn't fully equalize each line's own residual.
+    bias_px = 14
+    half_gap = 9 / fig_height
+    center_y_corrected = center_y + bias_px / fig_height
+    fig.add_annotation(
+        x=center_x, y=center_y_corrected + half_gap, xref="paper", yref="paper",
+        xanchor="center", yanchor="middle", align="center", showarrow=False,
+        text=f"<b>{total}</b>", font=dict(size=14, color=text_color),
+    )
+    fig.add_annotation(
+        x=center_x, y=center_y_corrected - half_gap, xref="paper", yref="paper",
+        xanchor="center", yanchor="middle", align="center", showarrow=False,
+        text=count_label, font=dict(size=14, color=text_color),
+    )
+    domain = dict(x=[0, 1], y=[0, 1])
+    fig.add_annotation(
+        x=0.99, y=1.0, xref="paper", yref="paper", xanchor="right", yanchor="top",
+        align="right", showarrow=False,
+        text=f"Clustering: {evenness_pct:.0f}%ile<br>Standout: {standout_pct:.0f}%ile",
+        font=dict(size=11, color=text_color),
+    )
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
+        polar=dict(
+            hole=hole,
+            domain=domain,
+            bgcolor="rgba(0,0,0,0)",
+            angularaxis=dict(
+                direction="clockwise", rotation=90,
+                tickmode="array", tickvals=[i * 36 for i in range(10)],
+                ticktext=[f"{i * 10:02d}" for i in range(10)],
+                gridcolor="rgba(128,128,128,0.3)",
+            ),
+            radialaxis=dict(
+                range=[0, r_max], ticksuffix="%",
+                gridcolor="rgba(128,128,128,0.2)",
+            ),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        height=fig_height,
+        # autoexpand=False locks these as the FINAL margins - without it,
+        # Plotly can still silently grow one to fit an overflowing callout,
+        # invalidating center_x/center_y above with no visible warning.
+        margin=dict(l=margin_l, r=margin_r, t=margin_t, b=margin_b, autoexpand=False),
+        showlegend=False,
+    )
+    return fig
+
+
 def _freq_bwr_color(count: float, min_c: float, max_c: float, alpha: float = 1.0) -> str:
     """Blue (least frequent) -> white (mid) -> red (most frequent). Same
     formula as zone_polar's internal _bwr."""
@@ -3385,12 +3659,95 @@ def _slice_background_trace(all_theta: list[float], r_max: float) -> go.Barpolar
     )
 
 
+def _resolve_anchor(df: pd.DataFrame, value_col: str, anchor: int | None) -> int | None:
+    """anchor if given, else df's own most recent non-null value_col - the
+    "most recent actual pitch" fallback shared by _implied_pitch_points and
+    the OBR/SacF ring translation below. None if df has nothing to anchor to."""
+    if anchor is not None:
+        return anchor
+    vals = df[df[value_col].notna()].sort_values("id")[value_col]
+    return int(vals.iloc[-1]) if not vals.empty else None
+
+
+def _value_range_deg(lo_val: int, hi_val: int) -> tuple[float, float]:
+    """A [lo_val, hi_val] pitch-value range (1-1000) as (lo_deg, hi_deg) on the
+    absolute-value radials (radial_recent_pitches_chart, radial_combined_chart,
+    and the delta/delta2 radials' center_on_prev=True mode - all share this
+    same v*360/1000 convention)."""
+    return lo_val * 360.0 / 1000.0, hi_val * 360.0 / 1000.0
+
+
+def _value_range_to_delta_deg(lo_val: int, hi_val: int, anchor: int) -> tuple[float, float]:
+    """A [lo_val, hi_val] pitch-value range translated into the angle domain
+    radial_recent_deltas_chart's default (center_on_prev=False) view uses:
+    what delta from anchor would land on each edge. circular_signed_delta is
+    a pure rotation of the 1-1000 circle (wrap(v - anchor)), so it preserves
+    clockwise order - translating each edge independently is enough to carry
+    the whole arc (and its sweep direction) into delta-space correctly."""
+    lo_delta = circular_signed_delta(anchor, lo_val)
+    hi_delta = circular_signed_delta(anchor, hi_val)
+    return (lo_delta * 180.0 / 500.0) % 360.0, (hi_delta * 180.0 / 500.0) % 360.0
+
+
+def _value_range_to_delta2_deg(lo_val: int, hi_val: int, anchor: int, anchor_delta: int) -> tuple[float, float]:
+    """Same idea as _value_range_to_delta_deg, one derivative further: each
+    edge's implied delta (vs anchor) is itself re-expressed as a delta vs
+    anchor_delta (vs the most recent actual delta) - the Δ² each edge would
+    represent, matching how _implied_pitch_points_delta2 maps the other way
+    (anchor + anchor_delta + d2)."""
+    lo_delta = circular_signed_delta(anchor, lo_val)
+    hi_delta = circular_signed_delta(anchor, hi_val)
+    lo_d2 = circular_signed_delta(anchor_delta, lo_delta)
+    hi_d2 = circular_signed_delta(anchor_delta, hi_delta)
+    return (lo_d2 * 180.0 / 500.0) % 360.0, (hi_d2 * 180.0 / 500.0) % 360.0
+
+
+def _ring_arc_theta(lo_deg: float, hi_deg: float) -> list[float]:
+    """Theta values (deg, ~2-degree resolution) sweeping CLOCKWISE from
+    lo_deg to hi_deg, wrapping past 360 if hi_deg < lo_deg - the angular path
+    an OBR/SacF range ring traces. lo/hi meeting (span 0) draws a full circle
+    rather than a zero-length point, since that only happens when the range
+    legitimately spans the whole wheel (e.g. obr_max >= 500)."""
+    span = (hi_deg - lo_deg) % 360
+    if span == 0:
+        span = 360
+    steps = max(2, int(span / 2) + 1)
+    return [(lo_deg + span * i / (steps - 1)) % 360 for i in range(steps)]
+
+
+def _range_ring_traces(rings: list[tuple[float, float, str, float]], r_max: float) -> list[go.Scatterpolar]:
+    """rings: (lo_deg, hi_deg, color, width) per ring, primary (OBR) listed
+    first. Drawn as thin arcs within the chart's EXISTING r_max - right at
+    the rim for the first ring, each next one (e.g. SacF) a bit further in -
+    rather than growing r_max to fit them outside the data. Growing the axis
+    instead would shrink every point's apparent radius just because a ring
+    got added (verified: one ring pushed r_max up ~21%, visibly pulling the
+    whole scatter toward the center - not acceptable since the data itself
+    hasn't changed). r_max==0.952*(n_actual*1.05)'s own value already means
+    no real data point ever reaches r_max itself, so the first ring doesn't
+    overlap actual points; only a second, further-in ring risks grazing the
+    very newest one or two - the same tradeoff the original Discord-bot wedge
+    (which sits at 0.88-1.0 of r_max, well inside this) already accepted.
+    """
+    traces: list[go.Scatterpolar] = []
+    for i, (lo_deg, hi_deg, color, width) in enumerate(rings):
+        ring_r = r_max * (1.0 - 0.07 * i)
+        arc = _ring_arc_theta(lo_deg, hi_deg)
+        traces.append(go.Scatterpolar(
+            r=[ring_r] * len(arc), theta=arc, mode="lines",
+            line=dict(color=color, width=width),
+            hoverinfo="skip", showlegend=False,
+        ))
+    return traces
+
+
 def _radial_recency_figure(
     theta: list[float],
     hover: list[str],
     title: str,
     tickvals: list[float],
     ticktext: list[str],
+    range_rings: list[tuple[float, float, str, float]] | None = None,
 ) -> go.Figure:
     """Shared doughnut-style polar scatter: recency sets both radius and color
     (oldest at the center, newest at the rim, blue-white-red diverging scale).
@@ -3398,15 +3755,25 @@ def _radial_recency_figure(
     for the caller's value domain; tickvals/ticktext supply the spoke labels.
     A background wedge ring (see _slice_background_trace) shows how the plotted
     points are distributed across the ten slices.
+
+    range_rings: already angle-mapped (lo_deg, hi_deg, color, width) tuples -
+    see _range_ring_traces - drawn as thick arcs outside the data (e.g. OBR,
+    optionally SacF further out). Callers are responsible for translating
+    their own domain's OBR/SacF values into degrees first (_value_range_deg /
+    _value_range_to_delta_deg / _value_range_to_delta2_deg), since this
+    function doesn't know which domain theta is already in.
     """
     n_actual = len(theta)
     if n_actual == 0:
         return go.Figure()
     r = list(range(1, n_actual + 1))
     r_max = n_actual * 1.05
+    ring_traces = _range_ring_traces(range_rings, r_max) if range_rings else []
 
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta, r_max))
+    for rt in ring_traces:
+        fig.add_trace(rt)
     fig.add_trace(go.Scatterpolar(
         r=r, theta=theta, mode="markers",
         marker=dict(
@@ -3425,7 +3792,7 @@ def _radial_recency_figure(
     ))
 
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
         polar=dict(
             hole=0.08,
             angularaxis=dict(
@@ -3439,8 +3806,8 @@ def _radial_recency_figure(
                 gridcolor="rgba(128,128,128,0.2)",
             ),
         ),
-        height=380,
-        margin=dict(l=30, r=30, t=36, b=10),
+        height=390,
+        margin=dict(l=30, r=30, t=48, b=10),
         showlegend=False,
     )
     return fig
@@ -3454,14 +3821,47 @@ def _pitch_value_ticks() -> tuple[list[float], list[str]]:
     return tickvals, ticktext
 
 
+_OBR_RING_COLOR  = "rgba(170,170,170,0.9)"
+_SACF_RING_COLOR = "rgba(170,170,170,0.45)"
+
+
+def _build_range_rings(obr_lo: int | None, obr_hi: int | None, sacf_lo: int | None, sacf_hi: int | None,
+                        translate) -> list[tuple[float, float, str, float]]:
+    """OBR/SacF ring specs (see _range_ring_traces) in whatever domain
+    `translate(lo, hi) -> (lo_deg, hi_deg)` maps into - one of
+    _value_range_deg / _value_range_to_delta_deg / _value_range_to_delta2_deg.
+    SacF only draws when OBR is also given (it's framed as "wider than OBR",
+    not a standalone range) - [] (no rings) when obr_lo/obr_hi are None, which
+    is the default-off state everywhere these charts are called: nothing
+    changes for a caller that doesn't pass them.
+    """
+    if obr_lo is None or obr_hi is None:
+        return []
+    rings = [(*translate(obr_lo, obr_hi), _OBR_RING_COLOR, 6.0)]
+    if sacf_lo is not None and sacf_hi is not None:
+        rings.append((*translate(sacf_lo, sacf_hi), _SACF_RING_COLOR, 6.0))
+    return rings
+
+
 def radial_recent_pitches_chart(
     df: pd.DataFrame,
     n: int = 20,
     value_col: str = "pitch",
     title: str = "Recent Pitches - Radial View",
+    obr_lo: int | None = None,
+    obr_hi: int | None = None,
+    sacf_lo: int | None = None,
+    sacf_hi: int | None = None,
 ) -> go.Figure:
     """Value sets angle (1-1000, clockwise from 12 o'clock, matching zone_polar's
-    convention); recency sets radius and color. See _radial_recency_figure."""
+    convention); recency sets radius and color. See _radial_recency_figure.
+
+    obr_lo/obr_hi (optional): draws the active OBR as a thick gray ring
+    outside the data - omit (the default) for no ring, e.g. while the
+    Proposed Swing is still at its untouched 500 default. sacf_lo/sacf_hi
+    adds the wider Sac Fly range as a second, lighter ring just outside it;
+    ignored unless obr_lo/obr_hi are also given. See _build_range_rings.
+    """
     vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
     theta = [v * 360.0 / 1000.0 for v in vals]
@@ -3470,9 +3870,10 @@ def radial_recent_pitches_chart(
         f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
         for i, v in enumerate(vals)
     ]
+    range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
 
     tickvals, ticktext = _pitch_value_ticks()
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
 
 
 def _implied_pitch_points(
@@ -3563,6 +3964,10 @@ def radial_recent_delta2_chart(
     center_on_prev: bool = False,
     anchor: int | None = None,
     anchor_delta: int | None = None,
+    obr_lo: int | None = None,
+    obr_hi: int | None = None,
+    sacf_lo: int | None = None,
+    sacf_hi: int | None = None,
 ) -> go.Figure:
     """Signed delta² (-500..+500) sets angle, same convention as
     radial_recent_deltas_chart: 0 at 12 o'clock, positive Δ² (the delta is
@@ -3578,11 +3983,19 @@ def radial_recent_delta2_chart(
     absolute grid as radial_recent_pitches_chart. anchor/anchor_delta override
     the "most recent" values - pass the caller's true unfiltered most-recent
     pitch/delta when df has been narrowed by a context filter.
+
+    obr_lo/obr_hi/sacf_lo/sacf_hi (optional, pitch-value domain, same as
+    radial_recent_pitches_chart): translated into this chart's OWN angle
+    domain before drawing - the absolute-value grid when center_on_prev,
+    otherwise Δ²-from-anchor_delta via _value_range_to_delta2_deg, using the
+    same resolved anchor/anchor_delta as the plotted points themselves so the
+    ring and the dots agree on what "most recent" means.
     """
     if center_on_prev:
         theta, hover = _implied_pitch_points_delta2(
             df, n, delta2_col, delta_col, value_col, anchor=anchor, anchor_delta=anchor_delta)
         tickvals, ticktext = _pitch_value_ticks()
+        translate = _value_range_deg
     else:
         vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
@@ -3594,8 +4007,15 @@ def radial_recent_delta2_chart(
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
+        _r_anchor = _resolve_anchor(df, value_col, anchor)
+        _r_anchor_delta = _resolve_anchor(df, delta_col, anchor_delta)
+        if _r_anchor is not None and _r_anchor_delta is not None:
+            translate = lambda lo, hi: _value_range_to_delta2_deg(lo, hi, _r_anchor, _r_anchor_delta)
+        else:
+            translate = None
 
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+    range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
 
 
 def radial_recent_deltas_chart(
@@ -3606,6 +4026,10 @@ def radial_recent_deltas_chart(
     title: str = "Recent Deltas - Radial View",
     center_on_prev: bool = False,
     anchor: int | None = None,
+    obr_lo: int | None = None,
+    obr_hi: int | None = None,
+    sacf_lo: int | None = None,
+    sacf_hi: int | None = None,
 ) -> go.Figure:
     """Signed delta (-500..+500) sets angle: 0 at 12 o'clock, positive deltas sweep
     clockwise, negative deltas sweep counterclockwise, both meeting at +/-500 on the
@@ -3618,10 +4042,17 @@ def radial_recent_deltas_chart(
     anchor overrides that "most recent" value - pass the caller's true unfiltered
     most-recent pitch when df has been narrowed by a context filter, so filtering
     doesn't change which pitch the deltas are anchored to.
+
+    obr_lo/obr_hi/sacf_lo/sacf_hi (optional, pitch-value domain, same as
+    radial_recent_pitches_chart): translated into this chart's OWN angle
+    domain - the absolute-value grid when center_on_prev, otherwise
+    delta-from-anchor via _value_range_to_delta_deg, using the same resolved
+    anchor the plotted points themselves use.
     """
     if center_on_prev:
         theta, hover = _implied_pitch_points(df, n, delta_col, value_col, anchor=anchor)
         tickvals, ticktext = _pitch_value_ticks()
+        translate = _value_range_deg
     else:
         vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
@@ -3633,8 +4064,11 @@ def radial_recent_deltas_chart(
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
+        _r_anchor = _resolve_anchor(df, value_col, anchor)
+        translate = (lambda lo, hi: _value_range_to_delta_deg(lo, hi, _r_anchor)) if _r_anchor is not None else None
 
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext)
+    range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
 
 
 def radial_combined_chart(
@@ -3649,6 +4083,10 @@ def radial_combined_chart(
     delta2_col: str = "pitch_circ_delta2_signed",
     anchor_delta: int | None = None,
     include_delta2: bool = False,
+    obr_lo: int | None = None,
+    obr_hi: int | None = None,
+    sacf_lo: int | None = None,
+    sacf_hi: int | None = None,
 ) -> go.Figure:
     """Overlays radial_recent_pitches_chart's actual-pitch points (from
     df_pitches) with the implied-next-pitch points radial_recent_deltas_chart
@@ -3675,6 +4113,10 @@ def radial_combined_chart(
     mapping's own "most recent delta", the same way anchor overrides the most
     recent pitch. df_delta2/delta2_col are ignored when include_delta2 is
     False, so existing callers that never pass them are unaffected.
+
+    obr_lo/obr_hi/sacf_lo/sacf_hi (optional, pitch-value domain): this chart
+    is always on the absolute-value grid (see above), so no domain
+    translation is needed - straight to _value_range_deg.
     """
     pitch_rows = df_pitches[df_pitches[value_col].notna()].sort_values("id").tail(n)
     delta_rows = df_deltas[df_deltas[delta_col].notna()].sort_values("id").tail(n)
@@ -3736,6 +4178,8 @@ def radial_combined_chart(
             )
 
     r_max = n_total * 1.05
+    range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
+    ring_traces = _range_ring_traces(range_rings, r_max) if range_rings else []
     marker_base = dict(
         size=6.7,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
@@ -3744,6 +4188,8 @@ def radial_combined_chart(
 
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta_a + theta_b + theta_c, r_max))
+    for rt in ring_traces:
+        fig.add_trace(rt)
     if n_a:
         fig.add_trace(go.Scatterpolar(
             r=r_a, theta=theta_a, mode="markers", name="Actual",

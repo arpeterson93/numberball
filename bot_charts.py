@@ -19,6 +19,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
+import scouting_data
 import utils
 
 HOT_ZONE_BUCKET_CHOICES = [50, 100, 125, 200, 250, 500]
@@ -123,7 +124,7 @@ def shadow_delta_fig(df: pd.DataFrame) -> go.Figure:
 def last_n_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, swing_offset: bool = False,
                est_delta_overlay: bool = False, show_swings: bool = False) -> go.Figure:
     return utils.last_n_combined_chart(df, n=n, delta_col="pitch", title=f"Last {n} Pitches",
-                                        swing_offset=swing_offset, segment_games=True, pannable=True,
+                                        swing_offset=swing_offset, segment_games=True, pannable=False,
                                         est_delta_overlay=est_delta_overlay,
                                         show_value=True, show_opp=show_swings)
 
@@ -281,34 +282,82 @@ def strategy_table_fig(result: dict) -> go.Figure:
     return fig
 
 
-def cooldown_figs(df: pd.DataFrame, bucket: int = HOT_ZONE_DEFAULT_BUCKET) -> dict[str, go.Figure]:
+def cooldown_figs(df: pd.DataFrame, bucket: int = HOT_ZONE_DEFAULT_BUCKET,
+                   by_category: bool = False) -> dict[str, go.Figure]:
     radius = bucket / 2
     events = utils.cooldown_events(df, value_col="pitch", radius=radius)
     if events.empty:
         return {}
-    return {
+    figs = {
         "cooldown_overlay.png": utils.cooldown_cdf_overlay_chart(events),
         "cooldown_radial.png": utils.cooldown_radial_chart(events, radius=radius),
     }
+    if by_category:
+        for cat in utils.SEQ_RESULT_CATEGORIES:
+            cat_events = events[events["category"] == cat]
+            resolved = cat_events.loc[cat_events["resolved"], "pitches"]
+            live = cat_events.loc[~cat_events["resolved"]]
+            if not resolved.empty or not live.empty:
+                figs[f"cooldown_{cat}.png"] = utils.cooldown_cdf_chart(resolved, title=cat, live=live)
+    return figs
 
 
-def pitches_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, **context_kwargs) -> go.Figure:
+def obr_bounds(swing_val: int, result_ranges: list, obr_extra: frozenset = frozenset()) -> tuple[int, int] | None:
+    """(obr_lo, obr_hi) pitch-domain bounds of the On-Base Range for a swing
+    value - the OBR radius is the largest hi-distance among XBH/BB-1B (plus
+    obr_extra, e.g. SacF/DSacF/GORA) categories, applied symmetrically around
+    swing_val on the 1-1000 wheel. Mirrors the Swing Suggestions panel."""
+    obr_cats = utils._OBR | obr_extra
+    radius = max((hi for r, _lo, hi in result_ranges if r in obr_cats), default=0)
+    if radius <= 0:
+        return None
+    lo = ((swing_val - radius - 1) % 1000) + 1
+    hi = ((swing_val + radius - 1) % 1000) + 1
+    return lo, hi
+
+
+def sacf_bounds(swing_val: int, result_ranges: list, obr_radius: int) -> tuple[int, int] | None:
+    """(sacf_lo, sacf_hi) - the wider Sac Fly/DSacF range as a second ring
+    outside OBR, independent of extend_sacf (which folds SacF into the core
+    OBR band itself rather than showing it separately). Only returned when
+    it actually extends further than obr_radius already does - redundant
+    otherwise, whether because extend_sacf already folded it in or there's
+    no SacF/DSacF entry in result_ranges at all. Mirrors the Streamlit page's
+    own _sacf_max_p > _obr_max_p gate."""
+    radius = max((hi for r, _lo, hi in result_ranges if r in ("SacF", "DSacF")), default=0)
+    if radius <= obr_radius:
+        return None
+    lo = ((swing_val - radius - 1) % 1000) + 1
+    hi = ((swing_val + radius - 1) % 1000) + 1
+    return lo, hi
+
+
+def pitches_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, obr: tuple[int, int] | None = None,
+                        sacf: tuple[int, int] | None = None, **context_kwargs) -> go.Figure:
     df_f = apply_prior_context(df, bucket_kind="pitch", **context_kwargs)
     n_actual = min(n, int(df_f["pitch"].notna().sum())) if "pitch" in df_f.columns else 0
-    return utils.radial_recent_pitches_chart(df_f, n=n, value_col="pitch", title=f"Last {n_actual} Pitches")
+    obr_lo, obr_hi = obr if obr is not None else (None, None)
+    sacf_lo, sacf_hi = sacf if sacf is not None else (None, None)
+    return utils.radial_recent_pitches_chart(df_f, n=n, value_col="pitch", title=f"Last {n_actual} Pitches",
+                                              obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
 
 
 def deltas_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_prev: bool = False,
+                       obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
                        **context_kwargs) -> go.Figure:
     df_f = apply_prior_context(df, bucket_kind="delta", **context_kwargs)
     n_actual = min(n, int(df_f["pitch_circ_delta"].notna().sum())) if "pitch_circ_delta" in df_f.columns else 0
     anchor = _last_value(df, "pitch")
     title = f"Last {n_actual} Implied Pitches" if center_on_prev else f"Last {n_actual} Deltas"
+    obr_lo, obr_hi = obr if obr is not None else (None, None)
+    sacf_lo, sacf_hi = sacf if sacf is not None else (None, None)
     return utils.radial_recent_deltas_chart(df_f, n=n, delta_col="pitch_circ_delta", value_col="pitch",
-                                             title=title, center_on_prev=center_on_prev, anchor=anchor)
+                                             title=title, center_on_prev=center_on_prev, anchor=anchor,
+                                             obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
 
 
 def delta2_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_prev: bool = False,
+                       obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
                        **context_kwargs) -> go.Figure:
     df_f = apply_prior_context(df, bucket_kind="delta2", **context_kwargs)
     n_actual = (min(n, int(df_f["pitch_circ_delta2_signed"].notna().sum()))
@@ -316,13 +365,17 @@ def delta2_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_pre
     anchor = _last_value(df, "pitch")
     anchor_delta = _last_value(df, "pitch_circ_delta")
     title = f"Last {n_actual} Implied Pitches (Δ²)" if center_on_prev else f"Last {n_actual} Delta²s"
+    obr_lo, obr_hi = obr if obr is not None else (None, None)
+    sacf_lo, sacf_hi = sacf if sacf is not None else (None, None)
     return utils.radial_recent_delta2_chart(df_f, n=n, delta2_col="pitch_circ_delta2_signed",
                                              delta_col="pitch_circ_delta", value_col="pitch",
                                              title=title, center_on_prev=center_on_prev,
-                                             anchor=anchor, anchor_delta=anchor_delta)
+                                             anchor=anchor, anchor_delta=anchor_delta,
+                                             obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
 
 
 def combined_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, include_delta2: bool = False,
+                         obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
                          **context_kwargs) -> go.Figure:
     df_pitches = apply_prior_context(df, bucket_kind="pitch", **context_kwargs)
     df_deltas = apply_prior_context(df, bucket_kind="delta", **context_kwargs)
@@ -336,10 +389,13 @@ def combined_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, include_del
                 if include_delta2 and df_delta2 is not None and "pitch_circ_delta2_signed" in df_delta2.columns
                 else 0)
     n_actual = max(n_pitches, n_deltas, n_delta2)
+    obr_lo, obr_hi = obr if obr is not None else (None, None)
+    sacf_lo, sacf_hi = sacf if sacf is not None else (None, None)
     return utils.radial_combined_chart(df_pitches, df_deltas, n=n, value_col="pitch",
                                         delta_col="pitch_circ_delta", title=f"Last {n_actual} Combined",
                                         anchor=anchor, df_delta2=df_delta2, delta2_col="pitch_circ_delta2_signed",
-                                        anchor_delta=anchor_delta, include_delta2=include_delta2)
+                                        anchor_delta=anchor_delta, include_delta2=include_delta2,
+                                        obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
 
 
 # ── batter ───────────────────────────────────────────────────────────────────
@@ -360,7 +416,7 @@ def batter_zone_polar_fig(df: pd.DataFrame) -> go.Figure:
 def batter_last_n_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, swing_offset: bool = False,
                        show_pitch: bool = False) -> go.Figure:
     return utils.last_n_combined_chart(df, n=n, delta_col="swing", title=f"Last {n} Swings",
-                                        swing_offset=swing_offset, pannable=True,
+                                        swing_offset=swing_offset, pannable=False,
                                         show_value=show_pitch, show_opp=True)
 
 
@@ -458,7 +514,7 @@ def catcher_last_n_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, swing_offset
                         est_delta_overlay: bool = False, show_steals: bool = False) -> go.Figure:
     return utils.last_n_combined_chart(df, n=n, value_col="throw_num", opp_col="steal_num",
                                         delta_col="throw_num", title=f"Last {n} Throws",
-                                        swing_offset=swing_offset, segment_games=True, pannable=True,
+                                        swing_offset=swing_offset, segment_games=True, pannable=False,
                                         est_delta_overlay=est_delta_overlay,
                                         value_label="Throw", opp_label="Steal", pa_label="Attempt",
                                         show_value=True, show_opp=show_steals)
@@ -482,3 +538,135 @@ def catcher_delta_distribution_fig(df: pd.DataFrame, signed: bool = True) -> go.
     if ab.empty:
         return None
     return utils.delta_histogram(ab, title="Previous AB", signed=signed)
+
+
+# ── pitcher: percentile card / tendencies over time / sequence viewer / swing analyzer ──
+
+def percentile_card_fig(df: pd.DataFrame, pitcher_name: str, player_id: int | None,
+                         stats_df: pd.DataFrame, ma_percentiles: dict, recent_n: int = 20) -> go.Figure | None:
+    recent_df = df.sort_values("id").tail(recent_n)
+    recent_stats = utils.compute_recent_pitcher_stats(recent_df)
+    recent_n_actual = int(recent_df["swing"].notna().sum())
+    return utils.pitcher_percentile_card(
+        pitcher_name, stats_df,
+        recent_vals=recent_stats if recent_stats else None,
+        recent_n=recent_n_actual if recent_stats else None,
+        player_id=player_id,
+        ma_percentiles=ma_percentiles if ma_percentiles else None,
+    )
+
+
+MA_METRIC_CHOICES = list(utils._MA_METRICS.keys())
+MA_METRIC_LABELS = {k: v["label"] for k, v in utils._MA_METRICS.items()}
+
+
+def tendencies_over_time_fig(df: pd.DataFrame, metric: str = "avg_delta") -> go.Figure | None:
+    return utils.pitcher_ma_figure(df, metric)
+
+
+_SEQ_DOMAIN_SPECS = {
+    "pitch": dict(col="pitch", hist_col="pitch", abs_val=False, y_range=(1, 1000), y_label="Pitch value",
+                  domain="value", default_bucket=HOT_ZONE_DEFAULT_BUCKET),
+    "delta": dict(col="pitch_circ_delta", hist_col="pitch_circ_delta", abs_val=True, y_range=(0, 500),
+                  y_label="|Δ|", domain="delta", default_bucket=DELTA_DEFAULT_BUCKET),
+    "delta2": dict(col="pitch_circ_delta2", hist_col="pitch_circ_delta2", abs_val=True, y_range=(0, 500),
+                   y_label="|Δ²|", domain="delta2", default_bucket=DELTA_DEFAULT_BUCKET),
+}
+
+
+def sequence_viewer_fig(df: pd.DataFrame, domain: str = "pitch", match_last: int = 1,
+                         bucket: int | None = None) -> go.Figure | None:
+    """Pitcher Sequence Viewer: historical 4-point paths matching the pitcher's
+    own most recent 1-2 values in the given domain (pitch value, |Δ|, or |Δ²|)."""
+    spec = _SEQ_DOMAIN_SPECS[domain]
+    bucket = bucket or spec["default_bucket"]
+    if df.empty or spec["col"] not in df.columns:
+        return None
+    hist = df[df[spec["col"]].notna()].sort_values("id")[spec["col"]]
+    hist = (hist.abs() if spec["abs_val"] else hist).astype(int).tolist()
+    if not hist:
+        return None
+    prior_val = hist[-1]
+    prior_val2 = hist[-2] if len(hist) >= 2 and match_last == 2 else None
+    res = utils.sequence_matches(df, "pitch", bucket, prior_val, prior_val2=prior_val2, domain=spec["domain"])
+    if not res:
+        return None
+    mode_note = "matched on last 2 values" if match_last == 2 else None
+    return utils.sequence_viewer_figure(
+        res["matches"], hist[-3:], spec["y_range"], spec["y_label"], bucket,
+        selected_bin=None, mode_note=mode_note, mobile=False,
+    )
+
+
+def swing_analyzer_fig(df: pd.DataFrame, swing_value: int, n: int = 20,
+                        result_ranges: list | None = None, obr_extra: frozenset = frozenset()) -> go.Figure:
+    pa_df = df[df["pitch"].notna()].sort_values("id").tail(n)
+    return utils.swing_predictor_chart(
+        pa_df, swing=swing_value, n=n, result_ranges=result_ranges,
+        tick_label=f"Last {n} pitches", obr_extra=obr_extra,
+    )
+
+
+_OPTIMAL_SWING_BASES = {"values", "delta", "delta2"}
+
+
+def optimal_swing_fig(df: pd.DataFrame, n: int = 20, metric: str = "obp", basis: str = "values",
+                       result_ranges: list | None = None, obr_extra: frozenset = frozenset()) -> go.Figure | None:
+    """Optimal Swing: expected-score curve over every possible swing value,
+    built from the pitcher's recent pitches (basis="values"), or their
+    implied-next-pitch projections from recent deltas/delta-squareds."""
+    recent = df[df["pitch"].notna()].sort_values("id").tail(n)["pitch"].astype(int).tolist()
+    if not recent:
+        return None
+    if basis == "delta":
+        vals = utils.project_from_deltas(recent)
+    elif basis == "delta2":
+        vals = utils.project_from_delta2s(recent)
+    else:
+        vals = recent
+    if not vals:
+        return None
+    ranges = result_ranges or utils.RESULT_RANGES
+    return utils.optimal_swing_chart(vals, ranges, metric, True, obr_extra=obr_extra)
+
+
+def tendencies_text(df: pd.DataFrame, value_col: str = "pitch", last2_col: str | None = "pitch_last2",
+                     label: str = "Pitches") -> str:
+    total = len(df)
+    meme_counts = {str(n): int((df[value_col] == n).sum()) for n in utils.MEME_NUMBERS}
+    meme_total = sum(meme_counts.values())
+    lines = [f"**Meme {label}** ({meme_total}{f' - {meme_total/total*100:.1f}%' if total else ''} of all {label.lower()})"]
+    for num, cnt in meme_counts.items():
+        pct = f" ({cnt/total*100:.1f}%)" if total else ""
+        lines.append(f"  **{num}**: {cnt}{pct}")
+    lines.append("")
+    lines.append("**Most Common Last 2 Digits**")
+    if last2_col and last2_col in df.columns:
+        last2 = df[last2_col].value_counts().head(5)
+    elif value_col in df.columns:
+        last2 = df[value_col].dropna().apply(lambda v: int(str(int(v)).zfill(2)[-2:])).value_counts().head(5)
+    else:
+        last2 = pd.Series(dtype=int)
+    for dig, cnt in last2.items():
+        pct = f" ({cnt/total*100:.1f}%)" if total else ""
+        lines.append(f"  **{int(dig):02d}**: {cnt}{pct}")
+    return "\n".join(lines)
+
+
+def last2_digit_radial_fig(df: pd.DataFrame) -> go.Figure:
+    baseline = scouting_data.load_last2_digit_baseline()["pitch"]
+    reference = scouting_data.load_last2_digit_reference()["pitch"]
+    # Discord's default UI (and most users') is dark, and there's no theme
+    # signal to read like Streamlit's st.context.theme - light text reads
+    # safely for the overwhelming majority of viewers.
+    return utils.last2_digit_radial_chart(df, value_col="pitch", last2_col="pitch_last2",
+                                           title="Last 2 Digits", count_label="Pitches",
+                                           baseline_probs=baseline, reference=reference, dark_mode=True)
+
+
+def batter_last2_digit_radial_fig(df: pd.DataFrame) -> go.Figure:
+    baseline = scouting_data.load_last2_digit_baseline()["swing"]
+    reference = scouting_data.load_last2_digit_reference()["swing"]
+    return utils.last2_digit_radial_chart(df, value_col="swing", last2_col=None,
+                                           title="Last 2 Digits", count_label="Swings",
+                                           baseline_probs=baseline, reference=reference, dark_mode=True)

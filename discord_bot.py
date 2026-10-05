@@ -73,8 +73,10 @@ async def _player_autocomplete(interaction: discord.Interaction, current: str) -
 
 
 async def _run_chart_command(interaction: discord.Interaction, role: str, name: str | None,
-                              builder, filename: str, **builder_kwargs) -> None:
-    await interaction.response.defer()
+                              builder, filename: str, already_deferred: bool = False,
+                              **builder_kwargs) -> None:
+    if not already_deferred:
+        await interaction.response.defer()
 
     def _resolve_and_build():
         player = name or _last_player[role]
@@ -160,6 +162,51 @@ async def _run_multi_chart_command(interaction: discord.Interaction, role: str, 
     await interaction.followup.send(content=f"**{player}**", files=discord_files)
 
 
+_SACF_EXTRA = frozenset({"SacF", "DSacF", "GORA"})
+
+
+def _resolve_result_ranges(game_code: int | None, swing_type: str) -> list:
+    """Normal/bunt result ranges for a swing-value-dependent chart - from a
+    live game's sheet when game_code is given, else utils.RESULT_RANGES (the
+    generic default, what swing_predictor_chart itself falls back to)."""
+    if game_code is None:
+        return utils.RESULT_RANGES
+    state = scouting_data.resolve_game_state(game_code)
+    if swing_type == "Bunt":
+        return state.get("bunt_ranges") or state.get("result_ranges") or utils.RESULT_RANGES
+    return state.get("result_ranges") or utils.RESULT_RANGES
+
+
+async def _resolve_obr(swing_value: int | None, swing_type: str, extend_sacf: bool,
+                        game_code: int | None) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+    """(obr, sacf) pitch-domain bounds for the radial ring overlays. sacf is
+    the wider Sac Fly/DSacF range as its own ring, independent of
+    extend_sacf (which folds SacF into the core obr band instead) - None
+    whenever it wouldn't add anything beyond what obr already covers."""
+    if swing_value is None:
+        return None, None
+
+    def _work():
+        ranges = _resolve_result_ranges(game_code, swing_type)
+        extra = _SACF_EXTRA if extend_sacf else frozenset()
+        obr = bot_charts.obr_bounds(swing_value, ranges, extra)
+        obr_radius = max((hi for r, _lo, hi in ranges if r in (utils._OBR | extra)), default=0)
+        sacf = bot_charts.sacf_bounds(swing_value, ranges, obr_radius)
+        return obr, sacf
+
+    return await asyncio.to_thread(_work)
+
+
+_swing_type_choices = [app_commands.Choice(name="Normal Swing", value="Normal Swing"),
+                        app_commands.Choice(name="Bunt", value="Bunt")]
+_OBR_DESCRIBE = dict(
+    swing_value="Proposed swing - overlays the On-Base Range on the radial as a gray band",
+    swing_type="Which ranges table to use for the OBR (default: Normal Swing)",
+    extend_sacf="Include SacF/DSacF/GORA in the OBR band",
+    game_code="Game to pull live ranges from (defaults to the generic ranges table)",
+)
+
+
 def _radial_context_kwargs(prev_value, value_width, default_width, result_cat, leverage,
                             leverage_threshold, first_pitch_appearance, first_pitch_inning) -> dict:
     return dict(
@@ -225,71 +272,96 @@ async def pitcher_shadow(interaction: discord.Interaction, name: str | None = No
 
 
 @pitcher_group.command(name="radial-pitches", description="Recent pitches, radial view")
-@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent pitches to show", **_CONTEXT_DESCRIBE)
-@app_commands.choices(value_width=_value_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices)
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent pitches to show",
+                        **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
+@app_commands.choices(value_width=_value_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
+                       swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_radial_pitches(interaction: discord.Interaction, name: str | None = None,
                                   n: int = bot_charts.RADIAL_DEFAULT_N, prev_value: int | None = None,
                                   value_width: int | None = None, result_cat: str | None = None,
                                   leverage: str | None = None, leverage_threshold: float = 1.5,
-                                  first_pitch_appearance: bool = False, first_pitch_inning: bool = False) -> None:
+                                  first_pitch_appearance: bool = False, first_pitch_inning: bool = False,
+                                  swing_value: int | None = None, swing_type: str = "Normal Swing",
+                                  extend_sacf: bool = False, game_code: int | None = None) -> None:
+    await interaction.response.defer()
     ctx = _radial_context_kwargs(prev_value, value_width, bot_charts.VALUE_DEFAULT_BUCKET, result_cat, leverage,
                                   leverage_threshold, first_pitch_appearance, first_pitch_inning)
+    obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.pitches_radial_fig,
-                              "pitches_radial.png", n=n, **ctx)
+                              "pitches_radial.png", already_deferred=True, n=n, obr=obr, sacf=sacf, **ctx)
 
 
 @pitcher_group.command(name="radial-deltas", description="Recent pitch deltas, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent deltas to show",
                         center_on_prev="Map each delta onto the last actual pitch (implied next pitch)",
-                        **_CONTEXT_DESCRIBE)
-@app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices)
+                        **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
+@app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
+                       swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_radial_deltas(interaction: discord.Interaction, name: str | None = None,
                                  n: int = bot_charts.RADIAL_DEFAULT_N, center_on_prev: bool = False,
                                  prev_value: int | None = None, value_width: int | None = None,
                                  result_cat: str | None = None, leverage: str | None = None,
                                  leverage_threshold: float = 1.5, first_pitch_appearance: bool = False,
-                                 first_pitch_inning: bool = False) -> None:
+                                 first_pitch_inning: bool = False, swing_value: int | None = None,
+                                 swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                 game_code: int | None = None) -> None:
+    await interaction.response.defer()
     ctx = _radial_context_kwargs(prev_value, value_width, bot_charts.DELTA_DEFAULT_BUCKET, result_cat, leverage,
                                   leverage_threshold, first_pitch_appearance, first_pitch_inning)
+    obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.deltas_radial_fig,
-                              "deltas_radial.png", n=n, center_on_prev=center_on_prev, **ctx)
+                              "deltas_radial.png", already_deferred=True, n=n,
+                              center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
 @pitcher_group.command(name="radial-delta2", description="Recent pitch delta-squareds, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent delta-squareds to show",
                         center_on_prev="Map each delta-squared onto the last actual pitch (implied next pitch)",
-                        **_CONTEXT_DESCRIBE)
-@app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices)
+                        **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
+@app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
+                       swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_radial_delta2(interaction: discord.Interaction, name: str | None = None,
                                  n: int = bot_charts.RADIAL_DEFAULT_N, center_on_prev: bool = False,
                                  prev_value: int | None = None, value_width: int | None = None,
                                  result_cat: str | None = None, leverage: str | None = None,
                                  leverage_threshold: float = 1.5, first_pitch_appearance: bool = False,
-                                 first_pitch_inning: bool = False) -> None:
+                                 first_pitch_inning: bool = False, swing_value: int | None = None,
+                                 swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                 game_code: int | None = None) -> None:
+    await interaction.response.defer()
     ctx = _radial_context_kwargs(prev_value, value_width, bot_charts.DELTA_DEFAULT_BUCKET, result_cat, leverage,
                                   leverage_threshold, first_pitch_appearance, first_pitch_inning)
+    obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.delta2_radial_fig,
-                              "delta2_radial.png", n=n, center_on_prev=center_on_prev, **ctx)
+                              "delta2_radial.png", already_deferred=True, n=n,
+                              center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
 @pitcher_group.command(name="radial-combined", description="Pitches + deltas overlaid, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent points to show",
-                        include_delta2="Also overlay implied-delta-squared points", **_CONTEXT_DESCRIBE)
-@app_commands.choices(value_width=_value_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices)
+                        include_delta2="Also overlay implied-delta-squared points", **_CONTEXT_DESCRIBE,
+                        **_OBR_DESCRIBE)
+@app_commands.choices(value_width=_value_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
+                       swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_radial_combined(interaction: discord.Interaction, name: str | None = None,
                                    n: int = bot_charts.RADIAL_DEFAULT_N, include_delta2: bool = False,
                                    prev_value: int | None = None, value_width: int | None = None,
                                    result_cat: str | None = None, leverage: str | None = None,
                                    leverage_threshold: float = 1.5, first_pitch_appearance: bool = False,
-                                   first_pitch_inning: bool = False) -> None:
+                                   first_pitch_inning: bool = False, swing_value: int | None = None,
+                                   swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                   game_code: int | None = None) -> None:
+    await interaction.response.defer()
     ctx = _radial_context_kwargs(prev_value, value_width, bot_charts.VALUE_DEFAULT_BUCKET, result_cat, leverage,
                                   leverage_threshold, first_pitch_appearance, first_pitch_inning)
+    obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.combined_radial_fig,
-                              "combined_radial.png", n=n, include_delta2=include_delta2, **ctx)
+                              "combined_radial.png", already_deferred=True, n=n,
+                              include_delta2=include_delta2, obr=obr, sacf=sacf, **ctx)
 
 
 @pitcher_group.command(name="lastn", description="Last N pitches, combined chart")
@@ -391,12 +463,182 @@ async def pitcher_delta_distributions(interaction: discord.Interaction, name: st
 
 
 @pitcher_group.command(name="cooldown", description="Pitch zone cooldown - overlay and open-cooldowns radial")
-@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), bucket="Bucket size (same as Hot Zone Pitch Matrix)")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), bucket="Bucket size (same as Hot Zone Pitch Matrix)",
+                        by_category="Also include one CDF chart per result category")
 @app_commands.choices(bucket=_hot_zone_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_cooldown(interaction: discord.Interaction, name: str | None = None,
-                            bucket: int = bot_charts.HOT_ZONE_DEFAULT_BUCKET) -> None:
-    await _run_multi_chart_command(interaction, "pitcher", name, bot_charts.cooldown_figs, bucket=bucket)
+                            bucket: int = bot_charts.HOT_ZONE_DEFAULT_BUCKET, by_category: bool = False) -> None:
+    await _run_multi_chart_command(interaction, "pitcher", name, bot_charts.cooldown_figs,
+                                    bucket=bucket, by_category=by_category)
+
+
+@pitcher_group.command(name="percentiles", description="Career percentile card vs. recent behavioral stats")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"),
+                        recent_n="How many recent pitches count as 'recent' for the comparison")
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_percentiles(interaction: discord.Interaction, name: str | None = None,
+                               recent_n: int = 20) -> None:
+    await interaction.response.defer()
+
+    # percentile_card_fig needs the resolved pitcher's name/player_id (for the
+    # title and the stats-table lookup), not just their df, so this resolves
+    # the player itself rather than going through _run_chart_command (whose
+    # builder only ever receives the df).
+    def _resolve_and_build():
+        player = name or _last_player["pitcher"]
+        if not name and _active_game_code is not None:
+            live_name = scouting_data.resolve_game_roles(_active_game_code).get("pitcher")
+            if live_name:
+                player = live_name
+        if not player:
+            return "no_player", None
+        _last_player["pitcher"] = player
+        df = scouting_data.load_pitcher_plays(player)
+        if df.empty:
+            return "no_data", player
+        pid = scouting_data.player_dir()["name_to_pid"].get(player)
+        stats_df = scouting_data.load_pitcher_stats()
+        ma_pct = scouting_data.load_ma_percentiles()
+        fig = bot_charts.percentile_card_fig(df, player, pid, stats_df, ma_pct, recent_n)
+        if fig is None:
+            return "no_figs", player
+        buf = io.BytesIO()
+        _write_png(fig, buf)
+        buf.seek(0)
+        return "ok", (player, buf)
+
+    status, payload = await asyncio.to_thread(_resolve_and_build)
+    if status == "no_player":
+        await interaction.followup.send(
+            "No pitcher specified yet - include `name:`, or set an active game with `/game set`.", ephemeral=True)
+        return
+    if status == "no_data":
+        await interaction.followup.send(f"No plays found for **{payload}**.", ephemeral=True)
+        return
+    if status == "no_figs":
+        await interaction.followup.send(f"No career stats on file for **{payload}**.", ephemeral=True)
+        return
+    player, buf = payload
+    await interaction.followup.send(content=f"**{player}**", file=discord.File(buf, filename="percentiles.png"))
+
+
+@pitcher_group.command(name="tendencies-over-time", description="Rolling-average behavioral tendency over the career")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), metric="Which tendency to chart")
+@app_commands.choices(metric=[app_commands.Choice(name=bot_charts.MA_METRIC_LABELS[k], value=k)
+                               for k in bot_charts.MA_METRIC_CHOICES])
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_tendencies_over_time(interaction: discord.Interaction, name: str | None = None,
+                                        metric: str = "avg_delta") -> None:
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.tendencies_over_time_fig,
+                              "tendencies_over_time.png", metric=metric)
+
+
+_seq_domain_choices = [app_commands.Choice(name="Pitch #", value="pitch"),
+                        app_commands.Choice(name="Delta", value="delta"),
+                        app_commands.Choice(name="Delta²", value="delta2")]
+_seq_match_choices = [app_commands.Choice(name="Last 1 value", value=1),
+                       app_commands.Choice(name="Last 2 values", value=2)]
+
+
+@pitcher_group.command(name="sequence-viewer", description="Historical paths matching the pitcher's recent sequence")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), domain="Match on pitch value, delta, or delta-squared",
+                        match_last="Match on the last 1 or 2 values", bucket="Match bucket width (defaults per domain)")
+@app_commands.choices(domain=_seq_domain_choices, match_last=_seq_match_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_sequence_viewer(interaction: discord.Interaction, name: str | None = None,
+                                   domain: str = "pitch", match_last: int = 1,
+                                   bucket: int | None = None) -> None:
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.sequence_viewer_fig,
+                              "sequence_viewer.png", domain=domain, match_last=match_last, bucket=bucket)
+
+
+@pitcher_group.command(name="swing-analyzer", description="Color-coded result zones for a proposed swing")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), swing_value="Proposed swing value",
+                        n="How many recent pitches to overlay", swing_type="Ranges table to use",
+                        extend_sacf="Include SacF/DSacF/GORA in the OBR coloring",
+                        game_code="Game to pull live ranges from (defaults to the generic ranges table)")
+@app_commands.choices(swing_type=_swing_type_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: int, name: str | None = None,
+                                  n: int = 20, swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                  game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    extra = _SACF_EXTRA if extend_sacf else frozenset()
+    ranges = await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.swing_analyzer_fig,
+                              "swing_analyzer.png", already_deferred=True, swing_value=swing_value, n=n,
+                              result_ranges=ranges, obr_extra=extra)
+
+
+@pitcher_group.command(name="optimal-swing", description="Expected OBP/SLG across every possible swing value")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), metric="Score to optimize",
+                        basis="Project from recent pitch values, deltas, or delta-squareds",
+                        n="How many recent pitches to base the projection on", swing_type="Ranges table to use",
+                        extend_sacf="Include SacF/DSacF/GORA in the OBR",
+                        game_code="Game to pull live ranges from (defaults to the generic ranges table)")
+@app_commands.choices(metric=[app_commands.Choice(name="OBP", value="obp"), app_commands.Choice(name="SLG", value="slg")],
+                       basis=[app_commands.Choice(name="Recent pitch values", value="values"),
+                              app_commands.Choice(name="Recent pitch deltas", value="delta"),
+                              app_commands.Choice(name="Recent pitch delta-squareds", value="delta2")],
+                       swing_type=_swing_type_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_optimal_swing(interaction: discord.Interaction, name: str | None = None, metric: str = "obp",
+                                 basis: str = "values", n: int = 20, swing_type: str = "Normal Swing",
+                                 extend_sacf: bool = False, game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    extra = _SACF_EXTRA if extend_sacf else frozenset()
+    ranges = await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.optimal_swing_fig,
+                              "optimal_swing.png", already_deferred=True, n=n, metric=metric, basis=basis,
+                              result_ranges=ranges, obr_extra=extra)
+
+
+async def _run_tendencies_command(interaction: discord.Interaction, role: str, name: str | None,
+                                   radial_fig_fn, **text_kwargs) -> None:
+    """Shared by /pitcher tendencies and /batter tendencies: sends the
+    last-2-digit radial chart as an attachment, with the meme/last-2-digit
+    text summary as the message content."""
+    await interaction.response.defer()
+
+    def _resolve_and_build():
+        player = name or _last_player[role]
+        if not name and _active_game_code is not None:
+            live_name = scouting_data.resolve_game_roles(_active_game_code).get(role)
+            if live_name:
+                player = live_name
+        if not player:
+            return "no_player", None
+        _last_player[role] = player
+        df = _LOADERS[role](player)
+        if df.empty:
+            return "no_data", player
+        text = bot_charts.tendencies_text(df, **text_kwargs)
+        fig = radial_fig_fn(df)
+        buf = io.BytesIO()
+        _write_png(fig, buf)
+        buf.seek(0)
+        return "ok", (player, text, buf)
+
+    status, payload = await asyncio.to_thread(_resolve_and_build)
+    if status == "no_player":
+        await interaction.followup.send(
+            f"No {role} specified yet - include `name:`, or set an active game with `/game set`.", ephemeral=True)
+        return
+    if status == "no_data":
+        await interaction.followup.send(f"No plays found for **{payload}**.", ephemeral=True)
+        return
+    player, text, buf = payload
+    await interaction.followup.send(content=f"**{player}**\n{text}",
+                                     file=discord.File(buf, filename="last2_digits.png"))
+
+
+@pitcher_group.command(name="tendencies", description="Meme pitches, last-2-digit radial, and most common digits")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"))
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_tendencies(interaction: discord.Interaction, name: str | None = None) -> None:
+    await _run_tendencies_command(interaction, "pitcher", name, bot_charts.last2_digit_radial_fig,
+                                   value_col="pitch", last2_col="pitch_last2", label="Pitches")
 
 
 # ── batter ───────────────────────────────────────────────────────────────────
@@ -481,6 +723,14 @@ async def batter_delta_distributions(interaction: discord.Interaction, name: str
                                       signed: bool = True) -> None:
     await _run_multi_chart_command(interaction, "batter", name, bot_charts.batter_delta_distributions_figs,
                                     signed=signed)
+
+
+@batter_group.command(name="tendencies", description="Meme swings, last-2-digit radial, and most common digits")
+@app_commands.describe(name=_NAME_HELP.format(role="batter"))
+@app_commands.autocomplete(name=_player_autocomplete)
+async def batter_tendencies(interaction: discord.Interaction, name: str | None = None) -> None:
+    await _run_tendencies_command(interaction, "batter", name, bot_charts.batter_last2_digit_radial_fig,
+                                   value_col="swing", last2_col=None, label="Swings")
 
 
 # ── catcher ──────────────────────────────────────────────────────────────────

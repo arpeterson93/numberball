@@ -152,6 +152,15 @@ def get_plays_for_game(game_id: int) -> list[dict]:
     )
 
 
+def get_all_play_values() -> list[dict]:
+    """Every play's pitch/swing/throw_num values plus the pitcher/batter/
+    catcher id they belong to - for building a league-wide last-2-digit
+    baseline distribution and each player's own reference stats. No games
+    join (unlike get_all_plays), since this pulls the entire plays table."""
+    return _fetch_all(_client().table("plays").select(
+        "pitch, swing, throw_num, pitcher_id, batter_id, catcher_id"))
+
+
 def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")

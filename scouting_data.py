@@ -97,10 +97,95 @@ def load_catcher_plays(catcher_name: str, leagues: tuple[str, ...] | None = None
     return utils.enrich_catcher_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
 
+def load_pitcher_stats() -> pd.DataFrame:
+    # db.get_pitcher_stats() already carries the cache (and is what "Refresh
+    # Pitcher Stats" busts) - a second cache layer here would just serve a
+    # stale snapshot after a refresh. Building the DataFrame itself is cheap.
+    rows = db.get_pitcher_stats()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_ma_percentiles() -> dict:
+    rows = db.get_ma_percentiles()
+    return {r["metric"]: r["percentiles"] for r in rows} if rows else {}
+
+
 @st.cache_data(ttl=3600)
 def load_run_lookup() -> dict:
     # (result, before_obc, outs) -> (runs, new_obc, nout_after)
     return utils.load_run_lookup_from_csv("import_BRC.csv")
+
+
+_LAST2_ROLE_ID_COL = {"pitch": "pitcher_id", "swing": "batter_id", "throw_num": "catcher_id"}
+
+
+@st.cache_data(ttl=86400)
+def _load_last2_digit_league_data() -> dict[str, dict]:
+    """Per pitch/swing/throw_num: the league-wide last-2-digit frequency
+    baseline, pooled across every recorded play, plus every player's own
+    last2_digit_stats (chi2, best-digit deviation) computed against that
+    baseline - the reference population utils.last2_digit_percentiles ranks
+    one player against to answer "of the humans, is this one more
+    clustered," rather than testing against an abstract random-chance null.
+
+    Real players (unlike a uniform-random generator) systematically favor
+    round numbers and repeated digits regardless of any individual
+    tendency - the baseline isolates what's unusual about ONE player
+    specifically, rather than just rediscovering "humans aren't computers"
+    for everyone. Pitch/swing/throw are pooled separately since they're
+    different game mechanics (and different id columns - pitcher/batter/
+    catcher) that may carry different biases.
+
+    One cached function (rather than separate baseline/reference loaders)
+    so both are built from a single pull of the whole plays table - it's
+    the expensive part (tens of thousands of rows), not the arithmetic on
+    top. A day-long ttl: a population-wide pattern that moves slowly.
+    """
+    rows = db.get_all_play_values()
+    result: dict[str, dict] = {}
+    for col, id_col in _LAST2_ROLE_ID_COL.items():
+        pooled = [0] * 100
+        total = 0
+        per_player: dict[object, list[int]] = {}
+        for r in rows:
+            v = r.get(col)
+            if v is None:
+                continue
+            d = int(str(int(v)).zfill(2)[-2:])
+            pooled[d] += 1
+            total += 1
+            pid = r.get(id_col)
+            if pid is not None:
+                per_player.setdefault(pid, [0] * 100)[d] += 1
+        baseline = [c / total for c in pooled] if total else [0.01] * 100
+
+        chi2_ref, best_dev_ref = [], []
+        for counts in per_player.values():
+            n = sum(counts)
+            if n == 0:
+                continue
+            _, chi2, best_z = utils.last2_digit_stats(n, dict(enumerate(counts)), baseline)
+            chi2_ref.append(chi2)
+            best_dev_ref.append(best_z)
+        chi2_ref.sort()
+        best_dev_ref.sort()
+
+        result[col] = {"baseline": baseline, "chi2_ref": chi2_ref, "best_dev_ref": best_dev_ref}
+    return result
+
+
+def load_last2_digit_baseline() -> dict[str, list[float]]:
+    """League-wide last-2-digit frequency baseline for pitch/swing/throw_num -
+    see _load_last2_digit_league_data."""
+    return {col: data["baseline"] for col, data in _load_last2_digit_league_data().items()}
+
+
+def load_last2_digit_reference() -> dict[str, dict[str, list[float]]]:
+    """Per pitch/swing/throw_num: {"chi2_ref": [...], "best_dev_ref": [...]} -
+    the sorted league reference arrays utils.last2_digit_percentiles ranks a
+    player's own stats against. See _load_last2_digit_league_data."""
+    return _load_last2_digit_league_data()
 
 
 # Stadium scenario-sheet lookups (HNR/Infield-In) are only tracked for the

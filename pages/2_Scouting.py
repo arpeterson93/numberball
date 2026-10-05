@@ -7,6 +7,8 @@ import manager_calc
 import scouting_data
 import utils
 
+_dark_mode = st.context.theme.type == "dark"
+
 _MLN_QS_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 _MLN_QS_SEASON   = 13
 
@@ -437,19 +439,10 @@ def _load_run_lookup(_v: int = 3) -> dict:
     return utils.load_run_lookup_from_csv("import_BRC.csv")
 
 def _load_pitcher_stats() -> pd.DataFrame:
-    # db.get_pitcher_stats() is already cached (database.py) and its cache is
-    # what "Refresh Pitcher Stats" busts - a second cache layer here would just
-    # keep serving a stale snapshot after a refresh, since this function has no
-    # way to be cleared from the Games page. Building the DataFrame is cheap,
-    # so leave it uncached.
-    rows = db.get_pitcher_stats()
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    return scouting_data.load_pitcher_stats()
 
 def _load_ma_percentiles() -> dict:
-    # Same reasoning as _load_pitcher_stats: db.get_ma_percentiles() carries
-    # the cache, this just reshapes it into {metric: [percentile breakpoints]}.
-    rows = db.get_ma_percentiles()
-    return {r["metric"]: r["percentiles"] for r in rows} if rows else {}
+    return scouting_data.load_ma_percentiles()
 
 @st.cache_data(ttl=60)
 def _load_game_plays(game_id: int, data_v: int = 0) -> list[dict]:
@@ -1600,6 +1593,24 @@ with tab_p:
                             st.session_state["_pend_swing"] = _new_swing_p
                             st.rerun()
 
+            # Ring overlays for the Context Filters radials further down (OBR,
+            # optionally a wider SacF ring outside it) - off until the swing has
+            # been moved from its untouched 500 default (or stays off entirely
+            # if it never had an OBR to begin with), so radials don't show a
+            # ring nobody asked for just because Proposed Swing defaults to 500.
+            # SacF/DSacF's own range is looked up independently of the "Include
+            # SacF/DSacF in OBR" toggle above - that toggle widens the core OBR
+            # ring itself, so a separate SacF ring only adds anything when SacF
+            # extends further out than whatever's already folded into OBR.
+            _swing_touched_p = _pred_swing_val_p != 500
+            _ring_obr_lo_p = _ring_obr_hi_p = _ring_sacf_lo_p = _ring_sacf_hi_p = None
+            if _obr_max_p and _swing_touched_p:
+                _ring_obr_lo_p, _ring_obr_hi_p = _obr_lo_p, _obr_hi_p
+                _sacf_max_p = max((hi for r, _lo, hi in active_ranges if r in ("SacF", "DSacF")), default=0)
+                if _sacf_max_p > _obr_max_p:
+                    _ring_sacf_lo_p = ((_pred_swing_val_p - _sacf_max_p - 1) % 1000) + 1
+                    _ring_sacf_hi_p = ((_pred_swing_val_p + _sacf_max_p - 1) % 1000) + 1
+
         # ── swing suggestions panel ───────────────────────────────────────────
         with st.expander("Swing Suggestions", expanded=True):
             _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
@@ -2467,7 +2478,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
             utils.radial_recent_pitches_chart(_df_radial_pitches_p, n=n_pitches, value_col="pitch",
-                                              title=f"Last {_actual_pitches_radial_p} Pitches"),
+                                              title=f"Last {_actual_pitches_radial_p} Pitches",
+                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
+                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
             width="stretch", key="p_radial",
         )
         _actual_deltas_radial_p = len(_df_radial_deltas_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_deltas_p.empty else 0
@@ -2483,7 +2496,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             utils.radial_recent_deltas_chart(_df_radial_deltas_p, n=n_pitches, delta_col="pitch_circ_delta",
                                              title=_deltas_radial_title_p,
                                              center_on_prev=_center_deltas_p,
-                                             anchor=_pf_true_anchor_p),
+                                             anchor=_pf_true_anchor_p,
+                                             obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
+                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
             width="stretch", key="p_radial_delta",
         )
         st.toggle(
@@ -2506,7 +2521,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                              title=_delta2_radial_title_p,
                                              center_on_prev=_center_delta2_p,
                                              anchor=_pf_true_anchor_p,
-                                             anchor_delta=_pf_true_anchor_delta_p),
+                                             anchor_delta=_pf_true_anchor_delta_p,
+                                             obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
+                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
             width="stretch", key="p_radial_delta2",
         )
         st.toggle(
@@ -2527,7 +2544,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                         df_delta2=_df_radial_delta2_p if _cf_delta2_combined_on_p else None,
                                         delta2_col="pitch_circ_delta2_signed",
                                         anchor_delta=_pf_true_anchor_delta_p,
-                                        include_delta2=_cf_delta2_combined_on_p),
+                                        include_delta2=_cf_delta2_combined_on_p,
+                                        obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
+                                        sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
             width="stretch", key="p_radial_combined",
         )
 
@@ -2909,6 +2928,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
+        st.plotly_chart(
+            utils.last2_digit_radial_chart(df_p, value_col="pitch", last2_col="pitch_last2",
+                                           title="Last 2 Digits", count_label="Pitches",
+                                           baseline_probs=scouting_data.load_last2_digit_baseline()["pitch"],
+                                           reference=scouting_data.load_last2_digit_reference()["pitch"],
+                                           dark_mode=_dark_mode),
+            width="stretch", config={"displayModeBar": False}, key="p_last2_radial",
+        )
         with st.expander("Tendencies", expanded=not _simple_mode):
             _tm_p, _tl_p = st.columns(2)
             with _tm_p:
@@ -3614,6 +3641,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
+        st.plotly_chart(
+            utils.last2_digit_radial_chart(df_b, value_col="swing", last2_col=None, title="Last 2 Digits",
+                                           count_label="Swings",
+                                           baseline_probs=scouting_data.load_last2_digit_baseline()["swing"],
+                                           reference=scouting_data.load_last2_digit_reference()["swing"],
+                                           dark_mode=_dark_mode),
+            width="stretch", config={"displayModeBar": False}, key="b_last2_radial",
+        )
         with st.expander("Tendencies", expanded=not _simple_mode):
             _tm_b, _tl_b = st.columns(2)
             with _tm_b:
@@ -4146,6 +4181,14 @@ with tab_c:
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
+        st.plotly_chart(
+            utils.last2_digit_radial_chart(df_c, value_col="throw_num", last2_col="throw_last2",
+                                           title="Last 2 Digits", count_label="Throws",
+                                           baseline_probs=scouting_data.load_last2_digit_baseline()["throw_num"],
+                                           reference=scouting_data.load_last2_digit_reference()["throw_num"],
+                                           dark_mode=_dark_mode),
+            width="stretch", config={"displayModeBar": False}, key="c_last2_radial",
+        )
         with st.expander("Tendencies", expanded=not _simple_mode):
             _tm_c, _tl_c = st.columns(2)
             with _tm_c:
