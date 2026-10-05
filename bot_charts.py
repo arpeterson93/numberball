@@ -30,7 +30,7 @@ VALUE_DEFAULT_BUCKET = 200
 DELTA_BUCKET_CHOICES = [25, 50, 100, 125, 250, 500]
 DELTA_DEFAULT_BUCKET = 100
 
-RADIAL_DEFAULT_N = 20
+RADIAL_DEFAULT_N = 50
 
 # Streamlit's default dark theme (.streamlit/config.toml: base = "dark", no
 # color overrides besides primaryColor) - matched here so charts sent to
@@ -543,7 +543,7 @@ def catcher_delta_distribution_fig(df: pd.DataFrame, signed: bool = True) -> go.
 # ── pitcher: percentile card / tendencies over time / sequence viewer / swing analyzer ──
 
 def percentile_card_fig(df: pd.DataFrame, pitcher_name: str, player_id: int | None,
-                         stats_df: pd.DataFrame, ma_percentiles: dict, recent_n: int = 20) -> go.Figure | None:
+                         stats_df: pd.DataFrame, ma_percentiles: dict, recent_n: int = 50) -> go.Figure | None:
     recent_df = df.sort_values("id").tail(recent_n)
     recent_stats = utils.compute_recent_pitcher_stats(recent_df)
     recent_n_actual = int(recent_df["swing"].notna().sum())
@@ -598,7 +598,7 @@ def sequence_viewer_fig(df: pd.DataFrame, domain: str = "pitch", match_last: int
     )
 
 
-def swing_analyzer_fig(df: pd.DataFrame, swing_value: int, n: int = 20,
+def swing_analyzer_fig(df: pd.DataFrame, swing_value: int, n: int = 50,
                         result_ranges: list | None = None, obr_extra: frozenset = frozenset()) -> go.Figure:
     pa_df = df[df["pitch"].notna()].sort_values("id").tail(n)
     return utils.swing_predictor_chart(
@@ -610,7 +610,7 @@ def swing_analyzer_fig(df: pd.DataFrame, swing_value: int, n: int = 20,
 _OPTIMAL_SWING_BASES = {"values", "delta", "delta2"}
 
 
-def optimal_swing_fig(df: pd.DataFrame, n: int = 20, metric: str = "obp", basis: str = "values",
+def optimal_swing_fig(df: pd.DataFrame, n: int = 50, metric: str = "obp", basis: str = "values",
                        result_ranges: list | None = None, obr_extra: frozenset = frozenset()) -> go.Figure | None:
     """Optimal Swing: expected-score curve over every possible swing value,
     built from the pitcher's recent pitches (basis="values"), or their
