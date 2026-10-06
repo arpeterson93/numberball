@@ -1114,7 +1114,7 @@ elif pred_mode == "Fetch Live Matchup":
         _sandbox_url = _stadium_sheets.get("sheet_sandbox")
         _sandbox_keys = ("pred_sandbox_ranges", "pred_sandbox_pitcher", "pred_sandbox_batter",
                          "pred_sandbox_catcher", "pred_sandbox_swing_type", "pred_sandbox_infield_in",
-                         "pred_sandbox_obc")
+                         "pred_sandbox_obc", "pred_sandbox_steal_runners")
         if _sandbox_url:
             _sb_season = _mg.get("season") if _mg else None
             _sb_is_mln = str(_mg.get("league", "MLN")).upper() == "MLN" if _mg else False
@@ -1140,9 +1140,11 @@ elif pred_mode == "Fetch Live Matchup":
                     if not _sb_catcher_row:
                         _sb_catcher_row = _p_by_pid.get(str(_sb_catcher_id), {})
                 st.session_state["pred_sandbox_catcher"] = _sb_catcher_row.get("name")
+                st.session_state["pred_sandbox_steal_runners"] = _sb_gp.get("steal_runners") or []
             except Exception:
                 st.session_state.pop("pred_sandbox_obc", None)
                 st.session_state.pop("pred_sandbox_catcher", None)
+                st.session_state.pop("pred_sandbox_steal_runners", None)
         else:
             for _k in _sandbox_keys:
                 st.session_state.pop(_k, None)
@@ -4704,9 +4706,9 @@ with tab_m:
     _hnr_steal_advance_obc = manager_calc._hnr_steal_advance_obc
     _hnr_steal_cs_obc      = manager_calc._hnr_steal_cs_obc
 
-    def _calc_ev_hnr_and_probs(hnr_ranges, hnr_k_steal_safe_rng):
+    def _calc_ev_hnr_and_probs(hnr_ranges, hnr_k_steal_safe_rng, no_steal=False):
         return manager_calc.calc_ev_hnr_and_probs(_run_lookup, _current_obc, _current_outs,
-                                                   hnr_ranges, hnr_k_steal_safe_rng)
+                                                   hnr_ranges, hnr_k_steal_safe_rng, no_steal)
 
     _bunt_ranges      = st.session_state.get("pred_bunt_ranges") or result_ranges
     _bunt_from_sheet  = bool(st.session_state.get("pred_bunt_ranges"))
@@ -4810,9 +4812,9 @@ with tab_m:
         return manager_calc.calc_steal_wp_after(_current_obc, _current_outs, steal_ev_rng,
                                                  remaining, batting_lead)
 
-    def _calc_hnr_wp_after(hnr_ranges, hnr_k_steal_safe_rng, remaining, batting_lead):
+    def _calc_hnr_wp_after(hnr_ranges, hnr_k_steal_safe_rng, remaining, batting_lead, no_steal=False):
         return manager_calc.calc_hnr_wp_after(_run_lookup, _current_obc, _current_outs, hnr_ranges,
-                                               hnr_k_steal_safe_rng, remaining, batting_lead)
+                                               hnr_k_steal_safe_rng, remaining, batting_lead, no_steal)
 
     @st.fragment
     def _manager_fragment():
@@ -4837,6 +4839,16 @@ with tab_m:
         else:
             _steal_ev_rng = _sheet_safe_rng
 
+        if _has_hnr:
+            _hnr_no_steal = st.toggle(
+                "H&R: No Steal", key="mgr_hnr_no_steal",
+                help="On a K during the hit-and-run, score it as a plain K instead of splitting into "
+                     "safe/caught-stealing - keeps the contact-play upside without pricing in the risk "
+                     "of sending the runner on a swinging/called third strike.",
+            )
+        else:
+            _hnr_no_steal = False
+
         # Read game state inputs set in Matchup Setup
         _mgr_inning     = int(st.session_state.get("mgr_inning", 1))
         _mgr_half       = str(st.session_state.get("mgr_half", "Top"))
@@ -4859,7 +4871,7 @@ with tab_m:
         else:
             ev_steal = st_p1r = st_p2r = st_p3pr = None
         if _has_hnr:
-            ev_hr, hr_p1r, hr_p2r, hr_p3pr = _calc_ev_hnr_and_probs(_hnr_ranges, _hnr_normal_rng)
+            ev_hr, hr_p1r, hr_p2r, hr_p3pr = _calc_ev_hnr_and_probs(_hnr_ranges, _hnr_normal_rng, _hnr_no_steal)
         else:
             ev_hr = hr_p1r = hr_p2r = hr_p3pr = None
         if _has_if_in:
@@ -4872,7 +4884,8 @@ with tab_m:
             wp_swing = _calc_wp_after(result_ranges, _mgr_remaining, _mgr_batting_lead)
             wp_bunt  = _calc_wp_after(_bunt_ranges,  _mgr_remaining, _mgr_batting_lead)
             wp_steal = _calc_steal_wp_after(_steal_ev_rng, _mgr_remaining, _mgr_batting_lead) if _has_runners else None
-            wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_normal_rng, _mgr_remaining, _mgr_batting_lead) if _has_hnr else None
+            wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_normal_rng, _mgr_remaining, _mgr_batting_lead,
+                                           _hnr_no_steal) if _has_hnr else None
             wp_ifin  = _calc_wp_after(_if_in_ranges, _mgr_remaining, _mgr_batting_lead) if _has_if_in else None
         else:
             wp_swing = wp_bunt = wp_steal = wp_hnr = wp_ifin = None
@@ -4902,7 +4915,7 @@ with tab_m:
                 _p3pr_col  += [f"{st_p3pr*100:.1f}%"]
                 _wp_col    += [f"{wp_steal*100:.1f}%" if wp_steal is not None else "-"]
             if _has_hnr:
-                _decisions += ["Hit and Run"]
+                _decisions += ["Hit and Run (No Steal)" if _hnr_no_steal else "Hit and Run"]
                 _exp_runs  += [f"{ev_hr:.2f}"]
                 _p1r_col   += [f"{hr_p1r*100:.1f}%"]
                 _p2r_col   += [f"{hr_p2r*100:.1f}%"]
@@ -4930,6 +4943,8 @@ with tab_m:
                     "sandbox_swing_type": st.session_state.get("pred_sandbox_swing_type"),
                     "sandbox_infield_in": st.session_state.get("pred_sandbox_infield_in"),
                     "sandbox_obc": st.session_state.get("pred_sandbox_obc"),
+                    "steal_runners": _steal_runners,
+                    "sandbox_steal_runners": st.session_state.get("pred_sandbox_steal_runners"),
                 }
                 _sandbox_diffs = manager_calc.compare_sandbox_inputs(_sandbox_cmp_state)
                 if _sandbox_diffs:

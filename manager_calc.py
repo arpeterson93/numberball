@@ -100,8 +100,15 @@ def _hnr_steal_cs_obc(obc: str) -> str:
 
 
 def calc_ev_hnr_and_probs(run_lookup: dict, current_obc: str, current_outs: int,
-                           hnr_ranges: list, hnr_k_steal_safe_rng: int):
-    """EV for hit and run: non-K outcomes use BRC; K steal uses normal speed (no +1 boost)."""
+                           hnr_ranges: list, hnr_k_steal_safe_rng: int, no_steal: bool = False):
+    """EV for hit and run: non-K outcomes use BRC; K steal uses normal speed (no +1 boost).
+
+    no_steal=True collapses the K branch's safe/caught-stealing split into a
+    plain K (same run_lookup entry a normal swing's K uses, no runner move,
+    no extra out) - models holding the runner on a swinging/called K instead
+    of sending him, so the table shows the contact-play upside of the
+    hit-and-run without also pricing in the swinging-K caught-stealing risk.
+    """
     sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
     op = 1.0 - sp
     ev = 0.0
@@ -109,7 +116,7 @@ def calc_ev_hnr_and_probs(run_lookup: dict, current_obc: str, current_outs: int,
     for entry in (hnr_ranges or []):
         r, lo, hi = _norm(entry)
         prob = min((hi - lo + 1) * 2 / 1000, 1.0)
-        if r == "K":
+        if r == "K" and not no_steal:
             _, _, k_nout = _lookup(run_lookup, "K", current_obc, current_outs)
             k_nout = min(k_nout, 3)
             s_obc, s_runs = _hnr_steal_advance_obc(current_obc)
@@ -195,12 +202,21 @@ _SANDBOX_COMPARE_FIELDS = [
 ]
 
 
+def _safe_ranges_by_base(runners: list | None) -> dict[str, int]:
+    return {r["base"]: r.get("safe_range") for r in (runners or []) if r.get("base")}
+
+
 def compare_sandbox_inputs(state: dict) -> list[str]:
     """Which inputs the sandbox sheet's own Gameday/Gameplay cells disagree on
     vs. the live game's current ones - pitcher/batter/catcher, the hit-and-run
-    and infield-in flags, and baserunner presence on each base separately.
-    Empty list means the sandbox sheet still looks like an unedited clone of
-    the live situation (nothing new to show)."""
+    and infield-in flags, baserunner presence on each base, and (for a base
+    occupied in BOTH) that runner's steal safe range. Empty list means the
+    sandbox sheet still looks like an unedited clone of the live situation
+    (nothing new to show).
+
+    A safe-range diff only fires when a runner is on the same base in both -
+    a presence difference on that base is already caught by the "Runner on
+    XB" check below, so this never double-reports the same edit."""
     diffs = []
     for live_key, sandbox_key, label in _SANDBOX_COMPARE_FIELDS:
         if state.get(live_key) != state.get(sandbox_key):
@@ -218,10 +234,17 @@ def compare_sandbox_inputs(state: dict) -> list[str]:
         if live_obc[idx] != sandbox_obc[idx]:
             diffs.append(label)
 
+    live_sr = _safe_ranges_by_base(state.get("steal_runners"))
+    sandbox_sr = _safe_ranges_by_base(state.get("sandbox_steal_runners"))
+    for base, label in (("1B", "1B Safe Range"), ("2B", "2B Safe Range"), ("3B", "3B Safe Range")):
+        if base in live_sr and base in sandbox_sr and live_sr[base] != sandbox_sr[base]:
+            diffs.append(label)
+
     return diffs
 
 
-def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = False) -> dict:
+def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = False,
+                          hnr_no_steal: bool = False) -> dict:
     """Build the Manager tab's EV summary table (Decision/Exp WP/Exp Runs/
     P(1R)/P(2R)/P(3+R), one row per applicable strategy) from a resolved game
     state (scouting_data.resolve_game_state).
@@ -303,9 +326,9 @@ def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = Fa
 
     if has_hnr:
         ev, p1r, p2r, p3pr = calc_ev_hnr_and_probs(run_lookup, current_obc, current_outs,
-                                                    hnr_ranges, hnr_normal_rng)
+                                                    hnr_ranges, hnr_normal_rng, hnr_no_steal)
         wp = (calc_hnr_wp_after(run_lookup, current_obc, current_outs, hnr_ranges, hnr_normal_rng,
-                                 remaining, batting_lead) if wp_table_ready else None)
+                                 remaining, batting_lead, hnr_no_steal) if wp_table_ready else None)
         rows.append({"decision": "Hit and Run", "exp_wp": wp, "exp_runs": ev, "p1r": p1r, "p2r": p2r, "p3pr": p3pr})
 
     if has_if_in:
@@ -331,14 +354,16 @@ def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = Fa
 
 
 def calc_hnr_wp_after(run_lookup: dict, current_obc: str, current_outs: int, hnr_ranges: list,
-                       hnr_k_steal_safe_rng: int, remaining: int, batting_lead: int) -> float:
+                       hnr_k_steal_safe_rng: int, remaining: int, batting_lead: int,
+                       no_steal: bool = False) -> float:
+    """See calc_ev_hnr_and_probs for no_steal."""
     sp = min(hnr_k_steal_safe_rng * 2 / 1000, 1.0)
     op = 1.0 - sp
     total = 0.0
     for entry in (hnr_ranges or []):
         r, lo, hi = _norm(entry)
         prob = min((hi - lo + 1) * 2 / 1000, 1.0)
-        if r == "K":
+        if r == "K" and not no_steal:
             _, _, k_nout = _lookup(run_lookup, "K", current_obc, current_outs)
             k_nout = min(k_nout, 3)
             s_obc, s_runs = _hnr_steal_advance_obc(current_obc)

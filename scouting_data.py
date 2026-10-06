@@ -241,6 +241,7 @@ def resolve_game_state(game_code: int) -> dict:
         "outs": 0, "obc": "000", "steal_runners": [],
         "sandbox_ranges": None, "sandbox_pitcher": None, "sandbox_batter": None, "sandbox_catcher": None,
         "sandbox_swing_type": None, "sandbox_infield_in": None, "sandbox_obc": None,
+        "sandbox_steal_runners": [],
     }
 
     names_lower = {n.lower(): n for n in all_player_names()}
@@ -336,6 +337,7 @@ def resolve_game_state(game_code: int) -> dict:
             sb_gp = _retry(lambda: utils.parse_gameplay_from_sheet(sandbox_url))
             state["sandbox_obc"] = sb_gp.get("obc") or "000"
             state["sandbox_catcher"] = _sheet_player(sb_gp.get("catcher_id")).get("name")
+            state["sandbox_steal_runners"] = sb_gp.get("steal_runners") or []
         except Exception:
             pass
 
