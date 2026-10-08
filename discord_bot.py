@@ -26,8 +26,10 @@ from discord import app_commands
 from discord.ext import commands
 
 import bot_charts
+import draft_order
 import manager_calc
 import scouting_data
+import sync_plays
 import utils
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
@@ -244,6 +246,7 @@ catcher_group = app_commands.Group(name="catcher", description="Catcher scouting
 catcher_radial_group = app_commands.Group(name="catcher-radial", description="Catcher radial charts - throws & deltas")
 game_group = app_commands.Group(name="game", description="Tie scouting commands to a live game's active players")
 manager_group = app_commands.Group(name="manager", description="Manager decision-support tools")
+league_group = app_commands.Group(name="league", description="League-wide tools")
 
 # Discord caps a top-level command's serialized definition (name/description/
 # options/choices, all subcommands included) at 8000 characters. /pitcher and
@@ -280,6 +283,13 @@ async def pitcher_zones(interaction: discord.Interaction, name: str | None = Non
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_shadow(interaction: discord.Interaction, name: str | None = None) -> None:
     await _run_chart_command(interaction, "pitcher", name, bot_charts.shadow_delta_fig, "shadow.png")
+
+
+@pitcher_group.command(name="shadow-result", description="Shadow |delta| vs prior result")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"))
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_shadow_result(interaction: discord.Interaction, name: str | None = None) -> None:
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.shadow_delta_result_fig, "shadow_result.png")
 
 
 @pitcher_radial_group.command(name="pitches", description="Recent pitches, radial view")
@@ -929,6 +939,43 @@ async def manager_strategy(interaction: discord.Interaction, game_code: int | No
     await interaction.followup.send(file=discord.File(buf, filename="strategy.png"))
 
 
+# ── league ───────────────────────────────────────────────────────────────────
+
+@league_group.command(name="draftorder",
+                       description="Project next season's MLN draft order from current standings, with pick trades applied")
+async def league_draft_order(interaction: discord.Interaction) -> None:
+    await interaction.response.defer()
+
+    def _build():
+        # Reads the MLN Teams tab straight off the live Export Tables sheet -
+        # no Supabase sync/round-trip, so this is always current as of
+        # whenever the sheet itself last updated, and doesn't need a bot
+        # restart to pick up code changes elsewhere in the sync path.
+        teams = utils.read_mln_teams_from_sheet(sync_plays._MLN_SHEET_ID)
+        if len(teams) != draft_order.TEAMS_PER_ROUND:
+            return "bad_team_count", len(teams)
+
+        rows = draft_order.compute_draft_order(teams)
+        teams_by_abbrev = {t["abbrev"]: t for t in teams}
+        next_season = sync_plays._CURRENT_MLN_SEASON + 1
+        fig = bot_charts.draft_order_fig(rows, teams_by_abbrev, title=f"Season {next_season} Draft Order")
+        bot_charts.apply_dark_theme(fig)
+        w, h = fig.layout.width, fig.layout.height
+        raw_buf = io.BytesIO()
+        fig.write_image(raw_buf, format="png", scale=bot_charts.DRAFT_ORDER_SCALE, width=w, height=h)
+        png = bot_charts.composite_draft_order_logos(raw_buf.getvalue(), rows, teams_by_abbrev)
+        buf = io.BytesIO(png)
+        buf.seek(0)
+        return "ok", buf
+
+    status, payload = await asyncio.to_thread(_build)
+    if status == "bad_team_count":
+        await interaction.followup.send(
+            f"Expected {draft_order.TEAMS_PER_ROUND} rows in the MLN Teams tab, found {payload}.", ephemeral=True)
+        return
+    await interaction.followup.send(file=discord.File(payload, filename="draft_order.png"))
+
+
 bot.tree.add_command(pitcher_group)
 bot.tree.add_command(pitcher_radial_group)
 bot.tree.add_command(pitcher_radial_adv_group)
@@ -938,6 +985,7 @@ bot.tree.add_command(catcher_group)
 bot.tree.add_command(catcher_radial_group)
 bot.tree.add_command(game_group)
 bot.tree.add_command(manager_group)
+bot.tree.add_command(league_group)
 
 
 @bot.event

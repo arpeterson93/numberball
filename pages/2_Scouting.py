@@ -2738,6 +2738,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.caption("Not enough data for this sequence.")
 
             st.divider()
+            st.subheader("Shadow |Δ| vs Prior Result")
+            st.caption("Given how the previous plate appearance ended (XBH / BB-1B / Out / K+), how close does the pitcher's next pitch land to that same swing?")
+            st.plotly_chart(
+                utils.shadow_delta_vs_prior_result_heatmap(df_p, title="Shadow |Δ| vs Prior Result"),
+                width="stretch", config={"displayModeBar": False}, key="p_shadow_delta_result_hm",
+            )
+
             st.subheader("Shadow |Δ| vs Prior Diff")
             st.caption("Given how close the previous plate appearance's swing was to that pitch, how close does the pitcher's next pitch land to that same swing?")
             st.plotly_chart(

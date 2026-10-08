@@ -3971,6 +3971,7 @@ def _radial_recency_figure(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
         polar=dict(
             hole=0.08,
+            bgcolor="rgba(0,0,0,0)",
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
@@ -4395,6 +4396,7 @@ def radial_combined_chart(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
             hole=0.08,
+            bgcolor="rgba(0,0,0,0)",
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
@@ -9165,6 +9167,99 @@ def shadow_delta_vs_prior_diff_heatmap(
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         xaxis=dict(title="Prior diff (abs)"),
+        yaxis=dict(title="Shadow |Δ|", autorange=True),
+        annotations=annotations,
+        height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),
+        margin=dict(l=80, r=62, t=50, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def shadow_delta_vs_prior_result_heatmap(
+    df: pd.DataFrame,
+    title: str = "Shadow |Δ| vs Prior Result",
+) -> go.Figure:
+    """Heatmap: Shadow |Δ| (unsigned circular distance from this pitch to the
+    PREVIOUS plate appearance's swing, see enrich_df's pitch_shadow_delta) vs.
+    that previous plate appearance's result category (XBH / BB-1B / Out / K+,
+    see seq_result_category).
+
+    X = prior PA's result category (fixed best->worst order); Y = Shadow |Δ|
+    bin (0 at bottom, 500 at top). Only consecutive plate appearances from the
+    same pitcher within the same game are counted.
+    """
+    df_sw = df[df["result"].notna() & df["pitch_shadow_delta"].notna()].copy()
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw = df_sw.sort_values(["game_id", "pitcher_name", "id"])
+    df_sw["_prior_result"] = df_sw.groupby(["game_id", "pitcher_name"])["result"].shift(1)
+    df_sw = df_sw.dropna(subset=["_prior_result"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_res_cat"] = pd.Categorical(
+        df_sw["_prior_result"].map(seq_result_category), categories=SEQ_RESULT_CATEGORIES
+    )
+    df_sw["_delta_cat"] = pd.cut(
+        df_sw["pitch_shadow_delta"].astype(float),
+        bins=_DELTA_HM_BINS, labels=_DELTA_HM_LABELS, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_delta_cat"], df_sw["_res_cat"]).reindex(
+        index=_DELTA_HM_LABELS, columns=SEQ_RESULT_CATEGORIES, fill_value=0
+    )
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
+    # Normalize each column to 0–100 % so colour reflects within-column distribution.
+    col_totals = _col_n.replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw  = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(SEQ_RESULT_CATEGORIES))]
+        for i in range(len(_DELTA_HM_LABELS))
+    ]
+    customdata = z_raw
+
+    annotations = []
+    for j, lbl in enumerate(SEQ_RESULT_CATEGORIES):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"{int(_col_n.iloc[j])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(_DELTA_HM_LABELS):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"{int(_row_n.iloc[i])}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
+
+    fig = go.Figure(go.Heatmap(
+        z=z_norm,
+        x=SEQ_RESULT_CATEGORIES,
+        y=_DELTA_HM_LABELS,
+        text=text,
+        texttemplate="%{text}",
+        customdata=customdata,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate="Prior result: %{x}<br>Shadow |Δ|: %{y}<br>%{z:.1f}% of column (%{customdata} pitches)<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Prior PA result"),
         yaxis=dict(title="Shadow |Δ|", autorange=True),
         annotations=annotations,
         height=max(360, len(_DELTA_HM_LABELS) * 40 + 110),

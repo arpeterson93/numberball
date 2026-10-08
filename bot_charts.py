@@ -16,11 +16,17 @@ separate bucket per group.
 """
 from __future__ import annotations
 
+import io
+import os
+
 import pandas as pd
 import plotly.graph_objects as go
+from PIL import Image, ImageOps
 
 import scouting_data
 import utils
+
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 HOT_ZONE_BUCKET_CHOICES = [50, 100, 125, 200, 250, 500]
 HOT_ZONE_DEFAULT_BUCKET = 200
@@ -119,6 +125,10 @@ def zone_polar_fig(df: pd.DataFrame) -> go.Figure:
 
 def shadow_delta_fig(df: pd.DataFrame) -> go.Figure:
     return utils.shadow_delta_vs_prior_diff_heatmap(df, title="Shadow |Δ| vs Prior Diff")
+
+
+def shadow_delta_result_fig(df: pd.DataFrame) -> go.Figure:
+    return utils.shadow_delta_vs_prior_result_heatmap(df, title="Shadow |Δ| vs Prior Result")
 
 
 def last_n_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, swing_offset: bool = False,
@@ -670,3 +680,126 @@ def batter_last2_digit_radial_fig(df: pd.DataFrame) -> go.Figure:
     return utils.last2_digit_radial_chart(df, value_col="swing", last2_col=None,
                                            title="Last 2 Digits", count_label="Swings",
                                            baseline_probs=baseline, reference=reference, dark_mode=True)
+
+
+# ── league ───────────────────────────────────────────────────────────────────
+
+# Column layout for draft_order_fig, exposed so discord_bot.py's logo-paste
+# step can compute each row's pixel position from the same numbers the table
+# itself was drawn with - column 3 ("") is left blank on purpose, reserved
+# as a slot for the team logo pasted in after rendering (go.Table cells are
+# text-only, no inline images).
+DRAFT_ORDER_COL_WIDTHS = [46, 52, 62, 30, 190, 230, 62, 55]
+DRAFT_ORDER_LOGO_COL = 3
+DRAFT_ORDER_ROW_HEIGHT = 20
+DRAFT_ORDER_HEADER_HEIGHT = 30
+DRAFT_ORDER_MARGIN = dict(l=8, r=8, t=52, b=8)
+DRAFT_ORDER_SCALE = 1.5
+
+
+def _fmt_run_diff(rs: int, ra: int) -> str:
+    diff = rs - ra
+    return f"+{diff}" if diff > 0 else str(diff)
+
+
+def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: str = "Draft Order") -> go.Figure:
+    """Styled Round/Pick/Overall/Team/Notes/Record/Diff table for
+    draft_order.compute_draft_order's output - one row per pick, matching
+    every other table this bot sends (see strategy_table_fig). Team name text
+    only; discord_bot.py pastes each row's logo into the blank column after
+    this renders, using the layout constants above.
+
+    Record/Diff are the ORIGINAL team's (the standing that earned the slot,
+    not whoever the pick was traded to) - that's what explains the sort, and
+    cycling through all 16 teams once per round means every team's record
+    shows up somewhere in the table.
+    """
+    n = len(rows)
+    team_name = lambda ab: (teams_by_abbrev.get(ab) or {}).get("full_team") or ab
+
+    def _record(ab: str) -> str:
+        t = teams_by_abbrev.get(ab) or {}
+        return f"{t.get('wins') or 0}-{t.get('losses') or 0}"
+
+    def _diff(ab: str) -> str:
+        t = teams_by_abbrev.get(ab) or {}
+        return _fmt_run_diff(t.get("runs_scored") or 0, t.get("runs_allowed") or 0)
+
+    header_vals = ["Rd", "Pick", "Overall", "", "Team", "Notes", "Record", "Diff"]
+    cell_vals = [
+        [str(r["round"]) for r in rows],
+        [str(r["pick"]) for r in rows],
+        [str(r["overall"]) for r in rows],
+        [""] * n,
+        [team_name(r["team"]) for r in rows],
+        [r["notes"] for r in rows],
+        [_record(r["original_team"]) for r in rows],
+        [_diff(r["original_team"]) for r in rows],
+    ]
+    align = ["center", "center", "center", "center", "left", "left", "center", "center"]
+    row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=DRAFT_ORDER_COL_WIDTHS,
+        header=dict(values=header_vals, fill_color="#085d05", font=dict(color=DARK_TEXT, size=12), align=align,
+                    height=DRAFT_ORDER_HEADER_HEIGHT, line_color="#085d05"),
+        cells=dict(values=cell_vals, fill_color=[row_colors] * len(cell_vals), align=align,
+                   font=dict(size=11, color=DARK_TEXT), height=DRAFT_ORDER_ROW_HEIGHT, line_color=DARK_GRID),
+    )])
+
+    width = sum(DRAFT_ORDER_COL_WIDTHS) + DRAFT_ORDER_MARGIN["l"] + DRAFT_ORDER_MARGIN["r"]
+    height = (DRAFT_ORDER_MARGIN["t"] + DRAFT_ORDER_HEADER_HEIGHT
+              + DRAFT_ORDER_ROW_HEIGHT * n + DRAFT_ORDER_MARGIN["b"])
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),
+        margin=DRAFT_ORDER_MARGIN,
+        width=width, height=height,
+    )
+    return fig
+
+
+def _local_logo_path(logo_url: str | None) -> str | None:
+    """logo_url from the teams table is either a manifest-relative local path
+    (docs/img/logos/<file> on disk - see utils._local_logo_url) or a raw
+    external URL for a team the manifest doesn't cover yet. Only the former
+    can be composited in without a network fetch - None skips that row's logo
+    rather than guessing or blocking on a download."""
+    if not logo_url or logo_url.startswith("http"):
+        return None
+    path = os.path.join(_REPO_ROOT, "docs", logo_url)
+    return path if os.path.isfile(path) else None
+
+
+def composite_draft_order_logos(png_bytes: bytes, rows: list[dict], teams_by_abbrev: dict[str, dict]) -> bytes:
+    """Paste each row's team logo into draft_order_fig's blank logo column.
+    Pixel math is derived from the same DRAFT_ORDER_* layout constants the
+    table was drawn with, so it stays correct regardless of row count -
+    verified against the actual kaleido render, not just the nominal layout
+    (kaleido adds no extra cell padding beyond what go.Table was given)."""
+    scale = DRAFT_ORDER_SCALE
+    logo_x_logical = DRAFT_ORDER_MARGIN["l"] + sum(DRAFT_ORDER_COL_WIDTHS[:DRAFT_ORDER_LOGO_COL])
+    logo_w_logical = DRAFT_ORDER_COL_WIDTHS[DRAFT_ORDER_LOGO_COL]
+    col_px = logo_w_logical * scale
+    row_px = DRAFT_ORDER_ROW_HEIGHT * scale
+    x0 = logo_x_logical * scale
+    box = int(min(col_px, row_px) * 0.82)
+
+    im = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+    logo_cache: dict[str, Image.Image | None] = {}
+    for i, r in enumerate(rows):
+        abbrev = r["team"]
+        if abbrev not in logo_cache:
+            path = _local_logo_path((teams_by_abbrev.get(abbrev) or {}).get("logo_url"))
+            logo_cache[abbrev] = Image.open(path).convert("RGBA") if path else None
+        logo = logo_cache[abbrev]
+        if logo is None:
+            continue
+        thumb = ImageOps.contain(logo, (box, box), Image.LANCZOS)
+        y0 = (DRAFT_ORDER_MARGIN["t"] + DRAFT_ORDER_HEADER_HEIGHT + i * DRAFT_ORDER_ROW_HEIGHT) * scale
+        px = int(x0 + (col_px - thumb.width) / 2)
+        py = int(y0 + (row_px - thumb.height) / 2)
+        im.paste(thumb, (px, py), thumb)
+
+    out = io.BytesIO()
+    im.convert("RGB").save(out, format="PNG")
+    return out.getvalue()
