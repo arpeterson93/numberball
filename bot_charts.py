@@ -62,6 +62,12 @@ def apply_dark_theme(fig: go.Figure) -> go.Figure:
     )
     fig.update_xaxes(gridcolor=DARK_GRID, zerolinecolor=DARK_GRID, linecolor=DARK_GRID, color=DARK_TEXT)
     fig.update_yaxes(gridcolor=DARK_GRID, zerolinecolor=DARK_GRID, linecolor=DARK_GRID, color=DARK_TEXT)
+    # Polar subplots (radial/zone charts) keep their own bgcolor independent of
+    # paper/plot_bgcolor - left alone they render Plotly's white default,
+    # which clashes with everything else going dark. Streamlit's own theming
+    # handles this for the app, but kaleido's static PNG export (what the bot
+    # sends to Discord) never passes through that, so it needs doing here.
+    fig.update_polars(bgcolor=DARK_SECONDARY_BG)
     return fig
 
 

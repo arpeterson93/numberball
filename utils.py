@@ -2303,68 +2303,82 @@ def last2_digit_radial_chart(
     # layer intercepts pointer events across the whole shared domain even
     # with nothing visible drawn) - annotations don't capture pointer events
     # at all, so this can't break hover no matter how it's positioned.
-    # center_y is computed from the actual margins/height below (not a
-    # hardcoded 0.5) because "paper" y=0.5 is the canvas's own vertical
-    # midpoint, not the off-center polar plot area's - margin.t > margin.b
-    # (title) pushes the plot area's true center down from paper's 0.5.
-    # Confirmed against Plotly's own internal subplot geometry
-    # (fig._fullLayout.polar._subplot.cx/cy) in a live render - this matches
-    # exactly, so a single annotation here would be correctly centered too.
+    # For a figure with ONLY a polar subplot (no cartesian x/y axes), a
+    # "paper"-referenced annotation's y does NOT span the full canvas
+    # (0=bottom edge, 1=top edge) the way it would on a cartesian chart -
+    # Plotly instead maps it to the MARGIN-TRIMMED plot box: pixel =
+    # (fig_height - margin_b) - net_height * y, where net_height =
+    # fig_height - margin_t - margin_b. So y=1 lands exactly at the circle's
+    # own rim (margin_t), never above it in the margin_t strip where the
+    # title lives - confirmed by live-rendering in Chrome and reading each
+    # annotation's actual SVG transform (not just kaleido, a separate
+    # renderer from what the Streamlit app and Discord bot each actually
+    # show, and which does NOT reproduce this quirk the same way).
     #
-    # That match only holds if these margins are the figure's ACTUAL final
-    # margins, though - Plotly's margin autoexpand (on by default) silently
-    # grows a margin whenever anything would otherwise overflow it, which
-    # breaks this formula without any visible warning. The circle's own
-    # top/bottom edges sit at EXACTLY margin_t/margin_b with zero slack (by
-    # construction, since this subplot is square-fit to the shorter of the
-    # two net dimensions and this chart is always wider than tall) - so the
-    # standout-digit callout, whose angle is data-dependent, overflows top
-    # or bottom whenever it happens to land near the top/bottom of the
-    # circle, auto-growing that margin for THAT render only. Real extra
-    # buffer (not just autoexpand=False with the old tight values) stops it
-    # actually clipping that callout; autoexpand=False below then guarantees
-    # these margins can never silently drift again regardless of the data.
-    margin_t, margin_b, margin_l, margin_r, fig_height = 96, 40, 30, 30, 420
+    # One consequence falls out cleanly: since the margin_t terms cancel,
+    # y=0.5 is ALWAYS the polar's true vertical center regardless of
+    # margin_t/fig_height - verified against fig._fullLayout.polar._subplot.cy
+    # in a live render, so center_y below is just 0.5, not a margin-derived
+    # fraction.
+    #
+    # Plotly's margin autoexpand (on by default) also silently grows a
+    # margin whenever anything would otherwise overflow it, which would
+    # invalidate the fixed pixel math throughout this function with no
+    # visible warning. The circle's own top/bottom edges sit at EXACTLY
+    # margin_t/margin_b with zero slack (by construction, since this
+    # subplot is square-fit to the shorter of the two net dimensions and
+    # this chart is always wider than tall) - so the standout-digit
+    # callout, whose angle is data-dependent, overflows top or bottom
+    # whenever it happens to land near the top/bottom of the circle,
+    # auto-growing that margin for THAT render only. autoexpand=False below
+    # guarantees these margins can never silently drift regardless of the
+    # data - real extra buffer (not just tight values) is what actually
+    # stops it clipping that callout.
+    margin_t, margin_b, margin_l, margin_r, fig_height = 150, 40, 30, 30, 474
+    net_height = fig_height - margin_t - margin_b
     center_x = 0.5  # valid since margin_l == margin_r, regardless of actual rendered width
-    center_y = 1 - (margin_t + (fig_height - margin_t - margin_b) / 2) / fig_height
+    center_y = 0.5
     # Two SEPARATE single-line annotations (not one two-line block, and not
     # two pieces anchored at a shared boundary - both tried and measured
-    # visibly low). Plotly's annotation yanchor="middle" itself - even for
-    # one line, nothing to do with multi-line estimation - carries a
-    # consistent downward bias at this font size: measured by rendering and
-    # reading getBoundingClientRect() in an actual Chrome tab (not just
-    # kaleido), text center landed ~11px below the target y every time,
-    # regardless of anchoring strategy. bias_px is that correction, applied
-    # uniformly to both lines so the pair's combined center lands correctly
-    # even though it doesn't fully equalize each line's own residual.
-    bias_px = 14
-    half_gap = 9 / fig_height
-    center_y_corrected = center_y + bias_px / fig_height
+    # visibly low). half_gap_px is plain pixels, converted through
+    # net_height (the same quirk above, NOT fig_height) so the two lines
+    # actually end up half_gap_px*2 apart on screen instead of rendering
+    # much closer together than intended.
+    half_gap_px = 7
+    half_gap = half_gap_px / net_height
     fig.add_annotation(
-        x=center_x, y=center_y_corrected + half_gap, xref="paper", yref="paper",
+        x=center_x, y=center_y + half_gap, xref="paper", yref="paper",
         xanchor="center", yanchor="middle", align="center", showarrow=False,
         text=f"<b>{total}</b>", font=dict(size=14, color=text_color),
     )
     fig.add_annotation(
-        x=center_x, y=center_y_corrected - half_gap, xref="paper", yref="paper",
+        x=center_x, y=center_y - half_gap, xref="paper", yref="paper",
         xanchor="center", yanchor="middle", align="center", showarrow=False,
         text=count_label, font=dict(size=14, color=text_color),
     )
     domain = dict(x=[0, 1], y=[0, 1])
-    # Centered under the title (not corner-anchored) and kept inside the
-    # fixed-pixel margin_t strip above the domain, not positioned as a
-    # fraction of total width/height. A corner anchor (the old x=0.99) put
-    # this flush against the paper's right edge, which is fine on a wide
-    # desktop render (the circle, sized off the fixed height, leaves a wide
-    # blank gutter on each side) but collides with the angular axis's "10"
-    # tick label on a narrow mobile width - there, the circle's width-
-    # constrained rim (and its outside-the-rim tick labels) reaches much
-    # closer to that same edge, since there's no gutter left to reach into.
-    # Centering sits this above the "00" tick (the chart's own topmost
-    # point, directly under the title) instead, which no tick label can
-    # ever be above - so it stays clear of the rim at any screen width.
+    # Centered under the title (not corner-anchored): a corner anchor (the
+    # old x=0.99) put this flush against the paper's right edge, fine on a
+    # wide desktop render (the circle, sized off the fixed height, leaves a
+    # wide blank gutter on each side) but colliding with the angular axis's
+    # "10" tick label on a narrow mobile width, where the circle's width-
+    # constrained rim reaches much closer to that same edge.
+    #
+    # Clearing the rim here runs into the same y-doesn't-reach-the-margin-
+    # strip quirk described above: y=1 with yanchor="top" pins the text's
+    # TOP to the rim pixel and only grows downward from there (ending up
+    # INSIDE the circle, overlapping the top wedges) - there is no y value
+    # that reaches into the margin_t strip under "top". yanchor="bottom" at
+    # y=1 pins the opposite edge (the text's bottom) to that same rim pixel
+    # instead, which does let it extend upward into margin_t; yshift (plain
+    # pixels, unaffected by the margin quirk) then lifts it clear of both
+    # the rim and the "00"/"10" tick labels sitting just outside it.
+    # margin_t was widened (from a tighter 96) to leave room for this
+    # between the title and those tick labels - both gaps measured via
+    # getBoundingClientRect in a live Chrome render, not estimated from
+    # layout numbers alone.
     fig.add_annotation(
-        x=0.5, y=1 - 34 / fig_height, xref="paper", yref="paper", xanchor="center", yanchor="top",
+        x=0.5, y=1.0, yshift=30, xref="paper", yref="paper", xanchor="center", yanchor="bottom",
         align="center", showarrow=False,
         text=f"Clustering: {evenness_pct:.0f}%ile<br>Standout: {standout_pct:.0f}%ile",
         font=dict(size=11, color=text_color),
@@ -3971,7 +3985,6 @@ def _radial_recency_figure(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
         polar=dict(
             hole=0.08,
-            bgcolor="rgba(0,0,0,0)",
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
@@ -4396,7 +4409,6 @@ def radial_combined_chart(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
             hole=0.08,
-            bgcolor="rgba(0,0,0,0)",
             angularaxis=dict(
                 direction="clockwise", rotation=90,
                 tickmode="array", tickvals=tickvals, ticktext=ticktext,
