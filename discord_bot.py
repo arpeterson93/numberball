@@ -337,6 +337,29 @@ async def pitcher_radial_deltas(interaction: discord.Interaction, name: str | No
                               center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
+@pitcher_radial_group.command(name="shadow-delta", description="Recent shadow deltas (vs prior swing), radial view")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent shadow deltas to show",
+                        **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
+@app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
+                       swing_type=_swing_type_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_radial_shadow_delta(interaction: discord.Interaction, name: str | None = None,
+                                       n: int = bot_charts.RADIAL_DEFAULT_N,
+                                       prev_value: int | None = None, value_width: int | None = None,
+                                       result_cat: str | None = None, leverage: str | None = None,
+                                       leverage_threshold: float = 1.5, first_pitch_appearance: bool = False,
+                                       first_pitch_inning: bool = False, swing_value: int | None = None,
+                                       swing_type: str = "Normal Swing", extend_sacf: bool = False,
+                                       game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ctx = _radial_context_kwargs(prev_value, value_width, bot_charts.DELTA_DEFAULT_BUCKET, result_cat, leverage,
+                                  leverage_threshold, first_pitch_appearance, first_pitch_inning)
+    obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.shadow_delta_radial_fig,
+                              "shadow_delta_radial.png", already_deferred=True, n=n,
+                              obr=obr, sacf=sacf, **ctx)
+
+
 @pitcher_radial_adv_group.command(name="delta2", description="Recent pitch delta-squareds, radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent delta-squareds to show",
                         center_on_prev="Map each delta-squared onto the last actual pitch (implied next pitch)",

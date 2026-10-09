@@ -86,6 +86,7 @@ def apply_prior_context(
     first_pitch_appearance: bool = False, first_pitch_inning: bool = False,
     pitch_col: str = "pitch", delta_col: str = "pitch_circ_delta",
     delta2_col: str = "pitch_circ_delta2_signed",
+    shadow_delta_col: str = "pitch_shadow_delta_signed",
     fp_app_col: str = "is_fp_app", fp_inn_col: str = "is_fp_inn",
     result_category_fn=None,
 ) -> pd.DataFrame:
@@ -108,6 +109,7 @@ def apply_prior_context(
         first_pitch_appearance=first_pitch_appearance or None,
         first_pitch_inning=first_pitch_inning or None,
         pitch_col=pitch_col, delta_col=delta_col, delta2_col=delta2_col,
+        shadow_delta_col=shadow_delta_col,
         fp_app_col=fp_app_col, fp_inn_col=fp_inn_col,
         result_category_fn=result_category_fn,
         **bucket_kwargs,
@@ -387,6 +389,25 @@ def delta2_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_pre
                                              delta_col="pitch_circ_delta", value_col="pitch",
                                              title=title, center_on_prev=center_on_prev,
                                              anchor=anchor, anchor_delta=anchor_delta,
+                                             obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
+
+
+def shadow_delta_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N,
+                             obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
+                             **context_kwargs) -> go.Figure:
+    # No center_on_prev here, unlike deltas/delta2_radial_fig: Shadow Δ is
+    # measured from the PREVIOUS PLATE APPEARANCE'S SWING (see enrich_df's
+    # pitch_shadow_delta_signed), not the pitcher's own last pitch, so
+    # re-anchoring it onto "last pitch + delta" the way those two do would
+    # imply a different, wrong quantity. This just plots the raw signed
+    # spread, matching the Streamlit page's Shadow Δ radial.
+    df_f = apply_prior_context(df, bucket_kind="shadow_delta", **context_kwargs)
+    n_actual = (min(n, int(df_f["pitch_shadow_delta_signed"].notna().sum()))
+                if "pitch_shadow_delta_signed" in df_f.columns else 0)
+    obr_lo, obr_hi = obr if obr is not None else (None, None)
+    sacf_lo, sacf_hi = sacf if sacf is not None else (None, None)
+    return utils.radial_recent_deltas_chart(df_f, n=n, delta_col="pitch_shadow_delta_signed", value_col="pitch",
+                                             title=f"Last {n_actual} Shadow Δs", center_on_prev=False,
                                              obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
 
 

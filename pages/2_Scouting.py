@@ -2253,6 +2253,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _pf_pitches_p   = _pf_sorted_p["pitch"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_delta_p     = _pf_sorted_p["pitch_circ_delta"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_delta2_p    = _pf_sorted_p["pitch_circ_delta2_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_shadow_delta_p = _pf_sorted_p["pitch_shadow_delta_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
             # Pre-read each widget's current (or preset-default) value from
@@ -2279,6 +2280,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_delta2_lo_pre, _cf_delta2_hi_pre = utils._centered_match_interval(
                 _cf_delta2_v_pre, _cf_delta2_w_pre, domain_hi=500, domain_lo=-500)
             _cf_delta2_lbl_p = f"Prev Δ² ({_cf_delta2_lo_pre}-{_cf_delta2_hi_pre})"
+
+            _cf_shadow_delta_def_p = _pf_shadow_delta_p[-1] if _pf_shadow_delta_p else 100
+            _cf_shadow_delta_w_pre = st.session_state.get("ctx_shadow_delta_w_p", 100)
+            _cf_shadow_delta_v_pre = int(st.session_state.get(f"ctx_shadow_delta_v_p_{tab_p_pitcher}", _cf_shadow_delta_def_p))
+            _cf_shadow_delta_lo_pre, _cf_shadow_delta_hi_pre = utils._centered_match_interval(
+                _cf_shadow_delta_v_pre, _cf_shadow_delta_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_shadow_delta_lbl_p = f"Prev Shadow Δ ({_cf_shadow_delta_lo_pre}-{_cf_shadow_delta_hi_pre})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -2397,6 +2405,36 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                          "points. On: it also overlays the implied-Δ² points shown on the "
                          "Delta² radial above.")
 
+                _cf_shadow_delta_on_p = st.toggle(_cf_shadow_delta_lbl_p, key="ctx_shadow_delta_on_p", value=False,
+                                                  help="Shadow Δ: circular distance from the PREVIOUS plate "
+                                                       "appearance's swing to this pitch - see the Shadow |Δ| "
+                                                       "heatmaps below.")
+                _cf_shadow_delta_bucket_p = None
+                _cf_shadow_delta_bucket2_p = None
+                if _cf_shadow_delta_on_p:
+                    _cf_shadow_delta_w_p = st.select_slider("Bucket size (Shadow Δ)", options=[25, 50, 100, 125, 250, 500],
+                                                             value=100, key="ctx_shadow_delta_w_p")
+                    _cf_shadow_delta_val_p = st.number_input(
+                        "Previous Shadow Δ value", min_value=-500, max_value=500, value=_cf_shadow_delta_def_p,
+                        step=1, key=f"ctx_shadow_delta_v_p_{tab_p_pitcher}",
+                    )
+                    _cf_shadow_delta_bucket_p = utils._centered_match_interval(
+                        int(_cf_shadow_delta_val_p), _cf_shadow_delta_w_p, domain_hi=500, domain_lo=-500)
+                    _cf_shadow_delta_seq3_on_p = st.toggle(
+                        "3-Shadow-Δ pattern", key="ctx_shadow_delta_seq3_p", value=False,
+                        help="Also require the Shadow Δ two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-point match above "
+                             "into a 3-point one.")
+                    if _cf_shadow_delta_seq3_on_p:
+                        _cf_shadow_delta_def2_p = (_pf_shadow_delta_p[-2] if len(_pf_shadow_delta_p) >= 2
+                                                   else _cf_shadow_delta_def_p)
+                        _cf_shadow_delta_val2_p = st.number_input(
+                            "Prev-2 Shadow Δ value", min_value=-500, max_value=500, value=_cf_shadow_delta_def2_p,
+                            step=1, key=f"ctx_shadow_delta_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_shadow_delta_bucket2_p = utils._centered_match_interval(
+                            int(_cf_shadow_delta_val2_p), _cf_shadow_delta_w_p, domain_hi=500, domain_lo=-500)
+
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
                 _cf_result_cat_p = None
@@ -2429,15 +2467,19 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             # Previous pitch range only narrows the Pitches radial; previous Δ
             # range only narrows the Deltas radial; previous Δ² range only
-            # narrows the Delta² radial - previous result, leverage, and the
-            # 1st-pitch toggles are shared context, so they narrow all three.
+            # narrows the Delta² radial; previous Shadow Δ range only narrows
+            # the Shadow Δ radial - previous result, leverage, and the
+            # 1st-pitch toggles are shared context, so they narrow all four.
             _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_pitch_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_delta2_p  = any([_cf_delta2_bucket_p, _cf_delta2_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
-            if (_cf_active_pitches_p or _cf_active_deltas_p or _cf_active_delta2_p) and not df_p_pred.empty:
+            _cf_active_shadow_delta_p = any([_cf_shadow_delta_bucket_p, _cf_shadow_delta_bucket2_p, _cf_result_cat_p,
+                                             _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+            if (_cf_active_pitches_p or _cf_active_deltas_p or _cf_active_delta2_p
+                    or _cf_active_shadow_delta_p) and not df_p_pred.empty:
                 _df_ctx_p = df_p_pred.copy()
                 if _cf_leverage_bucket_p is not None:
                     _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
@@ -2471,12 +2513,24 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_delta2_p else _df_ctx_p
+                _df_radial_shadow_delta_p = utils.filter_by_prior_context(
+                    _df_ctx_p,
+                    prev_shadow_delta_bucket=_cf_shadow_delta_bucket_p,
+                    prev_shadow_delta_bucket2=_cf_shadow_delta_bucket2_p,
+                    prev_result_cat=_cf_result_cat_p,
+                    leverage_bucket=_cf_leverage_bucket_p,
+                    leverage_threshold=_cf_leverage_threshold_p,
+                    first_pitch_appearance=_cf_fp_app_on_p,
+                    first_pitch_inning=_cf_fp_inn_on_p,
+                ) if _cf_active_shadow_delta_p else _df_ctx_p
                 st.caption(f"Pitches: {len(_df_radial_pitches_p)} · Deltas: {len(_df_radial_deltas_p)} · "
-                          f"Delta²: {len(_df_radial_delta2_p)} matching historical instance(s).")
+                          f"Delta²: {len(_df_radial_delta2_p)} · "
+                          f"Shadow Δ: {len(_df_radial_shadow_delta_p)} matching historical instance(s).")
             else:
                 _df_radial_pitches_p = df_p_pred
                 _df_radial_deltas_p  = df_p_pred
                 _df_radial_delta2_p  = df_p_pred
+                _df_radial_shadow_delta_p = df_p_pred
 
         _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
@@ -2534,6 +2588,24 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             help="Shows each recent delta² applied to the last actual pitch and delta, on the "
                  "1-1000 pitch scale - i.e. the implied next pitch given the spread of recent "
                  "delta²s.",
+        )
+        _actual_shadow_delta_radial_p = (
+            len(_df_radial_shadow_delta_p["pitch_shadow_delta_signed"].dropna().tail(n_pitches))
+            if not _df_radial_shadow_delta_p.empty else 0
+        )
+        # No "map onto previous pitch" toggle here, unlike Deltas/Delta²:
+        # those re-anchor onto the pitcher's own last ACTUAL pitch
+        # (anchor + delta), which is exactly what pitch_circ_delta/
+        # pitch_circ_delta2_signed are measured from. Shadow Δ is measured
+        # from the PREVIOUS PLATE APPEARANCE'S SWING instead (see enrich_df),
+        # so re-anchoring it onto the last pitch the same way would imply a
+        # different, wrong quantity - this just plots the raw signed Shadow Δ
+        # spread, same as the Deltas radial's un-toggled mode.
+        st.plotly_chart(
+            utils.radial_recent_deltas_chart(_df_radial_shadow_delta_p, n=n_pitches,
+                                             delta_col="pitch_shadow_delta_signed",
+                                             title=f"Last {_actual_shadow_delta_radial_p} Shadow Δs"),
+            width="stretch", key="p_radial_shadow_delta",
         )
         _actual_combined_radial_p = max(
             _actual_pitches_radial_p, _actual_deltas_radial_p,

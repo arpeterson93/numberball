@@ -1006,6 +1006,8 @@ def filter_by_prior_context(
     prev_delta_bucket2: tuple[int, int] | None = None,
     prev_delta2_bucket: tuple[int, int] | None = None,
     prev_delta2_bucket2: tuple[int, int] | None = None,
+    prev_shadow_delta_bucket: tuple[int, int] | None = None,
+    prev_shadow_delta_bucket2: tuple[int, int] | None = None,
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
@@ -1014,25 +1016,28 @@ def filter_by_prior_context(
     pitch_col: str = "pitch",
     delta_col: str = "pitch_circ_delta",
     delta2_col: str = "pitch_circ_delta2_signed",
+    shadow_delta_col: str = "pitch_shadow_delta_signed",
     fp_app_col: str = "is_fp_app",
     fp_inn_col: str = "is_fp_inn",
     result_category_fn=None,
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
 
-    prev_pitch_bucket/prev_delta_bucket/prev_delta2_bucket/prev_result_cat look
-    at the row immediately BEFORE each one (what the pitcher just threw/what
-    just happened), so a row with no predecessor is dropped once any of those
-    is active. prev_delta_bucket/prev_delta2_bucket match the signed
-    pitch_circ_delta/pitch_circ_delta2_signed directly (not their absolute
-    value), so a bucket centered on +50 with width 200 keeps predecessors whose
-    signed value fell in [-50, 150]. The *_bucket2 variants are the same
-    condition applied TWO rows back (shift(2)) instead of one - turning a
-    2-point sequence match (only the immediate predecessor) into a 3-point one
-    (predecessor AND the one before it), e.g. a 3-pitch pattern instead of a
-    2-pitch one. They only add a constraint when the corresponding *_bucket is
-    also set; passing a *_bucket2 alone still filters on it, but callers should
-    treat it as a refinement of the 1-back bucket, not a standalone one.
+    prev_pitch_bucket/prev_delta_bucket/prev_delta2_bucket/prev_shadow_delta_bucket/
+    prev_result_cat look at the row immediately BEFORE each one (what the
+    pitcher just threw/what just happened), so a row with no predecessor is
+    dropped once any of those is active. prev_delta_bucket/prev_delta2_bucket/
+    prev_shadow_delta_bucket match the signed
+    pitch_circ_delta/pitch_circ_delta2_signed/pitch_shadow_delta_signed value
+    directly (not its absolute value), so a bucket centered on +50 with width
+    200 keeps predecessors whose signed value fell in [-50, 150]. The
+    *_bucket2 variants are the same condition applied TWO rows back (shift(2))
+    instead of one - turning a 2-point sequence match (only the immediate
+    predecessor) into a 3-point one (predecessor AND the one before it), e.g.
+    a 3-pitch pattern instead of a 2-pitch one. They only add a constraint
+    when the corresponding *_bucket is also set; passing a *_bucket2 alone
+    still filters on it, but callers should treat it as a refinement of the
+    1-back bucket, not a standalone one.
     leverage_bucket looks at the row's OWN leverage (the stakes it was thrown
     into, from a '_leverage' column - see compute_play_leverage), not its
     predecessor's. first_pitch_appearance/first_pitch_inning also look at the
@@ -1040,11 +1045,12 @@ def filter_by_prior_context(
     pitcher's first pitch of the game appearance/half-inning; left None, all
     pitches pass through unfiltered.
 
-    pitch_col/delta_col/delta2_col/fp_app_col/fp_inn_col/result_category_fn
-    default to the pitch/swing page's column names and seq_result_category;
-    pass the Catcher tab's throw-side equivalents (throw_num column,
-    throw_circ_delta, is_ft_app, is_ft_inn, steal_result_category) to reuse
-    this for throws.
+    pitch_col/delta_col/delta2_col/shadow_delta_col/fp_app_col/fp_inn_col/
+    result_category_fn default to the pitch/swing page's column names and
+    seq_result_category; pass the Catcher tab's throw-side equivalents
+    (throw_num column, throw_circ_delta, is_ft_app, is_ft_inn,
+    steal_result_category) to reuse this for throws. shadow_delta_col has no
+    throw-side equivalent yet (pitch_shadow_delta_signed is pitcher-only).
     """
     if result_category_fn is None:
         result_category_fn = seq_result_category
@@ -1074,6 +1080,14 @@ def filter_by_prior_context(
     if prev_delta2_bucket2 is not None:
         lo, hi = prev_delta2_bucket2
         keep &= pd.to_numeric(d[delta2_col], errors="coerce").shift(2).between(lo, hi)
+
+    if prev_shadow_delta_bucket is not None:
+        lo, hi = prev_shadow_delta_bucket
+        keep &= pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_shadow_delta_bucket2 is not None:
+        lo, hi = prev_shadow_delta_bucket2
+        keep &= pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(2).between(lo, hi)
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(1).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
