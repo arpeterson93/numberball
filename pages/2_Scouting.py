@@ -2254,6 +2254,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _pf_delta_p     = _pf_sorted_p["pitch_circ_delta"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_delta2_p    = _pf_sorted_p["pitch_circ_delta2_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_shadow_delta_p = _pf_sorted_p["pitch_shadow_delta_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_swings_p    = _pf_sorted_p["swing"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
             # Pre-read each widget's current (or preset-default) value from
@@ -2593,19 +2594,32 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             len(_df_radial_shadow_delta_p["pitch_shadow_delta_signed"].dropna().tail(n_pitches))
             if not _df_radial_shadow_delta_p.empty else 0
         )
-        # No "map onto previous pitch" toggle here, unlike Deltas/Delta²:
-        # those re-anchor onto the pitcher's own last ACTUAL pitch
-        # (anchor + delta), which is exactly what pitch_circ_delta/
-        # pitch_circ_delta2_signed are measured from. Shadow Δ is measured
-        # from the PREVIOUS PLATE APPEARANCE'S SWING instead (see enrich_df),
-        # so re-anchoring it onto the last pitch the same way would imply a
-        # different, wrong quantity - this just plots the raw signed Shadow Δ
-        # spread, same as the Deltas radial's un-toggled mode.
+        _center_shadow_delta_p = st.session_state.get("p_radial_shadow_delta_center", False)
+        _shadow_delta_radial_title_p = (f"Last {_actual_shadow_delta_radial_p} Implied Pitches (Shadow)"
+                                        if _center_shadow_delta_p else f"Last {_actual_shadow_delta_radial_p} Shadow Δs")
+        # Anchors on the batter's last actual SWING, not the pitcher's last
+        # pitch like _pf_true_anchor_p/_pf_true_anchor_delta_p do - swing +
+        # shadow delta is exactly how the upcoming pitch is estimated (see
+        # enrich_df's pitch_shadow_delta_signed), so "map onto previous X"
+        # means something different here than it does for Deltas/Delta².
+        # From the unfiltered df for the same reason as those two: context
+        # filters can drop this batter's actual last swing from
+        # _df_radial_shadow_delta_p, but implied-pitch points should still
+        # anchor to it.
+        _pf_true_anchor_swing_p = _pf_swings_p[-1] if _pf_swings_p else None
         st.plotly_chart(
             utils.radial_recent_deltas_chart(_df_radial_shadow_delta_p, n=n_pitches,
-                                             delta_col="pitch_shadow_delta_signed",
-                                             title=f"Last {_actual_shadow_delta_radial_p} Shadow Δs"),
+                                             delta_col="pitch_shadow_delta_signed", value_col="swing",
+                                             title=_shadow_delta_radial_title_p,
+                                             center_on_prev=_center_shadow_delta_p,
+                                             anchor=_pf_true_anchor_swing_p),
             width="stretch", key="p_radial_shadow_delta",
+        )
+        st.toggle(
+            "Map onto previous swing", key="p_radial_shadow_delta_center", value=False,
+            help="Shows each recent shadow delta applied to the batter's last actual swing, on "
+                 "the 1-1000 pitch scale - swing + shadow delta is exactly how the upcoming "
+                 "pitch is estimated.",
         )
         _actual_combined_radial_p = max(
             _actual_pitches_radial_p, _actual_deltas_radial_p,

@@ -339,12 +339,14 @@ async def pitcher_radial_deltas(interaction: discord.Interaction, name: str | No
 
 @pitcher_radial_group.command(name="shadow-delta", description="Recent shadow deltas (vs prior swing), radial view")
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent shadow deltas to show",
+                        center_on_prev="Map each shadow delta onto the batter's last actual swing "
+                                       "(implied next pitch)",
                         **_CONTEXT_DESCRIBE, **_OBR_DESCRIBE)
 @app_commands.choices(value_width=_delta_bucket_choices, result_cat=_seq_result_choices, leverage=_leverage_choices,
                        swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_radial_shadow_delta(interaction: discord.Interaction, name: str | None = None,
-                                       n: int = bot_charts.RADIAL_DEFAULT_N,
+                                       n: int = bot_charts.RADIAL_DEFAULT_N, center_on_prev: bool = False,
                                        prev_value: int | None = None, value_width: int | None = None,
                                        result_cat: str | None = None, leverage: str | None = None,
                                        leverage_threshold: float = 1.5, first_pitch_appearance: bool = False,
@@ -357,7 +359,7 @@ async def pitcher_radial_shadow_delta(interaction: discord.Interaction, name: st
     obr, sacf = await _resolve_obr(swing_value, swing_type, extend_sacf, game_code)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.shadow_delta_radial_fig,
                               "shadow_delta_radial.png", already_deferred=True, n=n,
-                              obr=obr, sacf=sacf, **ctx)
+                              center_on_prev=center_on_prev, obr=obr, sacf=sacf, **ctx)
 
 
 @pitcher_radial_adv_group.command(name="delta2", description="Recent pitch delta-squareds, radial view")
