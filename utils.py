@@ -1008,6 +1008,10 @@ def filter_by_prior_context(
     prev_delta2_bucket2: tuple[int, int] | None = None,
     prev_shadow_delta_bucket: tuple[int, int] | None = None,
     prev_shadow_delta_bucket2: tuple[int, int] | None = None,
+    prev_team_swing_delta_bucket: tuple[int, int] | None = None,
+    prev_team_swing_delta_bucket2: tuple[int, int] | None = None,
+    prev_est_delta_bucket: tuple[int, int] | None = None,
+    prev_est_delta_bucket2: tuple[int, int] | None = None,
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
@@ -1017,6 +1021,8 @@ def filter_by_prior_context(
     delta_col: str = "pitch_circ_delta",
     delta2_col: str = "pitch_circ_delta2_signed",
     shadow_delta_col: str = "pitch_shadow_delta_signed",
+    team_swing_delta_col: str = "pitch_team_swing_delta_signed",
+    est_delta_col: str = "pitch_est_delta_signed",
     fp_app_col: str = "is_fp_app",
     fp_inn_col: str = "is_fp_inn",
     result_category_fn=None,
@@ -1051,6 +1057,13 @@ def filter_by_prior_context(
     (throw_num column, throw_circ_delta, is_ft_app, is_ft_inn,
     steal_result_category) to reuse this for throws. shadow_delta_col has no
     throw-side equivalent yet (pitch_shadow_delta_signed is pitcher-only).
+
+    prev_team_swing_delta_bucket matches pitch_team_swing_delta_signed one row
+    back: the hitting side's swing-to-swing change going INTO the previous
+    pitch, i.e. what the pitcher had just seen. prev_est_delta_bucket matches
+    pitch_est_delta_signed one row back: the hitters' estimated pitcher delta
+    (their swing minus the pitch before it) from the previous plate
+    appearance. Both are pitcher-side only, like shadow_delta_col.
     """
     if result_category_fn is None:
         result_category_fn = seq_result_category
@@ -1088,6 +1101,22 @@ def filter_by_prior_context(
     if prev_shadow_delta_bucket2 is not None:
         lo, hi = prev_shadow_delta_bucket2
         keep &= pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(2).between(lo, hi)
+
+    if prev_team_swing_delta_bucket is not None:
+        lo, hi = prev_team_swing_delta_bucket
+        keep &= pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_team_swing_delta_bucket2 is not None:
+        lo, hi = prev_team_swing_delta_bucket2
+        keep &= pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(2).between(lo, hi)
+
+    if prev_est_delta_bucket is not None:
+        lo, hi = prev_est_delta_bucket
+        keep &= pd.to_numeric(d[est_delta_col], errors="coerce").shift(1).between(lo, hi)
+
+    if prev_est_delta_bucket2 is not None:
+        lo, hi = prev_est_delta_bucket2
+        keep &= pd.to_numeric(d[est_delta_col], errors="coerce").shift(2).between(lo, hi)
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(1).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
@@ -1861,6 +1890,8 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pitch_approach"] = pd.NA
     df["pitch_shadow_delta"] = pd.NA
     df["pitch_shadow_delta_signed"] = pd.NA
+    df["pitch_team_swing_delta_signed"] = pd.NA
+    df["pitch_est_delta_signed"] = pd.NA
     df["pitch_wraparound"] = pd.NA
     df["pitch_dd"] = pd.NA
     df["pitch_td"] = pd.NA
@@ -1901,8 +1932,18 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         # swing), |Δ| is its magnitude and is the same curr_dist used to decide
         # pitch_approach. Collected as a side effect of _approach_fn's single
         # pass rather than a second loop over the same pitches/swings.
+        #
+        # Team swing delta and estimated delta ride the same pass. Both are
+        # signed circular deltas ending at THIS plate appearance's swing:
+        # team swing delta = previous PA's swing -> this swing (how much the
+        # hitting side changed up, across batters - swing_circ_delta is per
+        # batter), estimated delta = previous pitch -> this swing (what the
+        # hitters guessed the pitcher's delta to be, same quantity as the
+        # Est. Δ overlay on the last-N chart).
         _shadow_delta_vals: dict = {}
         _shadow_delta_signed_vals: dict = {}
+        _team_swing_delta_vals: dict = {}
+        _est_delta_vals: dict = {}
         def _approach_fn(pitch_grp: pd.Series) -> pd.Series:
             idx = pitch_grp.index
             pitches = pitch_grp.astype(int).tolist()
@@ -1910,6 +1951,8 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
             results = [float("nan")]
             shadow_deltas = [float("nan")]
             shadow_deltas_signed = [float("nan")]
+            team_swing_deltas = [float("nan")]
+            est_deltas = [float("nan")]
             for i in range(1, len(pitches)):
                 prev_dist = abs(circular_signed_delta(pitches[i - 1], swings[i - 1]))
                 signed_val = circular_signed_delta(swings[i - 1], pitches[i])
@@ -1917,14 +1960,20 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
                 results.append(1.0 if curr_dist < prev_dist else 0.0)
                 shadow_deltas.append(float(curr_dist))
                 shadow_deltas_signed.append(float(signed_val))
+                team_swing_deltas.append(float(circular_signed_delta(swings[i - 1], swings[i])))
+                est_deltas.append(float(circular_signed_delta(pitches[i - 1], swings[i])))
             _shadow_delta_vals.update(dict(zip(idx, shadow_deltas)))
             _shadow_delta_signed_vals.update(dict(zip(idx, shadow_deltas_signed)))
+            _team_swing_delta_vals.update(dict(zip(idx, team_swing_deltas)))
+            _est_delta_vals.update(dict(zip(idx, est_deltas)))
             return pd.Series(results, index=idx)
         df.loc[sw, "pitch_approach"] = sw_df2.groupby(
             gk_pit2, group_keys=False
         )["pitch"].apply(_approach_fn)
         df.loc[sw, "pitch_shadow_delta"] = pd.Series(_shadow_delta_vals)
         df.loc[sw, "pitch_shadow_delta_signed"] = pd.Series(_shadow_delta_signed_vals)
+        df.loc[sw, "pitch_team_swing_delta_signed"] = pd.Series(_team_swing_delta_vals)
+        df.loc[sw, "pitch_est_delta_signed"] = pd.Series(_est_delta_vals)
 
     return df
 
@@ -9552,6 +9601,138 @@ def next_delta_vs_prior_delta_heatmap(
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
     )
     return fig
+
+
+def next_pitch_delta_vs_prior_signal_heatmap(
+    df: pd.DataFrame,
+    prior_col: str,
+    title: str,
+    x_title: str,
+    bucket_size: int = 100,
+) -> go.Figure:
+    """Heatmap: the pitcher's next |delta| vs a hitting-side signal one plate
+    appearance earlier.
+
+    X = |prior_col| bin on the PREVIOUS plate appearance; Y = |pitch_circ_delta|
+    bin on the current one. prior_col is one of the signed hitting-side columns
+    from enrich_df - pitch_team_swing_delta_signed (how much the hitting team
+    changed its swing going into the previous pitch) or pitch_est_delta_signed
+    (the hitters' estimated pitcher delta, their swing minus the pitch before
+    it). Only consecutive plate appearances from the same pitcher within the
+    same game are paired. Columns are normalized to 100 % like the other
+    delta heatmaps; bucket_size must divide 500 evenly.
+    """
+    needed = ["pitch_circ_delta", prior_col]
+    if any(c not in df.columns for c in needed):
+        return go.Figure()
+
+    bins = list(range(0, 501, bucket_size))
+    labels = [f"{i}-{i + bucket_size}" for i in range(0, 500, bucket_size)]
+
+    df_sw = df[df["pitch"].notna() & df["swing"].notna()].copy()
+    if len(df_sw) < 2:
+        return go.Figure()
+
+    df_sw = df_sw.sort_values(["game_id", "pitcher_name", "id"])
+    df_sw["_prior_signal"] = pd.to_numeric(df_sw[prior_col], errors="coerce").groupby(
+        [df_sw["game_id"], df_sw["pitcher_name"]]).shift(1)
+    df_sw["_next_delta"] = pd.to_numeric(df_sw["pitch_circ_delta"], errors="coerce")
+    df_sw = df_sw.dropna(subset=["_prior_signal", "_next_delta"])
+    if df_sw.empty:
+        return go.Figure()
+
+    df_sw["_x_cat"] = pd.cut(
+        df_sw["_prior_signal"].abs().astype(int),
+        bins=bins, labels=labels, right=True, include_lowest=True,
+    )
+    df_sw["_y_cat"] = pd.cut(
+        df_sw["_next_delta"].abs().astype(int),
+        bins=bins, labels=labels, right=True, include_lowest=True,
+    )
+
+    ct = pd.crosstab(df_sw["_y_cat"], df_sw["_x_cat"]).reindex(
+        index=labels, columns=labels, fill_value=0
+    )
+    _col_n = ct.sum(axis=0)
+    _row_n = ct.sum(axis=1)
+    # Normalize each column to 0-100 % so colour reflects within-column distribution.
+    col_totals = _col_n.replace(0, 1)
+    ct_norm = ct.div(col_totals, axis=1) * 100
+    z_norm = ct_norm.values.tolist()
+    z_raw = ct.values.tolist()
+    text = [
+        [f"{ct_norm.iloc[i, j]:.0f}%" if z_raw[i][j] > 0 else ""
+         for j in range(len(labels))]
+        for i in range(len(labels))
+    ]
+
+    annotations = []
+    for j, lbl in enumerate(labels):
+        annotations.append(dict(
+            xref="x", yref="paper", x=lbl, y=1.0,
+            text=f"{int(_col_n.get(lbl, 0))}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="center", yanchor="bottom",
+        ))
+    for i, lbl in enumerate(labels):
+        annotations.append(dict(
+            xref="paper", yref="y", x=1.0, y=lbl,
+            text=f"{int(_row_n.get(lbl, 0))}",
+            showarrow=False,
+            font=dict(size=11, color="rgba(255,255,255,0.9)"),
+            xanchor="left", yanchor="middle",
+        ))
+
+    fig = go.Figure(go.Heatmap(
+        z=z_norm,
+        x=labels,
+        y=labels,
+        text=text,
+        texttemplate="%{text}",
+        customdata=z_raw,
+        colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+        showscale=False,
+        xgap=2,
+        ygap=2,
+        hovertemplate=(f"{x_title}: %{{x}}<br>Next pitch |Δ|: %{{y}}<br>"
+                       "%{z:.1f}% of column (%{customdata} pitches)<extra></extra>"),
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title=x_title),
+        yaxis=dict(title="Next pitch |Δ|"),
+        annotations=annotations,
+        height=max(360, len(labels) * 40 + 110),
+        margin=dict(l=80, r=62, t=68, b=70),
+        dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def next_pitch_delta_vs_prior_team_swing_delta_heatmap(
+    df: pd.DataFrame,
+    title: str = "Next Pitch Δ vs Prior Team Swing Δ",
+    bucket_size: int = 100,
+) -> go.Figure:
+    """How much the pitcher changes up their next pitch given how much the
+    hitting team just changed up its swing (previous swing -> latest swing)."""
+    return next_pitch_delta_vs_prior_signal_heatmap(
+        df, "pitch_team_swing_delta_signed", title, "Prior team swing |Δ|", bucket_size)
+
+
+def next_pitch_delta_vs_prior_est_delta_heatmap(
+    df: pd.DataFrame,
+    title: str = "Next Pitch Δ vs Prior Est. Δ",
+    bucket_size: int = 100,
+) -> go.Figure:
+    """How the pitcher's next delta follows the hitters' estimated delta (their
+    latest swing minus the pitch before it, i.e. what they guessed the
+    pitcher's delta would be)."""
+    return next_pitch_delta_vs_prior_signal_heatmap(
+        df, "pitch_est_delta_signed", title, "Prior est. |Δ|", bucket_size)
 
 
 def _fresh_delta2_frame(df: pd.DataFrame, value_col: str = "pitch"):

@@ -2254,6 +2254,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _pf_delta_p     = _pf_sorted_p["pitch_circ_delta"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_delta2_p    = _pf_sorted_p["pitch_circ_delta2_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_shadow_delta_p = _pf_sorted_p["pitch_shadow_delta_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_team_swing_delta_p = _pf_sorted_p["pitch_team_swing_delta_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
+            _pf_est_delta_p = _pf_sorted_p["pitch_est_delta_signed"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_swings_p    = _pf_sorted_p["swing"].dropna().astype(int).tolist() if not _pf_sorted_p.empty else []
             _pf_results_p   = _pf_sorted_p["result"].dropna().tolist() if not _pf_sorted_p.empty else []
 
@@ -2288,6 +2290,20 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_shadow_delta_lo_pre, _cf_shadow_delta_hi_pre = utils._centered_match_interval(
                 _cf_shadow_delta_v_pre, _cf_shadow_delta_w_pre, domain_hi=500, domain_lo=-500)
             _cf_shadow_delta_lbl_p = f"Prev Shadow Δ ({_cf_shadow_delta_lo_pre}-{_cf_shadow_delta_hi_pre})"
+
+            _cf_team_swing_def_p = _pf_team_swing_delta_p[-1] if _pf_team_swing_delta_p else 100
+            _cf_team_swing_w_pre = st.session_state.get("ctx_team_swing_w_p", 100)
+            _cf_team_swing_v_pre = int(st.session_state.get(f"ctx_team_swing_v_p_{tab_p_pitcher}", _cf_team_swing_def_p))
+            _cf_team_swing_lo_pre, _cf_team_swing_hi_pre = utils._centered_match_interval(
+                _cf_team_swing_v_pre, _cf_team_swing_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_team_swing_lbl_p = f"Prev Team Swing Δ ({_cf_team_swing_lo_pre}-{_cf_team_swing_hi_pre})"
+
+            _cf_est_def_p = _pf_est_delta_p[-1] if _pf_est_delta_p else 100
+            _cf_est_w_pre = st.session_state.get("ctx_est_w_p", 100)
+            _cf_est_v_pre = int(st.session_state.get(f"ctx_est_v_p_{tab_p_pitcher}", _cf_est_def_p))
+            _cf_est_lo_pre, _cf_est_hi_pre = utils._centered_match_interval(
+                _cf_est_v_pre, _cf_est_w_pre, domain_hi=500, domain_lo=-500)
+            _cf_est_lbl_p = f"Prev Est. Δ ({_cf_est_lo_pre}-{_cf_est_hi_pre})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -2436,6 +2452,69 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         _cf_shadow_delta_bucket2_p = utils._centered_match_interval(
                             int(_cf_shadow_delta_val2_p), _cf_shadow_delta_w_p, domain_hi=500, domain_lo=-500)
 
+                _cf_team_swing_on_p = st.toggle(
+                    _cf_team_swing_lbl_p, key="ctx_team_swing_on_p", value=False,
+                    help="Narrows the Deltas radial to pitches that followed a hitting-team swing change "
+                         "(previous swing to latest swing) in this range - see the Next Pitch Δ vs Prior "
+                         "Team Swing Δ heatmap below.")
+                _cf_team_swing_bucket_p = None
+                _cf_team_swing_bucket2_p = None
+                if _cf_team_swing_on_p:
+                    _cf_team_swing_w_p = st.select_slider("Bucket size (Team Swing Δ)", options=[25, 50, 100, 125, 250, 500],
+                                                           value=100, key="ctx_team_swing_w_p")
+                    _cf_team_swing_val_p = st.number_input(
+                        "Previous Team Swing Δ value", min_value=-500, max_value=500, value=_cf_team_swing_def_p,
+                        step=1, key=f"ctx_team_swing_v_p_{tab_p_pitcher}",
+                    )
+                    _cf_team_swing_bucket_p = utils._centered_match_interval(
+                        int(_cf_team_swing_val_p), _cf_team_swing_w_p, domain_hi=500, domain_lo=-500)
+                    _cf_team_swing_seq3_on_p = st.toggle(
+                        "3-Team-Swing-Δ pattern", key="ctx_team_swing_seq3_p", value=False,
+                        help="Also require the team swing Δ two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-point match above "
+                             "into a 3-point one.")
+                    if _cf_team_swing_seq3_on_p:
+                        _cf_team_swing_def2_p = (_pf_team_swing_delta_p[-2] if len(_pf_team_swing_delta_p) >= 2
+                                                 else _cf_team_swing_def_p)
+                        _cf_team_swing_val2_p = st.number_input(
+                            "Prev-2 Team Swing Δ value", min_value=-500, max_value=500, value=_cf_team_swing_def2_p,
+                            step=1, key=f"ctx_team_swing_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_team_swing_bucket2_p = utils._centered_match_interval(
+                            int(_cf_team_swing_val2_p), _cf_team_swing_w_p, domain_hi=500, domain_lo=-500)
+
+                _cf_est_on_p = st.toggle(
+                    _cf_est_lbl_p, key="ctx_est_on_p", value=False,
+                    help="Estimated Δ: the hitters' latest swing minus the pitch before it - what they "
+                         "guessed the pitcher's delta would be. Narrows the Deltas radial to pitches "
+                         "that followed an estimated Δ in this range - see the Next Pitch Δ vs Prior "
+                         "Est. Δ heatmap below.")
+                _cf_est_bucket_p = None
+                _cf_est_bucket2_p = None
+                if _cf_est_on_p:
+                    _cf_est_w_p = st.select_slider("Bucket size (Est. Δ)", options=[25, 50, 100, 125, 250, 500],
+                                                    value=100, key="ctx_est_w_p")
+                    _cf_est_val_p = st.number_input(
+                        "Previous Est. Δ value", min_value=-500, max_value=500, value=_cf_est_def_p,
+                        step=1, key=f"ctx_est_v_p_{tab_p_pitcher}",
+                    )
+                    _cf_est_bucket_p = utils._centered_match_interval(
+                        int(_cf_est_val_p), _cf_est_w_p, domain_hi=500, domain_lo=-500)
+                    _cf_est_seq3_on_p = st.toggle(
+                        "3-Est-Δ pattern", key="ctx_est_seq3_p", value=False,
+                        help="Also require the estimated Δ two pitches back to match a bucket "
+                             "centered on its own value, turning the 2-point match above "
+                             "into a 3-point one.")
+                    if _cf_est_seq3_on_p:
+                        _cf_est_def2_p = (_pf_est_delta_p[-2] if len(_pf_est_delta_p) >= 2
+                                          else _cf_est_def_p)
+                        _cf_est_val2_p = st.number_input(
+                            "Prev-2 Est. Δ value", min_value=-500, max_value=500, value=_cf_est_def2_p,
+                            step=1, key=f"ctx_est_v2_p_{tab_p_pitcher}",
+                        )
+                        _cf_est_bucket2_p = utils._centered_match_interval(
+                            int(_cf_est_val2_p), _cf_est_w_p, domain_hi=500, domain_lo=-500)
+
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
                 _cf_result_cat_p = None
@@ -2469,11 +2548,16 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # Previous pitch range only narrows the Pitches radial; previous Δ
             # range only narrows the Deltas radial; previous Δ² range only
             # narrows the Delta² radial; previous Shadow Δ range only narrows
-            # the Shadow Δ radial - previous result, leverage, and the
+            # the Shadow Δ radial; previous Team Swing Δ and Est. Δ ranges
+            # also narrow only the Deltas radial (they condition the
+            # pitcher's own delta history on what the hitters just did) -
+            # previous result, leverage, and the
             # 1st-pitch toggles are shared context, so they narrow all four.
             _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_pitch_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
-            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p, _cf_result_cat_p,
+            _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p,
+                                        _cf_team_swing_bucket_p, _cf_team_swing_bucket2_p,
+                                        _cf_est_bucket_p, _cf_est_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_delta2_p  = any([_cf_delta2_bucket_p, _cf_delta2_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
@@ -2498,6 +2582,10 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _df_ctx_p,
                     prev_delta_bucket=_cf_delta_bucket_p,
                     prev_delta_bucket2=_cf_delta_bucket2_p,
+                    prev_team_swing_delta_bucket=_cf_team_swing_bucket_p,
+                    prev_team_swing_delta_bucket2=_cf_team_swing_bucket2_p,
+                    prev_est_delta_bucket=_cf_est_bucket_p,
+                    prev_est_delta_bucket2=_cf_est_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
@@ -2836,6 +2924,27 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.plotly_chart(
                 utils.shadow_delta_vs_prior_diff_heatmap(df_p, title="Shadow |Δ| vs Prior Diff"),
                 width="stretch", config={"displayModeBar": False}, key="p_shadow_delta_hm",
+            )
+
+            st.divider()
+            st.subheader("Next Pitch Δ vs Prior Team Swing Δ")
+            st.caption("How much does the pitcher change up their next pitch given how much the hitting team "
+                       "just changed up its swing (previous swing to latest swing)?")
+            _hm_sig_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100,
+                                                key="hm_sig_bucket_p")
+            st.plotly_chart(
+                utils.next_pitch_delta_vs_prior_team_swing_delta_heatmap(
+                    df_p, title="Next Pitch Δ vs Prior Team Swing Δ", bucket_size=_hm_sig_bucket_p),
+                width="stretch", config={"displayModeBar": False}, key="p_team_swing_delta_hm",
+            )
+
+            st.subheader("Next Pitch Δ vs Prior Est. Δ")
+            st.caption("The hitters' estimated delta is their latest swing minus the pitch before it - what "
+                       "they guessed the pitcher's delta would be. How does the pitcher's next delta follow it?")
+            st.plotly_chart(
+                utils.next_pitch_delta_vs_prior_est_delta_heatmap(
+                    df_p, title="Next Pitch Δ vs Prior Est. Δ", bucket_size=_hm_sig_bucket_p),
+                width="stretch", config={"displayModeBar": False}, key="p_est_delta_hm",
             )
 
             # ── zone charts ──────────────────────────────────────────────────────
