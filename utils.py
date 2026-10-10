@@ -3560,7 +3560,9 @@ def last_n_combined_chart(
     show_value: bool = True,
     show_opp: bool = True,
 ) -> go.Figure:
-    """Two-row subplot: pitch+swing lines on top, circular delta bars on bottom, shared x-axis.
+    """Three-row subplot: pitch+swing lines on top, circular delta bars in the
+    middle, circular delta-squared bars on the bottom, all on one shared x-axis
+    (the result labels, weight circles and PA # axis sit under the bottom row).
     swing_offset: shifts swing markers right by 1 AB to show whether swing predicts next pitch.
     highlight_name: swing markers for that batter use a star symbol.
     segment_games: breaks lines at game boundaries; dashes lines across inning boundaries.
@@ -3594,6 +3596,15 @@ def last_n_combined_chart(
     hover = [
         f"{pa_label} {i}: {delta_vals[i-1]}→{delta_vals[i]}<br>Circular: {deltas[i-1]:+d}<br>Linear: {linear[i-1]:+d}"
         for i in range(1, n_actual)
+    ]
+    # Δ² at PA x is the signed circular change from the Δ at x-1 to the Δ at x
+    # (wrapped like enrich_df's pitch_circ_delta2_signed), so it first exists at x=3.
+    deltas2 = [circular_signed_delta(deltas[i - 1], deltas[i]) for i in range(1, len(deltas))]
+    x_delta2 = list(range(3, n_actual + 1))
+    colors2 = ["#4CAF50" if d >= 0 else "#d6604d" for d in deltas2]
+    hover2 = [
+        f"{pa_label} {x}: Δ {deltas[k]:+d}→{deltas[k + 1]:+d}<br>Δ²: {deltas2[k]:+d}"
+        for k, x in enumerate(x_delta2)
     ]
 
     if swing_offset and n_actual > 1:
@@ -3656,8 +3667,8 @@ def last_n_combined_chart(
 
     # ── build figure ──────────────────────────────────────────────────────────
     fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.65, 0.35], vertical_spacing=0.06,
+        rows=3, cols=1, shared_xaxes=True,
+        row_heights=[0.5, 0.25, 0.25], vertical_spacing=0.05,
     )
 
     if show_value:
@@ -3774,7 +3785,7 @@ def last_n_combined_chart(
         ]
         fig.add_trace(go.Scatter(
             x=x_delta, y=[abs(d) for d in est_deltas],
-            mode="lines+markers", name="Est. Δ",
+            mode="lines+markers", name="Est. Δ", legendgroup="est_delta",
             line=dict(color="rgba(200,200,200,0.55)", width=1.5),
             marker=dict(color=est_colors, size=8, symbol="diamond",
                         line=dict(color="rgba(255,255,255,0.4)", width=0.5)),
@@ -3791,7 +3802,45 @@ def last_n_combined_chart(
         showlegend=False, hoverinfo="skip",
     ), row=2, col=1)
 
-    # Add result labels as text below the delta bars
+    # Delta-squared bars + signed labels on their own row, same x positions as the delta bars
+    fig.add_trace(go.Bar(
+        x=x_delta2, y=[abs(d) for d in deltas2], marker_color=colors2,
+        hovertext=hover2, hoverinfo="text",
+        name="Delta²", showlegend=False,
+    ), row=3, col=1)
+
+    # Estimated delta² overlay (same toggle as the estimated delta overlay): the
+    # change from the pitcher's last ACTUAL delta to the delta the hitters
+    # estimated for this PA, i.e. what they expected Δ² to be. First exists at
+    # x=3, like the actual Δ² bars.
+    if est_delta_overlay and show_value and show_opp and n_actual > 2:
+        est_deltas2 = [
+            circular_signed_delta(deltas[k - 1], est_deltas[k])
+            for k in range(1, n_actual - 1)
+        ]
+        est2_colors = ["#4CAF50" if d >= 0 else "#d6604d" for d in est_deltas2]
+        est2_hover = [
+            f"{pa_label} {x}: est Δ {est_deltas[k]:+d} vs prev Δ {deltas[k - 1]:+d} → est Δ² {est_deltas2[k - 1]:+d}"
+            for k, x in zip(range(1, n_actual - 1), x_delta2)
+        ]
+        fig.add_trace(go.Scatter(
+            x=x_delta2, y=[abs(d) for d in est_deltas2],
+            mode="lines+markers", name="Est. Δ²", legendgroup="est_delta", showlegend=False,
+            line=dict(color="rgba(200,200,200,0.55)", width=1.5),
+            marker=dict(color=est2_colors, size=8, symbol="diamond",
+                        line=dict(color="rgba(255,255,255,0.4)", width=0.5)),
+            hovertext=est2_hover, hoverinfo="text",
+        ), row=3, col=1)
+    fig.add_trace(go.Scatter(
+        x=x_delta2, y=[abs(d) for d in deltas2],
+        mode="text",
+        text=[f"{d:+d}" for d in deltas2],
+        textposition="top center",
+        textfont=dict(size=10),
+        showlegend=False, hoverinfo="skip",
+    ), row=3, col=1)
+
+    # Add result labels as text below the delta-squared bars
     result_text = [str(r) if r else "" for r in result_offset]
     result_x = list(range(1, len(result_offset) + 1)) if not swing_offset else list(range(2, len(result_offset) + 2))
     fig.add_trace(go.Scatter(
@@ -3802,8 +3851,8 @@ def last_n_combined_chart(
         textfont=dict(size=9, color="gray"),
         showlegend=False,
         hoverinfo="skip",
-        xaxis="x2", yaxis="y2",
-    ), row=2, col=1)
+        xaxis="x3", yaxis="y3",
+    ), row=3, col=1)
 
     # Color-coded weight circles below result labels
     # tick_weights may cover only the last N entries (pannable shows all career PAs)
@@ -3834,27 +3883,36 @@ def last_n_combined_chart(
                 ),
                 showlegend=False,
                 hoverinfo="skip",
-                xaxis="x2", yaxis="y2",
-            ), row=2, col=1)
+                xaxis="x3", yaxis="y3",
+            ), row=3, col=1)
 
     _view_start = max(0.5, n_actual - 20 + 0.5) if pannable else 0.5
     x_range = [_view_start, n_actual + 0.5]
     fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=1, col=1)
+    fig.update_xaxes(tickmode="linear", dtick=1, range=x_range, showticklabels=False, row=2, col=1)
     fig.update_xaxes(
         title_text=f"← Older  ·  {pa_label} #  ·  Newer →",
-        tickmode="linear", dtick=1, range=x_range, row=2, col=1,
+        tickmode="linear", dtick=1, range=x_range, row=3, col=1,
     )
     fig.update_yaxes(range=[0, 1080], fixedrange=pannable, row=1, col=1)
     fig.update_yaxes(
-        range=[-110, 540], fixedrange=pannable, row=2, col=1,
+        range=[0, 540], fixedrange=pannable, row=2, col=1,
         tickmode="array", tickvals=[100, 200, 300, 400, 500],
+        title_text="Δ", title_standoff=2,
+    )
+    # The result labels (y=-20) and weight circles (y=-90) sit in this row's
+    # negative space, which is why it keeps the old [-110, 540] window.
+    fig.update_yaxes(
+        range=[-110, 540], fixedrange=pannable, row=3, col=1,
+        tickmode="array", tickvals=[100, 200, 300, 400, 500],
+        title_text="Δ²", title_standoff=2,
     )
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
-        height=560,
+        height=760,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=45, r=10, t=60, b=60),
+        margin=dict(l=55, r=10, t=60, b=60),
         dragmode="pan" if pannable else False,
         modebar_remove=(
             ["zoom2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
