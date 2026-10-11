@@ -1,13 +1,54 @@
 """Pitcher and Batter scouting - combined page with shared matchup setup."""
 from __future__ import annotations
+import pathlib
+import sys
 import streamlit as st
+import numpy as np
 import pandas as pd
 import database as db
 import manager_calc
 import scouting_data
 import utils
 
+# tools/ holds standalone CLI scripts, not an installed package - add it to
+# sys.path the same way those scripts reach back to the repo root, so the
+# pitch-likelihood model (fit once, offline, by
+# tools/pitch_likelihood_calibrate.py) stays a single source of truth
+# instead of being re-implemented here.
+_TOOLS_DIR = str(pathlib.Path(__file__).resolve().parent.parent / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+from pitch_likelihood_backtest import Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals
+
 _dark_mode = st.context.theme.type == "dark"
+
+
+@st.cache_data(show_spinner=False)
+def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_width: int,
+                                  cooldown_radius: float, leverage_width: float,
+                                  min_effective_n: float, weights: dict) -> dict | None:
+    """Combined pitch-likelihood prediction as of the end of df_hist - a
+    live/current-state read, not a backtest replay of a specific past pitch
+    (target_row=None, so the leverage signal simply sits out; it needs a
+    live game state to match against, which this page doesn't carry).
+    Cached on df_hist's own content (plus the config), so this is a free
+    cache hit whenever nothing about the pitcher's history or these settings
+    has changed, and a correct cache MISS the moment load_pitcher_plays'
+    own TTL expires and returns fresh rows - no separate invalidation logic
+    needed. Returns None if there's not enough history yet (<2 pitches)."""
+    cfg = Config(sigma=sigma, min_effective_n=min_effective_n, pitch_width=pitch_width,
+                 cooldown_radius=cooldown_radius, leverage_width=leverage_width, weights=weights)
+    builders = list(SIGNAL_BUILDERS.values())
+    state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=None)
+    if state is None or not signals:
+        return None
+    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    return {
+        "state": state,
+        "baseline": baseline,
+        "signals": [{"name": s.name, "n_eff": s.n_eff, "density": s.density} for s in signals],
+        "combined": combined,
+    }
 
 _MLN_QS_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 _MLN_QS_SEASON   = 13
@@ -3130,6 +3171,58 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                             key="p_cooldown_radial",
                         )
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
+
+        # ── combined pitch likelihood ────────────────────────────────────────────
+        st.divider()
+        with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
+            st.caption(
+                "All six sequence/delta/cooldown/leverage signals above, pooled into one "
+                "prediction via the calibrated log-linear model (tools/pitch_likelihood_backtest.py) "
+                "- as of this pitcher's most recent recorded pitch, not graded against a specific "
+                "upcoming at-bat. For the full tunable version (live kernel-width and weight sliders, "
+                "per-signal derivation panels), see the standalone Pitch Signal Autopsy tool."
+            )
+
+            @st.fragment
+            def _pitch_likelihood_section_p(df_p):
+                _pl = _pitch_likelihood_prediction(
+                    df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                    leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                )
+                if _pl is None:
+                    st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
+                    return
+
+                _pl_state = _pl["state"]
+                st.caption(
+                    f"Most recent pitch: **{_pl_state['prev_pitch']}** &middot; "
+                    f"Most recent PA result: **{_pl_state['prev_result_cat'] or '(none yet)'}**"
+                )
+                st.plotly_chart(
+                    utils.pitch_likelihood_density_chart(
+                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_density",
+                )
+                st.plotly_chart(
+                    utils.pitch_likelihood_radial_chart(
+                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_radial",
+                )
+
+                _pl_default_pitch = int(np.argmax(_pl["combined"])) + 1
+                _pl_inspect = st.number_input(
+                    "Inspect pitch value", min_value=1, max_value=1000,
+                    value=_pl_default_pitch, step=1, key=f"p_pl_inspect_{tab_p_pitcher}",
+                    help="Defaults to the model's own top-predicted value.",
+                )
+                st.plotly_chart(
+                    utils.pitch_likelihood_breakdown_chart(
+                        _pl["baseline"], _pl["signals"], DEFAULT_WEIGHTS, 20.0,
+                        int(_pl_inspect), dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_breakdown",
+                )
+
+            _pitch_likelihood_section_p(df_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()

@@ -4132,6 +4132,171 @@ def _pitch_value_ticks() -> tuple[list[float], list[str]]:
     return tickvals, ticktext
 
 
+# ── pitch likelihood model (tools/pitch_likelihood_backtest.py) ────────────────
+# These three take plain data (numpy arrays / dicts / floats) rather than
+# Config/Signal objects, so this module stays decoupled from tools/ - the
+# caller (pages/2_Scouting.py) imports the actual model and passes its
+# output in. Signal order/colors are fixed (never cycled) to match the
+# standalone "Pitch Signal Autopsy" artifact's own convention, so the same
+# signal always reads as the same color across both surfaces.
+_PL_SIGNAL_ORDER = ["pitch_sequence", "delta_sequence", "cooldown",
+                     "delta_after_result", "delta_after_leverage", "shadow_delta_after_result"]
+_PL_SIGNAL_LABELS = {
+    "pitch_sequence": "Pitch sequence", "delta_sequence": "Delta sequence",
+    "cooldown": "Cooldown", "delta_after_result": "Delta after result",
+    "delta_after_leverage": "Delta after leverage", "shadow_delta_after_result": "Shadow delta after result",
+}
+_PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#eda100", "#e87ba4"]
+_PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#9085e9", "#c98500", "#d55181"]
+
+
+def pitch_likelihood_density_chart(
+    baseline, signals: list[dict], combined, title: str = "Combined Pitch Likelihood",
+    dark_mode: bool = False,
+) -> go.Figure:
+    """Predicted density across the 1-1000 pitch wheel: baseline (this
+    pitcher's own unconditioned history), each calibrated signal, and the
+    combined log-linear pool - see tools/pitch_likelihood_backtest.py.
+    signals: [{"name", "n_eff", "density"}, ...], any subset/order of
+    _PL_SIGNAL_ORDER (a signal with no history yet is just omitted)."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    grid_color = "rgba(255,255,255,0.12)" if dark_mode else "rgba(0,0,0,0.12)"
+    sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
+    baseline_color = "#9aa4b6" if dark_mode else "#70788a"
+    combined_color = "#f3f5f8" if dark_mode else "#14161a"
+
+    x = list(range(1, 1001))
+    by_name = {s["name"]: s for s in signals}
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=baseline, mode="lines", name="Baseline (unconditioned)",
+                              line=dict(color=baseline_color, width=2, dash="dash")))
+    for i, name in enumerate(_PL_SIGNAL_ORDER):
+        s = by_name.get(name)
+        if s is None:
+            continue
+        fig.add_trace(go.Scatter(x=x, y=s["density"], mode="lines", name=_PL_SIGNAL_LABELS[name],
+                                  line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
+    fig.add_trace(go.Scatter(x=x, y=combined, mode="lines", name="Combined prediction",
+                              line=dict(color=combined_color, width=3)))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        xaxis=dict(title="Pitch value", range=[1, 1000], gridcolor=grid_color,
+                    tickfont=dict(color=text_color), title_font=dict(color=text_color)),
+        yaxis=dict(title="Probability", tickformat=".2%", gridcolor=grid_color,
+                    tickfont=dict(color=text_color), title_font=dict(color=text_color)),
+        height=380,
+        margin=dict(l=55, r=20, t=40, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+        hovermode="x unified",
+    )
+    return fig
+
+
+def pitch_likelihood_radial_chart(
+    baseline, signals: list[dict], combined, title: str = "Combined Pitch Likelihood (Radial)",
+    dark_mode: bool = False,
+) -> go.Figure:
+    """Same densities as pitch_likelihood_density_chart, polar projection -
+    angle = pitch value 1-1000 (1 at 12 o'clock, clockwise), radius =
+    probability, matching this app's other radial charts' own convention
+    (_pitch_value_ticks, direction=clockwise/rotation=90)."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    grid_color = "rgba(255,255,255,0.15)" if dark_mode else "rgba(0,0,0,0.15)"
+    sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
+    baseline_color = "#9aa4b6" if dark_mode else "#70788a"
+    combined_color = "#f3f5f8" if dark_mode else "#14161a"
+
+    theta = [(v - 1) * 360.0 / 1000.0 for v in range(1, 1001)]
+    tickvals, ticktext = _pitch_value_ticks()
+    by_name = {s["name"]: s for s in signals}
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(r=baseline, theta=theta, mode="lines", name="Baseline (unconditioned)",
+                                   line=dict(color=baseline_color, width=2, dash="dash")))
+    for i, name in enumerate(_PL_SIGNAL_ORDER):
+        s = by_name.get(name)
+        if s is None:
+            continue
+        fig.add_trace(go.Scatterpolar(r=s["density"], theta=theta, mode="lines", name=_PL_SIGNAL_LABELS[name],
+                                       line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
+    fig.add_trace(go.Scatterpolar(r=combined, theta=theta, mode="lines", name="Combined prediction",
+                                   line=dict(color=combined_color, width=3)))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        polar=dict(
+            hole=0.1,
+            bgcolor="rgba(0,0,0,0)",
+            angularaxis=dict(direction="clockwise", rotation=90, tickmode="array",
+                              tickvals=tickvals, ticktext=ticktext, gridcolor=grid_color,
+                              tickfont=dict(color=text_color)),
+            radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color),
+        ),
+        height=420,
+        margin=dict(l=30, r=30, t=40, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+    )
+    return fig
+
+
+def pitch_likelihood_breakdown_chart(
+    baseline, signals: list[dict], weights: dict, min_effective_n: float, pitch_value: int,
+    dark_mode: bool = False,
+) -> go.Figure:
+    """Diverging bar breakdown of how the combined prediction at ONE pitch
+    value was built: each signal's weight * log(shrunk/baseline) push, plus
+    the net sum - mirrors the 'Pitch Signal Autopsy' artifact's waterfall.
+    Right/green = this signal pushed pitch_value MORE likely than baseline
+    alone; left/red = less likely."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    up_color, down_color = "#4CAF50", "#d6604d"  # matches this file's existing delta-coloring convention
+
+    idx = pitch_value - 1
+    eps = 1e-12
+    by_name = {s["name"]: s for s in signals}
+    rows = []
+    net = 0.0
+    for name in _PL_SIGNAL_ORDER:
+        s = by_name.get(name)
+        if s is None:
+            continue
+        w = weights.get(name, 1.0)
+        alpha = s["n_eff"] / (s["n_eff"] + min_effective_n)
+        shrunk = alpha * s["density"][idx] + (1 - alpha) * baseline[idx]
+        push = w * math.log((shrunk + eps) / (baseline[idx] + eps))
+        net += push
+        rows.append((_PL_SIGNAL_LABELS[name], push))
+    rows.append(("Net push", net))
+
+    labels = [r[0] for r in rows]
+    values = [r[1] for r in rows]
+    colors = [up_color if v >= 0 else down_color for v in values]
+
+    fig = go.Figure(go.Bar(
+        x=values, y=labels, orientation="h", marker_color=colors,
+        text=[f"{v:+.3f}" for v in values], textposition="outside",
+        hovertemplate="%{y}: %{x:+.4f}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text=f"How the combination adds up at pitch {pitch_value}", x=0.5, xanchor="center",
+                    font=dict(color=text_color)),
+        xaxis=dict(title="weight × log(shrunk / baseline)", gridcolor="rgba(128,128,128,0.2)",
+                    tickfont=dict(color=text_color), title_font=dict(color=text_color),
+                    zeroline=True, zerolinecolor=text_color, zerolinewidth=1),
+        yaxis=dict(tickfont=dict(color=text_color), autorange="reversed"),
+        height=330,
+        margin=dict(l=170, r=50, t=40, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+    )
+    return fig
+
+
 _OBR_RING_COLOR  = "rgba(170,170,170,0.9)"
 _SACF_RING_COLOR = "rgba(170,170,170,0.45)"
 
