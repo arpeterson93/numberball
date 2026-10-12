@@ -4310,6 +4310,87 @@ def pitch_likelihood_radial_chart(
     return fig
 
 
+def expected_swing_score_radial_chart(
+    baseline_scores, combined_scores, metric_label: str,
+    title: str = "Expected Swing Score (Radial)", dark_mode: bool = False,
+) -> go.Figure:
+    """Companion to pitch_likelihood_radial_chart, same angle convention
+    (swing value 1-1000, 1 at 12 o'clock, clockwise) but a different
+    quantity on the radius: utils.expected_swing_scores' own OBP/SLG
+    expected-score curve for baseline vs. the combined model, not
+    probability density - the two aren't on the same scale (density sums to
+    1 over 1000 tiny values; a score is a 0-1 OBP or 0-4 SLG number), so
+    this is its own chart rather than an overlay on the density radial.
+
+    Unlike that density radial, both curves here already share one
+    meaningful scale (whichever metric was picked), so a plain zero-based
+    axis would still be legitimate - but the radial axis is zoomed to the
+    data's own min/max anyway (same reasoning as the density radial: most of
+    a zero-based axis would be spent below both curves' shared floor,
+    compressing the actual baseline-vs-combined gap this chart exists to
+    show). A star marker (plus label) marks each curve's own argmax - the
+    swing suggest_swing_from_density would actually pick."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    grid_color = "rgba(255,255,255,0.15)" if dark_mode else "rgba(0,0,0,0.15)"
+    baseline_color = "#9aa4b6" if dark_mode else "#70788a"
+    combined_color = "#f3f5f8" if dark_mode else "#14161a"
+
+    baseline_scores = np.asarray(baseline_scores, dtype=float)
+    combined_scores = np.asarray(combined_scores, dtype=float)
+    theta = [(v - 1) * 360.0 / 1000.0 for v in range(1, 1001)]
+    tickvals, ticktext = _pitch_value_ticks()
+
+    all_vals = np.concatenate([baseline_scores, combined_scores])
+    r_min, r_max = float(np.min(all_vals)), float(np.max(all_vals))
+    pad = (r_max - r_min) * 0.08 or (abs(r_max) * 0.08 or 0.01)
+    radial_range = [r_min - pad, r_max + pad]
+
+    base_best_idx = int(np.argmax(baseline_scores))
+    comb_best_idx = int(np.argmax(combined_scores))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=baseline_scores, theta=theta, mode="lines",
+        name=f"Baseline-suggested ({metric_label})",
+        line=dict(color=baseline_color, width=2, dash="dash"),
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=combined_scores, theta=theta, mode="lines",
+        name=f"Model-suggested ({metric_label})",
+        line=dict(color=combined_color, width=2.5),
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=[baseline_scores[base_best_idx]], theta=[theta[base_best_idx]], mode="markers+text",
+        marker=dict(symbol="star", size=11, color=baseline_color, line=dict(color=text_color, width=1)),
+        text=[f"{base_best_idx + 1}"], textposition="top center", textfont=dict(color=text_color, size=10),
+        name="Baseline best swing", showlegend=False, hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=[combined_scores[comb_best_idx]], theta=[theta[comb_best_idx]], mode="markers+text",
+        marker=dict(symbol="star", size=11, color=combined_color, line=dict(color=text_color, width=1)),
+        text=[f"{comb_best_idx + 1}"], textposition="top center", textfont=dict(color=text_color, size=10),
+        name="Model best swing", showlegend=False, hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        polar=dict(
+            hole=0.1,
+            bgcolor="rgba(0,0,0,0)",
+            angularaxis=dict(direction="clockwise", rotation=90, tickmode="array",
+                              tickvals=tickvals, ticktext=ticktext, gridcolor=grid_color,
+                              tickfont=dict(color=text_color)),
+            radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color,
+                             range=radial_range),
+        ),
+        height=420,
+        margin=dict(l=30, r=30, t=40, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+    )
+    return fig
+
+
 def pitch_likelihood_breakdown_chart(
     baseline, signals: list[dict], weights: dict, min_effective_n: float, pitch_value: int,
     dark_mode: bool = False,
@@ -4384,10 +4465,28 @@ def suggested_swing_backtest_chart(
     value). Colored by seq_result_category through the same
     _COOLDOWN_CAT_COLORS scale the cooldown charts use elsewhere on this
     tab, for one consistent "worst (dark blue) -> best (dark red)" reading
-    across every chart on the page."""
+    across every chart on the page.
+
+    Row labels ("Baseline"/"Model" - the averages already have their own
+    caption above this chart) are centered annotations sitting just ABOVE/
+    BELOW each row's own dots (not the y-axis's own tick labels, which would
+    sit directly beside the dots at the same height AND force a wide left
+    margin on a narrow/mobile viewport that eats most of the width n dots
+    need to not overlap). Marker size and x-tick density both scale down
+    with n for the same reason - a 30-wide backtest and a 100-wide one
+    shouldn't fight for the same fixed pixel budget per dot."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    line_color = "rgba(255,255,255,0.25)" if dark_mode else "rgba(0,0,0,0.2)"
     n = len(points)
     x = list(range(1, n + 1))
+    marker_size = max(6, min(13, 320 // max(n, 1)))
+
+    # Sparse x-ticks regardless of n (~6 labels) - one tick per point is
+    # unreadable clutter past a dozen or so points, worse the narrower the
+    # viewport. Always includes the newest point (x=n, "1 pitch ago") so the
+    # "which end is 'now'" orientation is never left to guesswork.
+    _tick_step = max(1, round(n / 6))
+    _tick_xs = sorted(set(list(range(1, n + 1, _tick_step)) + [n]))
 
     def _colors(key):
         return [_COOLDOWN_CAT_COLORS.get(seq_result_category(p[key]), "#888888") for p in points]
@@ -4396,28 +4495,37 @@ def suggested_swing_backtest_chart(
         return [f"{n - i} pitches ago: {p[key]}" for i, p in enumerate(points)]
 
     fig = go.Figure()
+    # Faint connecting lines UNDER the markers - purely a sequence-tracking
+    # guide for the eye on a cramped display, not data (no hover/legend).
+    fig.add_trace(go.Scatter(x=x, y=[1] * n, mode="lines", line=dict(color=line_color, width=1),
+                              hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=[0] * n, mode="lines", line=dict(color=line_color, width=1),
+                              hoverinfo="skip", showlegend=False))
     fig.add_trace(go.Scatter(
         x=x, y=[1] * n, mode="markers",
-        marker=dict(color=_colors("base_result"), size=13, line=dict(width=1, color=text_color)),
+        marker=dict(color=_colors("base_result"), size=marker_size, line=dict(width=1, color=text_color)),
         hovertext=_hover("base_result"), hoverinfo="text", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=x, y=[0] * n, mode="markers",
-        marker=dict(color=_colors("comb_result"), size=13, line=dict(width=1, color=text_color)),
+        marker=dict(color=_colors("comb_result"), size=marker_size, line=dict(width=1, color=text_color)),
         hovertext=_hover("comb_result"), hoverinfo="text", showlegend=False,
     ))
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
-        xaxis=dict(title="Pitches ago", tickvals=x, ticktext=[str(n - i + 1) for i in x],
+        xaxis=dict(title="Pitches ago", tickvals=_tick_xs, ticktext=[str(n - i + 1) for i in _tick_xs],
                     gridcolor="rgba(128,128,128,0.15)", tickfont=dict(color=text_color),
                     title_font=dict(color=text_color)),
-        yaxis=dict(tickmode="array", tickvals=[0, 1],
-                    ticktext=[f"Model ({metric_label}={combined_avg:.3f})",
-                              f"Baseline ({metric_label}={base_avg:.3f})"],
-                    range=[-0.6, 1.6], showgrid=False, tickfont=dict(color=text_color)),
-        height=220,
-        margin=dict(l=170, r=20, t=40, b=40),
+        yaxis=dict(tickmode="array", tickvals=[], range=[-1.0, 2.0], showgrid=False),
+        annotations=[
+            dict(text="Model", x=0.5, y=1, xref="paper", yref="y", xanchor="center", yanchor="bottom",
+                 showarrow=False, font=dict(color=text_color, size=12), yshift=14),
+            dict(text="Baseline", x=0.5, y=0, xref="paper", yref="y", xanchor="center", yanchor="top",
+                 showarrow=False, font=dict(color=text_color, size=12), yshift=-14),
+        ],
+        height=240,
+        margin=dict(l=10, r=10, t=40, b=40),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
@@ -5334,6 +5442,24 @@ def suggest_swing(
     return best_idx + 1, float(scores[best_idx]), counter_idx + 1, float(scores[counter_idx])
 
 
+def expected_swing_scores(
+    density: "numpy.ndarray | list",
+    result_ranges: list,
+    metric: str = "obp",
+    obr_extra: frozenset[str] = frozenset(),
+) -> "numpy.ndarray":
+    """Full length-1000 expected-score curve (indexed by 1-indexed swing
+    value, i.e. index v-1 is swinging at v) from the same FFT-convolution
+    suggest_swing/suggest_swing_from_density reduce to a single argmax -
+    scores[v-1] = sum over opposing values w of density[w] * (the OBP/SLG
+    score of whatever result the circular diff between v and w resolves to,
+    via result_ranges). Exposed standalone (not just the argmax) so the
+    whole curve - not only the single best swing - can be plotted, e.g.
+    expected_swing_score_radial_chart."""
+    density = np.asarray(density, dtype=float)
+    return _scores_via_fft(density, _diff_score_array(result_ranges, metric, obr_extra))
+
+
 def suggest_swing_from_density(
     density: "numpy.ndarray | list",
     result_ranges: list,
@@ -5342,17 +5468,16 @@ def suggest_swing_from_density(
     obr_extra: frozenset[str] = frozenset(),
 ) -> tuple[int, float]:
     """Density-array counterpart to suggest_swing: identical FFT-convolution
-    scoring (_scores_via_fft/_diff_score_array), but takes a precomputed
-    length-1000 probability array directly as the opposing-pitch
-    distribution - e.g. tools/pitch_likelihood_backtest.py's own
-    baseline/combined density - instead of building one from a list of raw
-    recent pitch values via _build_weight_array. Answers "if a batter swung
-    to maximize OBP/SLG against THIS predicted distribution, what would they
-    swing at," the same question suggest_swing answers from raw history.
+    scoring (expected_swing_scores), but takes a precomputed length-1000
+    probability array directly as the opposing-pitch distribution - e.g.
+    tools/pitch_likelihood_backtest.py's own baseline/combined density -
+    instead of building one from a list of raw recent pitch values via
+    _build_weight_array. Answers "if a batter swung to maximize OBP/SLG
+    against THIS predicted distribution, what would they swing at," the
+    same question suggest_swing answers from raw history.
 
     Returns (best_val, best_score) - best_val is 1-indexed (1-1000)."""
-    density = np.asarray(density, dtype=float)
-    scores = _scores_via_fft(density, _diff_score_array(result_ranges, metric, obr_extra))
+    scores = expected_swing_scores(density, result_ranges, metric, obr_extra)
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     return best_idx + 1, float(scores[best_idx])
 

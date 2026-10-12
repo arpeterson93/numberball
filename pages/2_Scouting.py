@@ -3356,6 +3356,29 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     width="stretch", config={"displayModeBar": False}, key="p_pl_radial",
                 )
 
+                if result_ranges:
+                    st.markdown("**Expected Swing Score**")
+                    st.caption(
+                        "Companion to the radial above, same swing-value wheel - not probability density, "
+                        "but the OBP/SLG score utils.expected_swing_scores expects from swinging at each "
+                        "value, via the FFT convolution of that density with the current matchup's result "
+                        "ranges. Stars mark each curve's own best swing (what suggest_swing_from_density "
+                        "picks) - the same choice the Suggested-Swing Backtest below replays historically."
+                    )
+                    _pl_swing_metric = st.radio(
+                        "Metric", ["OBP", "SLG"], horizontal=True, key=f"p_pl_swing_metric_{tab_p_pitcher}",
+                    )
+                    _pl_swing_metric_key = "obp" if _pl_swing_metric == "OBP" else "slg"
+                    _pl_base_scores = utils.expected_swing_scores(
+                        _pl["baseline"], result_ranges, _pl_swing_metric_key)
+                    _pl_comb_scores = utils.expected_swing_scores(
+                        _pl["combined"], result_ranges, _pl_swing_metric_key)
+                    st.plotly_chart(
+                        utils.expected_swing_score_radial_chart(
+                            _pl_base_scores, _pl_comb_scores, _pl_swing_metric, dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_pl_swing_radial",
+                    )
+
                 _pl_default_pitch = (_pl_payload["actual"] if _pl_payload is not None
                                       else int(np.argmax(_pl["combined"])) + 1)
                 _pl_inspect = st.number_input(
