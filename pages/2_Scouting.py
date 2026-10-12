@@ -3359,11 +3359,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 if result_ranges:
                     st.markdown("**Expected Swing Score**")
                     st.caption(
-                        "Companion to the radial above, same swing-value wheel - not probability density, "
-                        "but the OBP/SLG score utils.expected_swing_scores expects from swinging at each "
-                        "value, via the FFT convolution of that density with the current matchup's result "
-                        "ranges. Stars mark each curve's own best swing (what suggest_swing_from_density "
-                        "picks) - the same choice the Suggested-Swing Backtest below replays historically."
+                        "Companion to the radial above, same swing-value wheel and same baseline/signals/"
+                        "combined set - not probability density, but the OBP/SLG score utils."
+                        "expected_swing_scores expects from swinging at each value, via the FFT convolution "
+                        "of that density with the current matchup's result ranges. Stars mark baseline's "
+                        "and the model's own best swing (what suggest_swing_from_density picks) - the same "
+                        "choice the Suggested-Swing Backtest below replays historically; individual signals "
+                        "are shown unshrunk, so a thin one can look more confident here than the real model "
+                        "actually trusts it."
                     )
                     _pl_swing_metric = st.radio(
                         "Metric", ["OBP", "SLG"], horizontal=True, key=f"p_pl_swing_metric_{tab_p_pitcher}",
@@ -3373,10 +3376,43 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         _pl["baseline"], result_ranges, _pl_swing_metric_key)
                     _pl_comb_scores = utils.expected_swing_scores(
                         _pl["combined"], result_ranges, _pl_swing_metric_key)
+                    _pl_signal_scores = [
+                        {"name": s["name"],
+                         "scores": utils.expected_swing_scores(s["density"], result_ranges, _pl_swing_metric_key)}
+                        for s in _pl["signals"]
+                    ]
                     st.plotly_chart(
                         utils.expected_swing_score_radial_chart(
-                            _pl_base_scores, _pl_comb_scores, _pl_swing_metric, dark_mode=_dark_mode),
+                            _pl_base_scores, _pl_signal_scores, _pl_comb_scores, _pl_swing_metric,
+                            dark_mode=_dark_mode),
                         width="stretch", config={"displayModeBar": False}, key="p_pl_swing_radial",
+                    )
+
+                    # Every indication's own best swing in one place - the
+                    # chart above only stars baseline/combined (any more
+                    # stars and it's unreadable), so this table is where the
+                    # other 7 signals' own suggested swing actually shows.
+                    _swing_table_rows = [{
+                        "Indication": "Baseline", "Best swing": int(np.argmax(_pl_base_scores)) + 1,
+                        _pl_swing_metric: float(np.max(_pl_base_scores)),
+                    }]
+                    _pl_signal_scores_by_name = {s["name"]: s["scores"] for s in _pl_signal_scores}
+                    for _sig_name in utils._PL_SIGNAL_ORDER:
+                        _sig_scores = _pl_signal_scores_by_name.get(_sig_name)
+                        if _sig_scores is None:
+                            continue
+                        _swing_table_rows.append({
+                            "Indication": utils._PL_SIGNAL_LABELS[_sig_name],
+                            "Best swing": int(np.argmax(_sig_scores)) + 1,
+                            _pl_swing_metric: float(np.max(_sig_scores)),
+                        })
+                    _swing_table_rows.append({
+                        "Indication": "Model (combined)", "Best swing": int(np.argmax(_pl_comb_scores)) + 1,
+                        _pl_swing_metric: float(np.max(_pl_comb_scores)),
+                    })
+                    st.dataframe(
+                        pd.DataFrame(_swing_table_rows), hide_index=True, width="stretch",
+                        column_config={_pl_swing_metric: st.column_config.NumberColumn(format="%.3f")},
                     )
 
                 _pl_default_pitch = (_pl_payload["actual"] if _pl_payload is not None

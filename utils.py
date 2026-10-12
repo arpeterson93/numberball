@@ -4220,11 +4220,19 @@ def pitch_likelihood_density_chart(
                     tickfont=dict(color=text_color), title_font=dict(color=text_color)),
         yaxis=dict(title="Probability", tickformat=".2%", gridcolor=grid_color,
                     tickfont=dict(color=text_color), title_font=dict(color=text_color)),
-        height=380,
-        margin=dict(l=55, r=20, t=40, b=40),
+        height=430,
+        margin=dict(l=55, r=20, t=44, b=130),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+        # Below the plot, not above it (contrast the title, which stays at
+        # the top) - up to 9 entries (uniform/baseline/7 signals/combined) in
+        # a horizontal legend wraps to 2-3 lines on anything narrower than a
+        # wide desktop window, and at y=1.02 (just above the plot) those
+        # wrapped lines run straight into the title text above them. b's
+        # large bottom margin gives those wrapped lines (plus the x-axis's
+        # own title/ticks, which also live down there) room to not collide.
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5,
+                     font=dict(color=text_color)),
         hovermode="x unified",
     )
     return fig
@@ -4302,36 +4310,54 @@ def pitch_likelihood_radial_chart(
             radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color,
                              range=radial_range),
         ),
-        height=420,
-        margin=dict(l=30, r=30, t=40, b=10),
+        height=490,
+        margin=dict(l=30, r=30, t=44, b=100),
         paper_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+        # Below the plot, not above it - see pitch_likelihood_density_chart's
+        # own legend comment for why (9 entries wraps to multiple lines,
+        # which at the old y=1.02-just-above-the-plot position ran into the
+        # title text sitting right above that).
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5,
+                     font=dict(color=text_color)),
     )
     return fig
 
 
 def expected_swing_score_radial_chart(
-    baseline_scores, combined_scores, metric_label: str,
+    baseline_scores, signal_scores: list[dict], combined_scores, metric_label: str,
     title: str = "Expected Swing Score (Radial)", dark_mode: bool = False,
 ) -> go.Figure:
     """Companion to pitch_likelihood_radial_chart, same angle convention
     (swing value 1-1000, 1 at 12 o'clock, clockwise) but a different
     quantity on the radius: utils.expected_swing_scores' own OBP/SLG
-    expected-score curve for baseline vs. the combined model, not
-    probability density - the two aren't on the same scale (density sums to
-    1 over 1000 tiny values; a score is a 0-1 OBP or 0-4 SLG number), so
-    this is its own chart rather than an overlay on the density radial.
+    expected-score curve for baseline, each signal, and the combined model -
+    not probability density - the two aren't on the same scale (density
+    sums to 1 over 1000 tiny values; a score is a 0-1 OBP or 0-4 SLG
+    number), so this is its own chart rather than an overlay on the density
+    radial, but otherwise mirrors that chart's baseline/signals/combined
+    triad exactly, color-matched to the same palette.
 
-    Unlike that density radial, both curves here already share one
+    signal_scores: [{"name", "scores"}, ...] - any subset/order of
+    _PL_SIGNAL_ORDER, each "scores" already reduced through
+    expected_swing_scores from that signal's own RAW (unshrunk) density -
+    same caveat pitch_likelihood_radial_chart's own per-signal curves carry:
+    a thin/low-n_eff signal's raw score curve can look more confident here
+    than the signal actually is once the real model shrinks it toward
+    baseline, since that shrinkage only happens in combine_signals, not here.
+
+    Unlike the density radial, every curve here already shares one
     meaningful scale (whichever metric was picked), so a plain zero-based
     axis would still be legitimate - but the radial axis is zoomed to the
     data's own min/max anyway (same reasoning as the density radial: most of
-    a zero-based axis would be spent below both curves' shared floor,
+    a zero-based axis would be spent below every curve's shared floor,
     compressing the actual baseline-vs-combined gap this chart exists to
-    show). A star marker (plus label) marks each curve's own argmax - the
-    swing suggest_swing_from_density would actually pick."""
+    show). A star marker (plus label) marks baseline's and combined's own
+    argmax - the swing suggest_swing_from_density would actually pick for
+    each; individual signals are shown as plain curves (no stars) to keep
+    this from turning into a 9-star field."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
     grid_color = "rgba(255,255,255,0.15)" if dark_mode else "rgba(0,0,0,0.15)"
+    sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
     baseline_color = "#9aa4b6" if dark_mode else "#70788a"
     combined_color = "#f3f5f8" if dark_mode else "#14161a"
 
@@ -4339,8 +4365,9 @@ def expected_swing_score_radial_chart(
     combined_scores = np.asarray(combined_scores, dtype=float)
     theta = [(v - 1) * 360.0 / 1000.0 for v in range(1, 1001)]
     tickvals, ticktext = _pitch_value_ticks()
+    by_name = {s["name"]: np.asarray(s["scores"], dtype=float) for s in signal_scores}
 
-    all_vals = np.concatenate([baseline_scores, combined_scores])
+    all_vals = np.concatenate([baseline_scores, combined_scores] + list(by_name.values()))
     r_min, r_max = float(np.min(all_vals)), float(np.max(all_vals))
     pad = (r_max - r_min) * 0.08 or (abs(r_max) * 0.08 or 0.01)
     radial_range = [r_min - pad, r_max + pad]
@@ -4354,6 +4381,12 @@ def expected_swing_score_radial_chart(
         name=f"Baseline-suggested ({metric_label})",
         line=dict(color=baseline_color, width=2, dash="dash"),
     ))
+    for i, name in enumerate(_PL_SIGNAL_ORDER):
+        scores = by_name.get(name)
+        if scores is None:
+            continue
+        fig.add_trace(go.Scatterpolar(r=scores, theta=theta, mode="lines", name=_PL_SIGNAL_LABELS[name],
+                                       line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
     fig.add_trace(go.Scatterpolar(
         r=combined_scores, theta=theta, mode="lines",
         name=f"Model-suggested ({metric_label})",
@@ -4383,10 +4416,14 @@ def expected_swing_score_radial_chart(
             radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color,
                              range=radial_range),
         ),
-        height=420,
-        margin=dict(l=30, r=30, t=40, b=10),
+        height=490,
+        margin=dict(l=30, r=30, t=44, b=100),
         paper_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color=text_color)),
+        # Below the plot, not above it - same reason/sizing as
+        # pitch_likelihood_radial_chart's own legend (now also up to 9
+        # entries here: baseline/7 signals/combined).
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5,
+                     font=dict(color=text_color)),
     )
     return fig
 
