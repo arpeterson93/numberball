@@ -4237,18 +4237,49 @@ def pitch_likelihood_radial_chart(
     """Same densities as pitch_likelihood_density_chart, polar projection -
     angle = pitch value 1-1000 (1 at 12 o'clock, clockwise), radius =
     probability, matching this app's other radial charts' own convention
-    (_pitch_value_ticks, direction=clockwise/rotation=90)."""
+    (_pitch_value_ticks, direction=clockwise/rotation=90).
+
+    Unlike those other radial charts, the radial axis here is NOT pinned to
+    [0, max] - every curve on this 1-1000 grid hugs a shared baseline level
+    (the uniform 1/1000 a signal with no information collapses to), so a
+    zero-based axis spends most of its radius on the empty space below that
+    shared floor and compresses every curve's actual spread (where the
+    interesting disagreement between signals lives) into a thin band near
+    the rim - exactly the opposite of pitch_likelihood_density_chart's plain
+    Scatter, whose y-axis autoranges to the data's own min/max, not to zero.
+    radialaxis.range is instead set explicitly to [data min, data max]
+    (small padding each side), mirroring that cartesian autorange so the
+    same curves read with the same visual sensitivity in either view.
+
+    A dotted "Uniform" reference ring at r=1/1000 (every bin's share of a
+    flat distribution over this 1-1000 grid) is drawn as a full circle -
+    every signal's curve sitting ON that ring there is a visual flag for
+    "no information at that pitch value," the same floor the baseline and
+    combined curves themselves asymptote toward away from their own peaks.
+    """
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
     grid_color = "rgba(255,255,255,0.15)" if dark_mode else "rgba(0,0,0,0.15)"
     sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
     baseline_color = "#9aa4b6" if dark_mode else "#70788a"
     combined_color = "#f3f5f8" if dark_mode else "#14161a"
+    uniform_color = "#6b7384" if dark_mode else "#9a9fab"
 
     theta = [(v - 1) * 360.0 / 1000.0 for v in range(1, 1001)]
     tickvals, ticktext = _pitch_value_ticks()
     by_name = {s["name"]: s for s in signals}
+    uniform_r = 1.0 / 1000.0
+
+    all_vals = [np.asarray(baseline), np.asarray(combined)] + [np.asarray(s["density"]) for s in signals]
+    r_min = min(float(np.min(v)) for v in all_vals + [np.array([uniform_r])])
+    r_max = max(float(np.max(v)) for v in all_vals + [np.array([uniform_r])])
+    pad = (r_max - r_min) * 0.06 or r_max * 0.06
+    radial_range = [max(0.0, r_min - pad), r_max + pad]
 
     fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=[uniform_r] * 361, theta=[i for i in range(361)], mode="lines", name="Uniform (1/1000)",
+        line=dict(color=uniform_color, width=1.3, dash="dot"), hoverinfo="skip",
+    ))
     fig.add_trace(go.Scatterpolar(r=baseline, theta=theta, mode="lines", name="Baseline (unconditioned)",
                                    line=dict(color=baseline_color, width=2, dash="dash")))
     for i, name in enumerate(_PL_SIGNAL_ORDER):
@@ -4268,7 +4299,8 @@ def pitch_likelihood_radial_chart(
             angularaxis=dict(direction="clockwise", rotation=90, tickmode="array",
                               tickvals=tickvals, ticktext=ticktext, gridcolor=grid_color,
                               tickfont=dict(color=text_color)),
-            radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color),
+            radialaxis=dict(showticklabels=False, ticks="", showline=False, gridcolor=grid_color,
+                             range=radial_range),
         ),
         height=420,
         margin=dict(l=30, r=30, t=40, b=10),
