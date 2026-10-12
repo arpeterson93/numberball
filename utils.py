@@ -4594,12 +4594,16 @@ def suggested_swing_rolling_chart(
     own per-pitch metric value (utils.result_metric_value already applied
     by the caller), with NaN wherever that indication had no signal data at
     that point (same points suggested_swing_backtest_chart renders as a
-    gray N/A cell) - pandas' own rolling mean already excludes NaN from a
-    window's average rather than counting a missing point as an out, so a
-    thin signal's rolling line just has gaps riding past CLOSE to its
-    neighbors' values, not artificial dips. "key" is "baseline", "combined",
-    or one of _PL_SIGNAL_ORDER's names, used only to match this line's color
-    to the same signal's color everywhere else on this tab - never shown."""
+    gray N/A cell) - an isolated one doesn't blank the window it falls in
+    (the rolling mean just averages whatever's actually available within
+    it, same as a thin signal missing 1 of 20 points there), but the first
+    window-1 POSITIONS are masked to NaN outright regardless of data
+    availability - a "window=20" average computed from only 5 real pitches
+    so far isn't a comparable 20-pitch average, so it isn't drawn at all
+    rather than silently reading as if it were one. "key" is "baseline",
+    "combined", or one of _PL_SIGNAL_ORDER's names, used only to match this
+    line's color to the same signal's color everywhere else on this tab -
+    never shown."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
     grid_color = "rgba(255,255,255,0.12)" if dark_mode else "rgba(0,0,0,0.12)"
     sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
@@ -4613,7 +4617,13 @@ def suggested_swing_rolling_chart(
 
     fig = go.Figure()
     for r in rows:
+        # min_periods=1 so an isolated missing point mid-window doesn't
+        # blank the whole average (it just averages the other points that
+        # ARE there); the ramp-up before a full window has even elapsed is
+        # then masked separately below, by position, not by data count.
         roll = pd.Series(r["values"], dtype=float).rolling(window, min_periods=1).mean()
+        if window > 1:
+            roll.iloc[:window - 1] = float("nan")
         if r["key"] == "baseline":
             line = dict(color=baseline_color, width=2, dash="dash")
         elif r["key"] == "combined":
