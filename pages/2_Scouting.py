@@ -3513,20 +3513,33 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     # a game's first pitch) - those points get None rather
                     # than dropping the whole row, so the grid/table/rolling
                     # chart below all stay aligned on the same N columns.
-                    _swbt_keys = ["baseline"] + list(utils._PL_SIGNAL_ORDER) + ["combined"]
-                    _swbt_labels = {"baseline": "Baseline", "combined": "Model (combined)",
-                                    **utils._PL_SIGNAL_SHORT_LABELS}
+                    # "model_peak" isolates what the FFT/ranges-optimization
+                    # step is actually buying over the naive "just swing at
+                    # the model's own single most-likely pitch" strategy -
+                    # same combined density as "Model (FFT-optimal)", just
+                    # argmax'd directly instead of run through suggest_swing_
+                    # from_density, so it needs no result_ranges to CHOOSE
+                    # the swing (only to score the outcome, same as every
+                    # other row here).
+                    _swbt_keys = (["baseline"] + list(utils._PL_SIGNAL_ORDER)
+                                  + ["model_peak", "combined"])
+                    _swbt_labels = {"baseline": "Baseline", "model_peak": "Model (peak)",
+                                    "combined": "Model (FFT-optimal)", **utils._PL_SIGNAL_SHORT_LABELS}
                     _swbt_results_by_key: dict[str, list[str | None]] = {k: [] for k in _swbt_keys}
                     for _pt in _swbt_pts:
                         _sig_density_by_name = {s["name"]: s["density"] for s in _pt["signals"]}
                         for _key in _swbt_keys:
-                            _density = (_pt["baseline"] if _key == "baseline"
-                                        else _pt["combined"] if _key == "combined"
-                                        else _sig_density_by_name.get(_key))
-                            if _density is None:
-                                _swbt_results_by_key[_key].append(None)
-                                continue
-                            _swing, _ = utils.suggest_swing_from_density(_density, result_ranges, _swbt_metric_key)
+                            if _key == "model_peak":
+                                _swing = int(np.argmax(_pt["combined"])) + 1
+                            else:
+                                _density = (_pt["baseline"] if _key == "baseline"
+                                            else _pt["combined"] if _key == "combined"
+                                            else _sig_density_by_name.get(_key))
+                                if _density is None:
+                                    _swbt_results_by_key[_key].append(None)
+                                    continue
+                                _swing, _ = utils.suggest_swing_from_density(
+                                    _density, result_ranges, _swbt_metric_key)
                             _diff = utils.circular_diff(_pt["actual"], _swing)
                             _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
 
@@ -3555,13 +3568,19 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _swbt_avg_table = pd.DataFrame(_swbt_table_rows)
 
                     _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
+                    _peak_avg = _swbt_avg_table.loc[
+                        _swbt_avg_table["Indication"] == "Model (peak)", _swbt_metric].iloc[0]
                     _comb_avg = _swbt_avg_table.loc[
-                        _swbt_avg_table["Indication"] == "Model (combined)", _swbt_metric].iloc[0]
+                        _swbt_avg_table["Indication"] == "Model (FFT-optimal)", _swbt_metric].iloc[0]
                     _swbt_better = _comb_avg > _base_avg
+                    _fft_vs_peak = "beat" if _comb_avg > _peak_avg else "lost to" if _comb_avg < _peak_avg else "tied"
                     st.caption(
                         f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
-                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested swings **{_comb_avg:.3f}** "
-                        f"({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'}). "
+                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested (FFT-optimal) swings "
+                        f"**{_comb_avg:.3f}** ({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'} "
+                        f"than baseline). FFT-optimal {_fft_vs_peak} just swinging at the model's own single "
+                        f"most-likely pitch (Model (peak): **{_peak_avg:.3f}**) - how much the FFT/ranges "
+                        "optimization step is actually buying over the naive point-estimate strategy. "
                         "Individual signals use their raw (unshrunk) density, same caveat as the Expected "
                         "Swing Score chart/table above; gray cells below are points that signal had no data "
                         "for (not scored either way), not an out."

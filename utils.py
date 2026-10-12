@@ -4628,6 +4628,12 @@ def suggested_swing_rolling_chart(
             line = dict(color=baseline_color, width=2, dash="dash")
         elif r["key"] == "combined":
             line = dict(color=combined_color, width=3)
+        elif r["key"] == "model_peak":
+            # Same combined density as "combined," just a different swing-
+            # selection strategy on it (argmax vs FFT-optimal) - same color
+            # family, dotted to read as "the other model line," not an
+            # unrelated signal's own color.
+            line = dict(color=combined_color, width=2, dash="dot")
         else:
             idx = _PL_SIGNAL_ORDER.index(r["key"]) if r["key"] in _PL_SIGNAL_ORDER else 0
             line = dict(color=sig_colors[idx % len(sig_colors)], width=1.6)

@@ -61,6 +61,16 @@ can be run as separate, separately-timed/backgrounded invocations):
         Final, single-touch TEST evaluation of whatever config is currently
         saved in the state file - run this once, at the end, not during
         search.
+
+    python tools/pitch_likelihood_calibrate.py swing-report
+        [--points-per-pitcher 40] [--min-history 30]
+        Roster-wide counterpart to the Streamlit Suggested-Swing Backtest:
+        baseline-suggested vs. the combined model's own peak pitch vs. the
+        combined model's FFT/ranges-optimal suggested swing, scored in OBP
+        and SLG against a single fixed neutral result-ranges table
+        (DEFAULT_SWING_RANGES) across all three splits - a diagnostic, not
+        a selection stage, so unlike the stages above it's fine to re-run
+        freely and look at all three splits every time.
 """
 from __future__ import annotations
 
@@ -790,6 +800,82 @@ def cmd_signal_diagnose(args):
             print(f"    weight={v:.2f}: val logloss={ll:.5f}")
 
 
+# Fixed neutral result-ranges for cmd_swing_report - utils.compute_at_bat_ranges'
+# own default output at all stats=3, R/R hands, no modifiers, 0 outs, no
+# runners. NOT any real matchup's actual attributes - same simplification
+# the Streamlit Suggested-Swing Backtest already makes (one fixed ranges
+# table applied uniformly, not each point's own historical attributes),
+# just also uniform across every PITCHER here, not just one pitcher's
+# current matchup. This is about whether the model's density points toward
+# better swings than ignoring it would, not a literal replay.
+DEFAULT_SWING_RANGES = [
+    ("HR", 0, 18), ("3B", 19, 23), ("2B", 24, 52), ("1B", 53, 135),
+    ("IF1B", 136, 144), ("BB", 145, 178), ("FO", 179, 226), ("PO", 227, 249),
+    ("GO", 250, 398), ("K", 399, 500),
+]
+
+
+def cmd_swing_report(args):
+    """Roster-wide counterpart to the Streamlit Suggested-Swing Backtest -
+    same three swing-selection strategies on the same baseline/combined
+    densities (baseline-suggested, the combined model's own single-peak
+    pitch with no FFT/ranges optimization, the combined model's FFT/ranges-
+    optimal suggested swing), scored in OBP and SLG terms via
+    DEFAULT_SWING_RANGES, averaged across many pitchers/points across all
+    three splits instead of one pitcher's recent window. Reuses
+    precompute_split's existing baseline+signals records (the same
+    expensive stage fit-weights/fit-widths already pay for) - only
+    combine_signals and the swing-scoring step run again here, so this is
+    cheap to re-run after any refit without re-fetching anything."""
+    state = load_state()
+    for k in ("sigma", "pitch_width", "cooldown_radius", "leverage_width", "min_effective_n", "weights"):
+        if k not in state:
+            print(f"Missing '{k}' - run fetch/fit-weights first.", file=sys.stderr)
+            sys.exit(1)
+    cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
+                 pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
+    weights = state["weights"]
+
+    for label, names in (("train", state["train_pitchers"]), ("val", state["val_pitchers"]),
+                          ("test", state["test_pitchers"])):
+        records = precompute_split(names, cfg, args.points_per_pitcher, args.min_history, label)
+        if not records:
+            print(f"[{label}] no points.", file=sys.stderr)
+            continue
+
+        # combine_signals doesn't depend on the metric, only the swing CHOICE
+        # does - computed once per point here, reused by both metrics below.
+        prepared = []
+        for rec in records:
+            baseline = rec["baseline"]
+            combined = combine_signals(baseline, rec["signals"], cfg.min_effective_n, weights)
+            prepared.append((baseline, combined, rec["actual"]))
+
+        print(f"\n=== [{label}] n={len(prepared)} points, {len(names)} pitchers, "
+              f"fixed neutral result-ranges ===")
+        for metric in ("obp", "slg"):
+            vals = {"baseline": [], "model_peak": [], "model_fft": []}
+            for baseline, combined, actual in prepared:
+                peak_swing = int(np.argmax(combined)) + 1
+                base_swing, _ = utils.suggest_swing_from_density(baseline, DEFAULT_SWING_RANGES, metric)
+                fft_swing, _ = utils.suggest_swing_from_density(combined, DEFAULT_SWING_RANGES, metric)
+                for key, swing in (("baseline", base_swing), ("model_peak", peak_swing),
+                                   ("model_fft", fft_swing)):
+                    diff = utils.circular_diff(actual, swing)
+                    result = utils._diff_to_result(diff, DEFAULT_SWING_RANGES)
+                    vals[key].append(utils.result_metric_value(result, metric))
+            means = {k: float(np.mean(v)) for k, v in vals.items()}
+            fft_vs_peak = ("better" if means["model_fft"] > means["model_peak"]
+                           else "worse" if means["model_fft"] < means["model_peak"] else "tied")
+            fft_vs_base = ("better" if means["model_fft"] > means["baseline"]
+                           else "worse" if means["model_fft"] < means["baseline"] else "tied")
+            print(f"  {metric.upper():4s}  baseline={means['baseline']:.4f}  "
+                  f"model(peak)={means['model_peak']:.4f}  model(FFT-optimal)={means['model_fft']:.4f}  "
+                  f"  [FFT vs peak: {fft_vs_peak}]  [FFT vs baseline: {fft_vs_base}]")
+
+
 def cmd_report(args):
     state = load_state()
     for k in ("sigma", "pitch_width", "cooldown_radius", "leverage_width", "min_effective_n", "weights"):
@@ -983,6 +1069,11 @@ def main():
     p.add_argument("--signals", default="cooldown",
                     help="Comma-separated signal name(s) to run the weight-sensitivity sweep on")
     p.set_defaults(func=cmd_signal_diagnose)
+
+    p = sub.add_parser("swing-report")
+    p.add_argument("--points-per-pitcher", type=int, default=40)
+    p.add_argument("--min-history", type=int, default=30)
+    p.set_defaults(func=cmd_swing_report)
 
     p = sub.add_parser("report")
     p.set_defaults(func=cmd_report)
