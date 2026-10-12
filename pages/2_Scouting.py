@@ -18,7 +18,10 @@ import utils
 _TOOLS_DIR = str(pathlib.Path(__file__).resolve().parent.parent / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
-from pitch_likelihood_backtest import Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals
+from pitch_likelihood_backtest import (
+    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, build_explain_export,
+    recent_pitch_densities,
+)
 
 _dark_mode = st.context.theme.type == "dark"
 
@@ -51,6 +54,51 @@ def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_widt
         "signals": [{"name": s.name, "n_eff": s.n_eff, "density": s.density} for s in signals],
         "combined": combined,
     }
+
+
+@st.cache_data(show_spinner=False)
+def _pitch_likelihood_explain(df_full: pd.DataFrame, pitcher: str, cur_id, sigma: float, pitch_width: int,
+                               cooldown_radius: float, leverage_width: float, min_effective_n: float,
+                               weights: dict, delta_cooldown_radius: float = 50.0) -> dict | None:
+    """As-of-a-specific-past-pitch counterpart to _pitch_likelihood_prediction -
+    reuses build_explain_export (the same export the Pitch Signal Autopsy
+    artifact's data.json comes from) so this view and that artifact can never
+    drift apart on what "frozen history" means. df_full is NOT pre-truncated -
+    build_explain_export does its own df[df['id'] < cur_id] cut internally, so
+    passing the full (season/team-filtered) history lets it find cur_id's row
+    and freeze everything strictly before it.
+
+    Unlike the live view (target_row=None), this ALSO activates the leverage
+    signal - target_row supplies the real pre-play game state at that pitch,
+    which the live "as of right now" view has no upcoming pitch to read it
+    from - and the result carries the real actual/logloss/pit fields for
+    grading, since the outcome is already known here.
+
+    Returns None if cur_id has no matching pitch row, or if fewer than 2
+    pitches preceded it (not enough history for build_state)."""
+    cfg = Config(sigma=sigma, min_effective_n=min_effective_n, pitch_width=pitch_width,
+                 cooldown_radius=cooldown_radius, leverage_width=leverage_width,
+                 delta_cooldown_radius=delta_cooldown_radius, weights=weights)
+    return build_explain_export(df_full, pitcher, cur_id, cfg, active_signals=None)
+
+
+@st.cache_data(show_spinner=False)
+def _recent_pitch_densities_cached(df_hist: pd.DataFrame, n: int, sigma: float, pitch_width: int,
+                                    cooldown_radius: float, leverage_width: float, min_effective_n: float,
+                                    weights: dict, delta_cooldown_radius: float = 50.0) -> list[dict]:
+    """Cached wrapper around recent_pitch_densities - the expensive part
+    (walking the last n pitches, each against nearly its full preceding
+    history) of the Suggested-Swing Backtest below. df_hist is whatever this
+    tab's own df_p currently resolves to (already truncated to before a
+    loaded historical play, same as every other section on this tab, if one
+    is loaded) - this function does its own last-n walk from there, same
+    "pass the scope this tab is already using" convention as the live
+    pitch-likelihood prediction above."""
+    cfg = Config(sigma=sigma, min_effective_n=min_effective_n, pitch_width=pitch_width,
+                 cooldown_radius=cooldown_radius, leverage_width=leverage_width,
+                 delta_cooldown_radius=delta_cooldown_radius, weights=weights)
+    return recent_pitch_densities(df_hist, cfg, n)
+
 
 _MLN_QS_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 _MLN_QS_SEASON   = 13
@@ -2770,6 +2818,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             width="stretch", key="p_radial_combined",
         )
 
+        # Captured BEFORE the rebind below - the pitch-likelihood section needs
+        # the UNTRUNCATED history (build_explain_export does its own id-based
+        # cut and needs hist_id's own row present as the target), where every
+        # other section below just wants the already-truncated df_p_pred.
+        _df_p_full_for_pl_p = df_p
+
         # rebind so all sections below are ITD
         df_p = df_p_pred
         _p_total = len(df_p)
@@ -3245,27 +3299,52 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
             st.caption(
                 "All seven sequence/delta/cooldown/leverage signals above, pooled into one "
-                "prediction via the calibrated log-linear model (tools/pitch_likelihood_backtest.py) "
-                "- as of this pitcher's most recent recorded pitch, not graded against a specific "
-                "upcoming at-bat. For the full tunable version (live kernel-width and weight sliders, "
-                "per-signal derivation panels), see the standalone Pitch Signal Autopsy tool."
+                "prediction via the calibrated log-linear model (tools/pitch_likelihood_backtest.py). "
+                "Follows the same Matchup Setup -> Historical / Manual play import used by every other "
+                "chart on this tab: with no play loaded, this is a live read as of the most recent pitch "
+                "(not graded - there's no known outcome yet); with one loaded, history freezes strictly "
+                "before it, the leverage signal activates (it needs that play's own pre-pitch game state), "
+                "and the prediction is graded against what actually happened - the same frozen-history "
+                "computation the standalone Pitch Signal Autopsy tool's examples are built from."
             )
 
             @st.fragment
-            def _pitch_likelihood_section_p(df_p):
-                _pl = _pitch_likelihood_prediction(
-                    df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
-                    leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
-                )
-                if _pl is None:
-                    st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
-                    return
+            def _pitch_likelihood_section_p(df_p, df_p_full, hist_id):
+                _pl_payload = None
+                if hist_id:
+                    _pl_payload = _pitch_likelihood_explain(
+                        df_p_full, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                    )
+                    if _pl_payload is None:
+                        st.caption("Not enough history before this pitch yet (need at least 2 prior pitches).")
+                        return
+                    _pl = {"state": _pl_payload["state"], "baseline": _pl_payload["baseline"],
+                           "signals": _pl_payload["signals"], "combined": _pl_payload["combined"]}
+                else:
+                    _pl = _pitch_likelihood_prediction(
+                        df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                    )
+                    if _pl is None:
+                        st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
+                        return
 
                 _pl_state = _pl["state"]
                 st.caption(
                     f"Most recent pitch: **{_pl_state['prev_pitch']}** &middot; "
                     f"Most recent PA result: **{_pl_state['prev_result_cat'] or '(none yet)'}**"
+                    + (f" &middot; Leverage: **{_pl_state['target_leverage']:.2f}**"
+                       if _pl_state.get('target_leverage') is not None else "")
                 )
+                if _pl_payload is not None:
+                    _better = _pl_payload["logloss_combined"] < _pl_payload["logloss_baseline"]
+                    st.caption(
+                        f"Actual pitch thrown: **{_pl_payload['actual']}** &middot; "
+                        f"log-loss baseline **{_pl_payload['logloss_baseline']:.3f}** &rarr; "
+                        f"combined **{_pl_payload['logloss_combined']:.3f}** "
+                        f"({'better' if _better else 'worse'}) &middot; PIT **{_pl_payload['pit']:.3f}**"
+                    )
                 st.plotly_chart(
                     utils.pitch_likelihood_density_chart(
                         _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
@@ -3277,11 +3356,13 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     width="stretch", config={"displayModeBar": False}, key="p_pl_radial",
                 )
 
-                _pl_default_pitch = int(np.argmax(_pl["combined"])) + 1
+                _pl_default_pitch = (_pl_payload["actual"] if _pl_payload is not None
+                                      else int(np.argmax(_pl["combined"])) + 1)
                 _pl_inspect = st.number_input(
                     "Inspect pitch value", min_value=1, max_value=1000,
                     value=_pl_default_pitch, step=1, key=f"p_pl_inspect_{tab_p_pitcher}",
-                    help="Defaults to the model's own top-predicted value.",
+                    help="Defaults to the actual pitch thrown when grading a historical pitch, "
+                         "otherwise the model's own top-predicted value.",
                 )
                 st.plotly_chart(
                     utils.pitch_likelihood_breakdown_chart(
@@ -3290,7 +3371,84 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     width="stretch", config={"displayModeBar": False}, key="p_pl_breakdown",
                 )
 
-            _pitch_likelihood_section_p(df_p)
+            _pitch_likelihood_section_p(df_p, _df_p_full_for_pl_p, hist_id)
+
+        # ── suggested-swing backtest ─────────────────────────────────────────────
+        st.divider()
+        with st.expander("Suggested-Swing Backtest", expanded=False):
+            st.caption(
+                "Restates \"how well has pitch likelihood been predicting this pitcher\" in OBP/SLG "
+                "terms instead of log-loss: for each of this pitcher's last N pitches, what swing would "
+                "utils.suggest_swing_from_density have picked (to maximize OBP or SLG, via the current "
+                "matchup's result ranges below) against the BASELINE density vs. against the COMBINED "
+                "model's density - then diffed against the pitch actually thrown to get a real result. "
+                "Uses TODAY's matchup ranges applied retroactively to every historical pitch (not each "
+                "pitch's own historical attributes) for simplicity - this is about whether the model's "
+                "density points toward better swings than ignoring it would, not a literal replay."
+            )
+            if not result_ranges:
+                st.caption("Load a matchup (Fetch Live Matchup, or Historical / Manual) to get result "
+                           "ranges first - this needs them to score a swing.")
+            else:
+                @st.fragment
+                def _suggest_swing_backtest_section_p(df_p, result_ranges):
+                    _swbt_c1, _swbt_c2 = st.columns([2, 1])
+                    with _swbt_c1:
+                        _swbt_n = st.slider("Pitches to backtest", 5, 100, min(30, n_pitches), step=5,
+                                            key=f"p_swbt_n_{tab_p_pitcher}",
+                                            help="Each one re-runs the full model against nearly its own "
+                                                 "full preceding history, so this is meaningfully heavier "
+                                                 "than the live view above - kept off auto-run below.")
+                    with _swbt_c2:
+                        _swbt_metric = st.radio("Metric", ["OBP", "SLG"], horizontal=True,
+                                                key=f"p_swbt_metric_{tab_p_pitcher}")
+                    _swbt_run_key = f"p_swbt_ran_{tab_p_pitcher}"
+                    if st.button("Run backtest", key=f"p_swbt_run_{tab_p_pitcher}"):
+                        st.session_state[_swbt_run_key] = True
+                    if not st.session_state.get(_swbt_run_key):
+                        st.caption("Click Run backtest to compute (not run automatically - see the slider's "
+                                   "own cost note above).")
+                        return
+
+                    with st.spinner(f"Walking the last {_swbt_n} pitches..."):
+                        _swbt_pts = _recent_pitch_densities_cached(
+                            df_p, _swbt_n, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                            leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                        )
+                    if not _swbt_pts:
+                        st.caption("Not enough history yet for this window.")
+                        return
+
+                    _swbt_metric_key = "obp" if _swbt_metric == "OBP" else "slg"
+                    _swbt_rows = []
+                    for _pt in _swbt_pts:
+                        _base_swing, _ = utils.suggest_swing_from_density(
+                            _pt["baseline"], result_ranges, _swbt_metric_key)
+                        _comb_swing, _ = utils.suggest_swing_from_density(
+                            _pt["combined"], result_ranges, _swbt_metric_key)
+                        _base_diff = utils.circular_diff(_pt["actual"], _base_swing)
+                        _comb_diff = utils.circular_diff(_pt["actual"], _comb_swing)
+                        _swbt_rows.append({
+                            "base_result": utils._diff_to_result(_base_diff, result_ranges),
+                            "comb_result": utils._diff_to_result(_comb_diff, result_ranges),
+                        })
+                    _base_avg = sum(utils.result_metric_value(r["base_result"], _swbt_metric_key)
+                                    for r in _swbt_rows) / len(_swbt_rows)
+                    _comb_avg = sum(utils.result_metric_value(r["comb_result"], _swbt_metric_key)
+                                    for r in _swbt_rows) / len(_swbt_rows)
+                    _swbt_better = _comb_avg > _base_avg
+                    st.caption(
+                        f"Over the last **{len(_swbt_rows)}** pitches: baseline-suggested swings would've "
+                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested swings **{_comb_avg:.3f}** "
+                        f"({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'})."
+                    )
+                    st.plotly_chart(
+                        utils.suggested_swing_backtest_chart(
+                            _swbt_rows, _swbt_metric, _base_avg, _comb_avg, dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_swbt_chart",
+                    )
+
+                _suggest_swing_backtest_section_p(df_p, result_ranges)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()

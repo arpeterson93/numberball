@@ -4364,6 +4364,67 @@ def pitch_likelihood_breakdown_chart(
     return fig
 
 
+def suggested_swing_backtest_chart(
+    points: list[dict], metric_label: str, base_avg: float, combined_avg: float,
+    title: str = "Suggested-Swing Backtest", dark_mode: bool = False,
+) -> go.Figure:
+    """Two rows of result-colored dots, oldest-to-newest left-to-right, one
+    per backtested historical pitch: what result the BASELINE's own
+    suggested swing (suggest_swing_from_density on baseline density) vs the
+    MODEL's suggested swing (same, on the combined density) would have
+    produced against the pitch actually thrown, scored via this matchup's
+    current result_ranges - restates "how well has pitch likelihood been
+    predicting this pitcher" in OBP/SLG terms instead of log-loss, and lets
+    a run of better (dark blue/light blue XBH/BB-1B) colors on one row vs
+    worse (light/dark red Out/K+) on the other read at a glance, without
+    needing the averages in the title.
+
+    points: [{"base_result", "comb_result"}, ...] - each result string
+    already resolved via _diff_to_result (NOT yet reduced to a metric
+    value). Colored by seq_result_category through the same
+    _COOLDOWN_CAT_COLORS scale the cooldown charts use elsewhere on this
+    tab, for one consistent "worst (dark blue) -> best (dark red)" reading
+    across every chart on the page."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    n = len(points)
+    x = list(range(1, n + 1))
+
+    def _colors(key):
+        return [_COOLDOWN_CAT_COLORS.get(seq_result_category(p[key]), "#888888") for p in points]
+
+    def _hover(key):
+        return [f"{n - i} pitches ago: {p[key]}" for i, p in enumerate(points)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=[1] * n, mode="markers",
+        marker=dict(color=_colors("base_result"), size=13, line=dict(width=1, color=text_color)),
+        hovertext=_hover("base_result"), hoverinfo="text", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=[0] * n, mode="markers",
+        marker=dict(color=_colors("comb_result"), size=13, line=dict(width=1, color=text_color)),
+        hovertext=_hover("comb_result"), hoverinfo="text", showlegend=False,
+    ))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        xaxis=dict(title="Pitches ago", tickvals=x, ticktext=[str(n - i + 1) for i in x],
+                    gridcolor="rgba(128,128,128,0.15)", tickfont=dict(color=text_color),
+                    title_font=dict(color=text_color)),
+        yaxis=dict(tickmode="array", tickvals=[0, 1],
+                    ticktext=[f"Model ({metric_label}={combined_avg:.3f})",
+                              f"Baseline ({metric_label}={base_avg:.3f})"],
+                    range=[-0.6, 1.6], showgrid=False, tickfont=dict(color=text_color)),
+        height=220,
+        margin=dict(l=170, r=20, t=40, b=40),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+    )
+    return fig
+
+
 _OBR_RING_COLOR  = "rgba(170,170,170,0.9)"
 _SACF_RING_COLOR = "rgba(170,170,170,0.45)"
 
@@ -5271,6 +5332,40 @@ def suggest_swing(
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     counter_idx = int(np.argmin(scores) if maximize else np.argmax(scores))
     return best_idx + 1, float(scores[best_idx]), counter_idx + 1, float(scores[counter_idx])
+
+
+def suggest_swing_from_density(
+    density: "numpy.ndarray | list",
+    result_ranges: list,
+    metric: str = "obp",
+    maximize: bool = True,
+    obr_extra: frozenset[str] = frozenset(),
+) -> tuple[int, float]:
+    """Density-array counterpart to suggest_swing: identical FFT-convolution
+    scoring (_scores_via_fft/_diff_score_array), but takes a precomputed
+    length-1000 probability array directly as the opposing-pitch
+    distribution - e.g. tools/pitch_likelihood_backtest.py's own
+    baseline/combined density - instead of building one from a list of raw
+    recent pitch values via _build_weight_array. Answers "if a batter swung
+    to maximize OBP/SLG against THIS predicted distribution, what would they
+    swing at," the same question suggest_swing answers from raw history.
+
+    Returns (best_val, best_score) - best_val is 1-indexed (1-1000)."""
+    density = np.asarray(density, dtype=float)
+    scores = _scores_via_fft(density, _diff_score_array(result_ranges, metric, obr_extra))
+    best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
+    return best_idx + 1, float(scores[best_idx])
+
+
+def result_metric_value(result: str, metric: str = "obp", obr_extra: frozenset[str] = frozenset()) -> float:
+    """OBP (1.0/0.0) or SLG (bases, via _SLG_WEIGHTS) value for one already-
+    resolved result string - the same per-result scoring _diff_score_array
+    encodes per-diff internally, exposed standalone for aggregating a list
+    of _diff_to_result outcomes after the fact (see
+    suggested_swing_backtest_chart's caller)."""
+    if metric == "obp":
+        return 1.0 if result in (_OBR | obr_extra) else 0.0
+    return float(_SLG_WEIGHTS.get(result, 0))
 
 
 def swing_signal_strength(

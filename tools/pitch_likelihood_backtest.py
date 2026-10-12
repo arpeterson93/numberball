@@ -518,6 +518,38 @@ def backtest_pitcher(df: pd.DataFrame, min_history: int, cfg: Config,
     return pd.DataFrame(records)
 
 
+def recent_pitch_densities(df: pd.DataFrame, cfg: Config, n: int,
+                            active_signals: list[str] | None = None) -> list[dict]:
+    """Baseline/combined density (plus the actual pitch thrown) for each of
+    this pitcher's last n pitches with enough prior history - the density-
+    PRESERVING counterpart to backtest_pitcher's full logloss-only walk,
+    built for suggested-swing-style backtests (utils.suggest_swing_from_density)
+    rather than log-loss, over a short recent window rather than a full
+    career. Same per-point computation as backtest_pitcher (frozen history
+    strictly before each pitch, target_row supplies its own pre-play
+    leverage), just keeping the raw densities instead of reducing each point
+    to a log-loss/PIT scalar, and walking only the last n eligible points
+    instead of everything from some min_history forward.
+
+    Returns a list ordered oldest-to-newest, each
+    {"id", "actual", "baseline", "combined"} - shorter than n if fewer than
+    n pitches have >= 2 prior pitches of history."""
+    builders = [SIGNAL_BUILDERS[name] for name in (active_signals or SIGNAL_BUILDERS.keys())]
+    pitches = df[df["pitch"].notna()].sort_values("id").reset_index(drop=True)
+    start = max(0, len(pitches) - n)
+    out = []
+    for i in range(start, len(pitches)):
+        cur_id = pitches.loc[i, "id"]
+        df_hist = df[df["id"] < cur_id]
+        state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=pitches.loc[i])
+        if state is None or signals is None:
+            continue
+        combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+        out.append({"id": cur_id, "actual": int(pitches.loc[i, "pitch"]),
+                     "baseline": baseline, "combined": combined})
+    return out
+
+
 def _top_k(density: np.ndarray, k: int = 5) -> list[tuple[int, float]]:
     """(pitch value, density) pairs for the k highest-density grid points,
     highest first - "where does this density think the action is"."""
