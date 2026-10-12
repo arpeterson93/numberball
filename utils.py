@@ -4510,9 +4510,13 @@ def suggested_swing_backtest_chart(
     rows: [{"label", "results"}, ...] in the TOP-to-BOTTOM display order
     wanted - each "results" is that indication's own per-pitch result list
     (already resolved via _diff_to_result, NOT yet reduced to a metric
-    value), same length/order for every row. Colored by seq_result_category
-    through the same _COOLDOWN_CAT_COLORS scale the cooldown charts and the
-    Expected Swing Score chart use elsewhere on this tab.
+    value), same length/order for every row. A None entry means that
+    indication had no signal data at that specific point (e.g. delta_sequence
+    at a game's first pitch) - rendered as a neutral gray cell rather than
+    silently dropping the whole row, so the other points it DOES cover stay
+    visible. Colored by seq_result_category through the same
+    _COOLDOWN_CAT_COLORS scale the cooldown charts and the Expected Swing
+    Score chart use elsewhere on this tab.
 
     A go.Heatmap, not one Scatter trace per row of dots (this chart's own
     previous shape, when it only ever had 2 rows) - a heatmap's cells
@@ -4522,25 +4526,33 @@ def suggested_swing_backtest_chart(
     points would. automargin on the y-axis sizes the left margin to
     whatever the row labels actually need rather than a hardcoded guess."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    na_color = "rgba(140,140,140,0.35)"
     n_rows = len(rows)
     n_cols = len(rows[0]["results"]) if rows else 0
     cats = SEQ_RESULT_CATEGORIES
     n_cats = len(cats)
+    n_bands = n_cats + 1  # + N/A
     cat_idx = {c: i for i, c in enumerate(cats)}
 
-    y_labels = [r["label"] for r in rows]
-    z = [[cat_idx.get(seq_result_category(res), 0) for res in r["results"]] for r in rows]
-    hover = [[f"{r['label']}, {n_cols - j} pitch{'es' if n_cols - j != 1 else ''} ago: {res}"
-              for j, res in enumerate(r["results"])] for r in rows]
+    def _z_val(res):
+        return n_cats if res is None else cat_idx.get(seq_result_category(res), 0)
 
-    # Discrete colorscale: flat color per category band via doubled stops -
-    # the standard Plotly technique for a heatmap that should read as N
-    # distinct swatches, not a continuous gradient between them.
+    y_labels = [r["label"] for r in rows]
+    z = [[_z_val(res) for res in r["results"]] for r in rows]
+    hover = [[
+        f"{r['label']}, {n_cols - j} pitch{'es' if n_cols - j != 1 else ''} ago: "
+        + ("no signal data" if res is None else res)
+        for j, res in enumerate(r["results"])
+    ] for r in rows]
+
+    # Discrete colorscale: flat color per category band (+ one N/A band) via
+    # doubled stops - the standard Plotly technique for a heatmap that
+    # should read as N distinct swatches, not a continuous gradient.
+    band_colors = [_COOLDOWN_CAT_COLORS.get(c, "#888888") for c in cats] + [na_color]
     colorscale = []
-    for i, c in enumerate(cats):
-        color = _COOLDOWN_CAT_COLORS.get(c, "#888888")
-        colorscale.append([i / n_cats, color])
-        colorscale.append([(i + 1) / n_cats, color])
+    for i, color in enumerate(band_colors):
+        colorscale.append([i / n_bands, color])
+        colorscale.append([(i + 1) / n_bands, color])
 
     x = list(range(1, n_cols + 1))
     _tick_step = max(1, round(n_cols / 6)) if n_cols else 1
@@ -4548,7 +4560,7 @@ def suggested_swing_backtest_chart(
 
     fig = go.Figure(go.Heatmap(
         z=z, x=x, y=y_labels, text=hover, hoverinfo="text",
-        colorscale=colorscale, zmin=0, zmax=n_cats,
+        colorscale=colorscale, zmin=0, zmax=n_bands,
         showscale=False, xgap=2, ygap=3,
     ))
     fig.update_layout(
@@ -4562,6 +4574,68 @@ def suggested_swing_backtest_chart(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
+    )
+    return fig
+
+
+def suggested_swing_rolling_chart(
+    rows: list[dict], window: int, metric_label: str,
+    title: str = "Rolling Suggested-Swing Performance", dark_mode: bool = False,
+) -> go.Figure:
+    """Trailing-`window`-pitch rolling average OBP/SLG, one line per
+    indication, oldest-to-newest left-to-right - complements
+    suggested_swing_backtest_chart's per-pitch grid (and its table's single
+    overall average) with the SHAPE of how each indication performed across
+    the backtest window, since two indications can land on the same overall
+    average while one was actually trending very differently from the
+    other. "How hot is each running," not just "where did it net out."
+
+    rows: [{"key", "label", "values"}, ...] - "values" is that indication's
+    own per-pitch metric value (utils.result_metric_value already applied
+    by the caller), with NaN wherever that indication had no signal data at
+    that point (same points suggested_swing_backtest_chart renders as a
+    gray N/A cell) - pandas' own rolling mean already excludes NaN from a
+    window's average rather than counting a missing point as an out, so a
+    thin signal's rolling line just has gaps riding past CLOSE to its
+    neighbors' values, not artificial dips. "key" is "baseline", "combined",
+    or one of _PL_SIGNAL_ORDER's names, used only to match this line's color
+    to the same signal's color everywhere else on this tab - never shown."""
+    text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
+    grid_color = "rgba(255,255,255,0.12)" if dark_mode else "rgba(0,0,0,0.12)"
+    sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
+    baseline_color = "#9aa4b6" if dark_mode else "#70788a"
+    combined_color = "#f3f5f8" if dark_mode else "#14161a"
+
+    n_cols = len(rows[0]["values"]) if rows else 0
+    x = list(range(1, n_cols + 1))
+    _tick_step = max(1, round(n_cols / 6)) if n_cols else 1
+    _tick_xs = sorted(set(list(range(1, n_cols + 1, _tick_step)) + ([n_cols] if n_cols else [])))
+
+    fig = go.Figure()
+    for r in rows:
+        roll = pd.Series(r["values"], dtype=float).rolling(window, min_periods=1).mean()
+        if r["key"] == "baseline":
+            line = dict(color=baseline_color, width=2, dash="dash")
+        elif r["key"] == "combined":
+            line = dict(color=combined_color, width=3)
+        else:
+            idx = _PL_SIGNAL_ORDER.index(r["key"]) if r["key"] in _PL_SIGNAL_ORDER else 0
+            line = dict(color=sig_colors[idx % len(sig_colors)], width=1.6)
+        fig.add_trace(go.Scatter(x=x, y=roll.tolist(), mode="lines", name=r["label"],
+                                  line=line, connectgaps=True))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        xaxis=dict(title="Pitches ago", tickvals=_tick_xs, ticktext=[str(n_cols - i + 1) for i in _tick_xs],
+                    gridcolor=grid_color, tickfont=dict(color=text_color), title_font=dict(color=text_color)),
+        yaxis=dict(title=f"Rolling {metric_label} (window={window})", gridcolor=grid_color,
+                    tickfont=dict(color=text_color), title_font=dict(color=text_color)),
+        height=400,
+        margin=dict(l=55, r=20, t=44, b=110),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5,
+                     font=dict(color=text_color)),
     )
     return fig
 

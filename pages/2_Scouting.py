@@ -30,21 +30,41 @@ _dark_mode = st.context.theme.type == "dark"
 def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_width: int,
                                   cooldown_radius: float, leverage_width: float,
                                   min_effective_n: float, weights: dict,
-                                  delta_cooldown_radius: float = 50.0) -> dict | None:
+                                  delta_cooldown_radius: float = 50.0,
+                                  live_inning: int | None = None, live_half: str | None = None,
+                                  live_outs: int | None = None, live_obc: str | None = None,
+                                  live_away_score: int | None = None,
+                                  live_home_score: int | None = None) -> dict | None:
     """Combined pitch-likelihood prediction as of the end of df_hist - a
-    live/current-state read, not a backtest replay of a specific past pitch
-    (target_row=None, so the leverage signal simply sits out; it needs a
-    live game state to match against, which this page doesn't carry).
+    live/current-state read, not a backtest replay of a specific past pitch.
+
+    live_inning/live_half/live_outs/live_obc/live_away_score/live_home_score:
+    the CURRENTLY loaded matchup's own prospective pre-play game state (same
+    session-state the Context Filters section's own live Leverage caption
+    reads) - when given, a synthetic target_row is built from them and
+    passed through, activating the leverage signal here too, the same way a
+    real historical pitch's own row already does for the as-of-a-past-pitch
+    view. When live_inning/live_half are None (no matchup loaded at all),
+    target_row stays None and leverage simply sits out, same as before.
+
     Cached on df_hist's own content (plus the config), so this is a free
-    cache hit whenever nothing about the pitcher's history or these settings
-    has changed, and a correct cache MISS the moment load_pitcher_plays'
-    own TTL expires and returns fresh rows - no separate invalidation logic
-    needed. Returns None if there's not enough history yet (<2 pitches)."""
+    cache hit whenever nothing about the pitcher's history, these settings,
+    or the live game state has changed, and a correct cache MISS the moment
+    load_pitcher_plays' own TTL expires and returns fresh rows - no separate
+    invalidation logic needed. Returns None if there's not enough history
+    yet (<2 pitches)."""
     cfg = Config(sigma=sigma, min_effective_n=min_effective_n, pitch_width=pitch_width,
                  cooldown_radius=cooldown_radius, leverage_width=leverage_width,
                  delta_cooldown_radius=delta_cooldown_radius, weights=weights)
     builders = list(SIGNAL_BUILDERS.values())
-    state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=None)
+    target_row = None
+    if live_inning is not None and live_half is not None:
+        target_row = pd.Series({
+            "inning": live_inning, "half": live_half, "outs": live_outs or 0,
+            "obc": live_obc or "000", "away_score": live_away_score or 0,
+            "home_score": live_home_score or 0,
+        })
+    state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=target_row)
     if state is None or not signals:
         return None
     combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
@@ -3325,6 +3345,12 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     _pl = _pitch_likelihood_prediction(
                         df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
                         leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                        # Same prospective game state the Context Filters
+                        # section's own live Leverage caption already reads -
+                        # activates the leverage signal here too instead of
+                        # always sitting it out in live mode.
+                        live_inning=_cf_gs_inn_p, live_half=_cf_gs_half_p, live_outs=_cf_gs_outs_p,
+                        live_obc=_cf_gs_obc_p, live_away_score=_cf_gs_away_p, live_home_score=_cf_gs_home_p,
                     )
                     if _pl is None:
                         st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
@@ -3480,39 +3506,54 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
                     _swbt_metric_key = "obp" if _swbt_metric == "OBP" else "slg"
 
-                    # Per-indication (baseline, each present signal, combined)
-                    # result list, oldest-to-newest, one entry per backtested
-                    # pitch - each indication's OWN suggested swing (from its
-                    # own raw density) diffed against the pitch actually
-                    # thrown. Keyed by name here; display order/labels are
-                    # applied once below via _PL_SIGNAL_ORDER.
-                    _swbt_results_by_key: dict[str, list[str]] = {"baseline": [], "combined": []}
+                    # Fixed display order/keys/labels, same set every run -
+                    # baseline and combined always have real data (every
+                    # backtest point carries a real target_row), individual
+                    # signals may not at every point (e.g. delta_sequence at
+                    # a game's first pitch) - those points get None rather
+                    # than dropping the whole row, so the grid/table/rolling
+                    # chart below all stay aligned on the same N columns.
+                    _swbt_keys = ["baseline"] + list(utils._PL_SIGNAL_ORDER) + ["combined"]
+                    _swbt_labels = {"baseline": "Baseline", "combined": "Model (combined)",
+                                    **utils._PL_SIGNAL_SHORT_LABELS}
+                    _swbt_results_by_key: dict[str, list[str | None]] = {k: [] for k in _swbt_keys}
                     for _pt in _swbt_pts:
-                        for _key, _density in (("baseline", _pt["baseline"]), ("combined", _pt["combined"])):
+                        _sig_density_by_name = {s["name"]: s["density"] for s in _pt["signals"]}
+                        for _key in _swbt_keys:
+                            _density = (_pt["baseline"] if _key == "baseline"
+                                        else _pt["combined"] if _key == "combined"
+                                        else _sig_density_by_name.get(_key))
+                            if _density is None:
+                                _swbt_results_by_key[_key].append(None)
+                                continue
                             _swing, _ = utils.suggest_swing_from_density(_density, result_ranges, _swbt_metric_key)
                             _diff = utils.circular_diff(_pt["actual"], _swing)
                             _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
-                        for _sig in _pt["signals"]:
-                            _swing, _ = utils.suggest_swing_from_density(
-                                _sig["density"], result_ranges, _swbt_metric_key)
-                            _diff = utils.circular_diff(_pt["actual"], _swing)
-                            _swbt_results_by_key.setdefault(_sig["name"], []).append(
-                                utils._diff_to_result(_diff, result_ranges))
 
-                    _swbt_rows = [{"label": "Baseline", "results": _swbt_results_by_key["baseline"]}]
-                    for _sig_name in utils._PL_SIGNAL_ORDER:
-                        _sig_results = _swbt_results_by_key.get(_sig_name)
-                        if _sig_results and len(_sig_results) == len(_swbt_pts):
-                            _swbt_rows.append({"label": utils._PL_SIGNAL_SHORT_LABELS[_sig_name],
-                                               "results": _sig_results})
-                    _swbt_rows.append({"label": "Model (combined)", "results": _swbt_results_by_key["combined"]})
+                    _swbt_rows = [{"key": k, "label": _swbt_labels[k], "results": _swbt_results_by_key[k]}
+                                  for k in _swbt_keys]
 
-                    _swbt_avg_table = pd.DataFrame([
-                        {"Indication": r["label"],
-                         _swbt_metric: sum(utils.result_metric_value(res, _swbt_metric_key)
-                                           for res in r["results"]) / len(r["results"])}
-                        for r in _swbt_rows
-                    ])
+                    # Column set for the per-result-type counts, in the
+                    # active result_ranges' own lo-to-hi order (reads
+                    # best-to-worst/worst-to-best the same way that ranges
+                    # table already does) rather than alphabetical.
+                    _swbt_seen_results = {res for r in _swbt_rows for res in r["results"] if res is not None}
+                    _swbt_result_cols = [res for res, _, _ in result_ranges if res in _swbt_seen_results]
+
+                    _swbt_table_rows = []
+                    for r in _swbt_rows:
+                        _avail = [res for res in r["results"] if res is not None]
+                        _row_data = {
+                            "Indication": r["label"], "N": len(_avail),
+                            _swbt_metric: (sum(utils.result_metric_value(res, _swbt_metric_key) for res in _avail)
+                                          / len(_avail)) if _avail else None,
+                        }
+                        _counts = pd.Series(_avail).value_counts() if _avail else pd.Series(dtype=int)
+                        for _res_col in _swbt_result_cols:
+                            _row_data[_res_col] = int(_counts.get(_res_col, 0))
+                        _swbt_table_rows.append(_row_data)
+                    _swbt_avg_table = pd.DataFrame(_swbt_table_rows)
+
                     _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
                     _comb_avg = _swbt_avg_table.loc[
                         _swbt_avg_table["Indication"] == "Model (combined)", _swbt_metric].iloc[0]
@@ -3521,8 +3562,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
                         f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested swings **{_comb_avg:.3f}** "
                         f"({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'}). "
-                        "Every individual signal's own row below uses its raw (unshrunk) density, same "
-                        "caveat as the Expected Swing Score chart/table above."
+                        "Individual signals use their raw (unshrunk) density, same caveat as the Expected "
+                        "Swing Score chart/table above; gray cells below are points that signal had no data "
+                        "for (not scored either way), not an out."
                     )
                     st.plotly_chart(
                         utils.suggested_swing_backtest_chart(_swbt_rows, dark_mode=_dark_mode),
@@ -3531,6 +3573,30 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.dataframe(
                         _swbt_avg_table, hide_index=True, width="stretch",
                         column_config={_swbt_metric: st.column_config.NumberColumn(format="%.3f")},
+                    )
+
+                    # ── rolling performance ──────────────────────────────────────
+                    st.markdown("**Rolling Performance**")
+                    st.caption(
+                        "Trailing rolling average of the same per-pitch OBP/SLG, not just the single "
+                        "overall number above - shows how each indication has actually been running across "
+                        "the window (two indications can share the same overall average while one trended "
+                        "very differently from the other)."
+                    )
+                    _swbt_window = st.slider(
+                        "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(10, len(_swbt_pts)),
+                        key=f"p_swbt_window_{tab_p_pitcher}",
+                    )
+                    _swbt_rolling_rows = [
+                        {"key": r["key"], "label": r["label"],
+                         "values": [utils.result_metric_value(res, _swbt_metric_key) if res is not None
+                                    else float("nan") for res in r["results"]]}
+                        for r in _swbt_rows
+                    ]
+                    st.plotly_chart(
+                        utils.suggested_swing_rolling_chart(
+                            _swbt_rolling_rows, _swbt_window, _swbt_metric, dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_swbt_rolling_chart",
                     )
 
                 _suggest_swing_backtest_section_p(df_p, result_ranges)
