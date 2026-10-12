@@ -1,6 +1,6 @@
 """
 Multi-pitcher calibration for the pitch-likelihood model
-(tools/pitch_likelihood_backtest.py): fits the six signal weights, then
+(tools/pitch_likelihood_backtest.py): fits the seven signal weights, then
 grid-searches sigma/pitch_width/leverage_width/min_effective_n, each stage
 gated by held-out log-loss AND PIT calibration on a split held out from
 whatever was fit/selected on - never picked and graded on the same pitchers.
@@ -40,9 +40,9 @@ can be run as separate, separately-timed/backgrounded invocations):
 
     python tools/pitch_likelihood_calibrate.py fit-weights
         [--points-per-pitcher 25] [--min-history 30]
-        [--sigma 100] [--pitch-width 200] [--cooldown-radius 50] [--leverage-width 1.0]
-        [--min-effective-n 20]
-        Precomputes TRAIN at the given widths/sigma, fits the six weights by
+        [--sigma 100] [--pitch-width 200] [--cooldown-radius 50] [--delta-cooldown-radius 50]
+        [--leverage-width 1.0] [--min-effective-n 20]
+        Precomputes TRAIN at the given widths/sigma, fits the seven weights by
         minimizing TRAIN log-loss (bounded [0,3], matching the artifact
         slider's own range), then reports VAL/TEST log-loss and PIT chi2 for
         default (all-1.0) vs fitted weights.
@@ -416,7 +416,8 @@ def cmd_fit_weights(args):
         print("Run 'fetch' first.", file=sys.stderr)
         sys.exit(1)
     cfg = Config(sigma=args.sigma, min_effective_n=args.min_effective_n, pitch_width=args.pitch_width,
-                 cooldown_radius=args.cooldown_radius, leverage_width=args.leverage_width)
+                 cooldown_radius=args.cooldown_radius, leverage_width=args.leverage_width,
+                 delta_cooldown_radius=args.delta_cooldown_radius)
 
     train_rec = precompute_split(state["train_pitchers"], cfg, args.points_per_pitcher, args.min_history, "train")
     val_rec = precompute_split(state["val_pitchers"], cfg, args.points_per_pitcher, args.min_history, "val")
@@ -433,6 +434,7 @@ def cmd_fit_weights(args):
     state.update({
         "points_per_pitcher": args.points_per_pitcher, "min_history": args.min_history,
         "sigma": cfg.sigma, "pitch_width": cfg.pitch_width, "cooldown_radius": cfg.cooldown_radius,
+        "delta_cooldown_radius": cfg.delta_cooldown_radius,
         "leverage_width": cfg.leverage_width, "min_effective_n": cfg.min_effective_n,
         "weights": weights,
     })
@@ -452,7 +454,8 @@ def cmd_fit_widths(args):
 
     cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
                  pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
-                 leverage_width=state["leverage_width"])
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     weights = dict(state["weights"])
     ppp, min_hist = state["points_per_pitcher"], state["min_history"]
     train_names, val_names = state["train_pitchers"], state["val_pitchers"]
@@ -473,6 +476,7 @@ def cmd_fit_widths(args):
         state["fit_widths_progress"] = list(progress.values())
         state["sigma"], state["pitch_width"] = cfg.sigma, cfg.pitch_width
         state["leverage_width"], state["min_effective_n"] = cfg.leverage_width, cfg.min_effective_n
+        state["delta_cooldown_radius"] = cfg.delta_cooldown_radius
         state["weights"] = weights
         save_state(state)
 
@@ -495,11 +499,15 @@ def cmd_fit_widths(args):
         return val_ll, val_chi2, w
 
     coords = [
-        ("sigma", _parse_grid(args.sigma_grid), lambda v, c: Config(v, c.min_effective_n, c.pitch_width, c.cooldown_radius, c.leverage_width)),
+        ("sigma", _parse_grid(args.sigma_grid),
+         lambda v, c: Config(v, c.min_effective_n, c.pitch_width, c.cooldown_radius, c.leverage_width,
+                              delta_cooldown_radius=c.delta_cooldown_radius)),
         ("pitch_width", [int(v) for v in _parse_grid(args.pitch_width_grid)],
-         lambda v, c: Config(c.sigma, c.min_effective_n, int(v), c.cooldown_radius, c.leverage_width)),
+         lambda v, c: Config(c.sigma, c.min_effective_n, int(v), c.cooldown_radius, c.leverage_width,
+                              delta_cooldown_radius=c.delta_cooldown_radius)),
         ("leverage_width", _parse_grid(args.leverage_width_grid),
-         lambda v, c: Config(c.sigma, c.min_effective_n, c.pitch_width, c.cooldown_radius, v)),
+         lambda v, c: Config(c.sigma, c.min_effective_n, c.pitch_width, c.cooldown_radius, v,
+                              delta_cooldown_radius=c.delta_cooldown_radius)),
     ]
 
     for param_name, grid, make_cfg in coords:
@@ -569,7 +577,8 @@ def cmd_archetype_scatter(args):
         sys.exit(1)
     cfg = Config(sigma=state.get("sigma", 100.0), min_effective_n=state.get("min_effective_n", 20.0),
                  pitch_width=state.get("pitch_width", 200), cooldown_radius=state.get("cooldown_radius", 50.0),
-                 leverage_width=state.get("leverage_width", 1.0))
+                 leverage_width=state.get("leverage_width", 1.0),
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     names = state["train_pitchers"] + state["val_pitchers"]
     builders = [SIGNAL_BUILDERS[n] for n in SIGNAL_NAMES]
 
@@ -696,7 +705,8 @@ def cmd_weight_scale_check(args):
     state = load_state()
     cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
                  pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
-                 leverage_width=state["leverage_width"])
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     fitted = state["weights"]
     total = sum(fitted.values())
     rescaled = {k: v / total for k, v in fitted.items()} if total > 0 else dict(fitted)
@@ -743,7 +753,8 @@ def cmd_signal_diagnose(args):
             sys.exit(1)
     cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
                  pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
-                 leverage_width=state["leverage_width"])
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     fitted_weights = state["weights"]
     val_rec = precompute_split(state["val_pitchers"], cfg, state["points_per_pitcher"],
                                 state["min_history"], "val")
@@ -788,7 +799,8 @@ def cmd_report(args):
             sys.exit(1)
     cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
                  pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
-                 leverage_width=state["leverage_width"])
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     test_rec = precompute_split(state["test_pitchers"], cfg, state["points_per_pitcher"],
                                  state["min_history"], "test")
     print("\n=== FINAL (test, touched once) ===", file=sys.stderr)
@@ -814,7 +826,8 @@ def cmd_pitcher_report(args):
         sys.exit(1)
     cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
                  pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
-                 leverage_width=state["leverage_width"])
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     weights = state["weights"]
     split_of = {n: "train" for n in state["train_pitchers"]}
     split_of.update({n: "val" for n in state["val_pitchers"]})
@@ -931,6 +944,7 @@ def main():
     p.add_argument("--sigma", type=float, default=100.0)
     p.add_argument("--pitch-width", type=int, default=200)
     p.add_argument("--cooldown-radius", type=float, default=50.0)
+    p.add_argument("--delta-cooldown-radius", type=float, default=50.0)
     p.add_argument("--leverage-width", type=float, default=1.0)
     p.add_argument("--min-effective-n", type=float, default=20.0)
     p.set_defaults(func=cmd_fit_weights)

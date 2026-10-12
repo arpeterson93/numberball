@@ -6,11 +6,12 @@ this is the first testable scaffold).
 The question this answers: for a pitcher's own history, if you freeze
 everything before pitch N and predict pitch N from a handful of context
 signals (pitch sequence, delta sequence, delta-after-result,
-delta-after-leverage, shadow-delta-after-result, cooldown "due-ness"),
-does the combined prediction actually beat just using that pitcher's
-unconditioned historical pitch distribution? Measured via log-loss (lower is
-better) and a probability-integral-transform (PIT) histogram, which should
-come out roughly flat if the predicted densities are honestly calibrated.
+delta-after-leverage, shadow-delta-after-result, cooldown "due-ness", delta
+cooldown "due-ness"), does the combined prediction actually beat just using
+that pitcher's unconditioned historical pitch distribution? Measured via
+log-loss (lower is better) and a probability-integral-transform (PIT)
+histogram, which should come out roughly flat if the predicted densities are
+honestly calibrated.
 
 Each signal reduces to a density over the 1-1000 pitch wheel plus an
 effective sample size (Signal below). Signals are shrunk toward the
@@ -22,7 +23,7 @@ independent piece of evidence: agreement across signals sharpens the
 estimate, a strongly dissenting signal can pull it down, not just get
 outvoted the way an averaged mixture would let it.
 
-Six signals so far. Add more via the SIGNAL_BUILDERS list once this set is
+Seven signals so far. Add more via the SIGNAL_BUILDERS list once this set is
 shown to actually beat the naive baseline; each addition should be checked
 against the same backtest rather than assumed to help.
 
@@ -36,17 +37,26 @@ matched rows (pitch_sequence/delta_sequence both derive from the same two
 prior pitches; delta_after_result/shadow_delta_after_result match the
 identical prev_result_cat rows), so treating them as independent evidence
 double-counts. The fitted weights correct for that and beat baseline on
-held-out test (log-loss 6.9152 -> 6.9051, PIT chi2 29.3 -> 7.0). A per-
+held-out test (log-loss 6.9155 -> 6.9092, PIT chi2 91.2 -> 19.1, fit-weights
+re-run after adding delta_cooldown - the 7th signal - at points-per-pitcher
+60). delta_cooldown came out of that refit with the single largest weight
+(0.75, ahead of cooldown's own 0.512) - real information, not a fitting
+artifact, given the chi2 drop. Widths/sigma themselves (including the new
+delta_cooldown_radius, left at its default 50) were NOT re-grid-searched in
+that refit - fit-widths previously ran for the 6-signal model only; redo it
+(tools/pitch_likelihood_calibrate.py fit-widths) if squeezing out more gain
+from retuning those against the 7-signal model is worth the cost. A per-
 pitcher archetype/clustering check and a within-pitcher bootstrap variance
 decomposition both found no pitcher-level structure worth exploiting beyond
-this single global fit - see the calibration script's own docstring before
-re-splitting pitchers into archetypes or building partial pooling; redo
-this fit (not by hand) if SIGNAL_BUILDERS changes.
+this single global fit (pre-dating delta_cooldown) - see the calibration
+script's own docstring before re-splitting pitchers into archetypes or
+building partial pooling; redo this fit (not by hand) if SIGNAL_BUILDERS
+changes again.
 
 Run from the repo root:
     python tools/pitch_likelihood_backtest.py [--pitcher "Name"] [--min-history 30]
         [--sigma 75] [--min-effective-n 20] [--pitch-width 200] [--cooldown-radius 50]
-        [--leverage-width 0.5]
+        [--delta-cooldown-radius 50] [--leverage-width 0.5]
 
 Omitting --pitcher scans every player's pitching history to find the deepest
 one - slow (one query per player) but only needs doing once; pass --pitcher
@@ -77,11 +87,12 @@ GRID_SIZE = 1000  # matches the app's 1-1000 pitch-value domain throughout
 # own). Used as the CLI --weights default; pass --weights to override.
 DEFAULT_WEIGHTS = {
     "pitch_sequence": 0.0,
-    "delta_sequence": 0.213,
-    "cooldown": 0.587,
-    "delta_after_result": 0.014,
-    "delta_after_leverage": 0.126,
-    "shadow_delta_after_result": 0.283,
+    "delta_sequence": 0.18,
+    "cooldown": 0.512,
+    "delta_after_result": 0.183,
+    "delta_after_leverage": 0.034,
+    "shadow_delta_after_result": 0.033,
+    "delta_cooldown": 0.75,
 }
 
 
@@ -320,6 +331,58 @@ def cooldown_signal(df_hist: pd.DataFrame, radius: float) -> Signal | None:
     return Signal("cooldown", density, float(min(n_effs)))
 
 
+def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float) -> Signal | None:
+    """The delta-domain mirror of cooldown_signal: triggers and "due-ness"
+    are measured on pitch-to-pitch DELTAS (pitch_circ_delta - the move into
+    a pitch, not the pitch's own absolute value) instead of absolute pitch
+    values. cooldown_events is domain-agnostic (its wraparound math only
+    cares about a width-1000 circular range, not where that range's zero
+    point sits), so this reuses it unchanged with value_col="pitch_circ_delta"
+    - a trigger here is "the pitcher just threw a delta of this size and got
+    this result; how long until they moved by a similarly-sized delta again."
+
+    Each open trigger's own delta value is a MOVE, not a destination, so
+    (like delta_sequence_signal/delta_after_result_signal) it still needs
+    projecting onto today's actual most recent pitch (state["prev_pitch"]) as
+    anchor before it can contribute a bump to the pitch-value density -
+    unlike cooldown_signal, where the trigger's own value already IS a pitch
+    value. Same p_return_now/n_eff/additive-mixture logic as cooldown_signal
+    otherwise - see its docstring."""
+    events = utils.cooldown_events(df_hist, value_col="pitch_circ_delta", radius=radius)
+    if events.empty:
+        return None
+    open_events = events[~events["resolved"]]
+    if open_events.empty:
+        return None
+
+    resolved_by_cat: dict[str, pd.DataFrame] = {}
+
+    def _resolved_for(cat: str) -> pd.DataFrame:
+        if cat not in resolved_by_cat:
+            resolved_by_cat[cat] = events[events["resolved"] & (events["category"] == cat)]
+        return resolved_by_cat[cat]
+
+    uniform = np.full(GRID_SIZE, 1.0 / GRID_SIZE)
+    densities, n_effs = [], []
+    for _, trig in open_events.iterrows():
+        resolved = _resolved_for(trig["category"])
+        n_eff_cat = len(resolved)
+        if n_eff_cat == 0:
+            continue
+        k = int(trig["pitches"]) + 1
+        p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat
+        implied = ((state["prev_pitch"] + int(trig["trigger_pitch"]) - 1) % 1000) + 1
+        bump = _kde_density(np.array([implied]), sigma=radius / 2)
+        densities.append(p_return_now * bump + (1 - p_return_now) * uniform)
+        n_effs.append(n_eff_cat)
+
+    if not densities:
+        return None
+    density = np.mean(densities, axis=0)
+    density = density / density.sum()
+    return Signal("delta_cooldown", density, float(min(n_effs)))
+
+
 def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, width: float, sigma: float) -> Signal | None:
     """Historical pitch-to-pitch DELTAS (not absolute pitch values) measured
     on pitches thrown in situations whose own leverage (stakes, via
@@ -354,6 +417,7 @@ SIGNAL_BUILDERS = {
     "delta_after_leverage": lambda df_hist, state, cfg: delta_after_leverage_signal(
         df_hist, state, cfg.leverage_width, cfg.sigma),
     "shadow_delta_after_result": lambda df_hist, state, cfg: shadow_delta_after_result_signal(df_hist, state, cfg.sigma),
+    "delta_cooldown": lambda df_hist, state, cfg: delta_cooldown_signal(df_hist, state, cfg.delta_cooldown_radius),
 }
 
 
@@ -382,12 +446,14 @@ def combine_signals(baseline: np.ndarray, signals: list[Signal], min_effective_n
 # ----------------------------------------------------------------------------- backtest
 
 class Config:
-    def __init__(self, sigma, min_effective_n, pitch_width, cooldown_radius, leverage_width=1.0, weights=None):
+    def __init__(self, sigma, min_effective_n, pitch_width, cooldown_radius, leverage_width=1.0,
+                 delta_cooldown_radius=50.0, weights=None):
         self.sigma = sigma
         self.min_effective_n = min_effective_n
         self.pitch_width = pitch_width
         self.cooldown_radius = cooldown_radius
         self.leverage_width = leverage_width
+        self.delta_cooldown_radius = delta_cooldown_radius
         self.weights = weights
 
 
@@ -497,6 +563,15 @@ def explain_point(df: pd.DataFrame, cur_id, cfg: Config, active_signals: list[st
                   f"{int(trig['pitches'])} pitches ago, still not returned within {cfg.cooldown_radius:.0f}")
     else:
         print("  Open cooldown triggers:   (none)")
+    open_dcd = utils.cooldown_events(df_hist, value_col="pitch_circ_delta", radius=cfg.delta_cooldown_radius)
+    open_dcd = open_dcd[~open_dcd["resolved"]].sort_values("id") if not open_dcd.empty else open_dcd
+    if not open_dcd.empty:
+        print(f"  Open delta cooldown triggers ({len(open_dcd)}, ALL feed the delta_cooldown signal):")
+        for _, trig in open_dcd.iterrows():
+            print(f"    - {trig['result']} ({trig['category']}) at delta {int(trig['trigger_pitch']):+d}, "
+                  f"{int(trig['pitches'])} pitches ago, still not returned within {cfg.delta_cooldown_radius:.0f}")
+    else:
+        print("  Open delta cooldown triggers:   (none)")
     lev = state.get("target_leverage")
     print(f"  Leverage of this pitch:    {lev:.2f}" if lev is not None else "  Leverage of this pitch:    n/a")
     print()
@@ -573,6 +648,9 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
     events = utils.cooldown_events(df_hist, value_col="pitch", radius=cfg.cooldown_radius)
     open_cd = events[~events["resolved"]].sort_values("id") if not events.empty else events
 
+    delta_events = utils.cooldown_events(df_hist, value_col="pitch_circ_delta", radius=cfg.delta_cooldown_radius)
+    open_dcd = delta_events[~delta_events["resolved"]].sort_values("id") if not delta_events.empty else delta_events
+
     derivation: dict = {}
 
     if "pitch_sequence" in sig_by_name:
@@ -633,6 +711,29 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
             })
         derivation["cooldown"] = triggers
 
+    if "delta_cooldown" in sig_by_name and not open_dcd.empty:
+        resolved_by_cat_d: dict = {}
+
+        def _resolved_for_d(cat: str) -> pd.DataFrame:
+            if cat not in resolved_by_cat_d:
+                resolved_by_cat_d[cat] = delta_events[delta_events["resolved"] & (delta_events["category"] == cat)]
+            return resolved_by_cat_d[cat]
+
+        triggers_d = []
+        for _, trig in open_dcd.iterrows():
+            resolved = _resolved_for_d(trig["category"])
+            n_eff_cat = len(resolved)
+            k = int(trig["pitches"]) + 1
+            p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+            implied = ((state["prev_pitch"] + int(trig["trigger_pitch"]) - 1) % 1000) + 1
+            triggers_d.append({
+                "result": trig["result"], "category": trig["category"],
+                "trigger_delta": int(trig["trigger_pitch"]), "implied_pitch": implied,
+                "pitches_since": int(trig["pitches"]), "k": k, "n_eff": n_eff_cat,
+                "p_return_now": p_return_now, "resolved_pitches": resolved["pitches"].astype(int).tolist(),
+            })
+        derivation["delta_cooldown"] = triggers_d
+
     if "delta_after_leverage" in sig_by_name and state.get("target_leverage") is not None:
         df_lev = df_hist.copy()
         df_lev["_leverage"] = utils.compute_play_leverage(df_lev)
@@ -661,7 +762,13 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
              "pitches_since": int(t["pitches"])}
             for _, t in open_cd.iterrows()
         ] if not open_cd.empty else [],
+        "open_delta_triggers": [
+            {"result": t["result"], "category": t["category"], "trigger_delta": int(t["trigger_pitch"]),
+             "pitches_since": int(t["pitches"])}
+            for _, t in open_dcd.iterrows()
+        ] if not open_dcd.empty else [],
         "cooldown_radius": cfg.cooldown_radius,
+        "delta_cooldown_radius": cfg.delta_cooldown_radius,
         "leverage_width": cfg.leverage_width,
         "baseline": baseline.tolist(),
         "baseline_raw": df_hist[df_hist["pitch"].notna()]["pitch"].astype(int).tolist(),
@@ -679,6 +786,7 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
         "sigma": cfg.sigma,
         "pitch_width": cfg.pitch_width,
         "cooldown_bump_width": cfg.cooldown_radius / 2,
+        "delta_cooldown_bump_width": cfg.delta_cooldown_radius / 2,
         "derivation": derivation,
     }
 
@@ -744,6 +852,8 @@ def main() -> None:
                      help="Shrinkage point toward baseline (your 'relatively confident around 20' gut-check)")
     ap.add_argument("--pitch-width", type=int, default=200, help="Bucket width for the pitch-sequence match")
     ap.add_argument("--cooldown-radius", type=float, default=50.0, help="Radius for the cooldown signal")
+    ap.add_argument("--delta-cooldown-radius", type=float, default=50.0,
+                     help="Radius (in delta units) for the delta_cooldown signal")
     ap.add_argument("--leverage-width", type=float, default=0.5,
                      help="+/- band around the current situation's leverage for the leverage signal's match")
     ap.add_argument("--weights", default=None,
@@ -785,7 +895,8 @@ def main() -> None:
 
     cfg = Config(sigma=args.sigma, min_effective_n=args.min_effective_n,
                  pitch_width=args.pitch_width, cooldown_radius=args.cooldown_radius,
-                 leverage_width=args.leverage_width, weights=weights)
+                 leverage_width=args.leverage_width, delta_cooldown_radius=args.delta_cooldown_radius,
+                 weights=weights)
 
     if args.explain is not None:
         pitches = df[df["pitch"].notna()].sort_values("id")

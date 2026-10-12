@@ -2934,6 +2934,7 @@ def cooldown_cdf_chart(
     return_pitches: pd.Series,
     title: str = "Cooldown",
     live: pd.DataFrame | None = None,
+    signed: bool = False,
 ) -> go.Figure:
     """Cumulative-distribution line of resolved pitches-until-return counts
     (>=1) from cooldown_events (pass the rows where resolved=True): the
@@ -2951,6 +2952,10 @@ def cooldown_cdf_chart(
     (rotated vertical to save width) render as their own rows below the axis,
     since they need to appear at that trigger's exact x regardless of
     whether it falls on a labeled tick.
+
+    signed: trigger_pitch values are actually signed deltas (-500..+500, from
+    a delta-domain cooldown_events call) rather than absolute pitch values -
+    renders that row with an explicit +/- sign instead of a plain integer.
 
     The visible x-axis window zooms to the smaller of the full data range and
     the 90th percentile of the RESOLVED counts (never cropping past a live
@@ -3028,10 +3033,11 @@ def cooldown_cdf_chart(
                 xanchor="center", yanchor="top", showarrow=False,
                 text=str(_row["result"]), font=dict(size=10, color="#FFD54A"),
             )
+            _tv = int(_row["trigger_pitch"])
             fig.add_annotation(
                 x=_pitches, y=_Y_PITCH - 0.05 * _dup, xref="x", yref="y domain",
                 xanchor="center", yanchor="top", showarrow=False, textangle=90,
-                text=str(int(_row["trigger_pitch"])), font=dict(size=10, color="#FFD54A"),
+                text=f"{_tv:+d}" if signed else str(_tv), font=dict(size=10, color="#FFD54A"),
             )
 
     fig.update_layout(
@@ -3146,13 +3152,28 @@ def cooldown_radial_chart(
     radius: float,
     title: str = "Open Cooldowns",
     n_bins: int = 240,
+    domain_lo: float = 0.0,
+    tickvals: list[float] | None = None,
+    ticktext: list[str] | None = None,
+    value_label: str = "Pitch",
+    signed: bool = False,
 ) -> go.Figure:
-    """Radial view (1-1000 pitch wheel, same convention as the other radial
-    charts on this tab) of every currently open cooldown at once, spanning
-    all result categories. events: the full cooldown_events output for this
-    pitcher (both resolved=True and resolved=False rows, any category) - the
-    function does its own filtering/grouping, so callers just pass it through
-    unfiltered.
+    """Radial view (1-1000 pitch wheel by default, same convention as the
+    other radial charts on this tab) of every currently open cooldown at
+    once, spanning all result categories. events: the full cooldown_events
+    output for this pitcher (both resolved=True and resolved=False rows, any
+    category) - the function does its own filtering/grouping, so callers just
+    pass it through unfiltered.
+
+    domain_lo/tickvals/ticktext/value_label/signed: together let this same
+    function serve a delta-domain cooldown (events built from
+    cooldown_events(..., value_col="pitch_circ_delta")) instead of the
+    default absolute-pitch domain. The underlying circular-distance math
+    (bin-to-trigger wraparound) only cares about a width-1000 range, not
+    where that range's zero point sits, so shifting domain_lo to -500 and
+    passing radial_recent_deltas_chart's own tick convention is enough -
+    trigger values are then signed deltas rather than absolute pitch values,
+    hence value_label="Δ"/signed=True to match.
 
     Each open (resolved=False) trigger draws as a small dot at its trigger
     pitch's angular position. Its radius encodes RELATIVE recency among the
@@ -3217,7 +3238,7 @@ def cooldown_radial_chart(
                          int(row["pitches"]), str(row["category"])))
 
     bin_width = 1000.0 / n_bins
-    bin_vals = [(i + 0.5) * bin_width for i in range(n_bins)]
+    bin_vals = [domain_lo + (i + 0.5) * bin_width for i in range(n_bins)]
     bin_probs: list[float | None] = []
     for v in bin_vals:
         covering = []
@@ -3257,8 +3278,8 @@ def cooldown_radial_chart(
     run_theta, run_width, run_colors = [], [], []
     for start, length, val in runs:
         mid_bin = (start + (length - 1) / 2.0) % n_bins
-        mid_pitch = (mid_bin + 0.5) * bin_width
-        run_theta.append(mid_pitch * 360.0 / 1000.0)
+        mid_val = domain_lo + (mid_bin + 0.5) * bin_width
+        run_theta.append((mid_val * 360.0 / 1000.0) % 360.0)
         run_width.append(length * 360.0 / n_bins)
         run_colors.append(_freq_bwr_color(val, 0, 100) if val is not None else _freq_bwr_color(50, 0, 100))
     fig.add_trace(go.Barpolar(
@@ -3300,9 +3321,10 @@ def cooldown_radial_chart(
         dot_r_max if e_hi == e_lo else dot_r_max - (dot_r_max - hole) * (e - e_lo) / (e_hi - e_lo)
         for e in elapsed_vals
     ]
-    dot_theta = [t * 360.0 / 1000.0 for t, _, _, _, _ in triggers]
+    dot_theta = [(t * 360.0 / 1000.0) % 360.0 for t, _, _, _, _ in triggers]
     dot_hover = [
-        f"Pitch {t} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>"
+        (f"{value_label} {t:+d} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>" if signed
+         else f"{value_label} {t} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>")
         + (f"{p:.0f}% chance closed by the next pitch" if p is not None
            else "n/a chance closed by the next pitch")
         for t, p, r, e, _ in triggers
@@ -3324,7 +3346,8 @@ def cooldown_radial_chart(
         hovertext=dot_hover, hoverinfo="text", showlegend=False,
     ))
 
-    tickvals, ticktext = _pitch_value_ticks()
+    if tickvals is None or ticktext is None:
+        tickvals, ticktext = _pitch_value_ticks()
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center"),
         polar=dict(
@@ -4132,6 +4155,17 @@ def _pitch_value_ticks() -> tuple[list[float], list[str]]:
     return tickvals, ticktext
 
 
+def _delta_value_ticks() -> tuple[list[float], list[str]]:
+    """Fixed signed-delta (-500..+500) wheel spokes every 100, same angle
+    convention as radial_recent_deltas_chart's own center_on_prev=False mode
+    (0 at 12 o'clock, +/-500 meeting on the bottom spoke) - lets a delta-
+    domain cooldown_radial_chart call share that convention."""
+    tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
+    tickvals = [(d * 360.0 / 1000.0) % 360.0 for d in tick_deltas]
+    ticktext = ["±500" if d == -500 else (f"{d:+d}" if d > 0 else str(d)) for d in tick_deltas]
+    return tickvals, ticktext
+
+
 # ── pitch likelihood model (tools/pitch_likelihood_backtest.py) ────────────────
 # These three take plain data (numpy arrays / dicts / floats) rather than
 # Config/Signal objects, so this module stays decoupled from tools/ - the
@@ -4139,15 +4173,16 @@ def _pitch_value_ticks() -> tuple[list[float], list[str]]:
 # output in. Signal order/colors are fixed (never cycled) to match the
 # standalone "Pitch Signal Autopsy" artifact's own convention, so the same
 # signal always reads as the same color across both surfaces.
-_PL_SIGNAL_ORDER = ["pitch_sequence", "delta_sequence", "cooldown",
+_PL_SIGNAL_ORDER = ["pitch_sequence", "delta_sequence", "cooldown", "delta_cooldown",
                      "delta_after_result", "delta_after_leverage", "shadow_delta_after_result"]
 _PL_SIGNAL_LABELS = {
     "pitch_sequence": "Pitch sequence", "delta_sequence": "Delta sequence",
-    "cooldown": "Cooldown", "delta_after_result": "Delta after result",
+    "cooldown": "Cooldown", "delta_cooldown": "Delta cooldown",
+    "delta_after_result": "Delta after result",
     "delta_after_leverage": "Delta after leverage", "shadow_delta_after_result": "Shadow delta after result",
 }
-_PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#eda100", "#e87ba4"]
-_PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#9085e9", "#c98500", "#d55181"]
+_PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#8f3a85", "#4a3aa7", "#eda100", "#e87ba4"]
+_PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#b352a6", "#9085e9", "#c98500", "#d55181"]
 
 
 def pitch_likelihood_density_chart(

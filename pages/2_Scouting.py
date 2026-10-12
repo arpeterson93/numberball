@@ -26,7 +26,8 @@ _dark_mode = st.context.theme.type == "dark"
 @st.cache_data(show_spinner=False)
 def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_width: int,
                                   cooldown_radius: float, leverage_width: float,
-                                  min_effective_n: float, weights: dict) -> dict | None:
+                                  min_effective_n: float, weights: dict,
+                                  delta_cooldown_radius: float = 50.0) -> dict | None:
     """Combined pitch-likelihood prediction as of the end of df_hist - a
     live/current-state read, not a backtest replay of a specific past pitch
     (target_row=None, so the leverage signal simply sits out; it needs a
@@ -37,7 +38,8 @@ def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_widt
     own TTL expires and returns fresh rows - no separate invalidation logic
     needed. Returns None if there's not enough history yet (<2 pitches)."""
     cfg = Config(sigma=sigma, min_effective_n=min_effective_n, pitch_width=pitch_width,
-                 cooldown_radius=cooldown_radius, leverage_width=leverage_width, weights=weights)
+                 cooldown_radius=cooldown_radius, leverage_width=leverage_width,
+                 delta_cooldown_radius=delta_cooldown_radius, weights=weights)
     builders = list(SIGNAL_BUILDERS.values())
     state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=None)
     if state is None or not signals:
@@ -3170,13 +3172,79 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                             width="stretch", config={"displayModeBar": False},
                             key="p_cooldown_radial",
                         )
+
+                # ── delta cooldown ───────────────────────────────────────────────
+                st.subheader("Delta Cooldown")
+                st.caption(
+                    "Same question as Pitch Zone Cooldown, but the trigger/return value is "
+                    "the pitch-to-pitch MOVE (Δ, pitch_circ_delta) rather than the pitch's own "
+                    "absolute value: for every historical pitch that gave up a result, what's "
+                    "the % chance they'd have thrown another pitch whose own move into it was "
+                    "within the radius of that same move, by X pitches later? Yellow diamonds "
+                    "are still-open delta cooldowns sitting on the curve, labeled below the "
+                    "axis with their specific result and the trigger delta (signed).")
+                _dcd_bucket_p = st.select_slider(
+                    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_delta_cooldown_bucket",
+                    help="A later pitch's own delta must land within +/- half this width "
+                         "(circular delta distance) of the trigger delta to count as "
+                         "'returning' to that move size.")
+                _dcd_radius_p = _dcd_bucket_p / 2
+                _dcd_events_p = utils.cooldown_events(df_p, value_col="pitch_circ_delta", radius=_dcd_radius_p)
+                if _dcd_events_p.empty:
+                    st.caption("Not enough history to compute delta cooldown returns.")
+                else:
+                    _dcd_n_cols_p = 1 if _is_mobile else 2
+                    _dcd_cols_p = st.columns(_dcd_n_cols_p)
+                    for _dcd_i, _dcd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                        _dcd_cat_events_p = _dcd_events_p[_dcd_events_p["category"] == _dcd_cat]
+                        _dcd_resolved_p = _dcd_cat_events_p.loc[_dcd_cat_events_p["resolved"], "pitches"]
+                        _dcd_live_p = _dcd_cat_events_p.loc[~_dcd_cat_events_p["resolved"]]
+                        with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
+                            if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
+                                st.plotly_chart(
+                                    utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat,
+                                                              live=_dcd_live_p, signed=True),
+                                    width="stretch", config={"displayModeBar": False},
+                                    key=f"p_delta_cooldown_{_dcd_cat}",
+                                )
+                            else:
+                                st.caption(f"No {_dcd_cat} triggers yet.")
+
+                    st.markdown("**All Categories**")
+                    st.caption(
+                        "All four categories' delta cooldown curves on one chart, colored the "
+                        "same as the Open Delta Cooldowns dots below.")
+                    st.plotly_chart(
+                        utils.cooldown_cdf_overlay_chart(_dcd_events_p, title="All Categories"),
+                        width="stretch", config={"displayModeBar": False},
+                        key="p_delta_cooldown_overlay",
+                    )
+
+                    _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
+                    if not _dcd_live_all_p.empty:
+                        st.markdown("**Open Delta Cooldowns**")
+                        st.caption(
+                            "Every currently open delta cooldown across all categories at once, "
+                            "on the same signed-delta wheel used by the Recent Deltas radial "
+                            "(0 at top, +/-500 meeting at the bottom spoke). Ring color and dot "
+                            "placement follow the same convention as the Open Cooldowns radial "
+                            "above, just keyed on delta instead of absolute pitch value.")
+                        st.plotly_chart(
+                            utils.cooldown_radial_chart(
+                                _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
+                                domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
+                                ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
+                            ),
+                            width="stretch", config={"displayModeBar": False},
+                            key="p_delta_cooldown_radial",
+                        )
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
         # ── combined pitch likelihood ────────────────────────────────────────────
         st.divider()
         with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
             st.caption(
-                "All six sequence/delta/cooldown/leverage signals above, pooled into one "
+                "All seven sequence/delta/cooldown/leverage signals above, pooled into one "
                 "prediction via the calibrated log-linear model (tools/pitch_likelihood_backtest.py) "
                 "- as of this pitcher's most recent recorded pitch, not graded against a specific "
                 "upcoming at-bat. For the full tunable version (live kernel-width and weight sliders, "
