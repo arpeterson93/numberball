@@ -4181,6 +4181,16 @@ _PL_SIGNAL_LABELS = {
     "delta_after_result": "Delta after result",
     "delta_after_leverage": "Delta after leverage", "shadow_delta_after_result": "Shadow delta after result",
 }
+# Abbreviated row labels for suggested_swing_backtest_grid_chart - the full
+# _PL_SIGNAL_LABELS text (up to "Shadow delta after result") would force a
+# wide left margin on a 9-row grid; these keep that margin from eating too
+# much of a narrow/mobile viewport while each signal stays distinguishable.
+_PL_SIGNAL_SHORT_LABELS = {
+    "pitch_sequence": "Pitch seq", "delta_sequence": "Delta seq",
+    "cooldown": "Cooldown", "delta_cooldown": "Δ cooldown",
+    "delta_after_result": "Δ after result",
+    "delta_after_leverage": "Δ after leverage", "shadow_delta_after_result": "Shadow Δ",
+}
 _PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#8f3a85", "#4a3aa7", "#eda100", "#e87ba4"]
 _PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#b352a6", "#9085e9", "#c98500", "#d55181"]
 
@@ -4483,86 +4493,72 @@ def pitch_likelihood_breakdown_chart(
 
 
 def suggested_swing_backtest_chart(
-    points: list[dict], metric_label: str, base_avg: float, combined_avg: float,
-    title: str = "Suggested-Swing Backtest", dark_mode: bool = False,
+    rows: list[dict], title: str = "Suggested-Swing Backtest", dark_mode: bool = False,
 ) -> go.Figure:
-    """Two rows of result-colored dots, oldest-to-newest left-to-right, one
-    per backtested historical pitch: what result the BASELINE's own
-    suggested swing (suggest_swing_from_density on baseline density) vs the
-    MODEL's suggested swing (same, on the combined density) would have
-    produced against the pitch actually thrown, scored via this matchup's
-    current result_ranges - restates "how well has pitch likelihood been
-    predicting this pitcher" in OBP/SLG terms instead of log-loss, and lets
-    a run of better (dark blue/light blue XBH/BB-1B) colors on one row vs
-    worse (light/dark red Out/K+) on the other read at a glance, without
-    needing the averages in the title.
+    """Grid of result-colored cells, oldest-to-newest left-to-right, one row
+    per indication (Baseline, each of the 7 raw signals, Model/combined) and
+    one column per backtested historical pitch: what result THAT
+    indication's own suggested swing (suggest_swing_from_density on its own
+    density) would have produced against the pitch actually thrown, scored
+    via this matchup's current result_ranges - restates "how well has pitch
+    likelihood been predicting this pitcher" in OBP/SLG terms instead of
+    log-loss, and lets a run of better (dark blue/light blue XBH/BB-1B)
+    cells on one row vs worse (light/dark red Out/K+) on another read at a
+    glance, without needing the per-row averages in the title (those get
+    their own table alongside this chart instead).
 
-    points: [{"base_result", "comb_result"}, ...] - each result string
-    already resolved via _diff_to_result (NOT yet reduced to a metric
-    value). Colored by seq_result_category through the same
-    _COOLDOWN_CAT_COLORS scale the cooldown charts use elsewhere on this
-    tab, for one consistent "worst (dark blue) -> best (dark red)" reading
-    across every chart on the page.
+    rows: [{"label", "results"}, ...] in the TOP-to-BOTTOM display order
+    wanted - each "results" is that indication's own per-pitch result list
+    (already resolved via _diff_to_result, NOT yet reduced to a metric
+    value), same length/order for every row. Colored by seq_result_category
+    through the same _COOLDOWN_CAT_COLORS scale the cooldown charts and the
+    Expected Swing Score chart use elsewhere on this tab.
 
-    Row labels ("Baseline"/"Model" - the averages already have their own
-    caption above this chart) are centered annotations sitting just ABOVE/
-    BELOW each row's own dots (not the y-axis's own tick labels, which would
-    sit directly beside the dots at the same height AND force a wide left
-    margin on a narrow/mobile viewport that eats most of the width n dots
-    need to not overlap). Marker size and x-tick density both scale down
-    with n for the same reason - a 30-wide backtest and a 100-wide one
-    shouldn't fight for the same fixed pixel budget per dot."""
+    A go.Heatmap, not one Scatter trace per row of dots (this chart's own
+    previous shape, when it only ever had 2 rows) - a heatmap's cells
+    auto-size to whatever width Streamlit hands this figure regardless of
+    row OR column count, where n dots across a fixed pixel budget per row
+    would crowd/overlap on a narrow screen long before 9 rows' worth of
+    points would. automargin on the y-axis sizes the left margin to
+    whatever the row labels actually need rather than a hardcoded guess."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
-    line_color = "rgba(255,255,255,0.25)" if dark_mode else "rgba(0,0,0,0.2)"
-    n = len(points)
-    x = list(range(1, n + 1))
-    marker_size = max(6, min(13, 320 // max(n, 1)))
+    n_rows = len(rows)
+    n_cols = len(rows[0]["results"]) if rows else 0
+    cats = SEQ_RESULT_CATEGORIES
+    n_cats = len(cats)
+    cat_idx = {c: i for i, c in enumerate(cats)}
 
-    # Sparse x-ticks regardless of n (~6 labels) - one tick per point is
-    # unreadable clutter past a dozen or so points, worse the narrower the
-    # viewport. Always includes the newest point (x=n, "1 pitch ago") so the
-    # "which end is 'now'" orientation is never left to guesswork.
-    _tick_step = max(1, round(n / 6))
-    _tick_xs = sorted(set(list(range(1, n + 1, _tick_step)) + [n]))
+    y_labels = [r["label"] for r in rows]
+    z = [[cat_idx.get(seq_result_category(res), 0) for res in r["results"]] for r in rows]
+    hover = [[f"{r['label']}, {n_cols - j} pitch{'es' if n_cols - j != 1 else ''} ago: {res}"
+              for j, res in enumerate(r["results"])] for r in rows]
 
-    def _colors(key):
-        return [_COOLDOWN_CAT_COLORS.get(seq_result_category(p[key]), "#888888") for p in points]
+    # Discrete colorscale: flat color per category band via doubled stops -
+    # the standard Plotly technique for a heatmap that should read as N
+    # distinct swatches, not a continuous gradient between them.
+    colorscale = []
+    for i, c in enumerate(cats):
+        color = _COOLDOWN_CAT_COLORS.get(c, "#888888")
+        colorscale.append([i / n_cats, color])
+        colorscale.append([(i + 1) / n_cats, color])
 
-    def _hover(key):
-        return [f"{n - i} pitches ago: {p[key]}" for i, p in enumerate(points)]
+    x = list(range(1, n_cols + 1))
+    _tick_step = max(1, round(n_cols / 6)) if n_cols else 1
+    _tick_xs = sorted(set(list(range(1, n_cols + 1, _tick_step)) + ([n_cols] if n_cols else [])))
 
-    fig = go.Figure()
-    # Faint connecting lines UNDER the markers - purely a sequence-tracking
-    # guide for the eye on a cramped display, not data (no hover/legend).
-    fig.add_trace(go.Scatter(x=x, y=[1] * n, mode="lines", line=dict(color=line_color, width=1),
-                              hoverinfo="skip", showlegend=False))
-    fig.add_trace(go.Scatter(x=x, y=[0] * n, mode="lines", line=dict(color=line_color, width=1),
-                              hoverinfo="skip", showlegend=False))
-    fig.add_trace(go.Scatter(
-        x=x, y=[1] * n, mode="markers",
-        marker=dict(color=_colors("base_result"), size=marker_size, line=dict(width=1, color=text_color)),
-        hovertext=_hover("base_result"), hoverinfo="text", showlegend=False,
+    fig = go.Figure(go.Heatmap(
+        z=z, x=x, y=y_labels, text=hover, hoverinfo="text",
+        colorscale=colorscale, zmin=0, zmax=n_cats,
+        showscale=False, xgap=2, ygap=3,
     ))
-    fig.add_trace(go.Scatter(
-        x=x, y=[0] * n, mode="markers",
-        marker=dict(color=_colors("comb_result"), size=marker_size, line=dict(width=1, color=text_color)),
-        hovertext=_hover("comb_result"), hoverinfo="text", showlegend=False,
-    ))
-
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
-        xaxis=dict(title="Pitches ago", tickvals=_tick_xs, ticktext=[str(n - i + 1) for i in _tick_xs],
-                    gridcolor="rgba(128,128,128,0.15)", tickfont=dict(color=text_color),
+        xaxis=dict(title="Pitches ago", tickvals=_tick_xs, ticktext=[str(n_cols - i + 1) for i in _tick_xs],
+                    gridcolor="rgba(0,0,0,0)", tickfont=dict(color=text_color),
                     title_font=dict(color=text_color)),
-        yaxis=dict(tickmode="array", tickvals=[], range=[-1.0, 2.0], showgrid=False),
-        annotations=[
-            dict(text="Model", x=0.5, y=1, xref="paper", yref="y", xanchor="center", yanchor="bottom",
-                 showarrow=False, font=dict(color=text_color, size=12), yshift=14),
-            dict(text="Baseline", x=0.5, y=0, xref="paper", yref="y", xanchor="center", yanchor="top",
-                 showarrow=False, font=dict(color=text_color, size=12), yshift=-14),
-        ],
-        height=240,
-        margin=dict(l=10, r=10, t=40, b=40),
+        yaxis=dict(autorange="reversed", automargin=True, tickfont=dict(color=text_color)),
+        height=max(220, 34 * n_rows + 90),
+        margin=dict(l=90, r=10, t=44, b=50),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,

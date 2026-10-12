@@ -520,20 +520,26 @@ def backtest_pitcher(df: pd.DataFrame, min_history: int, cfg: Config,
 
 def recent_pitch_densities(df: pd.DataFrame, cfg: Config, n: int,
                             active_signals: list[str] | None = None) -> list[dict]:
-    """Baseline/combined density (plus the actual pitch thrown) for each of
-    this pitcher's last n pitches with enough prior history - the density-
-    PRESERVING counterpart to backtest_pitcher's full logloss-only walk,
-    built for suggested-swing-style backtests (utils.suggest_swing_from_density)
-    rather than log-loss, over a short recent window rather than a full
-    career. Same per-point computation as backtest_pitcher (frozen history
-    strictly before each pitch, target_row supplies its own pre-play
-    leverage), just keeping the raw densities instead of reducing each point
-    to a log-loss/PIT scalar, and walking only the last n eligible points
-    instead of everything from some min_history forward.
+    """Baseline/per-signal/combined density (plus the actual pitch thrown)
+    for each of this pitcher's last n pitches with enough prior history -
+    the density-PRESERVING counterpart to backtest_pitcher's full
+    logloss-only walk, built for suggested-swing-style backtests
+    (utils.suggest_swing_from_density) rather than log-loss, over a short
+    recent window rather than a full career. Same per-point computation as
+    backtest_pitcher (frozen history strictly before each pitch, target_row
+    supplies its own pre-play leverage), just keeping the raw densities
+    instead of reducing each point to a log-loss/PIT scalar, and walking
+    only the last n eligible points instead of everything from some
+    min_history forward. Per-signal densities cost nothing extra to keep -
+    _prepare_step already computes them before combine_signals pools them,
+    this just stops discarding that list afterward.
 
     Returns a list ordered oldest-to-newest, each
-    {"id", "actual", "baseline", "combined"} - shorter than n if fewer than
-    n pitches have >= 2 prior pitches of history."""
+    {"id", "actual", "baseline", "signals", "combined"} - "signals" is
+    [{"name", "density"}, ...], each signal's own RAW (unshrunk) density,
+    any subset/order of SIGNAL_BUILDERS depending what had enough context at
+    that point. Shorter than n if fewer than n pitches have >= 2 prior
+    pitches of history."""
     builders = [SIGNAL_BUILDERS[name] for name in (active_signals or SIGNAL_BUILDERS.keys())]
     pitches = df[df["pitch"].notna()].sort_values("id").reset_index(drop=True)
     start = max(0, len(pitches) - n)
@@ -545,8 +551,11 @@ def recent_pitch_densities(df: pd.DataFrame, cfg: Config, n: int,
         if state is None or signals is None:
             continue
         combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
-        out.append({"id": cur_id, "actual": int(pitches.loc[i, "pitch"]),
-                     "baseline": baseline, "combined": combined})
+        out.append({
+            "id": cur_id, "actual": int(pitches.loc[i, "pitch"]), "baseline": baseline,
+            "signals": [{"name": s.name, "density": s.density} for s in signals],
+            "combined": combined,
+        })
     return out
 
 

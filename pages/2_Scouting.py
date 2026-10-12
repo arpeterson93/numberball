@@ -3479,32 +3479,58 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                         return
 
                     _swbt_metric_key = "obp" if _swbt_metric == "OBP" else "slg"
-                    _swbt_rows = []
+
+                    # Per-indication (baseline, each present signal, combined)
+                    # result list, oldest-to-newest, one entry per backtested
+                    # pitch - each indication's OWN suggested swing (from its
+                    # own raw density) diffed against the pitch actually
+                    # thrown. Keyed by name here; display order/labels are
+                    # applied once below via _PL_SIGNAL_ORDER.
+                    _swbt_results_by_key: dict[str, list[str]] = {"baseline": [], "combined": []}
                     for _pt in _swbt_pts:
-                        _base_swing, _ = utils.suggest_swing_from_density(
-                            _pt["baseline"], result_ranges, _swbt_metric_key)
-                        _comb_swing, _ = utils.suggest_swing_from_density(
-                            _pt["combined"], result_ranges, _swbt_metric_key)
-                        _base_diff = utils.circular_diff(_pt["actual"], _base_swing)
-                        _comb_diff = utils.circular_diff(_pt["actual"], _comb_swing)
-                        _swbt_rows.append({
-                            "base_result": utils._diff_to_result(_base_diff, result_ranges),
-                            "comb_result": utils._diff_to_result(_comb_diff, result_ranges),
-                        })
-                    _base_avg = sum(utils.result_metric_value(r["base_result"], _swbt_metric_key)
-                                    for r in _swbt_rows) / len(_swbt_rows)
-                    _comb_avg = sum(utils.result_metric_value(r["comb_result"], _swbt_metric_key)
-                                    for r in _swbt_rows) / len(_swbt_rows)
+                        for _key, _density in (("baseline", _pt["baseline"]), ("combined", _pt["combined"])):
+                            _swing, _ = utils.suggest_swing_from_density(_density, result_ranges, _swbt_metric_key)
+                            _diff = utils.circular_diff(_pt["actual"], _swing)
+                            _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
+                        for _sig in _pt["signals"]:
+                            _swing, _ = utils.suggest_swing_from_density(
+                                _sig["density"], result_ranges, _swbt_metric_key)
+                            _diff = utils.circular_diff(_pt["actual"], _swing)
+                            _swbt_results_by_key.setdefault(_sig["name"], []).append(
+                                utils._diff_to_result(_diff, result_ranges))
+
+                    _swbt_rows = [{"label": "Baseline", "results": _swbt_results_by_key["baseline"]}]
+                    for _sig_name in utils._PL_SIGNAL_ORDER:
+                        _sig_results = _swbt_results_by_key.get(_sig_name)
+                        if _sig_results and len(_sig_results) == len(_swbt_pts):
+                            _swbt_rows.append({"label": utils._PL_SIGNAL_SHORT_LABELS[_sig_name],
+                                               "results": _sig_results})
+                    _swbt_rows.append({"label": "Model (combined)", "results": _swbt_results_by_key["combined"]})
+
+                    _swbt_avg_table = pd.DataFrame([
+                        {"Indication": r["label"],
+                         _swbt_metric: sum(utils.result_metric_value(res, _swbt_metric_key)
+                                           for res in r["results"]) / len(r["results"])}
+                        for r in _swbt_rows
+                    ])
+                    _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
+                    _comb_avg = _swbt_avg_table.loc[
+                        _swbt_avg_table["Indication"] == "Model (combined)", _swbt_metric].iloc[0]
                     _swbt_better = _comb_avg > _base_avg
                     st.caption(
-                        f"Over the last **{len(_swbt_rows)}** pitches: baseline-suggested swings would've "
+                        f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
                         f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested swings **{_comb_avg:.3f}** "
-                        f"({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'})."
+                        f"({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'}). "
+                        "Every individual signal's own row below uses its raw (unshrunk) density, same "
+                        "caveat as the Expected Swing Score chart/table above."
                     )
                     st.plotly_chart(
-                        utils.suggested_swing_backtest_chart(
-                            _swbt_rows, _swbt_metric, _base_avg, _comb_avg, dark_mode=_dark_mode),
+                        utils.suggested_swing_backtest_chart(_swbt_rows, dark_mode=_dark_mode),
                         width="stretch", config={"displayModeBar": False}, key="p_swbt_chart",
+                    )
+                    st.dataframe(
+                        _swbt_avg_table, hide_index=True, width="stretch",
+                        column_config={_swbt_metric: st.column_config.NumberColumn(format="%.3f")},
                     )
 
                 _suggest_swing_backtest_section_p(df_p, result_ranges)
