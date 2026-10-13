@@ -37,25 +37,33 @@ matched rows (pitch_sequence/delta_sequence both derive from the same two
 prior pitches; delta_after_result/shadow_delta_after_result match the
 identical prev_result_cat rows), so treating them as independent evidence
 double-counts. The fitted weights correct for that and beat baseline on
-held-out test (log-loss 6.9155 -> 6.9092, PIT chi2 91.2 -> 19.1, fit-weights
-re-run after adding delta_cooldown - the 7th signal - at points-per-pitcher
-60). delta_cooldown came out of that refit with the single largest weight
-(0.75, ahead of cooldown's own 0.512) - real information, not a fitting
-artifact, given the chi2 drop. Widths/sigma themselves (including the new
-delta_cooldown_radius, left at its default 50) were NOT re-grid-searched in
-that refit - fit-widths previously ran for the 6-signal model only; redo it
-(tools/pitch_likelihood_calibrate.py fit-widths) if squeezing out more gain
-from retuning those against the 7-signal model is worth the cost. A per-
-pitcher archetype/clustering check and a within-pitcher bootstrap variance
+held-out test (log-loss 6.9155 -> 6.9087, PIT chi2 77.4 -> 17.5, fit-weights
+re-run at points-per-pitcher 60 after pitch_width moved from 200 to 100 -
+200 was originally picked to make the Hot Zone Pitch Matrix heatmap a clean
+5x5 grid, not for any modeling reason, and covered 20% of the 1-1000 wheel
+per side; 100 keeps the grid clean (10x10) at a tighter, less-guessy match
+window, matched everywhere pitch/delta/delta2 buckets appear in the UI (see
+pages/2_Scouting.py's Context Filters and Hot Zone Pitch Matrix widgets) and
+in this module's own CLI default. Performance barely moved (previous test
+log-loss 6.9155 -> 6.9092, chi2 91.2 -> 19.1 at width 200) - narrowing the
+window didn't cost anything, if anything it's marginally better calibrated.
+delta_cooldown still carries the single largest weight (0.762, ahead of
+cooldown's own 0.525) - real information, not a fitting artifact, given the
+chi2 drop. Sigma/cooldown_radius/delta_cooldown_radius/leverage_width were
+NOT re-grid-searched in this refit, only pitch_width changed by hand and
+weights were refit around it - run fit-widths (tools/pitch_likelihood_
+calibrate.py fit-widths) if squeezing out more gain from retuning those
+against the current width/weight combo is worth the cost. A per-pitcher
+archetype/clustering check and a within-pitcher bootstrap variance
 decomposition both found no pitcher-level structure worth exploiting beyond
-this single global fit (pre-dating delta_cooldown) - see the calibration
-script's own docstring before re-splitting pitchers into archetypes or
-building partial pooling; redo this fit (not by hand) if SIGNAL_BUILDERS
-changes again.
+this single global fit (pre-dating delta_cooldown and the width change) -
+see the calibration script's own docstring before re-splitting pitchers
+into archetypes or building partial pooling; redo this fit (not by hand) if
+SIGNAL_BUILDERS changes again.
 
 Run from the repo root:
     python tools/pitch_likelihood_backtest.py [--pitcher "Name"] [--min-history 30]
-        [--sigma 75] [--min-effective-n 20] [--pitch-width 200] [--cooldown-radius 50]
+        [--sigma 75] [--min-effective-n 20] [--pitch-width 100] [--cooldown-radius 50]
         [--delta-cooldown-radius 50] [--leverage-width 0.5]
 
 Omitting --pitcher scans every player's pitching history to find the deepest
@@ -80,19 +88,18 @@ import utils
 GRID_SIZE = 1000  # matches the app's 1-1000 pitch-value domain throughout
 
 # tools/pitch_likelihood_calibrate.py's fit-weights result at sigma=75/
-# pitch_width=200/cooldown_radius=50/leverage_width=0.5/min_effective_n=20 -
+# pitch_width=100/cooldown_radius=50/leverage_width=0.5/min_effective_n=20 -
 # see the module docstring above for the held-out numbers and what pushed
-# pitch_sequence and delta_after_result to ~0 (redundant with delta_sequence
-# and shadow_delta_after_result respectively, not uninformative on their
-# own). Used as the CLI --weights default; pass --weights to override.
+# pitch_sequence to ~0 (redundant with delta_sequence, not uninformative on
+# its own). Used as the CLI --weights default; pass --weights to override.
 DEFAULT_WEIGHTS = {
     "pitch_sequence": 0.0,
-    "delta_sequence": 0.18,
-    "cooldown": 0.512,
-    "delta_after_result": 0.183,
-    "delta_after_leverage": 0.034,
+    "delta_sequence": 0.193,
+    "cooldown": 0.525,
+    "delta_after_result": 0.191,
+    "delta_after_leverage": 0.046,
     "shadow_delta_after_result": 0.033,
-    "delta_cooldown": 0.75,
+    "delta_cooldown": 0.762,
 }
 
 
@@ -891,7 +898,7 @@ def main() -> None:
     ap.add_argument("--sigma", type=float, default=75.0, help="KDE kernel width, in wheel units")
     ap.add_argument("--min-effective-n", type=float, default=20.0,
                      help="Shrinkage point toward baseline (your 'relatively confident around 20' gut-check)")
-    ap.add_argument("--pitch-width", type=int, default=200, help="Bucket width for the pitch-sequence match")
+    ap.add_argument("--pitch-width", type=int, default=100, help="Bucket width for the pitch-sequence match")
     ap.add_argument("--cooldown-radius", type=float, default=50.0, help="Radius for the cooldown signal")
     ap.add_argument("--delta-cooldown-radius", type=float, default=50.0,
                      help="Radius (in delta units) for the delta_cooldown signal")

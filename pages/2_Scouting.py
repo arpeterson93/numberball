@@ -1568,7 +1568,7 @@ with tab_p:
                 _pl_payload = None
                 if hist_id:
                     _pl_payload = _pitch_likelihood_explain(
-                        df_p_full, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        df_p_full, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
                         leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
                     )
                     if _pl_payload is None:
@@ -1578,7 +1578,7 @@ with tab_p:
                            "signals": _pl_payload["signals"], "combined": _pl_payload["combined"]}
                 else:
                     _pl = _pitch_likelihood_prediction(
-                        df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        df_p, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
                         leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
                         # Same prospective game state the Context Filters
                         # section's own live Leverage caption already reads -
@@ -1698,7 +1698,7 @@ with tab_p:
 
                     with st.spinner(f"Walking the last {_swbt_n} pitches..."):
                         _swbt_pts = _recent_pitch_densities_cached(
-                            df_p, _swbt_n, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                            df_p, _swbt_n, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
                             leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
                         )
                     if not _swbt_pts:
@@ -1780,24 +1780,6 @@ with tab_p:
                         _swbt_table_rows.append(_row_data)
                     _swbt_avg_table = pd.DataFrame(_swbt_table_rows)
 
-                    _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
-                    _peak_avg = _swbt_avg_table.loc[
-                        _swbt_avg_table["Indication"] == "Model (peak)", _swbt_metric].iloc[0]
-                    _comb_avg = _swbt_avg_table.loc[
-                        _swbt_avg_table["Indication"] == "Model (FFT-optimal)", _swbt_metric].iloc[0]
-                    _swbt_better = _comb_avg > _base_avg
-                    _fft_vs_peak = "beat" if _comb_avg > _peak_avg else "lost to" if _comb_avg < _peak_avg else "tied"
-                    st.caption(
-                        f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
-                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested (FFT-optimal) swings "
-                        f"**{_comb_avg:.3f}** ({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'} "
-                        f"than baseline). FFT-optimal {_fft_vs_peak} just swinging at the model's own single "
-                        f"most-likely pitch (Model (peak): **{_peak_avg:.3f}**) - how much the FFT/ranges "
-                        "optimization step is actually buying over the naive point-estimate strategy. "
-                        "Individual signals use their raw (unshrunk) density, same caveat as the Expected "
-                        "Swing Score chart/table above; gray cells below are points that signal had no data "
-                        "for (not scored either way), not an out."
-                    )
                     st.plotly_chart(
                         utils.suggested_swing_backtest_chart(_swbt_rows, dark_mode=_dark_mode),
                         width="stretch", config={"displayModeBar": False}, key="p_swbt_chart",
@@ -1809,12 +1791,6 @@ with tab_p:
 
                     # ── rolling performance ──────────────────────────────────────
                     st.markdown("**Rolling Performance**")
-                    st.caption(
-                        "Trailing rolling average of the same per-pitch OBP/SLG, not just the single "
-                        "overall number above - shows how each indication has actually been running across "
-                        "the window (two indications can share the same overall average while one trended "
-                        "very differently from the other)."
-                    )
                     _swbt_window = st.slider(
                         "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(10, len(_swbt_pts)),
                         key=f"p_swbt_window_{tab_p_pitcher}",
@@ -1989,7 +1965,7 @@ with tab_p:
             # itself renders further down - Streamlit keeps a widget's state
             # keyed across reruns even on runs where it isn't drawn.
             _cf_pitch_def_p  = _pf_pitches_p[-1] if _pf_pitches_p else 500
-            _cf_pitch_w_pre  = st.session_state.get("ctx_pitch_w_p", 200)
+            _cf_pitch_w_pre  = st.session_state.get("ctx_pitch_w_p", 100)
             _cf_pitch_v_pre  = int(st.session_state.get(f"ctx_pitch_v_p_{tab_p_pitcher}", _cf_pitch_def_p))
             _cf_pitch_lo_pre, _cf_pitch_hi_pre = utils._centered_match_interval(
                 _cf_pitch_v_pre, _cf_pitch_w_pre, domain_hi=1000, domain_lo=1)
@@ -2058,7 +2034,7 @@ with tab_p:
                 _cf_pitch_bucket2_p = None
                 if _cf_pitch_on_p:
                     _cf_pitch_w_p = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
-                                                      value=200, key="ctx_pitch_w_p")
+                                                      value=100, key="ctx_pitch_w_p")
                     _cf_pitch_val_p = st.number_input(
                         "Previous pitch value", min_value=1, max_value=1000, value=_cf_pitch_def_p,
                         step=1, key=f"ctx_pitch_v_p_{tab_p_pitcher}",
@@ -2348,12 +2324,12 @@ with tab_p:
         if result_ranges:
             _pl_band_p = (
                 _pitch_likelihood_explain(
-                    df_p, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                    df_p, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
                     leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
                 )
                 if hist_id else
                 _pitch_likelihood_prediction(
-                    df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                    df_p, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
                     leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
                     live_inning=_cf_gs_inn_p, live_half=_cf_gs_half_p, live_outs=_cf_gs_outs_p,
                     live_obc=_cf_gs_obc_p, live_away_score=_cf_gs_away_p, live_home_score=_cf_gs_home_p,
@@ -2657,7 +2633,7 @@ with tab_p:
         _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"
         _h_dd_bkt = st.session_state.get("dd_bucket_p", 100)
         _h_dd2_bkt = st.session_state.get("dd2_bucket_p", 100)
-        _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 200)
+        _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 100)
 
         _h_recent = (
             df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)["pitch"]
@@ -2746,7 +2722,7 @@ with tab_p:
                     st.caption("No historical matches for this context.")
                 else:
                     _sv_fragment(_sv_res["matches"], _h_recent[-3:], (1, 1000), "Pitch value",
-                                 st.session_state.get("hz_follow_bucket_p", 200),
+                                 st.session_state.get("hz_follow_bucket_p", 100),
                                  "sv_pitch_chart", _is_mobile, _sv_note)
         with _sv_delta_tab:
             if _h_prior_delta is None or (_sv_use2 and _h_prior_delta2 is None):
@@ -3151,7 +3127,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # Per-kind slider widths define the OBP signals, so they double as the
             # cache key: pitch <- following-bucket, delta <- dd, delta2 <- dd2.
             _obp_widths_key = (
-                int(st.session_state.get("hz_follow_bucket_p", 200)),
+                int(st.session_state.get("hz_follow_bucket_p", 100)),
                 int(_h_dd_bkt), int(_h_dd2_bkt),
             )
             if tab_p_pitcher != "All":
@@ -3374,9 +3350,9 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.subheader("Hot Zone Pitch Matrix")
             _hzp_sl1, _hzp_sl2 = st.columns(2)
             with _hzp_sl1:
-                init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=200, key="hz_init_bucket_p")
+                init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=100, key="hz_init_bucket_p")
             with _hzp_sl2:
-                follow_bucket_p = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=200, key="hz_follow_bucket_p")
+                follow_bucket_p = st.select_slider("Following bucket size", options=[50,100,125,200,250,500], value=100, key="hz_follow_bucket_p")
             group_cols_p = ["game_id","pitcher_name"] if tab_p_pitcher != "All" else ["pitcher_name"]
 
             st.plotly_chart(

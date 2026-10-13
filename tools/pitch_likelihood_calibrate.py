@@ -40,7 +40,7 @@ can be run as separate, separately-timed/backgrounded invocations):
 
     python tools/pitch_likelihood_calibrate.py fit-weights
         [--points-per-pitcher 25] [--min-history 30]
-        [--sigma 100] [--pitch-width 200] [--cooldown-radius 50] [--delta-cooldown-radius 50]
+        [--sigma 100] [--pitch-width 100] [--cooldown-radius 50] [--delta-cooldown-radius 50]
         [--leverage-width 1.0] [--min-effective-n 20]
         Precomputes TRAIN at the given widths/sigma, fits the seven weights by
         minimizing TRAIN log-loss (bounded [0,3], matching the artifact
@@ -586,7 +586,7 @@ def cmd_archetype_scatter(args):
         print("Run 'fetch' first.", file=sys.stderr)
         sys.exit(1)
     cfg = Config(sigma=state.get("sigma", 100.0), min_effective_n=state.get("min_effective_n", 20.0),
-                 pitch_width=state.get("pitch_width", 200), cooldown_radius=state.get("cooldown_radius", 50.0),
+                 pitch_width=state.get("pitch_width", 100), cooldown_radius=state.get("cooldown_radius", 50.0),
                  leverage_width=state.get("leverage_width", 1.0),
                  delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
     names = state["train_pitchers"] + state["val_pitchers"]
@@ -1028,7 +1028,7 @@ def main():
     p.add_argument("--points-per-pitcher", type=int, default=25)
     p.add_argument("--min-history", type=int, default=30)
     p.add_argument("--sigma", type=float, default=100.0)
-    p.add_argument("--pitch-width", type=int, default=200)
+    p.add_argument("--pitch-width", type=int, default=100)
     p.add_argument("--cooldown-radius", type=float, default=50.0)
     p.add_argument("--delta-cooldown-radius", type=float, default=50.0)
     p.add_argument("--leverage-width", type=float, default=1.0)
