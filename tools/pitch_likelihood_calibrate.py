@@ -39,7 +39,7 @@ can be run as separate, separately-timed/backgrounded invocations):
         data cache (one Supabase query per pitcher, then cached to disk).
 
     python tools/pitch_likelihood_calibrate.py fit-weights
-        [--points-per-pitcher 25] [--min-history 30]
+        [--points-per-pitcher 25] [--min-history 100]
         [--sigma 100] [--pitch-width 100] [--cooldown-radius 50] [--delta-cooldown-radius 50]
         [--leverage-width 1.0] [--min-effective-n 20]
         Precomputes TRAIN at the given widths/sigma, fits the seven weights by
@@ -63,7 +63,7 @@ can be run as separate, separately-timed/backgrounded invocations):
         search.
 
     python tools/pitch_likelihood_calibrate.py swing-report
-        [--points-per-pitcher 40] [--min-history 30]
+        [--points-per-pitcher 40] [--min-history 100]
         Roster-wide counterpart to the Streamlit Suggested-Swing Backtest:
         baseline-suggested vs. the combined model's own peak pitch vs. the
         combined model's FFT/ranges-optimal suggested swing, scored in OBP
@@ -71,6 +71,27 @@ can be run as separate, separately-timed/backgrounded invocations):
         (DEFAULT_SWING_RANGES) across all three splits - a diagnostic, not
         a selection stage, so unlike the stages above it's fine to re-run
         freely and look at all three splits every time.
+
+    python tools/pitch_likelihood_calibrate.py signal-correlation
+        [--points-per-pitcher 60] [--min-history 100]
+        Pairwise Pearson correlation between each pair of signals' own raw
+        density curves, averaged over every val point both co-occur on -
+        checks the log-linear pool's own "each signal is independent
+        evidence" assumption directly, rather than just inferring it from
+        which weights land near 0. High correlation = redundant evidence;
+        near 0 = genuinely different information. A diagnostic, safe to
+        re-run freely, same as swing-report.
+
+    python tools/pitch_likelihood_calibrate.py fit-cooldown-table
+        Pools every RESOLVED cooldown (pitch-domain and delta-domain
+        separately) across train+val pitchers into a per-category P(resolves
+        in exactly k pitches) table, printed as ready-to-paste
+        COOLDOWN_LEAGUE_RATES/DELTA_COOLDOWN_LEAGUE_RATES dict literals for
+        pitch_likelihood_backtest.py - the shrinkage target
+        cooldown_signal/delta_cooldown_signal blend a pitcher's own thin
+        per-category rate toward. Run this (and re-paste the constants) if
+        the roster or cooldown_radius/delta_cooldown_radius ever change;
+        otherwise the table goes stale.
 """
 from __future__ import annotations
 
@@ -233,6 +254,87 @@ def precompute_split(names: list[str], cfg: Config, points_per_pitcher: int,
     print(f"  [{label}] {len(records)} total points from {len(names)} pitchers "
           f"in {time.time() - t0:.0f}s", file=sys.stderr)
     return records
+
+
+# -------------------------------------------------------------- cooldown league table
+
+def league_cooldown_rates(
+    names: list[str], value_col: str, radius: float,
+) -> tuple[dict[str, dict[int, float]], dict[str, int]]:
+    """Pools every RESOLVED cooldown event (utils.cooldown_events) across all
+    given pitchers' full histories into one league-wide empirical P(resolves
+    in exactly k pitches) table per result category - the shrinkage TARGET
+    cooldown_signal/delta_cooldown_signal blend a pitcher's own thin
+    per-category rate toward (Config.cooldown_rate_shrinkage_n). Same
+    value_col="pitch"/"pitch_circ_delta" split as the two signals themselves -
+    a pitch-domain and a delta-domain cooldown have different resolution-time
+    distributions, so they need separate tables at their own radius. Returns
+    (pmf, n_by_category) - n alongside the rates themselves so a thin pooled
+    category (rare in practice, with 94+47 pitchers, but possible) is visible
+    rather than silently trusted the same as a well-supported one."""
+    frames = []
+    for name in names:
+        df = get_pitcher_df(name)
+        if df.empty:
+            continue
+        events = utils.cooldown_events(df, value_col=value_col, radius=radius)
+        if events.empty:
+            continue
+        frames.append(events[events["resolved"]])
+    if not frames:
+        return {}, {}
+    resolved = pd.concat(frames, ignore_index=True)
+    pmf: dict[str, dict[int, float]] = {}
+    n_by_cat: dict[str, int] = {}
+    for cat, grp in resolved.groupby("category"):
+        counts = grp["pitches"].value_counts()
+        total = int(counts.sum())
+        pmf[cat] = {int(k): float(v) / total for k, v in counts.items()}
+        n_by_cat[cat] = total
+    return pmf, n_by_cat
+
+
+def _format_py_rate_table(pmf: dict[str, dict[int, float]]) -> str:
+    lines = ["{"]
+    for cat in sorted(pmf.keys()):
+        dist = pmf[cat]
+        body = ", ".join(f"{k}: {v:.4f}" for k, v in sorted(dist.items()))
+        lines.append(f'    "{cat}": {{{body}}},')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def cmd_fit_cooldown_table(args):
+    """Builds both league-wide cooldown rate tables (pitch-domain and delta-
+    domain) from train+val pitchers (test stays untouched, same discipline as
+    archetype-scatter) and prints them as ready-to-paste Python dict literals
+    for DEFAULT_COOLDOWN_LEAGUE_RATES/DEFAULT_DELTA_COOLDOWN_LEAGUE_RATES
+    above - also saves them into the state file so other stages could read
+    them back without re-running this."""
+    state = load_state()
+    if "train_pitchers" not in state:
+        print("Run 'fetch' first.", file=sys.stderr)
+        sys.exit(1)
+    names = state["train_pitchers"] + state["val_pitchers"]
+    cooldown_radius = state.get("cooldown_radius", 50.0)
+    delta_cooldown_radius = state.get("delta_cooldown_radius", 50.0)
+
+    print(f"Pooling resolved cooldowns across {len(names)} train+val pitchers "
+          f"(cooldown_radius={cooldown_radius}, delta_cooldown_radius={delta_cooldown_radius})...",
+          file=sys.stderr)
+    cooldown_pmf, cooldown_n = league_cooldown_rates(names, "pitch", cooldown_radius)
+    delta_pmf, delta_n = league_cooldown_rates(names, "pitch_circ_delta", delta_cooldown_radius)
+
+    for label, pmf, n_by_cat in (("cooldown", cooldown_pmf, cooldown_n),
+                                  ("delta_cooldown", delta_pmf, delta_n)):
+        print(f"\n=== {label} league table ===", file=sys.stderr)
+        for cat in sorted(pmf.keys()):
+            print(f"  {cat}: n={n_by_cat[cat]} resolved, {len(pmf[cat])} distinct k values, "
+                  f"max k={max(pmf[cat])}", file=sys.stderr)
+        print(f"\n{label.upper()}_LEAGUE_RATES = {_format_py_rate_table(pmf)}")
+
+    state.update({"cooldown_league_rates": cooldown_pmf, "delta_cooldown_league_rates": delta_pmf})
+    save_state(state)
 
 
 # -------------------------------------------------------------- scoring
@@ -800,6 +902,82 @@ def cmd_signal_diagnose(args):
             print(f"    weight={v:.2f}: val logloss={ll:.5f}")
 
 
+def cmd_signal_correlation(args):
+    """Pairwise independence check across the 7 signals: the log-linear
+    pool's own justification (see this module's docstring) is that each
+    signal behaves as INDEPENDENT evidence - agreement sharpens the
+    estimate, disagreement pulls it down, rather than just averaging out.
+    That's only true to the extent the signals' predicted distributions
+    aren't just redundant copies of each other. For every point where a
+    pair of signals BOTH have a density, this computes the Pearson
+    correlation between their two RAW (pre-shrinkage) 1000-point density
+    curves - "at this one situation, do these two signals point at similar
+    pitch values in a similar shape" - then averages that per-point
+    correlation across every point the pair co-occurs on. High average
+    correlation = redundant evidence (the two signals are mostly saying the
+    same thing, so multiplying them in log-space double-counts it); low/
+    near-zero = they're genuinely looking at different things, matching the
+    pool's own independence assumption. Reports each pair's co-occurrence
+    count alongside its correlation, since a correlation from few shared
+    points is itself noisy and shouldn't be read the same as one from
+    hundreds. Uses RAW density (not the min_effective_n-shrunk version
+    combine_signals actually multiplies) deliberately - shrinkage is a
+    separate fix for a thin SAMPLE, not evidence the underlying pattern two
+    signals are each measuring isn't the same pattern twice."""
+    state = load_state()
+    for k in ("sigma", "pitch_width", "cooldown_radius", "leverage_width", "min_effective_n"):
+        if k not in state:
+            print(f"Missing '{k}' - run fetch/fit-weights first.", file=sys.stderr)
+            sys.exit(1)
+    cfg = Config(sigma=state["sigma"], min_effective_n=state["min_effective_n"],
+                 pitch_width=state["pitch_width"], cooldown_radius=state["cooldown_radius"],
+                 leverage_width=state["leverage_width"],
+                 delta_cooldown_radius=state.get("delta_cooldown_radius", 50.0))
+    val_rec = precompute_split(state["val_pitchers"], cfg, args.points_per_pitcher, args.min_history, "val")
+
+    names = SIGNAL_NAMES
+    idx = {n: i for i, n in enumerate(names)}
+
+    def pair_key(a: str, b: str) -> tuple[str, str]:
+        return (a, b) if idx[a] <= idx[b] else (b, a)
+
+    sums: dict[tuple[str, str], float] = {}
+    counts: dict[tuple[str, str], int] = {}
+
+    for r in val_rec:
+        by_name = {s.name: s.density for s in r["signals"]}
+        present = list(by_name.keys())
+        for i, a in enumerate(present):
+            for b in present[i:]:
+                da, db = by_name[a], by_name[b]
+                da_c, db_c = da - da.mean(), db - db.mean()
+                denom = float(np.sqrt((da_c ** 2).sum() * (db_c ** 2).sum()))
+                corr = float((da_c * db_c).sum() / denom) if denom > 1e-12 else 0.0
+                key = pair_key(a, b)
+                sums[key] = sums.get(key, 0.0) + corr
+                counts[key] = counts.get(key, 0) + 1
+
+    print(f"\n=== Pairwise signal correlation (raw densities, val split, {len(val_rec)} points) ===")
+    print("                              " + " ".join(f"{n[:10]:>10s}" for n in names))
+    for a in names:
+        row = []
+        for b in names:
+            key = pair_key(a, b)
+            c = counts.get(key, 0)
+            row.append(f"{sums[key] / c:10.2f}" if c else f"{'n/a':>10s}")
+        print(f"  {a:28s}" + " ".join(row))
+
+    print("\n  (co-occurrence n per pair)")
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            key = pair_key(a, b)
+            c = counts.get(key, 0)
+            if c:
+                print(f"    {a} / {b}: n={c}, mean corr={sums[key] / c:+.3f}")
+            else:
+                print(f"    {a} / {b}: never co-occurred in this sample")
+
+
 # Fixed neutral result-ranges for cmd_swing_report - utils.compute_at_bat_ranges'
 # own default output at all stats=3, R/R hands, no modifiers, 0 outs, no
 # runners. NOT any real matchup's actual attributes - same simplification
@@ -1026,7 +1204,7 @@ def main():
 
     p = sub.add_parser("fit-weights")
     p.add_argument("--points-per-pitcher", type=int, default=25)
-    p.add_argument("--min-history", type=int, default=30)
+    p.add_argument("--min-history", type=int, default=100)
     p.add_argument("--sigma", type=float, default=100.0)
     p.add_argument("--pitch-width", type=int, default=100)
     p.add_argument("--cooldown-radius", type=float, default=50.0)
@@ -1044,7 +1222,7 @@ def main():
 
     p = sub.add_parser("archetype-scatter")
     p.add_argument("--points-per-pitcher", type=int, default=30)
-    p.add_argument("--min-history", type=int, default=30)
+    p.add_argument("--min-history", type=int, default=100)
     p.add_argument("--min-points", type=int, default=20)
     p.add_argument("--bootstrap", type=int, default=0,
                     help="Resamples per pitcher for the within-pitcher noise-floor estimate "
@@ -1054,7 +1232,7 @@ def main():
 
     p = sub.add_parser("pitcher-report")
     p.add_argument("--points-per-pitcher", type=int, default=50)
-    p.add_argument("--min-history", type=int, default=30)
+    p.add_argument("--min-history", type=int, default=100)
     p.add_argument("--min-points", type=int, default=20)
     p.add_argument("--bootstrap", type=int, default=0,
                     help="Resamples per pitcher for the margin noise-floor estimate "
@@ -1070,9 +1248,17 @@ def main():
                     help="Comma-separated signal name(s) to run the weight-sensitivity sweep on")
     p.set_defaults(func=cmd_signal_diagnose)
 
+    p = sub.add_parser("signal-correlation")
+    p.add_argument("--points-per-pitcher", type=int, default=60)
+    p.add_argument("--min-history", type=int, default=100)
+    p.set_defaults(func=cmd_signal_correlation)
+
+    p = sub.add_parser("fit-cooldown-table")
+    p.set_defaults(func=cmd_fit_cooldown_table)
+
     p = sub.add_parser("swing-report")
     p.add_argument("--points-per-pitcher", type=int, default=40)
-    p.add_argument("--min-history", type=int, default=30)
+    p.add_argument("--min-history", type=int, default=100)
     p.set_defaults(func=cmd_swing_report)
 
     p = sub.add_parser("report")

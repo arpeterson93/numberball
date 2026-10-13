@@ -28,41 +28,61 @@ shown to actually beat the naive baseline; each addition should be checked
 against the same backtest rather than assumed to help.
 
 DEFAULT_WEIGHTS/the sigma/pitch-width/leverage-width CLI defaults below are
-NOT guesses - they're tools/pitch_likelihood_calibrate.py's fit, on a 77-
-pitcher roster (plays_from_pitchers_200+_bf.csv, >=300 pitches each) split
-50/25/25 train/val/test by pitcher. Equal weights (the naive "every signal
-counts the same" default) score WORSE than the unconditioned baseline on
-every split - several of these signals share conditioning context or
-matched rows (pitch_sequence/delta_sequence both derive from the same two
-prior pitches; delta_after_result/shadow_delta_after_result match the
-identical prev_result_cat rows), so treating them as independent evidence
-double-counts. The fitted weights correct for that and beat baseline on
-held-out test (log-loss 6.9155 -> 6.9087, PIT chi2 77.4 -> 17.5, fit-weights
-re-run at points-per-pitcher 60 after pitch_width moved from 200 to 100 -
-200 was originally picked to make the Hot Zone Pitch Matrix heatmap a clean
-5x5 grid, not for any modeling reason, and covered 20% of the 1-1000 wheel
-per side; 100 keeps the grid clean (10x10) at a tighter, less-guessy match
-window, matched everywhere pitch/delta/delta2 buckets appear in the UI (see
-pages/2_Scouting.py's Context Filters and Hot Zone Pitch Matrix widgets) and
-in this module's own CLI default. Performance barely moved (previous test
-log-loss 6.9155 -> 6.9092, chi2 91.2 -> 19.1 at width 200) - narrowing the
-window didn't cost anything, if anything it's marginally better calibrated.
-delta_cooldown still carries the single largest weight (0.762, ahead of
-cooldown's own 0.525) - real information, not a fitting artifact, given the
-chi2 drop. Sigma/cooldown_radius/delta_cooldown_radius/leverage_width were
-NOT re-grid-searched in this refit, only pitch_width changed by hand and
-weights were refit around it - run fit-widths (tools/pitch_likelihood_
-calibrate.py fit-widths) if squeezing out more gain from retuning those
-against the current width/weight combo is worth the cost. A per-pitcher
-archetype/clustering check and a within-pitcher bootstrap variance
-decomposition both found no pitcher-level structure worth exploiting beyond
-this single global fit (pre-dating delta_cooldown and the width change) -
-see the calibration script's own docstring before re-splitting pitchers
-into archetypes or building partial pooling; redo this fit (not by hand) if
-SIGNAL_BUILDERS changes again.
+NOT guesses - they're tools/pitch_likelihood_calibrate.py's fit, on a roster
+scanned live from Supabase (fetch --min-bf 100, i.e. >=100 "Swing" rows as
+pitcher_id - currently 94/47/46 train/val/test pitchers) split 50/25/25 by
+pitcher. Equal weights (the naive "every signal counts the same" default)
+score WORSE than the unconditioned baseline on every split - several of
+these signals share conditioning context or matched rows (pitch_sequence/
+delta_sequence both derive from the same two prior pitches; delta_after_
+result/shadow_delta_after_result AND delta_after_result/delta_after_leverage
+both measurably correlated - see tools/pitch_likelihood_calibrate.py
+signal-correlation, r=0.36 and r=0.34 respectively, the strongest pairs in
+the matrix), so treating them as independent evidence double-counts. The
+fitted weights correct for that and beat baseline on held-out test
+(log-loss 6.9077 -> 6.9055, PIT chi2 81.0 -> 10.4).
+
+Current fit basis - min_history raised from 30 to 100 (per-pitcher pitch-
+index floor for an eligible backtest point, not the roster's own >=100 BF
+floor above): points below 100 pitches into a career were judged more noise
+than signal. That alone flipped delta_cooldown from the single largest
+weight (0.762) to exactly 0.0, and shuffled several others meaningfully -
+see this module's git history for the min-history=30 numbers if comparing.
+Tried shrinking cooldown_signal/delta_cooldown_signal's own per-category
+p_return_now toward a league-wide rate (COOLDOWN_LEAGUE_RATES/
+DELTA_COOLDOWN_LEAGUE_RATES below, tools/pitch_likelihood_calibrate.py
+fit-cooldown-table) on the theory that thin per-pitcher-per-category hazard
+estimates were driving that flip - refit barely moved (delta_cooldown still
+0.0, log-loss/chi2 within noise of the unshrunk version), so that wasn't the
+explanation; the shrinkage is still correct to have (a real, previously-
+unguarded small-sample problem) but isn't what's driving the min-history
+sensitivity. Most likely cause not yet confirmed: the train population
+itself changes shape under a higher min-history floor (several pitchers
+dropped to single-digit eligible points once the first 100 of their own
+history were excluded), not pure rate noise - redo this investigation if
+pursuing it further, don't assume this comment's guess is right.
+
+pitch_width itself moved from 200 to 100 in an earlier pass (git history) -
+200 was picked to make the Hot Zone Pitch Matrix heatmap a clean 5x5 grid,
+not for any modeling reason, and covered 20% of the 1-1000 wheel per side;
+100 keeps the grid clean (10x10) at a tighter match window, matched
+everywhere pitch/delta/delta2 buckets appear in the UI.
+
+Sigma/cooldown_radius/delta_cooldown_radius/leverage_width were NOT re-grid-
+searched in any of the refits above, only pitch_width/min_history/the
+cooldown-rate shrinkage changed by hand and weights were refit around each -
+run fit-widths (tools/pitch_likelihood_calibrate.py fit-widths) if squeezing
+out more gain from retuning those against the current combo is worth the
+cost. A per-pitcher archetype/clustering check and a within-pitcher
+bootstrap variance decomposition both found no pitcher-level structure worth
+exploiting beyond this single global fit (an older pass, pre-dating the
+width/min-history/cooldown-shrinkage changes above) - see the calibration
+script's own docstring before re-splitting pitchers into archetypes or
+building partial pooling; redo this fit (not by hand) if SIGNAL_BUILDERS
+changes again.
 
 Run from the repo root:
-    python tools/pitch_likelihood_backtest.py [--pitcher "Name"] [--min-history 30]
+    python tools/pitch_likelihood_backtest.py [--pitcher "Name"] [--min-history 100]
         [--sigma 75] [--min-effective-n 20] [--pitch-width 100] [--cooldown-radius 50]
         [--delta-cooldown-radius 50] [--leverage-width 0.5]
 
@@ -88,18 +108,52 @@ import utils
 GRID_SIZE = 1000  # matches the app's 1-1000 pitch-value domain throughout
 
 # tools/pitch_likelihood_calibrate.py's fit-weights result at sigma=75/
-# pitch_width=100/cooldown_radius=50/leverage_width=0.5/min_effective_n=20 -
-# see the module docstring above for the held-out numbers and what pushed
-# pitch_sequence to ~0 (redundant with delta_sequence, not uninformative on
-# its own). Used as the CLI --weights default; pass --weights to override.
+# pitch_width=100/cooldown_radius=50/leverage_width=0.5/min_effective_n=20/
+# min_history=100/cooldown rate-shrinkage ON - see the module docstring above
+# for the held-out numbers and the min-history=30->100 history behind this
+# fit. pitch_sequence and delta_cooldown both land at ~0 here (redundant
+# with delta_sequence and uninformative once early-career points are
+# excluded, respectively, not uninformative in general - see docstring).
+# Used as the CLI --weights default; pass --weights to override.
 DEFAULT_WEIGHTS = {
     "pitch_sequence": 0.0,
-    "delta_sequence": 0.193,
-    "cooldown": 0.525,
-    "delta_after_result": 0.191,
-    "delta_after_leverage": 0.046,
-    "shadow_delta_after_result": 0.033,
-    "delta_cooldown": 0.762,
+    "delta_sequence": 0.07,
+    "cooldown": 0.248,
+    "delta_after_result": 0.148,
+    "delta_after_leverage": 0.163,
+    "shadow_delta_after_result": 0.231,
+    "delta_cooldown": 0.0,
+}
+
+# tools/pitch_likelihood_calibrate.py's fit-cooldown-table result (train+val
+# pitchers, cooldown_radius=50/delta_cooldown_radius=50) - per-category
+# P(a cooldown resolves in exactly k pitches), pooled across every pitcher
+# in that roster rather than one pitcher's own (often thin) resolved-sample
+# count. cooldown_signal/delta_cooldown_signal blend a pitcher's own
+# per-category rate toward these, weighted by how much of that pitcher's
+# own data backs it (Config.cooldown_rate_shrinkage_n) - the same shrinkage
+# SHAPE combine_signals already uses for a whole signal's n_eff, just one
+# level deeper, on the hazard-rate estimate a bump's amplitude comes from
+# rather than on the signal's overall density. A k with no entry here (past
+# the table's own longest observed cooldown) falls back to the pitcher's own
+# rate unshrunk - rare in practice given each category's pooled n is in the
+# thousands. Pooled counts per category: BB-1B n=13516, K+ n=12823,
+# Out n=20635, XBH n=5905 (pitch-domain); BB-1B n=12407, K+ n=11851,
+# Out n=18929, XBH n=5445 (delta-domain). Redo fit-cooldown-table (and
+# re-paste both constants) if the roster or either radius ever changes -
+# these go stale otherwise, the same way DEFAULT_WEIGHTS would.
+COOLDOWN_LEAGUE_RATES = {
+    "BB-1B": {1: 0.1124, 2: 0.0787, 3: 0.0761, 4: 0.0731, 5: 0.0679, 6: 0.0630, 7: 0.0575, 8: 0.0511, 9: 0.0438, 10: 0.0411, 11: 0.0377, 12: 0.0322, 13: 0.0298, 14: 0.0242, 15: 0.0237, 16: 0.0198, 17: 0.0188, 18: 0.0164, 19: 0.0127, 20: 0.0122, 21: 0.0107, 22: 0.0094, 23: 0.0081, 24: 0.0088, 25: 0.0069, 26: 0.0061, 27: 0.0058, 28: 0.0061, 29: 0.0044, 30: 0.0051, 31: 0.0049, 32: 0.0024, 33: 0.0040, 34: 0.0026, 35: 0.0027, 36: 0.0023, 37: 0.0021, 38: 0.0018, 39: 0.0016, 40: 0.0013, 41: 0.0011, 42: 0.0008, 43: 0.0014, 44: 0.0007, 45: 0.0012, 46: 0.0003, 47: 0.0006, 48: 0.0005, 49: 0.0002, 50: 0.0004, 51: 0.0004, 52: 0.0003, 53: 0.0002, 54: 0.0004, 55: 0.0002, 56: 0.0001, 57: 0.0003, 58: 0.0002, 59: 0.0002, 60: 0.0001, 61: 0.0001, 63: 0.0001, 64: 0.0001, 66: 0.0001, 67: 0.0001, 69: 0.0001, 71: 0.0001, 72: 0.0001, 75: 0.0001, 76: 0.0001, 79: 0.0001, 84: 0.0001, 88: 0.0001, 128: 0.0001},
+    "K+": {1: 0.0944, 2: 0.0870, 3: 0.0805, 4: 0.0757, 5: 0.0678, 6: 0.0611, 7: 0.0572, 8: 0.0509, 9: 0.0472, 10: 0.0417, 11: 0.0363, 12: 0.0336, 13: 0.0306, 14: 0.0255, 15: 0.0222, 16: 0.0198, 17: 0.0193, 18: 0.0161, 19: 0.0139, 20: 0.0135, 21: 0.0105, 22: 0.0104, 23: 0.0079, 24: 0.0076, 25: 0.0062, 26: 0.0058, 27: 0.0064, 28: 0.0042, 29: 0.0054, 30: 0.0041, 31: 0.0034, 32: 0.0034, 33: 0.0030, 34: 0.0030, 35: 0.0034, 36: 0.0023, 37: 0.0021, 38: 0.0012, 39: 0.0010, 40: 0.0017, 41: 0.0014, 42: 0.0011, 43: 0.0012, 44: 0.0005, 45: 0.0007, 46: 0.0009, 47: 0.0009, 48: 0.0004, 49: 0.0009, 50: 0.0002, 51: 0.0005, 52: 0.0005, 53: 0.0002, 54: 0.0002, 56: 0.0001, 57: 0.0001, 58: 0.0003, 59: 0.0002, 60: 0.0003, 61: 0.0001, 62: 0.0002, 63: 0.0002, 64: 0.0001, 65: 0.0001, 66: 0.0002, 67: 0.0002, 69: 0.0002, 70: 0.0001, 71: 0.0001, 73: 0.0001, 74: 0.0001, 75: 0.0001, 77: 0.0001, 79: 0.0001, 81: 0.0001, 85: 0.0002, 86: 0.0001, 90: 0.0002, 94: 0.0001},
+    "Out": {1: 0.0968, 2: 0.0806, 3: 0.0815, 4: 0.0754, 5: 0.0686, 6: 0.0630, 7: 0.0602, 8: 0.0535, 9: 0.0451, 10: 0.0390, 11: 0.0384, 12: 0.0326, 13: 0.0294, 14: 0.0245, 15: 0.0214, 16: 0.0205, 17: 0.0182, 18: 0.0169, 19: 0.0146, 20: 0.0115, 21: 0.0106, 22: 0.0109, 23: 0.0099, 24: 0.0083, 25: 0.0077, 26: 0.0063, 27: 0.0057, 28: 0.0059, 29: 0.0046, 30: 0.0039, 31: 0.0041, 32: 0.0039, 33: 0.0026, 34: 0.0023, 35: 0.0019, 36: 0.0021, 37: 0.0027, 38: 0.0024, 39: 0.0013, 40: 0.0010, 41: 0.0014, 42: 0.0010, 43: 0.0006, 44: 0.0005, 45: 0.0005, 46: 0.0008, 47: 0.0006, 48: 0.0003, 49: 0.0003, 50: 0.0003, 51: 0.0004, 52: 0.0003, 53: 0.0002, 54: 0.0002, 55: 0.0001, 56: 0.0002, 57: 0.0002, 58: 0.0003, 59: 0.0001, 60: 0.0001, 61: 0.0000, 62: 0.0001, 63: 0.0002, 64: 0.0001, 65: 0.0000, 66: 0.0001, 67: 0.0003, 68: 0.0001, 69: 0.0000, 70: 0.0001, 74: 0.0000, 81: 0.0000, 90: 0.0000, 94: 0.0000, 104: 0.0001},
+    "XBH": {1: 0.1038, 2: 0.0779, 3: 0.0718, 4: 0.0696, 5: 0.0662, 6: 0.0596, 7: 0.0561, 8: 0.0518, 9: 0.0449, 10: 0.0437, 11: 0.0374, 12: 0.0335, 13: 0.0288, 14: 0.0279, 15: 0.0229, 16: 0.0240, 17: 0.0198, 18: 0.0144, 19: 0.0146, 20: 0.0122, 21: 0.0117, 22: 0.0100, 23: 0.0100, 24: 0.0090, 25: 0.0063, 26: 0.0080, 27: 0.0052, 28: 0.0068, 29: 0.0051, 30: 0.0036, 31: 0.0041, 32: 0.0042, 33: 0.0037, 34: 0.0029, 35: 0.0024, 36: 0.0034, 37: 0.0034, 38: 0.0014, 39: 0.0025, 40: 0.0010, 41: 0.0014, 42: 0.0007, 43: 0.0015, 44: 0.0007, 45: 0.0010, 46: 0.0007, 47: 0.0005, 48: 0.0014, 49: 0.0007, 50: 0.0003, 51: 0.0002, 52: 0.0007, 53: 0.0003, 54: 0.0002, 55: 0.0002, 56: 0.0002, 57: 0.0007, 58: 0.0002, 59: 0.0003, 60: 0.0005, 61: 0.0002, 62: 0.0003, 63: 0.0003, 64: 0.0002, 68: 0.0003, 69: 0.0002, 70: 0.0003, 74: 0.0002, 76: 0.0002, 94: 0.0002},
+}
+
+DELTA_COOLDOWN_LEAGUE_RATES = {
+    "BB-1B": {1: 0.1014, 2: 0.0881, 3: 0.0859, 4: 0.0775, 5: 0.0688, 6: 0.0593, 7: 0.0532, 8: 0.0476, 9: 0.0451, 10: 0.0405, 11: 0.0343, 12: 0.0332, 13: 0.0288, 14: 0.0243, 15: 0.0222, 16: 0.0195, 17: 0.0191, 18: 0.0176, 19: 0.0139, 20: 0.0120, 21: 0.0125, 22: 0.0105, 23: 0.0086, 24: 0.0094, 25: 0.0065, 26: 0.0071, 27: 0.0050, 28: 0.0047, 29: 0.0037, 30: 0.0039, 31: 0.0036, 32: 0.0032, 33: 0.0034, 34: 0.0024, 35: 0.0029, 36: 0.0017, 37: 0.0016, 38: 0.0020, 39: 0.0019, 40: 0.0018, 41: 0.0015, 42: 0.0011, 43: 0.0007, 44: 0.0010, 45: 0.0005, 46: 0.0010, 47: 0.0002, 48: 0.0005, 49: 0.0006, 50: 0.0003, 51: 0.0006, 52: 0.0004, 53: 0.0003, 54: 0.0004, 55: 0.0001, 56: 0.0003, 57: 0.0002, 58: 0.0001, 59: 0.0001, 61: 0.0002, 62: 0.0002, 63: 0.0002, 65: 0.0001, 66: 0.0001, 75: 0.0001, 76: 0.0001, 78: 0.0001, 85: 0.0001, 89: 0.0001, 102: 0.0001},
+    "K+": {1: 0.1013, 2: 0.0932, 3: 0.0804, 4: 0.0771, 5: 0.0688, 6: 0.0587, 7: 0.0546, 8: 0.0492, 9: 0.0420, 10: 0.0405, 11: 0.0363, 12: 0.0341, 13: 0.0280, 14: 0.0251, 15: 0.0219, 16: 0.0203, 17: 0.0180, 18: 0.0145, 19: 0.0127, 20: 0.0127, 21: 0.0125, 22: 0.0078, 23: 0.0099, 24: 0.0085, 25: 0.0095, 26: 0.0064, 27: 0.0051, 28: 0.0059, 29: 0.0064, 30: 0.0030, 31: 0.0028, 32: 0.0038, 33: 0.0028, 34: 0.0029, 35: 0.0022, 36: 0.0020, 37: 0.0018, 38: 0.0015, 39: 0.0018, 40: 0.0008, 41: 0.0010, 42: 0.0015, 43: 0.0014, 44: 0.0008, 45: 0.0008, 46: 0.0006, 47: 0.0009, 48: 0.0011, 49: 0.0003, 50: 0.0006, 51: 0.0004, 52: 0.0005, 53: 0.0005, 54: 0.0005, 55: 0.0002, 56: 0.0001, 58: 0.0001, 59: 0.0001, 60: 0.0003, 61: 0.0001, 62: 0.0002, 64: 0.0001, 66: 0.0003, 69: 0.0001, 70: 0.0001, 71: 0.0002, 74: 0.0001, 75: 0.0001, 76: 0.0001, 78: 0.0001, 84: 0.0001},
+    "Out": {1: 0.0997, 2: 0.0935, 3: 0.0847, 4: 0.0754, 5: 0.0707, 6: 0.0631, 7: 0.0539, 8: 0.0466, 9: 0.0428, 10: 0.0362, 11: 0.0360, 12: 0.0311, 13: 0.0274, 14: 0.0229, 15: 0.0228, 16: 0.0202, 17: 0.0179, 18: 0.0157, 19: 0.0150, 20: 0.0123, 21: 0.0119, 22: 0.0104, 23: 0.0088, 24: 0.0085, 25: 0.0079, 26: 0.0056, 27: 0.0055, 28: 0.0050, 29: 0.0043, 30: 0.0043, 31: 0.0039, 32: 0.0035, 33: 0.0036, 34: 0.0038, 35: 0.0023, 36: 0.0022, 37: 0.0027, 38: 0.0018, 39: 0.0019, 40: 0.0012, 41: 0.0013, 42: 0.0010, 43: 0.0011, 44: 0.0008, 45: 0.0009, 46: 0.0008, 47: 0.0010, 48: 0.0007, 49: 0.0005, 50: 0.0004, 51: 0.0004, 52: 0.0003, 53: 0.0004, 54: 0.0004, 55: 0.0003, 56: 0.0003, 57: 0.0003, 58: 0.0002, 59: 0.0002, 60: 0.0002, 61: 0.0001, 62: 0.0003, 63: 0.0001, 64: 0.0002, 65: 0.0001, 66: 0.0001, 67: 0.0001, 68: 0.0001, 70: 0.0002, 74: 0.0001, 75: 0.0001, 76: 0.0001, 80: 0.0001, 82: 0.0001, 91: 0.0001, 94: 0.0001, 104: 0.0001, 107: 0.0001},
+    "XBH": {1: 0.1006, 2: 0.0878, 3: 0.0819, 4: 0.0770, 5: 0.0674, 6: 0.0564, 7: 0.0520, 8: 0.0483, 9: 0.0430, 10: 0.0415, 11: 0.0356, 12: 0.0312, 13: 0.0285, 14: 0.0274, 15: 0.0242, 16: 0.0200, 17: 0.0189, 18: 0.0180, 19: 0.0151, 20: 0.0119, 21: 0.0108, 22: 0.0099, 23: 0.0107, 24: 0.0081, 25: 0.0075, 26: 0.0068, 27: 0.0053, 28: 0.0051, 29: 0.0042, 30: 0.0051, 31: 0.0039, 32: 0.0050, 33: 0.0018, 34: 0.0026, 35: 0.0031, 36: 0.0024, 37: 0.0017, 38: 0.0022, 39: 0.0013, 40: 0.0020, 41: 0.0013, 42: 0.0007, 43: 0.0013, 44: 0.0013, 45: 0.0009, 46: 0.0011, 47: 0.0004, 48: 0.0004, 49: 0.0011, 50: 0.0004, 51: 0.0004, 52: 0.0002, 53: 0.0004, 54: 0.0007, 55: 0.0004, 56: 0.0004, 57: 0.0004, 58: 0.0002, 59: 0.0004, 60: 0.0002, 62: 0.0002, 63: 0.0002, 64: 0.0002, 69: 0.0004, 77: 0.0002, 80: 0.0002, 103: 0.0002},
 }
 
 
@@ -282,7 +336,32 @@ def shadow_delta_after_result_signal(df_hist: pd.DataFrame, state: dict, sigma: 
     return Signal("shadow_delta_after_result", _kde_density(implied, sigma), float(len(deltas)))
 
 
-def cooldown_signal(df_hist: pd.DataFrame, radius: float) -> Signal | None:
+def _shrunk_return_prob(
+    resolved: pd.DataFrame, k: int, category: str,
+    league_rates: dict[str, dict[int, float]], shrinkage_n: float,
+) -> float:
+    """Blends a pitcher's own empirical P(this category's cooldown resolves
+    in exactly k pitches) - built from just their own resolved sample,
+    however thin - toward the league-wide rate for that category/k
+    (COOLDOWN_LEAGUE_RATES/DELTA_COOLDOWN_LEAGUE_RATES), weighted by how much
+    of the pitcher's own data backs their own estimate. Same shrinkage SHAPE
+    combine_signals already uses for a whole signal's n_eff (alpha = n/(n+
+    const)), just applied one level deeper - on the hazard-rate estimate a
+    bump's amplitude comes from, not on the signal's overall density. Falls
+    back to the pitcher's own rate unshrunk if the league table has no entry
+    for this exact k (past its longest observed cooldown - rare given each
+    category's pooled n is in the thousands, see the table's own comment)."""
+    n_eff_cat = len(resolved)
+    p_pitcher = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+    p_league = league_rates.get(category, {}).get(k)
+    if p_league is None:
+        return p_pitcher
+    alpha = n_eff_cat / (n_eff_cat + shrinkage_n)
+    return alpha * p_pitcher + (1 - alpha) * p_league
+
+
+def cooldown_signal(df_hist: pd.DataFrame, radius: float,
+                     league_rates: dict[str, dict[int, float]], shrinkage_n: float) -> Signal | None:
     """Every CURRENTLY OPEN cooldown trigger contributes its own hypothesis
     for where this pitch could land - an XBH 3 pitches ago AND a K+ 11
     pitches ago can both still be "due" at once, independently, not just
@@ -299,6 +378,13 @@ def cooldown_signal(df_hist: pd.DataFrame, radius: float) -> Signal | None:
     an ADDITIVE mixture across open triggers specifically (not another
     multiplicative pool): multiple open cooldowns are "any of these could be
     the one that closes," not "all of these must agree."
+
+    p_return_now itself is shrunk toward league_rates (_shrunk_return_prob)
+    before it's used - a pitcher with only a handful of resolved cooldowns in
+    this trigger's category would otherwise get an amplitude built from a
+    tiny, noisy sample with no protection at all (n_eff below only gates how
+    much the WHOLE signal counts afterward, in combine_signals - this is a
+    separate, earlier shrinkage point on the rate itself).
 
     n_eff is the MINIMUM n_eff across the triggers' categories (deduped, so
     two open triggers sharing a category don't double-count that category's
@@ -326,7 +412,7 @@ def cooldown_signal(df_hist: pd.DataFrame, radius: float) -> Signal | None:
         if n_eff_cat == 0:
             continue
         k = int(trig["pitches"]) + 1
-        p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat
+        p_return_now = _shrunk_return_prob(resolved, k, trig["category"], league_rates, shrinkage_n)
         bump = _kde_density(np.array([trig["trigger_pitch"]]), sigma=radius / 2)
         densities.append(p_return_now * bump + (1 - p_return_now) * uniform)
         n_effs.append(n_eff_cat)
@@ -338,7 +424,8 @@ def cooldown_signal(df_hist: pd.DataFrame, radius: float) -> Signal | None:
     return Signal("cooldown", density, float(min(n_effs)))
 
 
-def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float) -> Signal | None:
+def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float,
+                           league_rates: dict[str, dict[int, float]], shrinkage_n: float) -> Signal | None:
     """The delta-domain mirror of cooldown_signal: triggers and "due-ness"
     are measured on pitch-to-pitch DELTAS (pitch_circ_delta - the move into
     a pitch, not the pitch's own absolute value) instead of absolute pitch
@@ -353,8 +440,11 @@ def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float) -> 
     projecting onto today's actual most recent pitch (state["prev_pitch"]) as
     anchor before it can contribute a bump to the pitch-value density -
     unlike cooldown_signal, where the trigger's own value already IS a pitch
-    value. Same p_return_now/n_eff/additive-mixture logic as cooldown_signal
-    otherwise - see its docstring."""
+    value. Same p_return_now/n_eff/additive-mixture/league-rate-shrinkage
+    logic as cooldown_signal otherwise (DELTA_COOLDOWN_LEAGUE_RATES rather
+    than COOLDOWN_LEAGUE_RATES - a pitch-domain and delta-domain cooldown
+    resolve at different rates, so they get separate shrinkage targets) -
+    see its docstring."""
     events = utils.cooldown_events(df_hist, value_col="pitch_circ_delta", radius=radius)
     if events.empty:
         return None
@@ -377,7 +467,7 @@ def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float) -> 
         if n_eff_cat == 0:
             continue
         k = int(trig["pitches"]) + 1
-        p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat
+        p_return_now = _shrunk_return_prob(resolved, k, trig["category"], league_rates, shrinkage_n)
         implied = ((state["prev_pitch"] + int(trig["trigger_pitch"]) - 1) % 1000) + 1
         bump = _kde_density(np.array([implied]), sigma=radius / 2)
         densities.append(p_return_now * bump + (1 - p_return_now) * uniform)
@@ -419,12 +509,14 @@ def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, width: float
 SIGNAL_BUILDERS = {
     "pitch_sequence": lambda df_hist, state, cfg: pitch_sequence_signal(df_hist, state, cfg.pitch_width, cfg.sigma),
     "delta_sequence": lambda df_hist, state, cfg: delta_sequence_signal(df_hist, state, cfg.pitch_width, cfg.sigma),
-    "cooldown": lambda df_hist, state, cfg: cooldown_signal(df_hist, cfg.cooldown_radius),
+    "cooldown": lambda df_hist, state, cfg: cooldown_signal(
+        df_hist, cfg.cooldown_radius, cfg.cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
     "delta_after_result": lambda df_hist, state, cfg: delta_after_result_signal(df_hist, state, cfg.sigma),
     "delta_after_leverage": lambda df_hist, state, cfg: delta_after_leverage_signal(
         df_hist, state, cfg.leverage_width, cfg.sigma),
     "shadow_delta_after_result": lambda df_hist, state, cfg: shadow_delta_after_result_signal(df_hist, state, cfg.sigma),
-    "delta_cooldown": lambda df_hist, state, cfg: delta_cooldown_signal(df_hist, state, cfg.delta_cooldown_radius),
+    "delta_cooldown": lambda df_hist, state, cfg: delta_cooldown_signal(
+        df_hist, state, cfg.delta_cooldown_radius, cfg.delta_cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
 }
 
 
@@ -454,7 +546,9 @@ def combine_signals(baseline: np.ndarray, signals: list[Signal], min_effective_n
 
 class Config:
     def __init__(self, sigma, min_effective_n, pitch_width, cooldown_radius, leverage_width=1.0,
-                 delta_cooldown_radius=50.0, weights=None):
+                 delta_cooldown_radius=50.0, weights=None,
+                 cooldown_rate_shrinkage_n=20.0, cooldown_league_rates=None,
+                 delta_cooldown_league_rates=None):
         self.sigma = sigma
         self.min_effective_n = min_effective_n
         self.pitch_width = pitch_width
@@ -462,6 +556,20 @@ class Config:
         self.leverage_width = leverage_width
         self.delta_cooldown_radius = delta_cooldown_radius
         self.weights = weights
+        # Separate from min_effective_n deliberately - that shrinks a whole
+        # SIGNAL's density toward this pitcher's own baseline once it's
+        # built; this shrinks the per-category p_return_now rate INSIDE
+        # cooldown_signal/delta_cooldown_signal, toward the league-wide rate
+        # for that category, before any bump is even built. Two different
+        # noise sources (how much data backs the whole signal vs. how much
+        # data backs this one category's hazard estimate), two different
+        # shrinkage points - see cooldown_signal's docstring.
+        self.cooldown_rate_shrinkage_n = cooldown_rate_shrinkage_n
+        self.cooldown_league_rates = (
+            cooldown_league_rates if cooldown_league_rates is not None else COOLDOWN_LEAGUE_RATES)
+        self.delta_cooldown_league_rates = (
+            delta_cooldown_league_rates if delta_cooldown_league_rates is not None
+            else DELTA_COOLDOWN_LEAGUE_RATES)
 
 
 def _prepare_step(df_hist: pd.DataFrame, builders: list, cfg: Config, target_row: pd.Series | None = None):
@@ -751,11 +859,15 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
             resolved = _resolved_for(trig["category"])
             n_eff_cat = len(resolved)
             k = int(trig["pitches"]) + 1
-            p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+            p_raw = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+            p_return_now = _shrunk_return_prob(resolved, k, trig["category"], cfg.cooldown_league_rates,
+                                               cfg.cooldown_rate_shrinkage_n)
             triggers.append({
                 "result": trig["result"], "category": trig["category"], "trigger_pitch": int(trig["trigger_pitch"]),
                 "pitches_since": int(trig["pitches"]), "k": k, "n_eff": n_eff_cat,
-                "p_return_now": p_return_now, "resolved_pitches": resolved["pitches"].astype(int).tolist(),
+                "p_return_now": p_return_now, "p_return_now_raw": p_raw,
+                "p_return_now_league": cfg.cooldown_league_rates.get(trig["category"], {}).get(k),
+                "resolved_pitches": resolved["pitches"].astype(int).tolist(),
             })
         derivation["cooldown"] = triggers
 
@@ -772,13 +884,17 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
             resolved = _resolved_for_d(trig["category"])
             n_eff_cat = len(resolved)
             k = int(trig["pitches"]) + 1
-            p_return_now = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+            p_raw = float((resolved["pitches"] == k).sum()) / n_eff_cat if n_eff_cat else 0.0
+            p_return_now = _shrunk_return_prob(resolved, k, trig["category"], cfg.delta_cooldown_league_rates,
+                                               cfg.cooldown_rate_shrinkage_n)
             implied = ((state["prev_pitch"] + int(trig["trigger_pitch"]) - 1) % 1000) + 1
             triggers_d.append({
                 "result": trig["result"], "category": trig["category"],
                 "trigger_delta": int(trig["trigger_pitch"]), "implied_pitch": implied,
                 "pitches_since": int(trig["pitches"]), "k": k, "n_eff": n_eff_cat,
-                "p_return_now": p_return_now, "resolved_pitches": resolved["pitches"].astype(int).tolist(),
+                "p_return_now": p_return_now, "p_return_now_raw": p_raw,
+                "p_return_now_league": cfg.delta_cooldown_league_rates.get(trig["category"], {}).get(k),
+                "resolved_pitches": resolved["pitches"].astype(int).tolist(),
             })
         derivation["delta_cooldown"] = triggers_d
 
@@ -893,7 +1009,7 @@ def _pick_deepest_pitcher() -> tuple[str | None, int]:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pitcher", default=None, help="Pitcher name (default: scan for deepest history)")
-    ap.add_argument("--min-history", type=int, default=30,
+    ap.add_argument("--min-history", type=int, default=100,
                      help="Skip the first N pitches of a pitcher's career - not enough context yet")
     ap.add_argument("--sigma", type=float, default=75.0, help="KDE kernel width, in wheel units")
     ap.add_argument("--min-effective-n", type=float, default=20.0,

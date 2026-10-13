@@ -20,7 +20,7 @@ if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 from pitch_likelihood_backtest import (
     Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, build_explain_export,
-    recent_pitch_densities,
+    recent_pitch_densities, COOLDOWN_LEAGUE_RATES, DELTA_COOLDOWN_LEAGUE_RATES,
 )
 
 _dark_mode = st.context.theme.type == "dark"
@@ -2552,7 +2552,8 @@ with tab_p:
                 with _cd_cols_p[_cd_i % _cd_n_cols_p]:
                     if not _cd_resolved_p.empty or not _cd_live_p.empty:
                         st.plotly_chart(
-                            utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
+                            utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p,
+                                                     league_pmf=COOLDOWN_LEAGUE_RATES.get(_cd_cat)),
                             width="stretch", config={"displayModeBar": False},
                             key=f"p_cooldown_{_cd_cat}",
                         )
@@ -2601,8 +2602,8 @@ with tab_p:
                 with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
                     if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
                         st.plotly_chart(
-                            utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat,
-                                                      live=_dcd_live_p, signed=True),
+                            utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat, live=_dcd_live_p,
+                                                     signed=True, league_pmf=DELTA_COOLDOWN_LEAGUE_RATES.get(_dcd_cat)),
                             width="stretch", config={"displayModeBar": False},
                             key=f"p_delta_cooldown_{_dcd_cat}",
                         )

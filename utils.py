@@ -2935,6 +2935,7 @@ def cooldown_cdf_chart(
     title: str = "Cooldown",
     live: pd.DataFrame | None = None,
     signed: bool = False,
+    league_pmf: dict[int, float] | None = None,
 ) -> go.Figure:
     """Cumulative-distribution line of resolved pitches-until-return counts
     (>=1) from cooldown_events (pass the rows where resolved=True): the
@@ -2964,6 +2965,15 @@ def cooldown_cdf_chart(
     out, and without this the typical/helpful range would get flattened into
     a sliver on the left. Gridline spacing scales with that window (every 5
     pitches for a short window, coarser for a long one) instead of a fixed 5.
+
+    league_pmf (optional): this category's league-wide P(resolves in exactly
+    k pitches) - tools/pitch_likelihood_calibrate.py fit-cooldown-table, the
+    same table cooldown_signal/delta_cooldown_signal shrink a pitcher's own
+    thin per-category rate toward (see pitch_likelihood_backtest.py). Drawn
+    as a second, muted dashed line - its own cumulative %, over this same
+    pitcher's x-axis window - so this pitcher's actual curve reads directly
+    against "what's typical league-wide," not just against itself. None (the
+    default) omits it entirely, same shape as before.
     """
     vals = return_pitches.dropna().astype(int)
     if vals.empty and (live is None or live.empty):
@@ -2989,8 +2999,20 @@ def cooldown_cdf_chart(
         x=x_vals, y=y_vals, mode="lines+markers",
         line=dict(color="#4C78A8", width=2),
         marker=dict(size=5, color="#4C78A8"),
-        hovertext=hover, hoverinfo="text", name="",
+        hovertext=hover, hoverinfo="text", name="This pitcher", showlegend=bool(league_pmf),
     ))
+
+    if league_pmf:
+        league_cum, league_y = 0.0, []
+        for x in x_vals:
+            league_cum += league_pmf.get(x, 0.0) * 100.0
+            league_y.append(league_cum)
+        league_hover = [f"League by {x}: {y:.0f}% returned" for x, y in zip(x_vals, league_y)]
+        fig.add_trace(go.Scatter(
+            x=x_vals, y=league_y, mode="lines",
+            line=dict(color="rgba(170,170,170,0.9)", width=1.5, dash="dash"),
+            hovertext=league_hover, hoverinfo="text", name="League",
+        ))
 
     title_text = f"{title} (n={total}"
     if total:
@@ -3055,7 +3077,9 @@ def cooldown_cdf_chart(
         ),
         yaxis=dict(title="% Returned", range=[0, 106], ticksuffix="%"),
         height=340,
-        showlegend=False,
+        showlegend=bool(league_pmf),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+                    font=dict(size=10)) if league_pmf else None,
         margin=dict(l=45, r=10, t=52, b=105),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
@@ -3603,7 +3627,8 @@ def last_n_combined_chart(
 
     model_swing_overlay (optional): {pitch id: combined-model best swing},
     e.g. from the Suggested-Swing Backtest's own per-pitch "Model (FFT-
-    optimal)" results - plots those as a marker overlay on the pitch/swing
+    optimal)" results - plots those as a line+marker overlay (with value
+    labels, same convention as the Pitch/Swing lines) on the pitch/swing
     row, at whichever of this chart's own x positions each id lands on, so
     the model's actual historical call sits directly next to the real pitch
     it was graded against. None/empty (the default) draws nothing - the
@@ -3809,9 +3834,11 @@ def last_n_combined_chart(
                 model_hover.append(f"{pa_label} {x_all[i]}: model best swing {_model_ids[_pid]}")
         if model_x:
             fig.add_trace(go.Scatter(
-                x=model_x, y=model_y, mode="markers", name="Model Swing",
+                x=model_x, y=model_y, mode="lines+markers+text", name="Model Swing",
                 legendgroup="model_swing",
-                marker=dict(symbol="diamond-open", size=9, color="#2ca25f", line=dict(width=2)),
+                text=[str(v) for v in model_y], textposition="middle right", textfont=dict(size=10),
+                line=dict(color="#2ca25f", width=2),
+                marker=dict(symbol="diamond", size=6, color="#2ca25f"),
                 hovertext=model_hover, hoverinfo="text",
             ), row=1, col=1)
 
