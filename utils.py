@@ -3349,7 +3349,7 @@ def cooldown_radial_chart(
     if tickvals is None or ticktext is None:
         tickvals, ticktext = _pitch_value_ticks()
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
         polar=dict(
             hole=hole,
             angularaxis=dict(
@@ -3365,7 +3365,7 @@ def cooldown_radial_chart(
         ),
         height=380,
         showlegend=False,
-        margin=dict(l=30, r=30, t=36, b=10),
+        margin=dict(l=30, r=30, t=48, b=10),
         dragmode=False,
         modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
                         "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
@@ -4029,6 +4029,96 @@ def _ring_arc_theta(lo_deg: float, hi_deg: float) -> list[float]:
     return [(lo_deg + span * i / (steps - 1)) % 360 for i in range(steps)]
 
 
+def _polar_to_xy(r: float, theta_deg: float) -> tuple[float, float]:
+    """This tab's polar convention (direction="clockwise", rotation=90, i.e.
+    theta=0 at 12 o'clock, increasing clockwise) to plain Cartesian, so a
+    shape built in real x/y space - a true circle, not a direction/scale-
+    dependent distortion of one - can be converted back with _xy_to_polar
+    for a Scatterpolar trace. See _pill_cap_trace."""
+    std_rad = math.radians(90.0 - theta_deg)
+    return r * math.cos(std_rad), r * math.sin(std_rad)
+
+
+def _xy_to_polar(x: float, y: float) -> tuple[float, float]:
+    """Inverse of _polar_to_xy."""
+    r = math.hypot(x, y)
+    std_deg = math.degrees(math.atan2(y, x))
+    return r, (90.0 - std_deg) % 360.0
+
+
+def _pill_cap_trace(
+    center_r: float, center_theta_deg: float, radius: float, away_sign: float, n_pts: int = 14,
+) -> tuple[list[float], list[float]]:
+    """A filled half-disk (r, theta) outline - the rounded end of a capsule/
+    pill shape that would run along the rim band, were the whole thing
+    drawn: centered at (center_r, center_theta_deg), the flat (diameter)
+    side cut exactly at center_theta_deg, bulging in the away_sign (+1
+    clockwise / -1 counterclockwise) theta direction - i.e. away from the
+    OBR/SacF span this boundary bounds, same as a capsule's own end-cap
+    bulges away from its body. Built in actual Cartesian space (_polar_to_xy/
+    _xy_to_polar) so it reads as a true circle rather than a distorted
+    ellipse, which a half-disk built directly in r/theta space would be
+    (a fixed degree offset is a different real distance at every radius).
+    Pass to a Scatterpolar(fill="toself") trace; a center_theta_deg on an
+    OBR boundary with radius = the rim band's own half-thickness gives caps
+    sized to exactly match the band, like the rounded ends of a pill whose
+    body is the band's own width.
+    """
+    cx, cy = _polar_to_xy(center_r, center_theta_deg)
+    eps = 0.01
+    tx, ty = _polar_to_xy(center_r, center_theta_deg + away_sign * eps)
+    dx, dy = tx - cx, ty - cy
+    norm = math.hypot(dx, dy) or 1.0
+    dx, dy = dx / norm, dy / norm  # unit tangent, pointing "away" from the span
+    px, py = -dy, dx  # perpendicular (the cap's flat diameter direction)
+    pts_r, pts_theta = [], []
+    for i in range(n_pts + 1):
+        ang = math.pi * i / n_pts  # sweeps a half-circle, +perp -> bulge -> -perp
+        ox = cx + radius * (math.sin(ang) * dx + math.cos(ang) * px)
+        oy = cy + radius * (math.sin(ang) * dy + math.cos(ang) * py)
+        r, th = _xy_to_polar(ox, oy)
+        pts_r.append(r)
+        pts_theta.append(th)
+    return pts_r, pts_theta
+
+
+def _pill_outline_trace(
+    r_inner: float, r_outer: float, lo_deg: float, hi_deg: float, n_cap_pts: int = 14,
+) -> tuple[list[float], list[float]]:
+    """The full capsule/pill-shaped outline (r, theta), a closed loop, of the
+    whole [lo_deg, hi_deg] arc span from r_inner to r_outer: a rounded cap
+    at lo_deg (_pill_cap_trace, bulging away from the span), the outer edge
+    arc from lo_deg to hi_deg, a rounded cap at hi_deg, and the inner edge
+    arc back from hi_deg to lo_deg. Meant for a plain Scatterpolar(mode=
+    "lines") border (no fill) tracing exactly what a solid pill-shaped OBR/
+    SacF band would outline, around the span rather than filling or marking
+    only its two ends - the whole included region reads as "inside this
+    border" at a glance, not just its boundary points.
+
+    lo_deg == hi_deg (mod 360) - OBR/SacF covers the entire wheel - has no
+    start/end to round off, so this degrades to the two bare edge circles.
+    """
+    span = (hi_deg - lo_deg) % 360
+    if span < 1e-6:
+        outer_arc = _ring_arc_theta(0.0, 0.0)
+        inner_arc = list(reversed(outer_arc))
+        return [r_outer] * len(outer_arc) + [r_inner] * len(inner_arc), outer_arc + inner_arc
+
+    r_mid = (r_inner + r_outer) / 2.0
+    cap_radius = (r_outer - r_inner) / 2.0
+    lo_r, lo_theta = _pill_cap_trace(r_mid, lo_deg, cap_radius, -1.0, n_cap_pts)
+    hi_r, hi_theta = _pill_cap_trace(r_mid, hi_deg, cap_radius, 1.0, n_cap_pts)
+    outer_arc_theta = _ring_arc_theta(lo_deg, hi_deg)
+    inner_arc_theta = list(reversed(outer_arc_theta))
+
+    r_list = list(lo_r) + [r_outer] * (len(outer_arc_theta) - 1) + list(hi_r[1:]) \
+        + [r_inner] * (len(inner_arc_theta) - 1)
+    theta_list = list(lo_theta) + outer_arc_theta[1:] + list(hi_theta[1:]) + inner_arc_theta[1:]
+    r_list.append(r_list[0])
+    theta_list.append(theta_list[0])
+    return r_list, theta_list
+
+
 def _range_ring_traces(rings: list[tuple[float, float, str, float]],
                         n_actual: float) -> tuple[list[go.Scatterpolar], float]:
     """rings: (lo_deg, hi_deg, color, width) per ring, primary (OBR) listed
@@ -4076,6 +4166,119 @@ def _range_ring_traces(rings: list[tuple[float, float, str, float]],
     return traces, r_max
 
 
+def _expected_score_band_trace(
+    scores: "numpy.ndarray | list",
+    r_outer: float,
+    thickness: float,
+    domain: str = "pitch",
+    anchor: int | None = None,
+    anchor_delta: int | None = None,
+    n_segments: int = 100,
+) -> "go.Barpolar | None":
+    """Thin ring of n_segments wedges encoding utils.expected_swing_scores
+    (pitch-value domain, index v-1 = value v) at the pitch value each wedge's
+    angle implies on THIS chart's own domain - blue = low score, white = this
+    curve's own midpoint, red = high score (_freq_bwr_color, scoped to this
+    curve's own min/max, same "this trace only" convention as
+    _slice_background_trace). Meant to sit just outside any OBR/SacF rings,
+    at the very rim.
+
+    Re-expressing a pitch value as a delta/delta² is a pure rotation of the
+    1-1000 circle (circular_signed_delta is just v-anchor wrapped, and the
+    same scale - 360/1000 degrees per unit - applies at every domain depth),
+    so the whole band is built once in pitch-value order and then rotated by
+    a constant offset - no per-wedge reprojection needed. domain: "pitch"
+    (identity - also what the delta/delta2 radials' own center_on_prev=True
+    mode is already in), "delta" (offset by -anchor), "delta2" (offset by
+    -(anchor+anchor_delta)). Returns None if the anchor(s) that domain needs
+    are missing - callers already treat a None trace as "skip the band."
+    """
+    scores = np.asarray(scores, dtype=float)
+    if domain == "pitch":
+        offset = 0.0
+    elif domain == "delta":
+        if anchor is None:
+            return None
+        offset = (-anchor * 360.0 / 1000.0) % 360.0
+    elif domain == "delta2":
+        if anchor is None or anchor_delta is None:
+            return None
+        offset = (-(anchor + anchor_delta) * 360.0 / 1000.0) % 360.0
+    else:
+        raise ValueError(f"unknown domain: {domain!r}")
+
+    seg_width = 1000.0 / n_segments
+    lo_c, hi_c = float(np.min(scores)), float(np.max(scores))
+    thetas, colors = [], []
+    for i in range(n_segments):
+        v_lo, v_hi = i * seg_width, (i + 1) * seg_width
+        lo_idx, hi_idx = int(v_lo), min(1000, max(int(v_lo) + 1, int(np.ceil(v_hi))))
+        seg_score = float(np.mean(scores[lo_idx:hi_idx]))
+        center_v = v_lo + seg_width / 2.0
+        thetas.append((center_v * 360.0 / 1000.0 + offset) % 360.0)
+        colors.append(_freq_bwr_color(seg_score, lo_c, hi_c))
+
+    return go.Barpolar(
+        r=[thickness] * n_segments, theta=thetas, width=[360.0 / n_segments * 1.05] * n_segments,
+        base=r_outer, marker=dict(color=colors, line=dict(width=0)),
+        hoverinfo="skip", showlegend=False,
+    )
+
+
+def _rim_layer(
+    range_rings: list[tuple[float, float, str, float]] | None,
+    score_band: dict | None,
+    n_actual: float,
+) -> tuple[list["go.BaseTraceType"], float]:
+    """Builds whatever sits outside the data, at the chart's own rim.
+
+    No score band (the common case - no matchup/result_ranges loaded to
+    score against yet): falls straight through to _range_ring_traces' own
+    OBR/SacF ring(s), unchanged.
+
+    A score band: it becomes the single outermost ring instead (placed right
+    after the data, at the same spot _range_ring_traces' first ring used to
+    sit), and OBR/SacF - rather than their own separate ring(s) further out -
+    are instead drawn directly on top of it as a thin pill/capsule-shaped
+    border (_pill_outline_trace) exactly the band's own thickness, wrapping
+    the whole OBR/SacF span rather than just marking its two edges - the
+    band's own color still shows through inside the border, but the entire
+    included region reads as "inside this outline" at a glance, not just its
+    boundary points. Falls back to a plain ring if the band itself can't be
+    built (an anchor this domain needs is missing - see
+    _expected_score_band_trace).
+    """
+    if not score_band or score_band.get("scores") is None:
+        return _range_ring_traces(range_rings, n_actual)
+
+    gap = max(n_actual * 0.08, 1.0)
+    thickness = max(n_actual * 0.1, 1.2)
+    r_outer = n_actual + gap
+    band_trace = _expected_score_band_trace(
+        score_band["scores"], r_outer=r_outer, thickness=thickness,
+        domain=score_band.get("domain", "pitch"),
+        anchor=score_band.get("anchor"), anchor_delta=score_band.get("anchor_delta"),
+    )
+    if band_trace is None:
+        return _range_ring_traces(range_rings, n_actual)
+
+    r_band_outer = r_outer + thickness
+    traces: list = [band_trace]
+    for lo_deg, hi_deg, color, _width in (range_rings or []):
+        pts_r, pts_theta = _pill_outline_trace(r_outer, r_band_outer, lo_deg, hi_deg)
+        traces.append(go.Scatterpolar(
+            r=pts_r, theta=pts_theta, mode="lines",
+            line=dict(color="rgba(0,0,0,0.5)", width=3.5),
+            hoverinfo="skip", showlegend=False,
+        ))
+        traces.append(go.Scatterpolar(
+            r=pts_r, theta=pts_theta, mode="lines",
+            line=dict(color=color, width=1.6),
+            hoverinfo="skip", showlegend=False,
+        ))
+    return traces, r_band_outer
+
+
 def _radial_recency_figure(
     theta: list[float],
     hover: list[str],
@@ -4083,6 +4286,7 @@ def _radial_recency_figure(
     tickvals: list[float],
     ticktext: list[str],
     range_rings: list[tuple[float, float, str, float]] | None = None,
+    score_band: dict | None = None,
 ) -> go.Figure:
     """Shared doughnut-style polar scatter: recency sets both radius and color
     (oldest at the center, newest at the rim, blue-white-red diverging scale).
@@ -4097,16 +4301,20 @@ def _radial_recency_figure(
     their own domain's OBR/SacF values into degrees first (_value_range_deg /
     _value_range_to_delta_deg / _value_range_to_delta2_deg), since this
     function doesn't know which domain theta is already in.
+
+    score_band: see _rim_layer/_expected_score_band_trace - when given, it
+    becomes the outermost rim ring itself, with range_rings (OBR/SacF) drawn
+    as tick marks on it rather than their own separate ring further out.
     """
     n_actual = len(theta)
     if n_actual == 0:
         return go.Figure()
     r = list(range(1, n_actual + 1))
-    ring_traces, r_max = _range_ring_traces(range_rings, n_actual)
+    rim_traces, r_max = _rim_layer(range_rings, score_band, n_actual)
 
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta, r_max))
-    for rt in ring_traces:
+    for rt in rim_traces:
         fig.add_trace(rt)
     fig.add_trace(go.Scatterpolar(
         r=r, theta=theta, mode="markers",
@@ -4687,6 +4895,7 @@ def radial_recent_pitches_chart(
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
+    score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
     """Value sets angle (1-1000, clockwise from 12 o'clock, matching zone_polar's
     convention); recency sets radius and color. See _radial_recency_figure.
@@ -4696,6 +4905,11 @@ def radial_recent_pitches_chart(
     Proposed Swing is still at its untouched 500 default. sacf_lo/sacf_hi
     adds the wider Sac Fly range as a second, lighter ring just outside it;
     ignored unless obr_lo/obr_hi are also given. See _build_range_rings.
+
+    score_band_scores (optional): utils.expected_swing_scores' full length-
+    1000 curve (pitch-value domain) - drawn as a thin rim band outside any
+    OBR/SacF ring, see _expected_score_band_trace. This chart's own angle IS
+    the pitch-value domain already, so the band needs no anchor.
     """
     vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
@@ -4706,9 +4920,10 @@ def radial_recent_pitches_chart(
         for i, v in enumerate(vals)
     ]
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
+    score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
 
     tickvals, ticktext = _pitch_value_ticks()
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
 
 
 def _implied_pitch_points(
@@ -4803,6 +5018,7 @@ def radial_recent_delta2_chart(
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
+    score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
     """Signed delta² (-500..+500) sets angle, same convention as
     radial_recent_deltas_chart: 0 at 12 o'clock, positive Δ² (the delta is
@@ -4825,12 +5041,19 @@ def radial_recent_delta2_chart(
     otherwise Δ²-from-anchor_delta via _value_range_to_delta2_deg, using the
     same resolved anchor/anchor_delta as the plotted points themselves so the
     ring and the dots agree on what "most recent" means.
+
+    score_band_scores (optional): same Expected Swing Score rim band as
+    radial_recent_pitches_chart - "delta2" domain (offset by anchor+
+    anchor_delta) when center_on_prev is False, "pitch" domain (identity,
+    like that chart) when True - same resolved anchor/anchor_delta as the
+    ring translation above, so they all agree on what "most recent" means.
     """
     if center_on_prev:
         theta, hover = _implied_pitch_points_delta2(
             df, n, delta2_col, delta_col, value_col, anchor=anchor, anchor_delta=anchor_delta)
         tickvals, ticktext = _pitch_value_ticks()
         translate = _value_range_deg
+        score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
     else:
         vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
@@ -4848,9 +5071,13 @@ def radial_recent_delta2_chart(
             translate = lambda lo, hi: _value_range_to_delta2_deg(lo, hi, _r_anchor, _r_anchor_delta)
         else:
             translate = None
+        score_band = (
+            {"scores": score_band_scores, "domain": "delta2", "anchor": _r_anchor, "anchor_delta": _r_anchor_delta}
+            if score_band_scores is not None else None
+        )
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
 
 
 def radial_recent_deltas_chart(
@@ -4865,6 +5092,7 @@ def radial_recent_deltas_chart(
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
+    score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
     """Signed delta (-500..+500) sets angle: 0 at 12 o'clock, positive deltas sweep
     clockwise, negative deltas sweep counterclockwise, both meeting at +/-500 on the
@@ -4883,11 +5111,19 @@ def radial_recent_deltas_chart(
     domain - the absolute-value grid when center_on_prev, otherwise
     delta-from-anchor via _value_range_to_delta_deg, using the same resolved
     anchor the plotted points themselves use.
+
+    score_band_scores (optional): same Expected Swing Score rim band as
+    radial_recent_pitches_chart - "delta" domain (offset by anchor) when
+    center_on_prev is False, "pitch" domain (identity, like that chart) when
+    True - same resolved anchor as the ring translation above. value_col need
+    not be "pitch" (the shadow-delta radial anchors on the batter's last
+    swing instead) - any value already on the shared 1-1000 wheel works.
     """
     if center_on_prev:
         theta, hover = _implied_pitch_points(df, n, delta_col, value_col, anchor=anchor)
         tickvals, ticktext = _pitch_value_ticks()
         translate = _value_range_deg
+        score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
     else:
         vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
@@ -4901,9 +5137,13 @@ def radial_recent_deltas_chart(
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
         _r_anchor = _resolve_anchor(df, value_col, anchor)
         translate = (lambda lo, hi: _value_range_to_delta_deg(lo, hi, _r_anchor)) if _r_anchor is not None else None
+        score_band = (
+            {"scores": score_band_scores, "domain": "delta", "anchor": _r_anchor}
+            if score_band_scores is not None else None
+        )
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
 
 
 def radial_combined_chart(
@@ -4922,6 +5162,7 @@ def radial_combined_chart(
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
+    score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
     """Overlays radial_recent_pitches_chart's actual-pitch points (from
     df_pitches) with the implied-next-pitch points radial_recent_deltas_chart
@@ -4952,6 +5193,10 @@ def radial_combined_chart(
     obr_lo/obr_hi/sacf_lo/sacf_hi (optional, pitch-value domain): this chart
     is always on the absolute-value grid (see above), so no domain
     translation is needed - straight to _value_range_deg.
+
+    score_band_scores (optional): same Expected Swing Score rim band as
+    radial_recent_pitches_chart - always "pitch" domain here, for the same
+    reason the OBR/SacF rings need no translation above.
     """
     pitch_rows = df_pitches[df_pitches[value_col].notna()].sort_values("id").tail(n)
     delta_rows = df_deltas[df_deltas[delta_col].notna()].sort_values("id").tail(n)
@@ -5013,7 +5258,8 @@ def radial_combined_chart(
             )
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
-    ring_traces, r_max = _range_ring_traces(range_rings, n_total)
+    score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
+    rim_traces, r_max = _rim_layer(range_rings, score_band, n_total)
     marker_base = dict(
         size=6.7,
         colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
@@ -5022,7 +5268,7 @@ def radial_combined_chart(
 
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta_a + theta_b + theta_c, r_max))
-    for rt in ring_traces:
+    for rt in rim_traces:
         fig.add_trace(rt)
     if n_a:
         fig.add_trace(go.Scatterpolar(
@@ -5051,7 +5297,7 @@ def radial_combined_chart(
 
     tickvals, ticktext = _pitch_value_ticks()
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center"),
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
         polar=dict(
             hole=0.08,
             angularaxis=dict(

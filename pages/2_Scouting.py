@@ -1535,52 +1535,6 @@ with tab_p:
 
     df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
 
-    # ── recent PA window - shared by the percentile card and the Last N chart ──
-    if tab_p_pitcher != "All":
-        n_pitches = st.slider("Recent PA Window", 5, 100, 50, step=5, key="last_n_pitch")
-    else:
-        n_pitches = st.session_state.get("last_n_pitch", 50)
-
-    # ── percentile card ───────────────────────────────────────────────────────
-    if tab_p_pitcher != "All" and not df_p.empty:
-        _pitcher_stats_df = _load_pitcher_stats()
-        _ma_percentiles   = _load_ma_percentiles()
-        _recent_df    = df_p.sort_values("id").tail(n_pitches)
-        _recent_stats = utils.compute_recent_pitcher_stats(_recent_df)
-        _recent_n     = int(_recent_df["swing"].notna().sum())
-        _pct_fig = utils.pitcher_percentile_card(
-            tab_p_pitcher, _pitcher_stats_df,
-            recent_vals=_recent_stats if _recent_stats else None,
-            recent_n=_recent_n if _recent_stats else None,
-            player_id=_name_to_pid.get(tab_p_pitcher),
-            ma_percentiles=_ma_percentiles if _ma_percentiles else None,
-        )
-        with st.expander("Behavioral Tendencies", expanded=not _simple_mode):
-            if _pct_fig is not None:
-                st.plotly_chart(_pct_fig, width="stretch",
-                                config={"displayModeBar": False}, key="p_pct_card")
-            else:
-                st.caption("No career stats on file - run Refresh Pitcher Stats on the Games page.")
-
-        with st.expander("Tendencies Over Time", expanded=False):
-            @st.fragment
-            def _ma_section_p(df):
-                _metric = st.radio(
-                    "Metric",
-                    options=list(utils._MA_METRICS.keys()),
-                    format_func=lambda m: utils._MA_METRICS[m]["label"],
-                    horizontal=True,
-                    label_visibility="collapsed",
-                    key="ma_metric_p",
-                )
-                _fig = utils.pitcher_ma_figure(df, _metric)
-                if _fig is not None:
-                    st.plotly_chart(_fig, use_container_width=True,
-                                    config={"displayModeBar": False}, key="ma_chart_p")
-                else:
-                    st.caption("Not enough data.")
-            _ma_section_p(df_p)
-
     if df_p.empty:
         if tab_p_pitcher == "All":
             st.info("Select a pitcher in the filters above to load data.")
@@ -1594,6 +1548,298 @@ with tab_p:
         # down, which stays in scope past the `if result_ranges:` blocks below).
         _obr_extra_p = frozenset()
         _obr_lo_p = _obr_hi_p = _pred_swing_val_p = None
+
+        # Current leverage is prospective - the game state pulled from the
+        # Google Sheet for the upcoming plate appearance (outs/obc/score),
+        # not whatever the pitcher's most recent historical play happened
+        # to be.
+        _cf_gs_outs_p    = int(st.session_state.get("mgr_sheet_outs") or 0)
+        _cf_gs_obc_p     = st.session_state.get("mgr_sheet_obc") or "000"
+        _cf_gs_inn_p     = int(st.session_state.get("mgr_inning", 1))
+        _cf_gs_half_p    = str(st.session_state.get("mgr_half", "Top")).lower()
+        _cf_gs_away_p    = int(st.session_state.get("mgr_away_score", 0))
+        _cf_gs_home_p    = int(st.session_state.get("mgr_home_score", 0))
+
+        # ── combined pitch likelihood ────────────────────────────────────────────
+        st.divider()
+        with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
+            @st.fragment
+            def _pitch_likelihood_section_p(df_p, df_p_full, hist_id):
+                _pl_payload = None
+                if hist_id:
+                    _pl_payload = _pitch_likelihood_explain(
+                        df_p_full, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                    )
+                    if _pl_payload is None:
+                        st.caption("Not enough history before this pitch yet (need at least 2 prior pitches).")
+                        return
+                    _pl = {"state": _pl_payload["state"], "baseline": _pl_payload["baseline"],
+                           "signals": _pl_payload["signals"], "combined": _pl_payload["combined"]}
+                else:
+                    _pl = _pitch_likelihood_prediction(
+                        df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                        # Same prospective game state the Context Filters
+                        # section's own live Leverage caption already reads -
+                        # activates the leverage signal here too instead of
+                        # always sitting it out in live mode.
+                        live_inning=_cf_gs_inn_p, live_half=_cf_gs_half_p, live_outs=_cf_gs_outs_p,
+                        live_obc=_cf_gs_obc_p, live_away_score=_cf_gs_away_p, live_home_score=_cf_gs_home_p,
+                    )
+                    if _pl is None:
+                        st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
+                        return
+
+                _pl_state = _pl["state"]
+                st.caption(
+                    f"Most recent pitch: **{_pl_state['prev_pitch']}** &middot; "
+                    f"Most recent PA result: **{_pl_state['prev_result_cat'] or '(none yet)'}**"
+                    + (f" &middot; Leverage: **{_pl_state['target_leverage']:.2f}**"
+                       if _pl_state.get('target_leverage') is not None else "")
+                )
+                if _pl_payload is not None:
+                    _better = _pl_payload["logloss_combined"] < _pl_payload["logloss_baseline"]
+                    st.caption(
+                        f"Actual pitch thrown: **{_pl_payload['actual']}** &middot; "
+                        f"log-loss baseline **{_pl_payload['logloss_baseline']:.3f}** &rarr; "
+                        f"combined **{_pl_payload['logloss_combined']:.3f}** "
+                        f"({'better' if _better else 'worse'}) &middot; PIT **{_pl_payload['pit']:.3f}**"
+                    )
+                st.plotly_chart(
+                    utils.pitch_likelihood_density_chart(
+                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_density",
+                )
+                st.plotly_chart(
+                    utils.pitch_likelihood_radial_chart(
+                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_radial",
+                )
+
+                if result_ranges:
+                    st.markdown("**Expected Swing Score**")
+                    st.caption("Combines pitch likelihoods and batter's ranges to optimize for either OBP/SLG.")
+                    _pl_swing_metric = st.radio(
+                        "Metric", ["OBP", "SLG"], horizontal=True, key=f"p_pl_swing_metric_{tab_p_pitcher}",
+                    )
+                    _pl_swing_metric_key = "obp" if _pl_swing_metric == "OBP" else "slg"
+                    _pl_base_scores = utils.expected_swing_scores(
+                        _pl["baseline"], result_ranges, _pl_swing_metric_key)
+                    _pl_comb_scores = utils.expected_swing_scores(
+                        _pl["combined"], result_ranges, _pl_swing_metric_key)
+                    _pl_signal_scores = [
+                        {"name": s["name"],
+                         "scores": utils.expected_swing_scores(s["density"], result_ranges, _pl_swing_metric_key)}
+                        for s in _pl["signals"]
+                    ]
+                    st.plotly_chart(
+                        utils.expected_swing_score_radial_chart(
+                            _pl_base_scores, _pl_signal_scores, _pl_comb_scores, _pl_swing_metric,
+                            dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_pl_swing_radial",
+                    )
+
+                    # Every indication's own best swing in one place - the
+                    # chart above only stars baseline/combined (any more
+                    # stars and it's unreadable), so this table is where the
+                    # other 7 signals' own suggested swing actually shows.
+                    _swing_table_rows = [{
+                        "Indication": "Baseline", "Best swing": int(np.argmax(_pl_base_scores)) + 1,
+                        _pl_swing_metric: float(np.max(_pl_base_scores)),
+                    }]
+                    _pl_signal_scores_by_name = {s["name"]: s["scores"] for s in _pl_signal_scores}
+                    for _sig_name in utils._PL_SIGNAL_ORDER:
+                        _sig_scores = _pl_signal_scores_by_name.get(_sig_name)
+                        if _sig_scores is None:
+                            continue
+                        _swing_table_rows.append({
+                            "Indication": utils._PL_SIGNAL_LABELS[_sig_name],
+                            "Best swing": int(np.argmax(_sig_scores)) + 1,
+                            _pl_swing_metric: float(np.max(_sig_scores)),
+                        })
+                    _swing_table_rows.append({
+                        "Indication": "Model (combined)", "Best swing": int(np.argmax(_pl_comb_scores)) + 1,
+                        _pl_swing_metric: float(np.max(_pl_comb_scores)),
+                    })
+                    st.dataframe(
+                        pd.DataFrame(_swing_table_rows), hide_index=True, use_container_width=True,
+                        column_config={_pl_swing_metric: st.column_config.NumberColumn(format="%.3f")},
+                    )
+
+                _pl_default_pitch = (_pl_payload["actual"] if _pl_payload is not None
+                                      else int(np.argmax(_pl["combined"])) + 1)
+                _pl_inspect = st.number_input(
+                    "Inspect pitch value", min_value=1, max_value=1000,
+                    value=_pl_default_pitch, step=1, key=f"p_pl_inspect_{tab_p_pitcher}",
+                    help="Defaults to the actual pitch thrown when grading a historical pitch, "
+                         "otherwise the model's own top-predicted value.",
+                )
+                st.plotly_chart(
+                    utils.pitch_likelihood_breakdown_chart(
+                        _pl["baseline"], _pl["signals"], DEFAULT_WEIGHTS, 20.0,
+                        int(_pl_inspect), dark_mode=_dark_mode),
+                    width="stretch", config={"displayModeBar": False}, key="p_pl_breakdown",
+                )
+
+            _pitch_likelihood_section_p(df_p, df_p, hist_id)
+
+            st.divider()
+            st.markdown("**Suggested-Swing Backtest**")
+            if not result_ranges:
+                st.caption("Load a matchup (Fetch Live Matchup, or Historical / Manual) to get result "
+                           "ranges first - this needs them to score a swing.")
+            else:
+                @st.fragment
+                def _suggest_swing_backtest_section_p(df_p, result_ranges):
+                    _swbt_c1, _swbt_c2 = st.columns([2, 1])
+                    with _swbt_c1:
+                        _swbt_n = st.slider("Pitches to backtest", 5, 100,
+                                            min(30, st.session_state.get("last_n_pitch", 50)), step=5,
+                                            key=f"p_swbt_n_{tab_p_pitcher}",
+                                            help="Each one re-runs the full model against nearly its own "
+                                                 "full preceding history, so this is meaningfully heavier "
+                                                 "than the live view above - kept off auto-run below.")
+                    with _swbt_c2:
+                        _swbt_metric = st.radio("Metric", ["OBP", "SLG"], horizontal=True,
+                                                key=f"p_swbt_metric_{tab_p_pitcher}")
+                    _swbt_run_key = f"p_swbt_ran_{tab_p_pitcher}"
+                    if st.button("Run backtest", key=f"p_swbt_run_{tab_p_pitcher}"):
+                        st.session_state[_swbt_run_key] = True
+                    if not st.session_state.get(_swbt_run_key):
+                        return
+
+                    with st.spinner(f"Walking the last {_swbt_n} pitches..."):
+                        _swbt_pts = _recent_pitch_densities_cached(
+                            df_p, _swbt_n, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                            leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                        )
+                    if not _swbt_pts:
+                        st.caption("Not enough history yet for this window.")
+                        return
+
+                    _swbt_metric_key = "obp" if _swbt_metric == "OBP" else "slg"
+
+                    # Fixed display order/keys/labels, same set every run -
+                    # baseline and combined always have real data (every
+                    # backtest point carries a real target_row), individual
+                    # signals may not at every point (e.g. delta_sequence at
+                    # a game's first pitch) - those points get None rather
+                    # than dropping the whole row, so the grid/table/rolling
+                    # chart below all stay aligned on the same N columns.
+                    # "model_peak" isolates what the FFT/ranges-optimization
+                    # step is actually buying over the naive "just swing at
+                    # the model's own single most-likely pitch" strategy -
+                    # same combined density as "Model (FFT-optimal)", just
+                    # argmax'd directly instead of run through suggest_swing_
+                    # from_density, so it needs no result_ranges to CHOOSE
+                    # the swing (only to score the outcome, same as every
+                    # other row here).
+                    _swbt_keys = (["baseline"] + list(utils._PL_SIGNAL_ORDER)
+                                  + ["model_peak", "combined"])
+                    _swbt_labels = {"baseline": "Baseline", "model_peak": "Model (peak)",
+                                    "combined": "Model (FFT-optimal)", **utils._PL_SIGNAL_SHORT_LABELS}
+                    _swbt_results_by_key: dict[str, list[str | None]] = {k: [] for k in _swbt_keys}
+                    for _pt in _swbt_pts:
+                        _sig_density_by_name = {s["name"]: s["density"] for s in _pt["signals"]}
+                        for _key in _swbt_keys:
+                            if _key == "model_peak":
+                                _swing = int(np.argmax(_pt["combined"])) + 1
+                            else:
+                                _density = (_pt["baseline"] if _key == "baseline"
+                                            else _pt["combined"] if _key == "combined"
+                                            else _sig_density_by_name.get(_key))
+                                if _density is None:
+                                    _swbt_results_by_key[_key].append(None)
+                                    continue
+                                _swing, _ = utils.suggest_swing_from_density(
+                                    _density, result_ranges, _swbt_metric_key)
+                            _diff = utils.circular_diff(_pt["actual"], _swing)
+                            _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
+
+                    _swbt_rows = [{"key": k, "label": _swbt_labels[k], "results": _swbt_results_by_key[k]}
+                                  for k in _swbt_keys]
+
+                    # Column set for the per-result-type counts, in the
+                    # active result_ranges' own lo-to-hi order (reads
+                    # best-to-worst/worst-to-best the same way that ranges
+                    # table already does) rather than alphabetical.
+                    _swbt_seen_results = {res for r in _swbt_rows for res in r["results"] if res is not None}
+                    _swbt_result_cols = [res for res, _, _ in result_ranges if res in _swbt_seen_results]
+
+                    _swbt_table_rows = []
+                    for r in _swbt_rows:
+                        _avail = [res for res in r["results"] if res is not None]
+                        _row_data = {
+                            "Indication": r["label"], "N": len(_avail),
+                            _swbt_metric: (sum(utils.result_metric_value(res, _swbt_metric_key) for res in _avail)
+                                          / len(_avail)) if _avail else None,
+                        }
+                        _counts = pd.Series(_avail).value_counts() if _avail else pd.Series(dtype=int)
+                        for _res_col in _swbt_result_cols:
+                            _row_data[_res_col] = int(_counts.get(_res_col, 0))
+                        _swbt_table_rows.append(_row_data)
+                    _swbt_avg_table = pd.DataFrame(_swbt_table_rows)
+
+                    _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
+                    _peak_avg = _swbt_avg_table.loc[
+                        _swbt_avg_table["Indication"] == "Model (peak)", _swbt_metric].iloc[0]
+                    _comb_avg = _swbt_avg_table.loc[
+                        _swbt_avg_table["Indication"] == "Model (FFT-optimal)", _swbt_metric].iloc[0]
+                    _swbt_better = _comb_avg > _base_avg
+                    _fft_vs_peak = "beat" if _comb_avg > _peak_avg else "lost to" if _comb_avg < _peak_avg else "tied"
+                    st.caption(
+                        f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
+                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested (FFT-optimal) swings "
+                        f"**{_comb_avg:.3f}** ({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'} "
+                        f"than baseline). FFT-optimal {_fft_vs_peak} just swinging at the model's own single "
+                        f"most-likely pitch (Model (peak): **{_peak_avg:.3f}**) - how much the FFT/ranges "
+                        "optimization step is actually buying over the naive point-estimate strategy. "
+                        "Individual signals use their raw (unshrunk) density, same caveat as the Expected "
+                        "Swing Score chart/table above; gray cells below are points that signal had no data "
+                        "for (not scored either way), not an out."
+                    )
+                    st.plotly_chart(
+                        utils.suggested_swing_backtest_chart(_swbt_rows, dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_swbt_chart",
+                    )
+                    st.dataframe(
+                        _swbt_avg_table, hide_index=True, use_container_width=True,
+                        column_config={_swbt_metric: st.column_config.NumberColumn(format="%.3f")},
+                    )
+
+                    # ── rolling performance ──────────────────────────────────────
+                    st.markdown("**Rolling Performance**")
+                    st.caption(
+                        "Trailing rolling average of the same per-pitch OBP/SLG, not just the single "
+                        "overall number above - shows how each indication has actually been running across "
+                        "the window (two indications can share the same overall average while one trended "
+                        "very differently from the other)."
+                    )
+                    _swbt_window = st.slider(
+                        "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(10, len(_swbt_pts)),
+                        key=f"p_swbt_window_{tab_p_pitcher}",
+                    )
+                    _swbt_rolling_rows = [
+                        {"key": r["key"], "label": r["label"],
+                         "values": [utils.result_metric_value(res, _swbt_metric_key) if res is not None
+                                    else float("nan") for res in r["results"]]}
+                        for r in _swbt_rows
+                    ]
+                    st.plotly_chart(
+                        utils.suggested_swing_rolling_chart(
+                            _swbt_rolling_rows, _swbt_window, _swbt_metric, dark_mode=_dark_mode),
+                        width="stretch", config={"displayModeBar": False}, key="p_swbt_rolling_chart",
+                    )
+
+                _suggest_swing_backtest_section_p(df_p_pred, result_ranges)
+
+
+        # ── recent PA window - shared by the percentile card and the Last N chart ──
+        if tab_p_pitcher != "All":
+            n_pitches = st.slider("Recent PA Window", 5, 100, 50, step=5, key="last_n_pitch")
+        else:
+            n_pitches = st.session_state.get("last_n_pitch", 50)
 
         # A pending pill selection (Optimal Swing "use this swing" pills, set
         # further down and consumed here) must land in session_state BEFORE
@@ -1725,637 +1971,6 @@ with tab_p:
                     _ring_sacf_lo_p = ((_pred_swing_val_p - _sacf_max_p - 1) % 1000) + 1
                     _ring_sacf_hi_p = ((_pred_swing_val_p + _sacf_max_p - 1) % 1000) + 1
 
-        # ── swing suggestions panel ───────────────────────────────────────────
-        with st.expander("Swing Suggestions", expanded=True):
-            _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
-            _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"
-            _h_dd_bkt = st.session_state.get("dd_bucket_p", 100)
-            _h_dd2_bkt = st.session_state.get("dd2_bucket_p", 100)
-            _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 200)
-
-            _h_recent = (
-                df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)["pitch"]
-                .astype(int).tolist()
-            ) if not df_p_pred.empty else []
-            _h_delta_hist = (
-                df_p[df_p["pitch_circ_delta"].notna()].sort_values("id")["pitch_circ_delta"]
-                .abs().astype(int).tolist()
-            ) if "pitch_circ_delta" in df_p.columns else []
-            _h_d2sq_hist = (
-                df_p[df_p["pitch_circ_delta2"].notna()].sort_values("id")["pitch_circ_delta2"]
-                .abs().astype(int).tolist()
-            ) if "pitch_circ_delta2" in df_p.columns else []
-            _h_diff_hist = (
-                df_p[df_p["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
-            ) if "diff" in df_p.columns else []
-            _h_result_hist = (
-                df_p[df_p["result"].notna()].sort_values("id")["result"].tolist()
-            ) if "result" in df_p.columns else []
-
-            _h_prior_pitch  = _h_recent[-1]      if len(_h_recent) >= 1 else None
-            _h_prior_pitch2 = _h_recent[-2]      if len(_h_recent) >= 2 else None
-            _h_prior_delta  = _h_delta_hist[-1]  if len(_h_delta_hist) >= 1 else None
-            _h_prior_delta2 = _h_delta_hist[-2]  if len(_h_delta_hist) >= 2 else None
-            _h_prior_d2sq   = _h_d2sq_hist[-1]   if len(_h_d2sq_hist)  >= 1 else None
-            _h_prior_d2sq2  = _h_d2sq_hist[-2]   if len(_h_d2sq_hist)  >= 2 else None
-            _h_prior_diff   = _h_diff_hist[-1]   if len(_h_diff_hist)  >= 1 else None
-            _h_prior_rescat  = utils.seq_result_category(_h_result_hist[-1]) if _h_result_hist else None
-            _h_prior_rescat2 = utils.seq_result_category(_h_result_hist[-2]) if len(_h_result_hist) >= 2 else None
-
-            def _hstr(prob, n, n_bkts):
-                pct = prob * 100
-                exp = 100.0 / n_bkts
-                return f"{pct:.0f}% ({pct-exp:+.0f}%) n={n}"
-
-            _hint_rows_p = []
-            _h_dd_n = 500 // _h_dd_bkt
-            _h_dd2_n = 500 // _h_dd2_bkt
-            _h_hz_n = 1000 // _h_hz_bkt
-            _hint_centered_p = st.session_state.get("hint_centered_p", True)
-
-            # OBP rows (always at top when matchup is loaded)
-            if result_ranges and _h_recent:
-                _h_pa_df = (
-                    df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
-                    if not df_p_pred.empty else pd.DataFrame()
-                )
-                _h_rel_kw = dict(
-                    recency_slider=st.session_state.get("p_rel_recency", 50),
-                    result_slider=st.session_state.get("p_rel_result", 50),
-                    state_slider=st.session_state.get("p_rel_state", 0),
-                    g1=st.session_state.get("p_rel_g1", 20),
-                    g2=st.session_state.get("p_rel_g2", 40),
-                    g3=st.session_state.get("p_rel_g3", 40),
-                    result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
-                )
-                _h_wts   = utils.compute_pa_weights(_h_pa_df, _h_obc, _h_outs, **_h_rel_kw) if not _h_pa_df.empty else []
-                _h_dwts  = _h_wts[1:] if len(_h_wts) > 1 else None
-                _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
-                _h_dvals  = utils.project_from_deltas(_h_recent)
-                _h_d2vals = utils.project_from_delta2s(_h_recent)
-                _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True, obr_extra=_obr_extra_p)
-                _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True, obr_extra=_obr_extra_p)
-                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True, paired=True, obr_extra=_obr_extra_p)
-                _hint_rows_p.append({"Signal": "OBP recent pitch",
-                                     "lo": _h_obp_p["lo"] if _h_obp_p else None,
-                                     "hi": _h_obp_p["hi"] if _h_obp_p else None,
-                                     "Strength": _hstr(_h_obp_p["prob"], _h_obp_p["n"], _h_obp_p["n_bkts"]) if _h_obp_p else "",
-                                     "_zscore": _h_obp_p["z"] if _h_obp_p else None,
-                                     "_best_zone_only": True})
-                _hint_rows_p.append({"Signal": "OBP recent Δ",
-                                     "lo": _h_obp_d["lo"] if _h_obp_d else None,
-                                     "hi": _h_obp_d["hi"] if _h_obp_d else None,
-                                     "Strength": _hstr(_h_obp_d["prob"], _h_obp_d["n"], _h_obp_d["n_bkts"]) if _h_obp_d else "",
-                                     "_zscore": _h_obp_d["z"] if _h_obp_d else None,
-                                     "_best_zone_only": True})
-                _hint_rows_p.append({"Signal": "OBP recent Δ²",
-                                     "lo": _h_obp_d2["lo"] if _h_obp_d2 else None,
-                                     "hi": _h_obp_d2["hi"] if _h_obp_d2 else None,
-                                     "Strength": _hstr(_h_obp_d2["prob"], _h_obp_d2["n"], _h_obp_d2["n_bkts"]) if _h_obp_d2 else "",
-                                     "_zscore": _h_obp_d2["z"] if _h_obp_d2 else None,
-                                     "_best_zone_only": True})
-
-            def _delta_row_p(signal, h_dict, n_bkts):
-                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
-                _dc = h_dict.get("all_counts")
-                _dd_bkt_z = h_dict.get("delta_bucket_size", _h_dd_bkt)
-                extra = []
-                if _h_prior_pitch is not None:
-                    _all_bkts = [(h_dict["delta_lo"], h_dict["delta_hi"])] + h_dict.get("tied_buckets", [])
-                    _merged = utils.merge_delta_ranges(_all_bkts)
-                    _arms = []
-                    for _mlo, _mhi in _merged:
-                        _arms.extend(utils.delta_to_pitch_ranges(_h_prior_pitch, _mlo, _mhi))
-                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
-                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
-                    extra = [a for a in _arms[2:] if a[0] is not None]
-                    return {"Signal": signal,
-                            "lo": r1[0], "hi": r1[1],
-                            "lo2": r2[0], "hi2": r2[1],
-                            "extra_ranges": extra,
-                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                            "_zscore": _zs,
-                            "_delta_counts": _dc,
-                            "_prior_pitch_for_zone": _h_prior_pitch,
-                            "_dd_bkt_for_zone": _dd_bkt_z}
-                return {"Signal": signal, "lo": None, "hi": None,
-                        "extra_ranges": extra,
-                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                        "_zscore": _zs,
-                        "_delta_counts": _dc,
-                        "_prior_pitch_for_zone": _h_prior_pitch,
-                        "_dd_bkt_for_zone": _dd_bkt_z}
-
-            def _delta2_row_p(signal, h_dict, n_bkts):
-                # Compound a predicted |Δ²| bucket into next-pitch arms, mirroring
-                # project_from_delta2s: keep the SIGNED last delta L and form L ± d2.
-                # Needs the prior TWO pitches for L (not the unsigned _h_prior_delta).
-                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
-                if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
-                    _L = utils.circular_signed_delta(_h_prior_pitch2, _h_prior_pitch)
-                    _all_bkts = [(h_dict["d2_lo"], h_dict["d2_hi"])] + h_dict.get("tied_buckets", [])
-                    _merged_d2 = utils.merge_delta_ranges(_all_bkts)
-                    _arms = []
-                    for _d2lo, _d2hi in _merged_d2:
-                        _arms.extend(utils.delta2_to_pitch_ranges(_h_prior_pitch, _L, _d2lo, _d2hi))
-                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
-                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
-                    extra = list(_arms[2:])
-                    return {"Signal": signal,
-                            "lo": r1[0], "hi": r1[1],
-                            "lo2": r2[0], "hi2": r2[1],
-                            "extra_ranges": extra,
-                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                            "_zscore": _zs,
-                            "_d2sq_counts": h_dict.get("all_counts"),
-                            "_last_delta_for_zone": _L,
-                            "_prior_pitch_for_zone": _h_prior_pitch,
-                            "_dd2_bkt_for_zone": h_dict.get("d2_bucket_size", _h_dd2_bkt)}
-                return {"Signal": signal, "lo": None, "hi": None,
-                        "extra_ranges": [],
-                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
-                        "_zscore": _zs}
-
-            if _h_prior_delta is not None:
-                _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("2-Δ seq", _h, _h_dd_n))
-
-            if _h_prior_delta is not None and _h_prior_delta2 is not None:
-                _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("3-Δ seq", _h, _h_dd_n))
-
-            if _h_prior_d2sq is not None:
-                _h = utils.seq2_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append(_delta2_row_p("2-Δ² seq", _h, _h_dd2_n))
-
-            if _h_prior_d2sq is not None and _h_prior_d2sq2 is not None:
-                _h = utils.seq3_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq2, _h_prior_d2sq, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append(_delta2_row_p("3-Δ² seq", _h, _h_dd2_n))
-
-            if _h_prior_diff is not None:
-                _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("Prior diff → Δ", _h, 5))
-
-            if _h_prior_rescat is not None:
-                _h = utils.prior_result_delta_hint(df_p, "pitch", _h_prior_rescat)
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("Prior result → Δ", _h, 5))
-
-            if _h_prior_rescat is not None and _h_prior_rescat2 is not None:
-                _h = utils.result_seq_delta_hint(df_p, "pitch", _h_prior_rescat2, _h_prior_rescat)
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("Result seq → Δ", _h, 5))
-
-            if _h_prior_pitch is not None:
-                _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append({"Signal": "2-pitch seq",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
-                                         "_zone_dist": utils.seq2_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p),
-                                         "_zone_bucket_size": _h_hz_bkt,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
-
-            if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
-                _h = utils.seq3_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch, centered=_hint_centered_p)
-                if _h:
-                    _hint_rows_p.append({"Signal": "3-pitch seq",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
-                                         "_zone_dist": utils.seq3_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch, centered=_hint_centered_p),
-                                         "_zone_bucket_size": _h_hz_bkt,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
-
-            if "outs" in df_p.columns:
-                _h = utils.best_zone_hint(df_p[df_p["outs"] == _h_outs], "pitch")
-                if _h:
-                    _hint_rows_p.append({"Signal": f"Outs({_h_outs})",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
-                                         "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 100,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
-
-            if "obc" in df_p.columns:
-                _obc_is_zero = (_h_obc == "000")
-                _obc_mask_p  = df_p["obc"] == "000" if _obc_is_zero else df_p["obc"] != "000"
-                _obc_lbl_p   = "Empty" if _obc_is_zero else "Runner(s) on"
-                _h = utils.best_zone_hint(df_p[_obc_mask_p], "pitch")
-                if _h:
-                    _hint_rows_p.append({"Signal": f"Base state ({_obc_lbl_p})",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
-                                         "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 100,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
-
-            _cur_game_id  = st.session_state.get("game_tab_sel")
-            _cur_inn      = int(st.session_state.get("mgr_inning", 1))
-            _p_last_sw    = df_p[df_p["pitch"].notna()].sort_values("id")
-            _p_last_row   = _p_last_sw.iloc[-1] if not _p_last_sw.empty else None
-            _p_last_game  = (int(_p_last_row["game_id"]) if _p_last_row is not None
-                             and pd.notna(_p_last_row.get("game_id")) else None)
-            _p_last_inn   = (int(_p_last_row["inning"]) if _p_last_row is not None
-                             and pd.notna(_p_last_row.get("inning")) else None)
-            _show_fp_app_p = (_cur_game_id is not None
-                              and (_p_last_game is None or _p_last_game != _cur_game_id))
-            _show_fp_inn_p = (_cur_game_id is not None
-                              and (_p_last_game is None or _p_last_game != _cur_game_id
-                                   or _p_last_inn != _cur_inn))
-
-            if _show_fp_app_p:
-                _h = utils.between_game_delta_hint(df_p, "pitch")
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("Between-Game Δ", _h, 5))
-
-            if _show_fp_inn_p and not _show_fp_app_p:
-                _h = utils.between_inning_delta_hint(df_p, "pitch")
-                if _h:
-                    _hint_rows_p.append(_delta_row_p("Between-Inning Δ", _h, 5))
-
-            if "is_fp_inn" in df_p.columns and _show_fp_inn_p:
-                _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
-                if _h:
-                    _hint_rows_p.append({"Signal": "1st pitch inning",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
-                                         "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 100,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
-
-            if "is_fp_app" in df_p.columns and _show_fp_app_p:
-                _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
-                if _h:
-                    _hint_rows_p.append({"Signal": "1st pitch appearance",
-                                         "lo": _h["lo"], "hi": _h["hi"],
-                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
-                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
-                                         "_zone_dist": _h.get("_zone_dist"),
-                                         "_zone_bucket_size": 100,
-                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
-
-            # Sort ALL rows by z-score descending - OBP rows are no longer pinned
-            # at top; their z-scores are now on the same statistical footing as
-            # every other indication, so they compete in the same ranking.
-            _hint_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
-
-            # Scouting-recency stoplight: attach a state to each matching row. The
-            # Outs(...) and Base state (...) Signals are dynamic, so map them to
-            # the engine's canonical keys. OBP rows get their own backtest-driven
-            # states (separate loader/cache), merged in below.
-            _stop_states = {}
-            _insp_order = list(_STOPLIGHT_ORDER)
-            # Keys for the OBP loaders - always defined when a pitcher is selected
-            # so the inspector call below can reference them regardless of gating.
-            _obp_ranges_key = tuple(tuple(r) for r in (active_ranges or []))
-            _obp_rel_key = (
-                st.session_state.get("p_rel_recency", 50),
-                st.session_state.get("p_rel_result", 50),
-                st.session_state.get("p_rel_state", 0),
-                st.session_state.get("p_rel_g1", 20),
-                st.session_state.get("p_rel_g2", 40),
-                st.session_state.get("p_rel_g3", 40),
-                bool(st.session_state.get("p_rel_result_offset", True)),
-            )
-            # Per-kind slider widths define the OBP signals, so they double as the
-            # cache key: pitch <- following-bucket, delta <- dd, delta2 <- dd2.
-            _obp_widths_key = (
-                int(st.session_state.get("hz_follow_bucket_p", 200)),
-                int(_h_dd_bkt), int(_h_dd2_bkt),
-            )
-            if tab_p_pitcher != "All":
-                _stop_states = _load_pitcher_stoplights(
-                    tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), utils.scouting_cache_sig(),
-                )
-                if result_ranges:
-                    _stop_states.update(_load_pitcher_obp_stoplights(
-                        tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                        int(n_pitches), _obp_ranges_key, _obp_rel_key, _obp_widths_key,
-                        utils.scouting_cache_sig(),
-                    ))
-                _order_seen = []
-                for _r in _hint_rows_p:
-                    _sig = _r["Signal"]
-                    if _sig.startswith("Outs("):
-                        _key = "Outs"
-                    elif _sig.startswith("Base state ("):
-                        _key = "Base state"
-                    else:
-                        _key = _sig
-                    _st = _stop_states.get(_key)
-                    if _st and _st.get("state"):
-                        _r["_stoplight"] = _st["state"]
-                    if _key in _STOPLIGHT_ORDER and _key not in _order_seen:
-                        _order_seen.append(_key)
-                # Inspector follows the Suggestions order (z-score); any indication
-                # not currently displayed is appended in canonical order.
-                _insp_order = _order_seen + [k for k in _STOPLIGHT_ORDER if k not in _order_seen]
-
-            if _hint_rows_p:
-                _tc1, _tc2 = st.columns(2)
-                with _tc1:
-                    _hint_all_p = st.toggle("All zones", value=False, key="hint_all_p")
-                with _tc2:
-                    _hint_centered_p = st.toggle("Centered", value=True, key="hint_centered_p")
-                _hp_swing_val = int(st.session_state["pred_swing"]) if "pred_swing" in st.session_state and result_ranges else None
-                _hp_obr_lo = _hp_obr_hi = None
-                if _hp_swing_val is not None:
-                    _hp_obr_max = max((hi for _, _lo, hi in active_ranges if _ in (utils._OBR | _obr_extra_p)), default=0)
-                    if _hp_obr_max:
-                        _hp_obr_lo = ((_hp_swing_val - _hp_obr_max - 1) % 1000) + 1
-                        _hp_obr_hi = ((_hp_swing_val + _hp_obr_max - 1) % 1000) + 1
-                _sugg_tab, _insp_tab = st.tabs(["Suggestions", "Inspector"])
-                with _sugg_tab:
-                    st.plotly_chart(
-                        utils.hint_bars_figure(
-                            _hint_rows_p,
-                            mode="all" if _hint_all_p else "best",
-                            mobile=_is_mobile,
-                            prior_val=_h_prior_pitch,
-                            prior_val2=_h_prior_pitch2,
-                            swing_val=_hp_swing_val,
-                            obr_lo=_hp_obr_lo,
-                            obr_hi=_hp_obr_hi,
-                        ),
-                        use_container_width=True,
-                        config={"displayModeBar": False},
-                    )
-                with _insp_tab:
-                    if tab_p_pitcher == "All" or not _stop_states:
-                        st.caption("Select a specific pitcher to inspect the scouting-recency calc.")
-                    else:
-                        _stoplight_inspector(
-                            tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
-                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt),
-                            _obp_ranges_key, _obp_rel_key, _obp_widths_key, _stop_states, _insp_order,
-                        )
-            elif not result_ranges or not _h_recent:
-                st.caption("Fetch a matchup and select a pitcher to see suggestions.")
-            else:
-                st.caption("Not enough history to generate sequence suggestions.")
-
-        # ── sequence viewer ───────────────────────────────────────────────────
-        st.subheader("Sequence Viewer")
-
-        # 2-seq / 3-seq toggle. Lives outside the fragment: switching modes changes
-        # the match population, which is computed at page level, so it needs a full
-        # rerun. The callback clears both charts' click-filters - a bin selection
-        # from one population must not silently carry into a stricter one.
-        _sv_mode = st.radio(
-            "Match on", ["Last 1 value", "Last 2 values"],
-            horizontal=True, key="sv_seq_mode",
-            on_change=lambda: (st.session_state.pop("sv_pitch_chart", None),
-                               st.session_state.pop("sv_delta_chart", None),
-                               st.session_state.pop("sv_delta2_chart", None)),
-        )
-        _sv_use2 = _sv_mode == "Last 2 values"
-        _sv_note = "matched on last 2 values" if _sv_use2 else None
-
-        # Click-to-filter lives in a fragment so a bar click reruns only the chart
-        # and its controls, not the whole 2,500-line page.
-        @st.fragment
-        def _sv_fragment(matches, current_seq, y_range, y_label, group_bucket, wkey, mobile, mode_note):
-            # The chart renders before this run's click event can reach it, so read
-            # the prior run's stored selection to pick the highlighted bin.
-            _sel_bin = None
-            _wstate = st.session_state.get(wkey)
-            if _wstate and _wstate.get("selection", {}).get("points"):
-                _bpts = [p for p in _wstate["selection"]["points"]
-                         if p.get("curve_number") == utils.SEQ_VIEWER_BAR_TRACE]
-                if _bpts:
-                    _pi = _bpts[0].get("point_index", _bpts[0].get("point_number"))
-                    _sel_bin = int(_pi) if _pi is not None else None
-            st.plotly_chart(
-                utils.sequence_viewer_figure(
-                    matches, current_seq=current_seq, y_range=y_range, y_label=y_label,
-                    group_bucket=group_bucket, selected_bin=_sel_bin, mode_note=mode_note,
-                    mobile=mobile,
-                ),
-                use_container_width=True, on_select="rerun", key=wkey,
-                config={"displayModeBar": False},
-            )
-            if _sel_bin is not None:
-                st.button("Clear filter", key=f"{wkey}_clear",
-                          on_click=lambda: st.session_state.pop(wkey, None))
-            st.caption("Click an outcome bar to filter the paths to that next-value bin.")
-
-        _sv_pitch_tab, _sv_delta_tab, _sv_delta2_tab = st.tabs(["Pitch #", "Delta", "Delta²"])
-        with _sv_pitch_tab:
-            if _h_prior_pitch is None or (_sv_use2 and _h_prior_pitch2 is None):
-                st.caption("No historical matches for this context.")
-            else:
-                _sv_res = utils.sequence_matches(
-                    df_p, "pitch", _h_hz_bkt, _h_prior_pitch,
-                    prior_val2=_h_prior_pitch2 if _sv_use2 else None, domain="value")
-                if not _sv_res:
-                    st.caption("No historical matches for this context.")
-                else:
-                    _sv_fragment(_sv_res["matches"], _h_recent[-3:], (1, 1000), "Pitch value",
-                                 st.session_state.get("hz_follow_bucket_p", 200),
-                                 "sv_pitch_chart", _is_mobile, _sv_note)
-        with _sv_delta_tab:
-            if _h_prior_delta is None or (_sv_use2 and _h_prior_delta2 is None):
-                st.caption("No historical matches for this context.")
-            else:
-                _sv_res = utils.sequence_matches(
-                    df_p, "pitch", _h_dd_bkt, _h_prior_delta,
-                    prior_val2=_h_prior_delta2 if _sv_use2 else None, domain="delta")
-                if not _sv_res:
-                    st.caption("No historical matches for this context.")
-                else:
-                    _sv_fragment(_sv_res["matches"], _h_delta_hist[-3:], (0, 500), "|Δ|",
-                                 _h_dd_bkt, "sv_delta_chart", _is_mobile, _sv_note)
-        with _sv_delta2_tab:
-            if _h_prior_d2sq is None or (_sv_use2 and _h_prior_d2sq2 is None):
-                st.caption("No historical matches for this context.")
-            else:
-                _sv_res = utils.sequence_matches(
-                    df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq,
-                    prior_val2=_h_prior_d2sq2 if _sv_use2 else None, domain="delta2")
-                if not _sv_res:
-                    st.caption("No historical matches for this context.")
-                else:
-                    _sv_fragment(_sv_res["matches"], _h_d2sq_hist[-3:], (0, 500), "|Δ²|",
-                                 _h_dd2_bkt, "sv_delta2_chart", _is_mobile, _sv_note)
-
-        # ── swing predictor ───────────────────────────────────────────────────
-        st.subheader("Swing Analyzer")
-        st.caption("Enter a proposed swing to see what each of this pitcher's recent pitches would give.")
-        _lnc_weights_p: list[float] = []
-
-        if result_ranges:
-            with st.expander("Relevance Weighting", expanded=not _simple_mode):
-                st.caption("Weight how recent pitches influence the Optimal Swing. At 50 on Recency and Result and 0 on State, weighting is equal for each recent pitch.")
-                _prw1, _prw2, _prw3 = st.columns(3)
-                with _prw1:
-                    st.markdown("**1 - Recency**")
-                    st.slider("Older vs Newer", 0, 100, value=50, key="p_rel_recency",
-                              help="50=equal. 0=weight older pitches more. 100=weight recent pitches more.")
-                    st.number_input("Weight", 0, 100, value=20, step=1, key="p_rel_g1")
-                with _prw2:
-                    st.markdown("**2 - Result**")
-                    st.slider("Pitcher vs Batter", 0, 100, value=50, key="p_rel_result",
-                              help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
-                    st.number_input("Weight ", 0, 100, value=40, step=1, key="p_rel_g2")
-                    st.toggle("Previous result", key="p_rel_result_offset", value=True,
-                              help="Weight each pitch by the result of the previous pitch instead of its own result.")
-                with _prw3:
-                    st.markdown("**3 - State**")
-                    st.slider("Any vs Similar", 0, 100, value=0, key="p_rel_state",
-                              help="50=equal. 100=upweight pitches from similar OBC + outs situations.")
-                    st.number_input("Weight  ", 0, 100, value=40, step=1, key="p_rel_g3")
-                _prg1 = st.session_state.get("p_rel_g1", 20)
-                _prg2 = st.session_state.get("p_rel_g2", 40)
-                _prg3 = st.session_state.get("p_rel_g3", 40)
-                _prg_tot = max(_prg1 + _prg2 + _prg3, 1)
-                st.caption(
-                    f"Normalized: Recency {_prg1/_prg_tot*100:.0f}% | "
-                    f"Result {_prg2/_prg_tot*100:.0f}% | "
-                    f"State {_prg3/_prg_tot*100:.0f}%"
-                )
-
-            # PA weights for relevance-weighted optimal swing and swing predictor coloring
-            _pa_df_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
-                        if not df_p_pred.empty else pd.DataFrame())
-            _p_cur_obc  = (st.session_state.get("mgr_sheet_obc") or "000")
-            _p_cur_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
-            _p_rel_kwargs = dict(
-                recency_slider=st.session_state.get("p_rel_recency", 50),
-                result_slider=st.session_state.get("p_rel_result",  50),
-                state_slider=st.session_state.get("p_rel_state",   50),
-                g1=st.session_state.get("p_rel_g1", 20),
-                g2=st.session_state.get("p_rel_g2", 40),
-                g3=st.session_state.get("p_rel_g3", 40),
-                result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
-            )
-            _pa_weights_p = utils.compute_pa_weights(
-                _pa_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
-            ) if not _pa_df_p.empty else []
-            _lnc_df_p = (df_p_pred[df_p_pred["pitch"].notna() & df_p_pred["swing"].notna()]
-                         .sort_values("id").tail(n_pitches)
-                         if not df_p_pred.empty else pd.DataFrame())
-            _lnc_weights_p = utils.compute_pa_weights(
-                _lnc_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
-            ) if not _lnc_df_p.empty else []
-
-            _df_tick_p = _pa_df_p if not _pa_df_p.empty else pd.DataFrame(columns=["id","pitch","swing"])
-            _tick_lbl_p = f"Last {n_pitches} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
-                          else f"Last {n_pitches} pitches"
-            st.plotly_chart(
-                utils.swing_predictor_chart(_df_tick_p, swing=int(st.session_state["pred_swing"]), n=n_pitches,
-                                            result_ranges=active_ranges, tick_label=_tick_lbl_p,
-                                            tick_weights=_pa_weights_p, obr_extra=_obr_extra_p),
-                width="stretch", key="p_swing_pred",
-            )
-
-            st.markdown("**Optimal Swing**")
-            _recent_p = _pa_df_p["pitch"].astype(int).tolist() if not _pa_df_p.empty else []
-            _delta_p  = utils.project_from_deltas(_recent_p)
-            _delta2_p = utils.project_from_delta2s(_recent_p)
-            _delta_weights_p  = (_pa_weights_p[1:] if len(_pa_weights_p) > 1 else None)
-            _delta2_weights_p = (
-                [w for w in _pa_weights_p[2:] for _ in range(2)]
-                if len(_pa_weights_p) > 2 else None
-            )
-            _opt_rows_p = [
-                ("Based on Recent Pitch Values", _recent_p,  _pa_weights_p or None),
-                ("Based on Recent Pitch Δ",      _delta_p,   _delta_weights_p),
-                ("Based on Recent Pitch Δ²",     _delta2_p,  _delta2_weights_p),
-            ]
-            st.markdown("""<style>
-button[data-testid="stBaseButton-pills"] {
-    border: 1.5px solid #2ca02c !important;
-}
-button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pills"] {
-    border: 1.5px solid #d62728 !important;
-}
-</style>""", unsafe_allow_html=True)
-            if _simple_mode:
-                col_obp_p = st.columns(1)[0]
-            else:
-                col_obp_p, col_slg_p = st.columns(2)
-            with col_obp_p:
-                st.markdown("**OBP Optimal Swing**" if _simple_mode else "**OBP**")
-                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
-                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
-                                unsafe_allow_html=True)
-                    if _vals:
-                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "obp", True, weights=_wts, obr_extra=_obr_extra_p)
-                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="best", obr_extra=_obr_extra_p)
-                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="worst", obr_extra=_obr_extra_p)
-                        _pk = f"pill_obp_{_i}_p"
-                        _opts = {
-                            f"↑ {_bv} ({_bs:.3f}) · {_sig_p_obp_tgt:.0f}%": _bv,
-                            f"↓ {_cv} ({_cs:.3f}) · {_sig_p_obp_avd:.0f}%": _cv,
-                        }
-                        _sel = st.pills("", list(_opts.keys()), key=_pk)
-                        if _sel:
-                            st.session_state["_pend_swing"] = _opts[_sel]
-                            st.session_state.setdefault("_pills_rst_p", []).append(_pk)
-                            st.rerun()
-                        st.plotly_chart(
-                            utils.optimal_swing_chart(_vals, active_ranges, "obp", True,
-                                                      compact=True, weights=_wts, obr_extra=_obr_extra_p),
-                            use_container_width=True, key=f"p_opt_obp_{_i}")
-            if not _simple_mode:
-                with col_slg_p:
-                    st.markdown("**SLG**")
-                    for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
-                        st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
-                                    unsafe_allow_html=True)
-                        if _vals:
-                            _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "slg", True, weights=_wts)
-                            _sig_p_slg_tgt = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="best")
-                            _sig_p_slg_avd = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="worst")
-                            _pk = f"pill_slg_{_i}_p"
-                            _opts = {
-                                f"↑ {_bv} ({_bs:.3f}) · {_sig_p_slg_tgt:.0f}%": _bv,
-                                f"↓ {_cv} ({_cs:.3f}) · {_sig_p_slg_avd:.0f}%": _cv,
-                            }
-                            _sel = st.pills("", list(_opts.keys()), key=_pk)
-                            if _sel:
-                                st.session_state["_pend_swing"] = _opts[_sel]
-                                st.session_state.setdefault("_pills_rst_p", []).append(_pk)
-                                st.rerun()
-                            st.plotly_chart(
-                                utils.optimal_swing_chart(_vals, active_ranges, "slg", True,
-                                                          compact=True, weights=_wts),
-                                use_container_width=True, key=f"p_opt_slg_{_i}")
-        else:
-            if pred_mode == "Fetch Live Matchup":
-                st.info("Select a matchup above to enable the predictor.")
-
-        # ── last N pitches ────────────────────────────────────────────────────
-        st.divider()
-        _actual_pitches_p = len(df_p_pred.sort_values("id").tail(n_pitches)) if not df_p_pred.empty else 0
-        st.subheader(f"Last {_actual_pitches_p} Pitches")
-        _p_chart_c1, _p_chart_c2 = st.columns([3, 2])
-        with _p_chart_c1:
-            swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
-                                   help="+1: shifts swing markers right by one AB.")
-        with _p_chart_c2:
-            est_delta_p = st.toggle("Est. Δ overlay", key="est_delta_p", value=False,
-                                    help="Shows batter's estimated delta (swing vs prior pitch) as a diamond line on the delta chart.")
-        st.plotly_chart(
-            utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
-                                        title=f"Last {_actual_pitches_p} Pitches",
-                                        swing_offset=(swing_off_p == "+1"),
-                                        segment_games=True,
-                                        tick_weights=_lnc_weights_p or None,
-                                        pannable=True,
-                                        est_delta_overlay=est_delta_p),
-            width="stretch", key="p_last_n",
-        )
-
         # ── context filters for the radial views ────────────────────────────────
         with st.expander("Context Filters", expanded=True):
             st.caption("Condition the radial views below on what led into each historical pitch. "
@@ -2421,16 +2036,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             _cf_result_pre_p = st.session_state.get("ctx_result_v_p", _cf_result_def_p)
             _cf_result_lbl_p = f"Prev result ({_cf_result_pre_p})"
 
-            # Current leverage is prospective - the game state pulled from the
-            # Google Sheet for the upcoming plate appearance (outs/obc/score),
-            # not whatever the pitcher's most recent historical play happened
-            # to be.
-            _cf_gs_outs_p    = int(st.session_state.get("mgr_sheet_outs") or 0)
-            _cf_gs_obc_p     = st.session_state.get("mgr_sheet_obc") or "000"
-            _cf_gs_inn_p     = int(st.session_state.get("mgr_inning", 1))
-            _cf_gs_half_p    = str(st.session_state.get("mgr_half", "Top")).lower()
-            _cf_gs_away_p    = int(st.session_state.get("mgr_away_score", 0))
-            _cf_gs_home_p    = int(st.session_state.get("mgr_home_score", 0))
             _cf_gs_remaining_p = utils.remaining_half_innings(
                 _cf_gs_inn_p, _cf_gs_half_p, utils.game_innings(st.session_state.get("mgr_league", "MLN")))
             _cf_gs_lead_p    = (_cf_gs_home_p - _cf_gs_away_p if _cf_gs_half_p == "bottom"
@@ -2732,12 +2337,45 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 _df_radial_delta2_p  = df_p_pred
                 _df_radial_shadow_delta_p = df_p_pred
 
+        # ── expected swing score rim band, shared by all 5 radials below ────────
+        # Same combined-model density Combined Pitch Likelihood's own Expected
+        # Swing Score section scores (st.cache_data makes this a free hit
+        # whenever that section already computed it this run) - re-expressed
+        # as a thin blue/white/red ring at each radial's own rim via
+        # utils.expected_swing_scores + each chart's score_band_scores param.
+        _pl_metric_sel_p = st.session_state.get(f"p_pl_swing_metric_{tab_p_pitcher}", "OBP")
+        _pl_metric_key_p = "obp" if _pl_metric_sel_p == "OBP" else "slg"
+        _score_band_scores_p = None
+        if result_ranges:
+            _pl_band_p = (
+                _pitch_likelihood_explain(
+                    df_p, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                    leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                )
+                if hist_id else
+                _pitch_likelihood_prediction(
+                    df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
+                    leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                    live_inning=_cf_gs_inn_p, live_half=_cf_gs_half_p, live_outs=_cf_gs_outs_p,
+                    live_obc=_cf_gs_obc_p, live_away_score=_cf_gs_away_p, live_home_score=_cf_gs_home_p,
+                )
+            )
+            if _pl_band_p is not None:
+                _score_band_scores_p = utils.expected_swing_scores(
+                    _pl_band_p["combined"], result_ranges, _pl_metric_key_p)
+                st.caption(
+                    f"Outer rim band: this pitcher's current Expected {_pl_metric_sel_p} Swing Score "
+                    "(Combined Pitch Likelihood's own model, above) at each point on the wheel - "
+                    "blue = low odds, white = neutral, red = high odds."
+                )
+
         _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
             utils.radial_recent_pitches_chart(_df_radial_pitches_p, n=n_pitches, value_col="pitch",
                                               title=f"Last {_actual_pitches_radial_p} Pitches",
                                               obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
+                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                                              score_band_scores=_score_band_scores_p),
             width="stretch", key="p_radial",
         )
         _actual_deltas_radial_p = len(_df_radial_deltas_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_deltas_p.empty else 0
@@ -2755,7 +2393,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                              center_on_prev=_center_deltas_p,
                                              anchor=_pf_true_anchor_p,
                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
+                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                                             score_band_scores=_score_band_scores_p),
             width="stretch", key="p_radial_delta",
         )
         st.toggle(
@@ -2780,7 +2419,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                              anchor=_pf_true_anchor_p,
                                              anchor_delta=_pf_true_anchor_delta_p,
                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
+                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                                             score_band_scores=_score_band_scores_p),
             width="stretch", key="p_radial_delta2",
         )
         st.toggle(
@@ -2811,7 +2451,8 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                              delta_col="pitch_shadow_delta_signed", value_col="swing",
                                              title=_shadow_delta_radial_title_p,
                                              center_on_prev=_center_shadow_delta_p,
-                                             anchor=_pf_true_anchor_swing_p),
+                                             anchor=_pf_true_anchor_swing_p,
+                                             score_band_scores=_score_band_scores_p),
             width="stretch", key="p_radial_shadow_delta",
         )
         st.toggle(
@@ -2833,16 +2474,747 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                         delta2_col="pitch_circ_delta2_signed",
                                         anchor_delta=_pf_true_anchor_delta_p,
                                         include_delta2=_cf_delta2_combined_on_p,
+                                        score_band_scores=_score_band_scores_p,
                                         obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
                                         sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
             width="stretch", key="p_radial_combined",
         )
 
-        # Captured BEFORE the rebind below - the pitch-likelihood section needs
-        # the UNTRUNCATED history (build_explain_export does its own id-based
-        # cut and needs hist_id's own row present as the target), where every
-        # other section below just wants the already-truncated df_p_pred.
-        _df_p_full_for_pl_p = df_p
+        _lnc_weights_p: list[float] = []
+        if result_ranges:
+            # PA weights for relevance-weighted optimal swing and swing predictor coloring
+            _pa_df_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
+                        if not df_p_pred.empty else pd.DataFrame())
+            _p_cur_obc  = (st.session_state.get("mgr_sheet_obc") or "000")
+            _p_cur_outs = int(st.session_state.get("mgr_sheet_outs") or 0)
+            _p_rel_kwargs = dict(
+                recency_slider=st.session_state.get("p_rel_recency", 50),
+                result_slider=st.session_state.get("p_rel_result",  50),
+                state_slider=st.session_state.get("p_rel_state",   50),
+                g1=st.session_state.get("p_rel_g1", 20),
+                g2=st.session_state.get("p_rel_g2", 40),
+                g3=st.session_state.get("p_rel_g3", 40),
+                result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
+            )
+            _pa_weights_p = utils.compute_pa_weights(
+                _pa_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
+            ) if not _pa_df_p.empty else []
+            _lnc_df_p = (df_p_pred[df_p_pred["pitch"].notna() & df_p_pred["swing"].notna()]
+                         .sort_values("id").tail(n_pitches)
+                         if not df_p_pred.empty else pd.DataFrame())
+            _lnc_weights_p = utils.compute_pa_weights(
+                _lnc_df_p, _p_cur_obc, _p_cur_outs, **_p_rel_kwargs,
+            ) if not _lnc_df_p.empty else []
+
+
+        # ── last N pitches ────────────────────────────────────────────────────
+        st.divider()
+        _actual_pitches_p = len(df_p_pred.sort_values("id").tail(n_pitches)) if not df_p_pred.empty else 0
+        st.subheader(f"Last {_actual_pitches_p} Pitches")
+        _p_chart_c1, _p_chart_c2 = st.columns([3, 2])
+        with _p_chart_c1:
+            swing_off_p = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_p",
+                                   help="+1: shifts swing markers right by one AB.")
+        with _p_chart_c2:
+            est_delta_p = st.toggle("Est. Δ overlay", key="est_delta_p", value=False,
+                                    help="Shows batter's estimated delta (swing vs prior pitch) as a diamond line on the delta chart.")
+        st.plotly_chart(
+            utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
+                                        title=f"Last {_actual_pitches_p} Pitches",
+                                        swing_offset=(swing_off_p == "+1"),
+                                        segment_games=True,
+                                        tick_weights=_lnc_weights_p or None,
+                                        pannable=True,
+                                        est_delta_overlay=est_delta_p),
+            width="stretch", key="p_last_n",
+        )
+
+        st.divider()
+        # ── pitch zone cooldown ─────────────────────────────────────────────
+        st.subheader("Pitch Zone Cooldown")
+        st.caption(
+            "Following a result, what's the % chance that they'd have thrown another "
+            "pitch within the radius of the pitch by X pitches later? Yellow diamonds "
+            "are still-open cooldowns.")
+        _cd_bucket_p = st.select_slider(
+            "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
+            help="Same bucket sizes as the Hot Zone Pitch Matrix. A later pitch "
+                 "must land within +/- half this width (circular pitch-value "
+                 "distance) of the trigger pitch to count as 'returning' to that "
+                 "zone.")
+        _cd_radius_p = _cd_bucket_p / 2
+        _cd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch", radius=_cd_radius_p)
+        if _cd_events_p.empty:
+            st.caption("Not enough history to compute cooldown returns.")
+        else:
+            # Stack single-column on mobile so the categories read top
+            # to bottom in SEQ_RESULT_CATEGORIES order - a 2-col grid
+            # would otherwise interleave as XBH, Out, BB-1B, K+ once
+            # narrow columns stack.
+            _cd_n_cols_p = 1 if _is_mobile else 2
+            _cd_cols_p = st.columns(_cd_n_cols_p)
+            for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                _cd_cat_events_p = _cd_events_p[_cd_events_p["category"] == _cd_cat]
+                _cd_resolved_p = _cd_cat_events_p.loc[_cd_cat_events_p["resolved"], "pitches"]
+                _cd_live_p = _cd_cat_events_p.loc[~_cd_cat_events_p["resolved"]]
+                with _cd_cols_p[_cd_i % _cd_n_cols_p]:
+                    if not _cd_resolved_p.empty or not _cd_live_p.empty:
+                        st.plotly_chart(
+                            utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
+                            width="stretch", config={"displayModeBar": False},
+                            key=f"p_cooldown_{_cd_cat}",
+                        )
+                    else:
+                        st.caption(f"No {_cd_cat} triggers yet.")
+
+            # ── all categories overlaid on one CDF ───────────────────────────
+            st.markdown("**All Categories**")
+            st.plotly_chart(
+                utils.cooldown_cdf_overlay_chart(_cd_events_p),
+                width="stretch", config={"displayModeBar": False},
+                key="p_cooldown_overlay",
+            )
+
+            # ── open cooldowns, all categories at once ──────────────────────
+            _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
+            if not _cd_live_all_p.empty:
+                st.markdown("**Open Cooldowns**")
+                st.plotly_chart(
+                    utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
+                    width="stretch", config={"displayModeBar": False},
+                    key="p_cooldown_radial",
+                )
+
+        # ── delta cooldown ───────────────────────────────────────────────
+        st.subheader("Delta Cooldown")
+        st.caption(
+            "Similar to Pitch Zone Cooldown, but return value is delta instead of "
+            "pitch value.")
+        _dcd_bucket_p = st.select_slider(
+            "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_delta_cooldown_bucket",
+            help="A later pitch's own delta must land within +/- half this width "
+                 "(circular delta distance) of the trigger delta to count as "
+                 "'returning' to that move size.")
+        _dcd_radius_p = _dcd_bucket_p / 2
+        _dcd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch_circ_delta", radius=_dcd_radius_p)
+        if _dcd_events_p.empty:
+            st.caption("Not enough history to compute delta cooldown returns.")
+        else:
+            _dcd_n_cols_p = 1 if _is_mobile else 2
+            _dcd_cols_p = st.columns(_dcd_n_cols_p)
+            for _dcd_i, _dcd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                _dcd_cat_events_p = _dcd_events_p[_dcd_events_p["category"] == _dcd_cat]
+                _dcd_resolved_p = _dcd_cat_events_p.loc[_dcd_cat_events_p["resolved"], "pitches"]
+                _dcd_live_p = _dcd_cat_events_p.loc[~_dcd_cat_events_p["resolved"]]
+                with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
+                    if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
+                        st.plotly_chart(
+                            utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat,
+                                                      live=_dcd_live_p, signed=True),
+                            width="stretch", config={"displayModeBar": False},
+                            key=f"p_delta_cooldown_{_dcd_cat}",
+                        )
+                    else:
+                        st.caption(f"No {_dcd_cat} triggers yet.")
+
+            st.markdown("**All Categories**")
+            st.plotly_chart(
+                utils.cooldown_cdf_overlay_chart(_dcd_events_p, title="All Categories"),
+                width="stretch", config={"displayModeBar": False},
+                key="p_delta_cooldown_overlay",
+            )
+
+            _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
+            if not _dcd_live_all_p.empty:
+                st.markdown("**Open Delta Cooldowns**")
+                st.plotly_chart(
+                    utils.cooldown_radial_chart(
+                        _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
+                        domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
+                        ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
+                    ),
+                    width="stretch", config={"displayModeBar": False},
+                    key="p_delta_cooldown_radial",
+                )
+
+        _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
+        _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"
+        _h_dd_bkt = st.session_state.get("dd_bucket_p", 100)
+        _h_dd2_bkt = st.session_state.get("dd2_bucket_p", 100)
+        _h_hz_bkt = st.session_state.get("hz_init_bucket_p", 200)
+
+        _h_recent = (
+            df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)["pitch"]
+            .astype(int).tolist()
+        ) if not df_p_pred.empty else []
+        _h_delta_hist = (
+            df_p[df_p["pitch_circ_delta"].notna()].sort_values("id")["pitch_circ_delta"]
+            .abs().astype(int).tolist()
+        ) if "pitch_circ_delta" in df_p.columns else []
+        _h_d2sq_hist = (
+            df_p[df_p["pitch_circ_delta2"].notna()].sort_values("id")["pitch_circ_delta2"]
+            .abs().astype(int).tolist()
+        ) if "pitch_circ_delta2" in df_p.columns else []
+        _h_diff_hist = (
+            df_p[df_p["diff"].notna()].sort_values("id")["diff"].abs().astype(int).tolist()
+        ) if "diff" in df_p.columns else []
+        _h_result_hist = (
+            df_p[df_p["result"].notna()].sort_values("id")["result"].tolist()
+        ) if "result" in df_p.columns else []
+
+        _h_prior_pitch  = _h_recent[-1]      if len(_h_recent) >= 1 else None
+        _h_prior_pitch2 = _h_recent[-2]      if len(_h_recent) >= 2 else None
+        _h_prior_delta  = _h_delta_hist[-1]  if len(_h_delta_hist) >= 1 else None
+        _h_prior_delta2 = _h_delta_hist[-2]  if len(_h_delta_hist) >= 2 else None
+        _h_prior_d2sq   = _h_d2sq_hist[-1]   if len(_h_d2sq_hist)  >= 1 else None
+        _h_prior_d2sq2  = _h_d2sq_hist[-2]   if len(_h_d2sq_hist)  >= 2 else None
+        _h_prior_diff   = _h_diff_hist[-1]   if len(_h_diff_hist)  >= 1 else None
+        _h_prior_rescat  = utils.seq_result_category(_h_result_hist[-1]) if _h_result_hist else None
+        _h_prior_rescat2 = utils.seq_result_category(_h_result_hist[-2]) if len(_h_result_hist) >= 2 else None
+
+
+        # ── sequence viewer ───────────────────────────────────────────────────
+        st.subheader("Sequence Viewer")
+
+        # 2-seq / 3-seq toggle. Lives outside the fragment: switching modes changes
+        # the match population, which is computed at page level, so it needs a full
+        # rerun. The callback clears both charts' click-filters - a bin selection
+        # from one population must not silently carry into a stricter one.
+        _sv_mode = st.radio(
+            "Match on", ["Last 1 value", "Last 2 values"],
+            horizontal=True, key="sv_seq_mode",
+            on_change=lambda: (st.session_state.pop("sv_pitch_chart", None),
+                               st.session_state.pop("sv_delta_chart", None),
+                               st.session_state.pop("sv_delta2_chart", None)),
+        )
+        _sv_use2 = _sv_mode == "Last 2 values"
+        _sv_note = "matched on last 2 values" if _sv_use2 else None
+
+        # Click-to-filter lives in a fragment so a bar click reruns only the chart
+        # and its controls, not the whole 2,500-line page.
+        @st.fragment
+        def _sv_fragment(matches, current_seq, y_range, y_label, group_bucket, wkey, mobile, mode_note):
+            # The chart renders before this run's click event can reach it, so read
+            # the prior run's stored selection to pick the highlighted bin.
+            _sel_bin = None
+            _wstate = st.session_state.get(wkey)
+            if _wstate and _wstate.get("selection", {}).get("points"):
+                _bpts = [p for p in _wstate["selection"]["points"]
+                         if p.get("curve_number") == utils.SEQ_VIEWER_BAR_TRACE]
+                if _bpts:
+                    _pi = _bpts[0].get("point_index", _bpts[0].get("point_number"))
+                    _sel_bin = int(_pi) if _pi is not None else None
+            st.plotly_chart(
+                utils.sequence_viewer_figure(
+                    matches, current_seq=current_seq, y_range=y_range, y_label=y_label,
+                    group_bucket=group_bucket, selected_bin=_sel_bin, mode_note=mode_note,
+                    mobile=mobile,
+                ),
+                use_container_width=True, on_select="rerun", key=wkey,
+                config={"displayModeBar": False},
+            )
+            if _sel_bin is not None:
+                st.button("Clear filter", key=f"{wkey}_clear",
+                          on_click=lambda: st.session_state.pop(wkey, None))
+            st.caption("Click an outcome bar to filter the paths to that next-value bin.")
+
+        _sv_pitch_tab, _sv_delta_tab, _sv_delta2_tab = st.tabs(["Pitch #", "Delta", "Delta²"])
+        with _sv_pitch_tab:
+            if _h_prior_pitch is None or (_sv_use2 and _h_prior_pitch2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_hz_bkt, _h_prior_pitch,
+                    prior_val2=_h_prior_pitch2 if _sv_use2 else None, domain="value")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_recent[-3:], (1, 1000), "Pitch value",
+                                 st.session_state.get("hz_follow_bucket_p", 200),
+                                 "sv_pitch_chart", _is_mobile, _sv_note)
+        with _sv_delta_tab:
+            if _h_prior_delta is None or (_sv_use2 and _h_prior_delta2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_dd_bkt, _h_prior_delta,
+                    prior_val2=_h_prior_delta2 if _sv_use2 else None, domain="delta")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_delta_hist[-3:], (0, 500), "|Δ|",
+                                 _h_dd_bkt, "sv_delta_chart", _is_mobile, _sv_note)
+        with _sv_delta2_tab:
+            if _h_prior_d2sq is None or (_sv_use2 and _h_prior_d2sq2 is None):
+                st.caption("No historical matches for this context.")
+            else:
+                _sv_res = utils.sequence_matches(
+                    df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq,
+                    prior_val2=_h_prior_d2sq2 if _sv_use2 else None, domain="delta2")
+                if not _sv_res:
+                    st.caption("No historical matches for this context.")
+                else:
+                    _sv_fragment(_sv_res["matches"], _h_d2sq_hist[-3:], (0, 500), "|Δ²|",
+                                 _h_dd2_bkt, "sv_delta2_chart", _is_mobile, _sv_note)
+
+        # ── swing predictor ───────────────────────────────────────────────────
+        st.subheader("Swing Analyzer")
+
+        if result_ranges:
+            with st.expander("Relevance Weighting", expanded=not _simple_mode):
+                st.caption("Weight how recent pitches influence the Optimal Swing. At 50 on Recency and Result and 0 on State, weighting is equal for each recent pitch.")
+                _prw1, _prw2, _prw3 = st.columns(3)
+                with _prw1:
+                    st.markdown("**1 - Recency**")
+                    st.slider("Older vs Newer", 0, 100, value=50, key="p_rel_recency",
+                              help="50=equal. 0=weight older pitches more. 100=weight recent pitches more.")
+                    st.number_input("Weight", 0, 100, value=20, step=1, key="p_rel_g1")
+                with _prw2:
+                    st.markdown("**2 - Result**")
+                    st.slider("Pitcher vs Batter", 0, 100, value=50, key="p_rel_result",
+                              help="50=equal. 0=upweight good pitching results (K, DP). 100=upweight good batting results (HR, XBH).")
+                    st.number_input("Weight ", 0, 100, value=40, step=1, key="p_rel_g2")
+                    st.toggle("Previous result", key="p_rel_result_offset", value=True,
+                              help="Weight each pitch by the result of the previous pitch instead of its own result.")
+                with _prw3:
+                    st.markdown("**3 - State**")
+                    st.slider("Any vs Similar", 0, 100, value=0, key="p_rel_state",
+                              help="50=equal. 100=upweight pitches from similar OBC + outs situations.")
+                    st.number_input("Weight  ", 0, 100, value=40, step=1, key="p_rel_g3")
+                _prg1 = st.session_state.get("p_rel_g1", 20)
+                _prg2 = st.session_state.get("p_rel_g2", 40)
+                _prg3 = st.session_state.get("p_rel_g3", 40)
+                _prg_tot = max(_prg1 + _prg2 + _prg3, 1)
+                st.caption(
+                    f"Normalized: Recency {_prg1/_prg_tot*100:.0f}% | "
+                    f"Result {_prg2/_prg_tot*100:.0f}% | "
+                    f"State {_prg3/_prg_tot*100:.0f}%"
+                )
+
+            _df_tick_p = _pa_df_p if not _pa_df_p.empty else pd.DataFrame(columns=["id","pitch","swing"])
+            _tick_lbl_p = f"Last {n_pitches} pitches (pre-AB)" if hist_id and not df_p_pred.empty \
+                          else f"Last {n_pitches} pitches"
+            st.plotly_chart(
+                utils.swing_predictor_chart(_df_tick_p, swing=int(st.session_state["pred_swing"]), n=n_pitches,
+                                            result_ranges=active_ranges, tick_label=_tick_lbl_p,
+                                            tick_weights=_pa_weights_p, obr_extra=_obr_extra_p),
+                width="stretch", key="p_swing_pred",
+            )
+
+            st.markdown("**Optimal Swing**")
+            _recent_p = _pa_df_p["pitch"].astype(int).tolist() if not _pa_df_p.empty else []
+            _delta_p  = utils.project_from_deltas(_recent_p)
+            _delta2_p = utils.project_from_delta2s(_recent_p)
+            _delta_weights_p  = (_pa_weights_p[1:] if len(_pa_weights_p) > 1 else None)
+            _delta2_weights_p = (
+                [w for w in _pa_weights_p[2:] for _ in range(2)]
+                if len(_pa_weights_p) > 2 else None
+            )
+            _opt_rows_p = [
+                ("Based on Recent Pitch Values", _recent_p,  _pa_weights_p or None),
+                ("Based on Recent Pitch Δ",      _delta_p,   _delta_weights_p),
+                ("Based on Recent Pitch Δ²",     _delta2_p,  _delta2_weights_p),
+            ]
+            st.markdown("""<style>
+button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #2ca02c !important;
+}
+button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pills"] {
+    border: 1.5px solid #d62728 !important;
+}
+</style>""", unsafe_allow_html=True)
+            if _simple_mode:
+                col_obp_p = st.columns(1)[0]
+            else:
+                col_obp_p, col_slg_p = st.columns(2)
+            with col_obp_p:
+                st.markdown("**OBP Optimal Swing**" if _simple_mode else "**OBP**")
+                for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
+                    st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
+                                unsafe_allow_html=True)
+                    if _vals:
+                        _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "obp", True, weights=_wts, obr_extra=_obr_extra_p)
+                        _sig_p_obp_tgt = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="best", obr_extra=_obr_extra_p)
+                        _sig_p_obp_avd = utils.swing_signal_strength(_vals, active_ranges, "obp", True, weights=_wts, zone="worst", obr_extra=_obr_extra_p)
+                        _pk = f"pill_obp_{_i}_p"
+                        _opts = {
+                            f"↑ {_bv} ({_bs:.3f}) · {_sig_p_obp_tgt:.0f}%": _bv,
+                            f"↓ {_cv} ({_cs:.3f}) · {_sig_p_obp_avd:.0f}%": _cv,
+                        }
+                        _sel = st.pills("", list(_opts.keys()), key=_pk)
+                        if _sel:
+                            st.session_state["_pend_swing"] = _opts[_sel]
+                            st.session_state.setdefault("_pills_rst_p", []).append(_pk)
+                            st.rerun()
+                        st.plotly_chart(
+                            utils.optimal_swing_chart(_vals, active_ranges, "obp", True,
+                                                      compact=True, weights=_wts, obr_extra=_obr_extra_p),
+                            use_container_width=True, key=f"p_opt_obp_{_i}")
+            if not _simple_mode:
+                with col_slg_p:
+                    st.markdown("**SLG**")
+                    for _i, (_lbl, _vals, _wts) in enumerate(_opt_rows_p):
+                        st.markdown(f"<div style='font-size:0.8rem;opacity:0.6;margin-bottom:-1.3rem'>{_lbl}</div>",
+                                    unsafe_allow_html=True)
+                        if _vals:
+                            _bv, _bs, _cv, _cs = utils.suggest_swing(_vals, active_ranges, "slg", True, weights=_wts)
+                            _sig_p_slg_tgt = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="best")
+                            _sig_p_slg_avd = utils.swing_signal_strength(_vals, active_ranges, "slg", True, weights=_wts, zone="worst")
+                            _pk = f"pill_slg_{_i}_p"
+                            _opts = {
+                                f"↑ {_bv} ({_bs:.3f}) · {_sig_p_slg_tgt:.0f}%": _bv,
+                                f"↓ {_cv} ({_cs:.3f}) · {_sig_p_slg_avd:.0f}%": _cv,
+                            }
+                            _sel = st.pills("", list(_opts.keys()), key=_pk)
+                            if _sel:
+                                st.session_state["_pend_swing"] = _opts[_sel]
+                                st.session_state.setdefault("_pills_rst_p", []).append(_pk)
+                                st.rerun()
+                            st.plotly_chart(
+                                utils.optimal_swing_chart(_vals, active_ranges, "slg", True,
+                                                          compact=True, weights=_wts),
+                                use_container_width=True, key=f"p_opt_slg_{_i}")
+        else:
+            if pred_mode == "Fetch Live Matchup":
+                st.info("Select a matchup above to enable the predictor.")
+
+        # ── swing suggestions panel ───────────────────────────────────────────
+        with st.expander("Swing Suggestions", expanded=True):
+            def _hstr(prob, n, n_bkts):
+                pct = prob * 100
+                exp = 100.0 / n_bkts
+                return f"{pct:.0f}% ({pct-exp:+.0f}%) n={n}"
+
+            _hint_rows_p = []
+            _h_dd_n = 500 // _h_dd_bkt
+            _h_dd2_n = 500 // _h_dd2_bkt
+            _h_hz_n = 1000 // _h_hz_bkt
+            _hint_centered_p = st.session_state.get("hint_centered_p", True)
+
+            # OBP rows (always at top when matchup is loaded)
+            if result_ranges and _h_recent:
+                _h_pa_df = (
+                    df_p_pred[df_p_pred["pitch"].notna()].sort_values("id").tail(n_pitches)
+                    if not df_p_pred.empty else pd.DataFrame()
+                )
+                _h_rel_kw = dict(
+                    recency_slider=st.session_state.get("p_rel_recency", 50),
+                    result_slider=st.session_state.get("p_rel_result", 50),
+                    state_slider=st.session_state.get("p_rel_state", 0),
+                    g1=st.session_state.get("p_rel_g1", 20),
+                    g2=st.session_state.get("p_rel_g2", 40),
+                    g3=st.session_state.get("p_rel_g3", 40),
+                    result_offset=bool(st.session_state.get("p_rel_result_offset", True)),
+                )
+                _h_wts   = utils.compute_pa_weights(_h_pa_df, _h_obc, _h_outs, **_h_rel_kw) if not _h_pa_df.empty else []
+                _h_dwts  = _h_wts[1:] if len(_h_wts) > 1 else None
+                _h_d2wts = [w for w in _h_wts[2:] for _ in range(2)] if len(_h_wts) > 2 else None
+                _h_dvals  = utils.project_from_deltas(_h_recent)
+                _h_d2vals = utils.project_from_delta2s(_h_recent)
+                _h_obp_p  = utils.obp_zone_signal(_h_recent,  active_ranges, _h_wts or None, True, obr_extra=_obr_extra_p)
+                _h_obp_d  = utils.obp_zone_signal(_h_dvals,   active_ranges, _h_dwts,        True, obr_extra=_obr_extra_p)
+                _h_obp_d2 = utils.obp_zone_signal(_h_d2vals,  active_ranges, _h_d2wts,       True, paired=True, obr_extra=_obr_extra_p)
+                _hint_rows_p.append({"Signal": "OBP recent pitch",
+                                     "lo": _h_obp_p["lo"] if _h_obp_p else None,
+                                     "hi": _h_obp_p["hi"] if _h_obp_p else None,
+                                     "Strength": _hstr(_h_obp_p["prob"], _h_obp_p["n"], _h_obp_p["n_bkts"]) if _h_obp_p else "",
+                                     "_zscore": _h_obp_p["z"] if _h_obp_p else None,
+                                     "_best_zone_only": True})
+                _hint_rows_p.append({"Signal": "OBP recent Δ",
+                                     "lo": _h_obp_d["lo"] if _h_obp_d else None,
+                                     "hi": _h_obp_d["hi"] if _h_obp_d else None,
+                                     "Strength": _hstr(_h_obp_d["prob"], _h_obp_d["n"], _h_obp_d["n_bkts"]) if _h_obp_d else "",
+                                     "_zscore": _h_obp_d["z"] if _h_obp_d else None,
+                                     "_best_zone_only": True})
+                _hint_rows_p.append({"Signal": "OBP recent Δ²",
+                                     "lo": _h_obp_d2["lo"] if _h_obp_d2 else None,
+                                     "hi": _h_obp_d2["hi"] if _h_obp_d2 else None,
+                                     "Strength": _hstr(_h_obp_d2["prob"], _h_obp_d2["n"], _h_obp_d2["n_bkts"]) if _h_obp_d2 else "",
+                                     "_zscore": _h_obp_d2["z"] if _h_obp_d2 else None,
+                                     "_best_zone_only": True})
+
+            def _delta_row_p(signal, h_dict, n_bkts):
+                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
+                _dc = h_dict.get("all_counts")
+                _dd_bkt_z = h_dict.get("delta_bucket_size", _h_dd_bkt)
+                extra = []
+                if _h_prior_pitch is not None:
+                    _all_bkts = [(h_dict["delta_lo"], h_dict["delta_hi"])] + h_dict.get("tied_buckets", [])
+                    _merged = utils.merge_delta_ranges(_all_bkts)
+                    _arms = []
+                    for _mlo, _mhi in _merged:
+                        _arms.extend(utils.delta_to_pitch_ranges(_h_prior_pitch, _mlo, _mhi))
+                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
+                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
+                    extra = [a for a in _arms[2:] if a[0] is not None]
+                    return {"Signal": signal,
+                            "lo": r1[0], "hi": r1[1],
+                            "lo2": r2[0], "hi2": r2[1],
+                            "extra_ranges": extra,
+                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                            "_zscore": _zs,
+                            "_delta_counts": _dc,
+                            "_prior_pitch_for_zone": _h_prior_pitch,
+                            "_dd_bkt_for_zone": _dd_bkt_z}
+                return {"Signal": signal, "lo": None, "hi": None,
+                        "extra_ranges": extra,
+                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                        "_zscore": _zs,
+                        "_delta_counts": _dc,
+                        "_prior_pitch_for_zone": _h_prior_pitch,
+                        "_dd_bkt_for_zone": _dd_bkt_z}
+
+            def _delta2_row_p(signal, h_dict, n_bkts):
+                # Compound a predicted |Δ²| bucket into next-pitch arms, mirroring
+                # project_from_delta2s: keep the SIGNED last delta L and form L ± d2.
+                # Needs the prior TWO pitches for L (not the unsigned _h_prior_delta).
+                _zs = utils.hint_zscore(h_dict["prob"], h_dict["n"], n_bkts)
+                if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
+                    _L = utils.circular_signed_delta(_h_prior_pitch2, _h_prior_pitch)
+                    _all_bkts = [(h_dict["d2_lo"], h_dict["d2_hi"])] + h_dict.get("tied_buckets", [])
+                    _merged_d2 = utils.merge_delta_ranges(_all_bkts)
+                    _arms = []
+                    for _d2lo, _d2hi in _merged_d2:
+                        _arms.extend(utils.delta2_to_pitch_ranges(_h_prior_pitch, _L, _d2lo, _d2hi))
+                    r1 = _arms[0] if len(_arms) > 0 else (None, None)
+                    r2 = _arms[1] if len(_arms) > 1 else (None, None)
+                    extra = list(_arms[2:])
+                    return {"Signal": signal,
+                            "lo": r1[0], "hi": r1[1],
+                            "lo2": r2[0], "hi2": r2[1],
+                            "extra_ranges": extra,
+                            "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                            "_zscore": _zs,
+                            "_d2sq_counts": h_dict.get("all_counts"),
+                            "_last_delta_for_zone": _L,
+                            "_prior_pitch_for_zone": _h_prior_pitch,
+                            "_dd2_bkt_for_zone": h_dict.get("d2_bucket_size", _h_dd2_bkt)}
+                return {"Signal": signal, "lo": None, "hi": None,
+                        "extra_ranges": [],
+                        "Strength": _hstr(h_dict["prob"], h_dict["n"], n_bkts),
+                        "_zscore": _zs}
+
+            if _h_prior_delta is not None:
+                _h = utils.seq2_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("2-Δ seq", _h, _h_dd_n))
+
+            if _h_prior_delta is not None and _h_prior_delta2 is not None:
+                _h = utils.seq3_delta_hint(df_p, "pitch", _h_dd_bkt, _h_prior_delta2, _h_prior_delta, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("3-Δ seq", _h, _h_dd_n))
+
+            if _h_prior_d2sq is not None:
+                _h = utils.seq2_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta2_row_p("2-Δ² seq", _h, _h_dd2_n))
+
+            if _h_prior_d2sq is not None and _h_prior_d2sq2 is not None:
+                _h = utils.seq3_delta2_hint(df_p, "pitch", _h_dd2_bkt, _h_prior_d2sq2, _h_prior_d2sq, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta2_row_p("3-Δ² seq", _h, _h_dd2_n))
+
+            if _h_prior_diff is not None:
+                _h = utils.diff_to_delta_hint(df_p, "pitch", _h_prior_diff, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Prior diff → Δ", _h, 5))
+
+            if _h_prior_rescat is not None:
+                _h = utils.prior_result_delta_hint(df_p, "pitch", _h_prior_rescat)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Prior result → Δ", _h, 5))
+
+            if _h_prior_rescat is not None and _h_prior_rescat2 is not None:
+                _h = utils.result_seq_delta_hint(df_p, "pitch", _h_prior_rescat2, _h_prior_rescat)
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Result seq → Δ", _h, 5))
+
+            if _h_prior_pitch is not None:
+                _h = utils.seq2_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append({"Signal": "2-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
+                                         "_zone_dist": utils.seq2_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch, centered=_hint_centered_p),
+                                         "_zone_bucket_size": _h_hz_bkt,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
+
+            if _h_prior_pitch is not None and _h_prior_pitch2 is not None:
+                _h = utils.seq3_hint(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch, centered=_hint_centered_p)
+                if _h:
+                    _hint_rows_p.append({"Signal": "3-pitch seq",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "Strength": _hstr(_h["prob"], _h["n"], _h_hz_n),
+                                         "_zone_dist": utils.seq3_zone_dist(df_p, "pitch", _h_hz_bkt, _h_prior_pitch2, _h_prior_pitch, centered=_hint_centered_p),
+                                         "_zone_bucket_size": _h_hz_bkt,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], _h_hz_n)})
+
+            if "obc" in df_p.columns:
+                _obc_is_zero = (_h_obc == "000")
+                _obc_mask_p  = df_p["obc"] == "000" if _obc_is_zero else df_p["obc"] != "000"
+                _obc_lbl_p   = "Empty" if _obc_is_zero else "Runner(s) on"
+                _h = utils.best_zone_hint(df_p[_obc_mask_p], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": f"Base state ({_obc_lbl_p})",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
+
+            _cur_game_id  = st.session_state.get("game_tab_sel")
+            _cur_inn      = int(st.session_state.get("mgr_inning", 1))
+            _p_last_sw    = df_p[df_p["pitch"].notna()].sort_values("id")
+            _p_last_row   = _p_last_sw.iloc[-1] if not _p_last_sw.empty else None
+            _p_last_game  = (int(_p_last_row["game_id"]) if _p_last_row is not None
+                             and pd.notna(_p_last_row.get("game_id")) else None)
+            _p_last_inn   = (int(_p_last_row["inning"]) if _p_last_row is not None
+                             and pd.notna(_p_last_row.get("inning")) else None)
+            _show_fp_app_p = (_cur_game_id is not None
+                              and (_p_last_game is None or _p_last_game != _cur_game_id))
+            _show_fp_inn_p = (_cur_game_id is not None
+                              and (_p_last_game is None or _p_last_game != _cur_game_id
+                                   or _p_last_inn != _cur_inn))
+
+            if _show_fp_app_p:
+                _h = utils.between_game_delta_hint(df_p, "pitch")
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Between-Game Δ", _h, 5))
+
+            if _show_fp_inn_p and not _show_fp_app_p:
+                _h = utils.between_inning_delta_hint(df_p, "pitch")
+                if _h:
+                    _hint_rows_p.append(_delta_row_p("Between-Inning Δ", _h, 5))
+
+            if "is_fp_inn" in df_p.columns and _show_fp_inn_p:
+                _h = utils.best_zone_hint(df_p[df_p["is_fp_inn"] == True], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": "1st pitch inning",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
+
+            if "is_fp_app" in df_p.columns and _show_fp_app_p:
+                _h = utils.best_zone_hint(df_p[df_p["is_fp_app"] == True], "pitch")
+                if _h:
+                    _hint_rows_p.append({"Signal": "1st pitch appearance",
+                                         "lo": _h["lo"], "hi": _h["hi"],
+                                         "lo2": _h.get("lo2"), "hi2": _h.get("hi2"),
+                                         "Strength": _hstr(_h["prob"], _h["n"], len(utils.ZONES)),
+                                         "_zone_dist": _h.get("_zone_dist"),
+                                         "_zone_bucket_size": 100,
+                                         "_zscore": utils.hint_zscore(_h["prob"], _h["n"], len(utils.ZONES))})
+
+            # Sort ALL rows by z-score descending - OBP rows are no longer pinned
+            # at top; their z-scores are now on the same statistical footing as
+            # every other indication, so they compete in the same ranking.
+            _hint_rows_p.sort(key=lambda r: r.get("_zscore", 0.0), reverse=True)
+
+            # Scouting-recency stoplight: attach a state to each matching row. The
+            # Outs(...) and Base state (...) Signals are dynamic, so map them to
+            # the engine's canonical keys. OBP rows get their own backtest-driven
+            # states (separate loader/cache), merged in below.
+            _stop_states = {}
+            _insp_order = list(_STOPLIGHT_ORDER)
+            # Keys for the OBP loaders - always defined when a pitcher is selected
+            # so the inspector call below can reference them regardless of gating.
+            _obp_ranges_key = tuple(tuple(r) for r in (active_ranges or []))
+            _obp_rel_key = (
+                st.session_state.get("p_rel_recency", 50),
+                st.session_state.get("p_rel_result", 50),
+                st.session_state.get("p_rel_state", 0),
+                st.session_state.get("p_rel_g1", 20),
+                st.session_state.get("p_rel_g2", 40),
+                st.session_state.get("p_rel_g3", 40),
+                bool(st.session_state.get("p_rel_result_offset", True)),
+            )
+            # Per-kind slider widths define the OBP signals, so they double as the
+            # cache key: pitch <- following-bucket, delta <- dd, delta2 <- dd2.
+            _obp_widths_key = (
+                int(st.session_state.get("hz_follow_bucket_p", 200)),
+                int(_h_dd_bkt), int(_h_dd2_bkt),
+            )
+            if tab_p_pitcher != "All":
+                _stop_states = _load_pitcher_stoplights(
+                    tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                    int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt), utils.scouting_cache_sig(),
+                )
+                if result_ranges:
+                    _stop_states.update(_load_pitcher_obp_stoplights(
+                        tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                        int(n_pitches), _obp_ranges_key, _obp_rel_key, _obp_widths_key,
+                        utils.scouting_cache_sig(),
+                    ))
+                _order_seen = []
+                for _r in _hint_rows_p:
+                    _sig = _r["Signal"]
+                    if _sig.startswith("Outs("):
+                        _key = "Outs"
+                    elif _sig.startswith("Base state ("):
+                        _key = "Base state"
+                    else:
+                        _key = _sig
+                    _st = _stop_states.get(_key)
+                    if _st and _st.get("state"):
+                        _r["_stoplight"] = _st["state"]
+                    if _key in _STOPLIGHT_ORDER and _key not in _order_seen:
+                        _order_seen.append(_key)
+                # Inspector follows the Suggestions order (z-score); any indication
+                # not currently displayed is appended in canonical order.
+                _insp_order = _order_seen + [k for k in _STOPLIGHT_ORDER if k not in _order_seen]
+
+            if _hint_rows_p:
+                _tc1, _tc2 = st.columns(2)
+                with _tc1:
+                    _hint_all_p = st.toggle("All zones", value=False, key="hint_all_p")
+                with _tc2:
+                    _hint_centered_p = st.toggle("Centered", value=True, key="hint_centered_p")
+                _hp_swing_val = int(st.session_state["pred_swing"]) if "pred_swing" in st.session_state and result_ranges else None
+                _hp_obr_lo = _hp_obr_hi = None
+                if _hp_swing_val is not None:
+                    _hp_obr_max = max((hi for _, _lo, hi in active_ranges if _ in (utils._OBR | _obr_extra_p)), default=0)
+                    if _hp_obr_max:
+                        _hp_obr_lo = ((_hp_swing_val - _hp_obr_max - 1) % 1000) + 1
+                        _hp_obr_hi = ((_hp_swing_val + _hp_obr_max - 1) % 1000) + 1
+                _sugg_tab, _insp_tab = st.tabs(["Suggestions", "Inspector"])
+                with _sugg_tab:
+                    st.plotly_chart(
+                        utils.hint_bars_figure(
+                            _hint_rows_p,
+                            mode="all" if _hint_all_p else "best",
+                            mobile=_is_mobile,
+                            prior_val=_h_prior_pitch,
+                            prior_val2=_h_prior_pitch2,
+                            swing_val=_hp_swing_val,
+                            obr_lo=_hp_obr_lo,
+                            obr_hi=_hp_obr_hi,
+                        ),
+                        use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
+                with _insp_tab:
+                    if tab_p_pitcher == "All" or not _stop_states:
+                        st.caption("Select a specific pitcher to inspect the scouting-recency calc.")
+                    else:
+                        _stoplight_inspector(
+                            tab_p_pitcher, _leagues_tuple, st.session_state.get("_data_v", 0),
+                            int(n_pitches), int(_h_hz_bkt), int(_h_dd_bkt), int(_h_dd2_bkt),
+                            _obp_ranges_key, _obp_rel_key, _obp_widths_key, _stop_states, _insp_order,
+                        )
+            elif not result_ranges or not _h_recent:
+                st.caption("Fetch a matchup and select a pitcher to see suggestions.")
+            else:
+                st.caption("Not enough history to generate sequence suggestions.")
+
+        # Captured BEFORE the rebind below - Behavioral Tendencies/
+        # Tendencies Over Time (further down) want this pitcher's FULL
+        # career history, not truncated to before a loaded historical
+        # play the way every other section below the rebind wants.
+        _df_p_full_p = df_p
 
         # rebind so all sections below are ITD
         df_p = df_p_pred
@@ -2856,7 +3228,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         st.divider()
         with st.expander("Pitch Analysis", expanded=not _simple_mode):
             st.subheader("Next Pitch Delta vs Prior Pitch Delta")
-            st.caption("How does a pitcher adjust their next pitch movement based on their previous pitch movement?")
             dd_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_p")
             st.plotly_chart(
                 utils.next_delta_vs_prior_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Pitch Δ", value_col="pitch", bucket_size=dd_bucket_p),
@@ -2897,7 +3268,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             st.divider()
             st.subheader("Next Pitch Delta² vs Prior Pitch Delta²")
-            st.caption("How does the size of the pitcher's adjustment change from one pitch to the next?")
             dd2_bucket_p = st.select_slider("Bucket size (Δ²)", options=[25, 50, 100, 125, 250, 500], value=100, key="dd2_bucket_p")
             st.plotly_chart(
                 utils.next_delta2_vs_prior_delta2_heatmap(df_p, title="Next Pitch Δ² vs Prior Pitch Δ²", value_col="pitch", bucket_size=dd2_bucket_p),
@@ -2938,7 +3308,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             st.divider()
             st.subheader("Next Pitch Delta vs Prior Diff")
-            st.caption("How does a pitcher adjust their next pitch based on how close the previous swing was?")
             st.plotly_chart(
                 utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
                 width="stretch", config={"displayModeBar": False}, key="p_diff_delta_hm",
@@ -2946,7 +3315,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             st.divider()
             st.subheader("Next Pitch Delta vs Prior Result")
-            st.caption("How does a pitcher adjust their next pitch based on how the previous plate appearance ended?")
             st.plotly_chart(
                 utils.next_pitch_delta_vs_prior_result_heatmap(df_p, title="Next Pitch Δ vs Prior Result"),
                 width="stretch", config={"displayModeBar": False}, key="p_result_delta_hm",
@@ -2954,7 +3322,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             st.divider()
             st.subheader("Next Pitch Delta following a Result Sequence")
-            st.caption("Two plate appearances ago, then the most recent one - what does the pitcher's next adjustment look like?")
             _rs_cats = utils.SEQ_RESULT_CATEGORIES
             # Default both boxes to the pitcher's own last two result categories,
             # mirroring how the Δ/Δ² Initial/Following inputs default from history.
@@ -2989,7 +3356,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             # ── hot zone ─────────────────────────────────────────────────────────
             st.divider()
             st.subheader("Hot Zone Pitch Matrix")
-            st.caption("How often each pitch range is followed by each other pitch range. Click a cell to see the 3rd pitch distribution.")
             _hzp_sl1, _hzp_sl2 = st.columns(2)
             with _hzp_sl1:
                 init_bucket_p   = st.select_slider("Initial bucket size",   options=[50,100,125,200,250,500], value=200, key="hz_init_bucket_p")
@@ -3137,7 +3503,6 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
                 # ── pitch delta distributions ─────────────────────────────────────────
                 st.subheader("Pitch Delta Distributions")
-                st.caption("Left: last pitch of one inning → first of next. Middle: last pitch of one game → first of next. Right: consecutive at-bats within the same game.")
                 _inn_deltas_p  = utils.between_inning_deltas(df_p, value_col="pitch")
                 _game_deltas_p = utils.between_game_deltas(df_p, value_col="pitch")
                 _p_delta_signed = st.toggle("Signed", value=True, key="p_delta_signed",
@@ -3175,450 +3540,47 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 else:
                     st.caption("Need at least 2 at-bats from the same pitcher.")
 
-                # ── pitch zone cooldown ─────────────────────────────────────────────
-                st.subheader("Pitch Zone Cooldown")
-                st.caption(
-                    "For every historical pitch that gave up a result, what's the % chance "
-                    "(across this pitcher's full history) that they'd have thrown another "
-                    "pitch value back within the radius of that same pitch by X pitches "
-                    "later? Grouped by what the triggering pitch resulted in. Yellow diamonds "
-                    "are still-open cooldowns sitting on the curve - reading their height "
-                    "answers 'what's the chance they'd have returned by now' - labeled below "
-                    "the axis with their specific result and the trigger pitch value.")
-                _cd_bucket_p = st.select_slider(
-                    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
-                    help="Same bucket sizes as the Hot Zone Pitch Matrix. A later pitch "
-                         "must land within +/- half this width (circular pitch-value "
-                         "distance) of the trigger pitch to count as 'returning' to that "
-                         "zone.")
-                _cd_radius_p = _cd_bucket_p / 2
-                _cd_events_p = utils.cooldown_events(df_p, value_col="pitch", radius=_cd_radius_p)
-                if _cd_events_p.empty:
-                    st.caption("Not enough history to compute cooldown returns.")
-                else:
-                    # Stack single-column on mobile so the categories read top
-                    # to bottom in SEQ_RESULT_CATEGORIES order - a 2-col grid
-                    # would otherwise interleave as XBH, Out, BB-1B, K+ once
-                    # narrow columns stack.
-                    _cd_n_cols_p = 1 if _is_mobile else 2
-                    _cd_cols_p = st.columns(_cd_n_cols_p)
-                    for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
-                        _cd_cat_events_p = _cd_events_p[_cd_events_p["category"] == _cd_cat]
-                        _cd_resolved_p = _cd_cat_events_p.loc[_cd_cat_events_p["resolved"], "pitches"]
-                        _cd_live_p = _cd_cat_events_p.loc[~_cd_cat_events_p["resolved"]]
-                        with _cd_cols_p[_cd_i % _cd_n_cols_p]:
-                            if not _cd_resolved_p.empty or not _cd_live_p.empty:
-                                st.plotly_chart(
-                                    utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p),
-                                    width="stretch", config={"displayModeBar": False},
-                                    key=f"p_cooldown_{_cd_cat}",
-                                )
-                            else:
-                                st.caption(f"No {_cd_cat} triggers yet.")
-
-                    # ── all categories overlaid on one CDF ───────────────────────────
-                    st.markdown("**All Categories**")
-                    st.caption(
-                        "All four categories' cooldown curves on one chart, colored the "
-                        "same as the Open Cooldowns dots below, so you can compare how "
-                        "fast each one typically resolves.")
-                    st.plotly_chart(
-                        utils.cooldown_cdf_overlay_chart(_cd_events_p),
-                        width="stretch", config={"displayModeBar": False},
-                        key="p_cooldown_overlay",
-                    )
-
-                    # ── open cooldowns, all categories at once ──────────────────────
-                    _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
-                    if not _cd_live_all_p.empty:
-                        st.markdown("**Open Cooldowns**")
-                        st.caption(
-                            "Every currently open cooldown across all categories at once, on "
-                            "the same 1-1000 pitch wheel used elsewhere on this tab. The ring "
-                            "is the +/- radius zone around every open trigger, colored blue "
-                            "(low) to red (high) by the historical chance a cooldown would "
-                            "already be closed within one more pitch than this one has run - "
-                            "overlapping zones average together. Dots mark each open trigger's "
-                            "pitch, colored by its result category and positioned by relative "
-                            "recency (newer toward the rim).")
-                        st.plotly_chart(
-                            utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
-                            width="stretch", config={"displayModeBar": False},
-                            key="p_cooldown_radial",
-                        )
-
-                # ── delta cooldown ───────────────────────────────────────────────
-                st.subheader("Delta Cooldown")
-                st.caption(
-                    "Same question as Pitch Zone Cooldown, but the trigger/return value is "
-                    "the pitch-to-pitch MOVE (Δ, pitch_circ_delta) rather than the pitch's own "
-                    "absolute value: for every historical pitch that gave up a result, what's "
-                    "the % chance they'd have thrown another pitch whose own move into it was "
-                    "within the radius of that same move, by X pitches later? Yellow diamonds "
-                    "are still-open delta cooldowns sitting on the curve, labeled below the "
-                    "axis with their specific result and the trigger delta (signed).")
-                _dcd_bucket_p = st.select_slider(
-                    "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_delta_cooldown_bucket",
-                    help="A later pitch's own delta must land within +/- half this width "
-                         "(circular delta distance) of the trigger delta to count as "
-                         "'returning' to that move size.")
-                _dcd_radius_p = _dcd_bucket_p / 2
-                _dcd_events_p = utils.cooldown_events(df_p, value_col="pitch_circ_delta", radius=_dcd_radius_p)
-                if _dcd_events_p.empty:
-                    st.caption("Not enough history to compute delta cooldown returns.")
-                else:
-                    _dcd_n_cols_p = 1 if _is_mobile else 2
-                    _dcd_cols_p = st.columns(_dcd_n_cols_p)
-                    for _dcd_i, _dcd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
-                        _dcd_cat_events_p = _dcd_events_p[_dcd_events_p["category"] == _dcd_cat]
-                        _dcd_resolved_p = _dcd_cat_events_p.loc[_dcd_cat_events_p["resolved"], "pitches"]
-                        _dcd_live_p = _dcd_cat_events_p.loc[~_dcd_cat_events_p["resolved"]]
-                        with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
-                            if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
-                                st.plotly_chart(
-                                    utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat,
-                                                              live=_dcd_live_p, signed=True),
-                                    width="stretch", config={"displayModeBar": False},
-                                    key=f"p_delta_cooldown_{_dcd_cat}",
-                                )
-                            else:
-                                st.caption(f"No {_dcd_cat} triggers yet.")
-
-                    st.markdown("**All Categories**")
-                    st.caption(
-                        "All four categories' delta cooldown curves on one chart, colored the "
-                        "same as the Open Delta Cooldowns dots below.")
-                    st.plotly_chart(
-                        utils.cooldown_cdf_overlay_chart(_dcd_events_p, title="All Categories"),
-                        width="stretch", config={"displayModeBar": False},
-                        key="p_delta_cooldown_overlay",
-                    )
-
-                    _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
-                    if not _dcd_live_all_p.empty:
-                        st.markdown("**Open Delta Cooldowns**")
-                        st.caption(
-                            "Every currently open delta cooldown across all categories at once, "
-                            "on the same signed-delta wheel used by the Recent Deltas radial "
-                            "(0 at top, +/-500 meeting at the bottom spoke). Ring color and dot "
-                            "placement follow the same convention as the Open Cooldowns radial "
-                            "above, just keyed on delta instead of absolute pitch value.")
-                        st.plotly_chart(
-                            utils.cooldown_radial_chart(
-                                _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
-                                domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
-                                ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
-                            ),
-                            width="stretch", config={"displayModeBar": False},
-                            key="p_delta_cooldown_radial",
-                        )
             _zone_delta_section_p(df_p, _deltas_p, _obr_lo_p, _obr_hi_p, _pred_swing_val_p)
 
-        # ── combined pitch likelihood ────────────────────────────────────────────
-        st.divider()
-        with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
-            st.caption(
-                "All seven sequence/delta/cooldown/leverage signals above, pooled into one "
-                "prediction via the calibrated log-linear model (tools/pitch_likelihood_backtest.py). "
-                "Follows the same Matchup Setup -> Historical / Manual play import used by every other "
-                "chart on this tab: with no play loaded, this is a live read as of the most recent pitch "
-                "(not graded - there's no known outcome yet); with one loaded, history freezes strictly "
-                "before it, the leverage signal activates (it needs that play's own pre-pitch game state), "
-                "and the prediction is graded against what actually happened - the same frozen-history "
-                "computation the standalone Pitch Signal Autopsy tool's examples are built from."
+        # ── percentile card ───────────────────────────────────────────────────────
+        if tab_p_pitcher != "All" and not df_p.empty:
+            _pitcher_stats_df = _load_pitcher_stats()
+            _ma_percentiles   = _load_ma_percentiles()
+            _recent_df    = _df_p_full_p.sort_values("id").tail(n_pitches)
+            _recent_stats = utils.compute_recent_pitcher_stats(_recent_df)
+            _recent_n     = int(_recent_df["swing"].notna().sum())
+            _pct_fig = utils.pitcher_percentile_card(
+                tab_p_pitcher, _pitcher_stats_df,
+                recent_vals=_recent_stats if _recent_stats else None,
+                recent_n=_recent_n if _recent_stats else None,
+                player_id=_name_to_pid.get(tab_p_pitcher),
+                ma_percentiles=_ma_percentiles if _ma_percentiles else None,
             )
-
-            @st.fragment
-            def _pitch_likelihood_section_p(df_p, df_p_full, hist_id):
-                _pl_payload = None
-                if hist_id:
-                    _pl_payload = _pitch_likelihood_explain(
-                        df_p_full, tab_p_pitcher, hist_id, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
-                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
-                    )
-                    if _pl_payload is None:
-                        st.caption("Not enough history before this pitch yet (need at least 2 prior pitches).")
-                        return
-                    _pl = {"state": _pl_payload["state"], "baseline": _pl_payload["baseline"],
-                           "signals": _pl_payload["signals"], "combined": _pl_payload["combined"]}
+            with st.expander("Behavioral Tendencies", expanded=not _simple_mode):
+                if _pct_fig is not None:
+                    st.plotly_chart(_pct_fig, width="stretch",
+                                    config={"displayModeBar": False}, key="p_pct_card")
                 else:
-                    _pl = _pitch_likelihood_prediction(
-                        df_p, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
-                        leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
-                        # Same prospective game state the Context Filters
-                        # section's own live Leverage caption already reads -
-                        # activates the leverage signal here too instead of
-                        # always sitting it out in live mode.
-                        live_inning=_cf_gs_inn_p, live_half=_cf_gs_half_p, live_outs=_cf_gs_outs_p,
-                        live_obc=_cf_gs_obc_p, live_away_score=_cf_gs_away_p, live_home_score=_cf_gs_home_p,
-                    )
-                    if _pl is None:
-                        st.caption("Not enough history yet for a prediction (need at least 2 prior pitches).")
-                        return
+                    st.caption("No career stats on file - run Refresh Pitcher Stats on the Games page.")
 
-                _pl_state = _pl["state"]
-                st.caption(
-                    f"Most recent pitch: **{_pl_state['prev_pitch']}** &middot; "
-                    f"Most recent PA result: **{_pl_state['prev_result_cat'] or '(none yet)'}**"
-                    + (f" &middot; Leverage: **{_pl_state['target_leverage']:.2f}**"
-                       if _pl_state.get('target_leverage') is not None else "")
-                )
-                if _pl_payload is not None:
-                    _better = _pl_payload["logloss_combined"] < _pl_payload["logloss_baseline"]
-                    st.caption(
-                        f"Actual pitch thrown: **{_pl_payload['actual']}** &middot; "
-                        f"log-loss baseline **{_pl_payload['logloss_baseline']:.3f}** &rarr; "
-                        f"combined **{_pl_payload['logloss_combined']:.3f}** "
-                        f"({'better' if _better else 'worse'}) &middot; PIT **{_pl_payload['pit']:.3f}**"
-                    )
-                st.plotly_chart(
-                    utils.pitch_likelihood_density_chart(
-                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
-                    width="stretch", config={"displayModeBar": False}, key="p_pl_density",
-                )
-                st.plotly_chart(
-                    utils.pitch_likelihood_radial_chart(
-                        _pl["baseline"], _pl["signals"], _pl["combined"], dark_mode=_dark_mode),
-                    width="stretch", config={"displayModeBar": False}, key="p_pl_radial",
-                )
-
-                if result_ranges:
-                    st.markdown("**Expected Swing Score**")
-                    st.caption(
-                        "Companion to the radial above, same swing-value wheel and same baseline/signals/"
-                        "combined set - not probability density, but the OBP/SLG score utils."
-                        "expected_swing_scores expects from swinging at each value, via the FFT convolution "
-                        "of that density with the current matchup's result ranges. Stars mark baseline's "
-                        "and the model's own best swing (what suggest_swing_from_density picks) - the same "
-                        "choice the Suggested-Swing Backtest below replays historically; individual signals "
-                        "are shown unshrunk, so a thin one can look more confident here than the real model "
-                        "actually trusts it."
-                    )
-                    _pl_swing_metric = st.radio(
-                        "Metric", ["OBP", "SLG"], horizontal=True, key=f"p_pl_swing_metric_{tab_p_pitcher}",
-                    )
-                    _pl_swing_metric_key = "obp" if _pl_swing_metric == "OBP" else "slg"
-                    _pl_base_scores = utils.expected_swing_scores(
-                        _pl["baseline"], result_ranges, _pl_swing_metric_key)
-                    _pl_comb_scores = utils.expected_swing_scores(
-                        _pl["combined"], result_ranges, _pl_swing_metric_key)
-                    _pl_signal_scores = [
-                        {"name": s["name"],
-                         "scores": utils.expected_swing_scores(s["density"], result_ranges, _pl_swing_metric_key)}
-                        for s in _pl["signals"]
-                    ]
-                    st.plotly_chart(
-                        utils.expected_swing_score_radial_chart(
-                            _pl_base_scores, _pl_signal_scores, _pl_comb_scores, _pl_swing_metric,
-                            dark_mode=_dark_mode),
-                        width="stretch", config={"displayModeBar": False}, key="p_pl_swing_radial",
-                    )
-
-                    # Every indication's own best swing in one place - the
-                    # chart above only stars baseline/combined (any more
-                    # stars and it's unreadable), so this table is where the
-                    # other 7 signals' own suggested swing actually shows.
-                    _swing_table_rows = [{
-                        "Indication": "Baseline", "Best swing": int(np.argmax(_pl_base_scores)) + 1,
-                        _pl_swing_metric: float(np.max(_pl_base_scores)),
-                    }]
-                    _pl_signal_scores_by_name = {s["name"]: s["scores"] for s in _pl_signal_scores}
-                    for _sig_name in utils._PL_SIGNAL_ORDER:
-                        _sig_scores = _pl_signal_scores_by_name.get(_sig_name)
-                        if _sig_scores is None:
-                            continue
-                        _swing_table_rows.append({
-                            "Indication": utils._PL_SIGNAL_LABELS[_sig_name],
-                            "Best swing": int(np.argmax(_sig_scores)) + 1,
-                            _pl_swing_metric: float(np.max(_sig_scores)),
-                        })
-                    _swing_table_rows.append({
-                        "Indication": "Model (combined)", "Best swing": int(np.argmax(_pl_comb_scores)) + 1,
-                        _pl_swing_metric: float(np.max(_pl_comb_scores)),
-                    })
-                    st.dataframe(
-                        pd.DataFrame(_swing_table_rows), hide_index=True, width="stretch",
-                        column_config={_pl_swing_metric: st.column_config.NumberColumn(format="%.3f")},
-                    )
-
-                _pl_default_pitch = (_pl_payload["actual"] if _pl_payload is not None
-                                      else int(np.argmax(_pl["combined"])) + 1)
-                _pl_inspect = st.number_input(
-                    "Inspect pitch value", min_value=1, max_value=1000,
-                    value=_pl_default_pitch, step=1, key=f"p_pl_inspect_{tab_p_pitcher}",
-                    help="Defaults to the actual pitch thrown when grading a historical pitch, "
-                         "otherwise the model's own top-predicted value.",
-                )
-                st.plotly_chart(
-                    utils.pitch_likelihood_breakdown_chart(
-                        _pl["baseline"], _pl["signals"], DEFAULT_WEIGHTS, 20.0,
-                        int(_pl_inspect), dark_mode=_dark_mode),
-                    width="stretch", config={"displayModeBar": False}, key="p_pl_breakdown",
-                )
-
-            _pitch_likelihood_section_p(df_p, _df_p_full_for_pl_p, hist_id)
-
-        # ── suggested-swing backtest ─────────────────────────────────────────────
-        st.divider()
-        with st.expander("Suggested-Swing Backtest", expanded=False):
-            st.caption(
-                "Restates \"how well has pitch likelihood been predicting this pitcher\" in OBP/SLG "
-                "terms instead of log-loss: for each of this pitcher's last N pitches, what swing would "
-                "utils.suggest_swing_from_density have picked (to maximize OBP or SLG, via the current "
-                "matchup's result ranges below) against the BASELINE density vs. against the COMBINED "
-                "model's density - then diffed against the pitch actually thrown to get a real result. "
-                "Uses TODAY's matchup ranges applied retroactively to every historical pitch (not each "
-                "pitch's own historical attributes) for simplicity - this is about whether the model's "
-                "density points toward better swings than ignoring it would, not a literal replay."
-            )
-            if not result_ranges:
-                st.caption("Load a matchup (Fetch Live Matchup, or Historical / Manual) to get result "
-                           "ranges first - this needs them to score a swing.")
-            else:
+            with st.expander("Tendencies Over Time", expanded=False):
                 @st.fragment
-                def _suggest_swing_backtest_section_p(df_p, result_ranges):
-                    _swbt_c1, _swbt_c2 = st.columns([2, 1])
-                    with _swbt_c1:
-                        _swbt_n = st.slider("Pitches to backtest", 5, 100, min(30, n_pitches), step=5,
-                                            key=f"p_swbt_n_{tab_p_pitcher}",
-                                            help="Each one re-runs the full model against nearly its own "
-                                                 "full preceding history, so this is meaningfully heavier "
-                                                 "than the live view above - kept off auto-run below.")
-                    with _swbt_c2:
-                        _swbt_metric = st.radio("Metric", ["OBP", "SLG"], horizontal=True,
-                                                key=f"p_swbt_metric_{tab_p_pitcher}")
-                    _swbt_run_key = f"p_swbt_ran_{tab_p_pitcher}"
-                    if st.button("Run backtest", key=f"p_swbt_run_{tab_p_pitcher}"):
-                        st.session_state[_swbt_run_key] = True
-                    if not st.session_state.get(_swbt_run_key):
-                        st.caption("Click Run backtest to compute (not run automatically - see the slider's "
-                                   "own cost note above).")
-                        return
-
-                    with st.spinner(f"Walking the last {_swbt_n} pitches..."):
-                        _swbt_pts = _recent_pitch_densities_cached(
-                            df_p, _swbt_n, sigma=75.0, pitch_width=200, cooldown_radius=50.0,
-                            leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
-                        )
-                    if not _swbt_pts:
-                        st.caption("Not enough history yet for this window.")
-                        return
-
-                    _swbt_metric_key = "obp" if _swbt_metric == "OBP" else "slg"
-
-                    # Fixed display order/keys/labels, same set every run -
-                    # baseline and combined always have real data (every
-                    # backtest point carries a real target_row), individual
-                    # signals may not at every point (e.g. delta_sequence at
-                    # a game's first pitch) - those points get None rather
-                    # than dropping the whole row, so the grid/table/rolling
-                    # chart below all stay aligned on the same N columns.
-                    # "model_peak" isolates what the FFT/ranges-optimization
-                    # step is actually buying over the naive "just swing at
-                    # the model's own single most-likely pitch" strategy -
-                    # same combined density as "Model (FFT-optimal)", just
-                    # argmax'd directly instead of run through suggest_swing_
-                    # from_density, so it needs no result_ranges to CHOOSE
-                    # the swing (only to score the outcome, same as every
-                    # other row here).
-                    _swbt_keys = (["baseline"] + list(utils._PL_SIGNAL_ORDER)
-                                  + ["model_peak", "combined"])
-                    _swbt_labels = {"baseline": "Baseline", "model_peak": "Model (peak)",
-                                    "combined": "Model (FFT-optimal)", **utils._PL_SIGNAL_SHORT_LABELS}
-                    _swbt_results_by_key: dict[str, list[str | None]] = {k: [] for k in _swbt_keys}
-                    for _pt in _swbt_pts:
-                        _sig_density_by_name = {s["name"]: s["density"] for s in _pt["signals"]}
-                        for _key in _swbt_keys:
-                            if _key == "model_peak":
-                                _swing = int(np.argmax(_pt["combined"])) + 1
-                            else:
-                                _density = (_pt["baseline"] if _key == "baseline"
-                                            else _pt["combined"] if _key == "combined"
-                                            else _sig_density_by_name.get(_key))
-                                if _density is None:
-                                    _swbt_results_by_key[_key].append(None)
-                                    continue
-                                _swing, _ = utils.suggest_swing_from_density(
-                                    _density, result_ranges, _swbt_metric_key)
-                            _diff = utils.circular_diff(_pt["actual"], _swing)
-                            _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
-
-                    _swbt_rows = [{"key": k, "label": _swbt_labels[k], "results": _swbt_results_by_key[k]}
-                                  for k in _swbt_keys]
-
-                    # Column set for the per-result-type counts, in the
-                    # active result_ranges' own lo-to-hi order (reads
-                    # best-to-worst/worst-to-best the same way that ranges
-                    # table already does) rather than alphabetical.
-                    _swbt_seen_results = {res for r in _swbt_rows for res in r["results"] if res is not None}
-                    _swbt_result_cols = [res for res, _, _ in result_ranges if res in _swbt_seen_results]
-
-                    _swbt_table_rows = []
-                    for r in _swbt_rows:
-                        _avail = [res for res in r["results"] if res is not None]
-                        _row_data = {
-                            "Indication": r["label"], "N": len(_avail),
-                            _swbt_metric: (sum(utils.result_metric_value(res, _swbt_metric_key) for res in _avail)
-                                          / len(_avail)) if _avail else None,
-                        }
-                        _counts = pd.Series(_avail).value_counts() if _avail else pd.Series(dtype=int)
-                        for _res_col in _swbt_result_cols:
-                            _row_data[_res_col] = int(_counts.get(_res_col, 0))
-                        _swbt_table_rows.append(_row_data)
-                    _swbt_avg_table = pd.DataFrame(_swbt_table_rows)
-
-                    _base_avg = _swbt_avg_table.loc[_swbt_avg_table["Indication"] == "Baseline", _swbt_metric].iloc[0]
-                    _peak_avg = _swbt_avg_table.loc[
-                        _swbt_avg_table["Indication"] == "Model (peak)", _swbt_metric].iloc[0]
-                    _comb_avg = _swbt_avg_table.loc[
-                        _swbt_avg_table["Indication"] == "Model (FFT-optimal)", _swbt_metric].iloc[0]
-                    _swbt_better = _comb_avg > _base_avg
-                    _fft_vs_peak = "beat" if _comb_avg > _peak_avg else "lost to" if _comb_avg < _peak_avg else "tied"
-                    st.caption(
-                        f"Over the last **{len(_swbt_pts)}** pitches: baseline-suggested swings would've "
-                        f"gone **{_base_avg:.3f}** {_swbt_metric} &rarr; model-suggested (FFT-optimal) swings "
-                        f"**{_comb_avg:.3f}** ({'better' if _swbt_better else 'worse' if _comb_avg < _base_avg else 'tied'} "
-                        f"than baseline). FFT-optimal {_fft_vs_peak} just swinging at the model's own single "
-                        f"most-likely pitch (Model (peak): **{_peak_avg:.3f}**) - how much the FFT/ranges "
-                        "optimization step is actually buying over the naive point-estimate strategy. "
-                        "Individual signals use their raw (unshrunk) density, same caveat as the Expected "
-                        "Swing Score chart/table above; gray cells below are points that signal had no data "
-                        "for (not scored either way), not an out."
+                def _ma_section_p(df):
+                    _metric = st.radio(
+                        "Metric",
+                        options=list(utils._MA_METRICS.keys()),
+                        format_func=lambda m: utils._MA_METRICS[m]["label"],
+                        horizontal=True,
+                        label_visibility="collapsed",
+                        key="ma_metric_p",
                     )
-                    st.plotly_chart(
-                        utils.suggested_swing_backtest_chart(_swbt_rows, dark_mode=_dark_mode),
-                        width="stretch", config={"displayModeBar": False}, key="p_swbt_chart",
-                    )
-                    st.dataframe(
-                        _swbt_avg_table, hide_index=True, width="stretch",
-                        column_config={_swbt_metric: st.column_config.NumberColumn(format="%.3f")},
-                    )
-
-                    # ── rolling performance ──────────────────────────────────────
-                    st.markdown("**Rolling Performance**")
-                    st.caption(
-                        "Trailing rolling average of the same per-pitch OBP/SLG, not just the single "
-                        "overall number above - shows how each indication has actually been running across "
-                        "the window (two indications can share the same overall average while one trended "
-                        "very differently from the other)."
-                    )
-                    _swbt_window = st.slider(
-                        "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(10, len(_swbt_pts)),
-                        key=f"p_swbt_window_{tab_p_pitcher}",
-                    )
-                    _swbt_rolling_rows = [
-                        {"key": r["key"], "label": r["label"],
-                         "values": [utils.result_metric_value(res, _swbt_metric_key) if res is not None
-                                    else float("nan") for res in r["results"]]}
-                        for r in _swbt_rows
-                    ]
-                    st.plotly_chart(
-                        utils.suggested_swing_rolling_chart(
-                            _swbt_rolling_rows, _swbt_window, _swbt_metric, dark_mode=_dark_mode),
-                        width="stretch", config={"displayModeBar": False}, key="p_swbt_rolling_chart",
-                    )
-
-                _suggest_swing_backtest_section_p(df_p, result_ranges)
+                    _fig = utils.pitcher_ma_figure(df, _metric)
+                    if _fig is not None:
+                        st.plotly_chart(_fig, use_container_width=True,
+                                        config={"displayModeBar": False}, key="ma_chart_p")
+                    else:
+                        st.caption("Not enough data.")
+                _ma_section_p(_df_p_full_p)
 
         # ── tendencies ────────────────────────────────────────────────────────
         st.divider()
