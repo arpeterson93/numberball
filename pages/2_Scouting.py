@@ -1787,6 +1787,15 @@ with tab_p:
                     st.dataframe(
                         _swbt_avg_table, hide_index=True, use_container_width=True,
                         column_config={_swbt_metric: st.column_config.NumberColumn(format="%.3f")},
+                        # Explicit column_order (rather than letting Streamlit infer
+                        # it) - the OBP/SLG column is a different NAME each time this
+                        # fragment reruns on the Metric toggle, and without an
+                        # explicit order the dataframe widget's own client-side
+                        # column layout/visibility state (keyed to this same call
+                        # site across reruns) doesn't always remap a newly-renamed
+                        # column to "visible, right after N" - it can land hidden
+                        # and pushed to the end instead.
+                        column_order=["Indication", "N", _swbt_metric] + _swbt_result_cols,
                     )
 
                     # ── rolling performance ──────────────────────────────────────

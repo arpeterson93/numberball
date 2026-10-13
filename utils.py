@@ -4485,6 +4485,13 @@ def pitch_likelihood_density_chart(
                                   line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
     fig.add_trace(go.Scatter(x=x, y=combined, mode="lines", name="Combined prediction",
                               line=dict(color=combined_color, width=3)))
+    _comb_peak_idx = int(np.argmax(combined))
+    fig.add_trace(go.Scatter(
+        x=[x[_comb_peak_idx]], y=[combined[_comb_peak_idx]], mode="markers+text",
+        marker=dict(symbol="star", size=12, color=combined_color, line=dict(color=text_color, width=1)),
+        text=[f"{x[_comb_peak_idx]}"], textposition="top center", textfont=dict(color=text_color, size=10),
+        name="Model peak", showlegend=False, hoverinfo="skip",
+    ))
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
@@ -4570,6 +4577,13 @@ def pitch_likelihood_radial_chart(
                                        line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
     fig.add_trace(go.Scatterpolar(r=combined, theta=theta, mode="lines", name="Combined prediction",
                                    line=dict(color=combined_color, width=3)))
+    _comb_peak_idx = int(np.argmax(np.asarray(combined)))
+    fig.add_trace(go.Scatterpolar(
+        r=[combined[_comb_peak_idx]], theta=[theta[_comb_peak_idx]], mode="markers+text",
+        marker=dict(symbol="star", size=12, color=combined_color, line=dict(color=text_color, width=1)),
+        text=[f"{_comb_peak_idx + 1}"], textposition="top center", textfont=dict(color=text_color, size=10),
+        name="Model peak", showlegend=False, hoverinfo="skip",
+    ))
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
@@ -4597,7 +4611,7 @@ def pitch_likelihood_radial_chart(
 
 def expected_swing_score_radial_chart(
     baseline_scores, signal_scores: list[dict], combined_scores, metric_label: str,
-    title: str = "Expected Swing Score (Radial)", dark_mode: bool = False,
+    title: str = "Expected Swing Score", dark_mode: bool = False,
 ) -> go.Figure:
     """Companion to pitch_likelihood_radial_chart, same angle convention
     (swing value 1-1000, 1 at 12 o'clock, clockwise) but a different
