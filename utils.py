@@ -3582,6 +3582,7 @@ def last_n_combined_chart(
     highlight_col: str = "batter_name",
     show_value: bool = True,
     show_opp: bool = True,
+    model_swing_overlay: dict[int, int] | None = None,
 ) -> go.Figure:
     """Three-row subplot: pitch+swing lines on top, circular delta bars in the
     middle, circular delta-squared bars on the bottom, all on one shared x-axis
@@ -3599,6 +3600,15 @@ def last_n_combined_chart(
     pitches that had no swing instead of excluding them). est_delta_overlay
     is ignored unless both are True, since it compares one series against
     the other.
+
+    model_swing_overlay (optional): {pitch id: combined-model best swing},
+    e.g. from the Suggested-Swing Backtest's own per-pitch "Model (FFT-
+    optimal)" results - plots those as a marker overlay on the pitch/swing
+    row, at whichever of this chart's own x positions each id lands on, so
+    the model's actual historical call sits directly next to the real pitch
+    it was graded against. None/empty (the default) draws nothing - the
+    caller decides whether to pass it at all, which is how this stays off
+    unless backtest data actually exists.
     """
     _mask = df[value_col].notna() if show_value else pd.Series(True, index=df.index)
     if show_opp:
@@ -3787,6 +3797,23 @@ def last_n_combined_chart(
                     text=swing_text, textposition="bottom center",
                     textfont=dict(size=10), line=dict(color="#2166ac", width=2), marker=dict(size=5),
                 ), row=1, col=1)
+
+    if model_swing_overlay and show_value:
+        _model_ids = {int(k): v for k, v in model_swing_overlay.items()}
+        model_x, model_y, model_hover = [], [], []
+        for i in range(n_actual):
+            _pid = int(df_last.loc[i, "id"])
+            if _pid in _model_ids:
+                model_x.append(x_all[i])
+                model_y.append(_model_ids[_pid])
+                model_hover.append(f"{pa_label} {x_all[i]}: model best swing {_model_ids[_pid]}")
+        if model_x:
+            fig.add_trace(go.Scatter(
+                x=model_x, y=model_y, mode="markers", name="Model Swing",
+                legendgroup="model_swing",
+                marker=dict(symbol="diamond-open", size=9, color="#2ca25f", line=dict(width=2)),
+                hovertext=model_hover, hoverinfo="text",
+            ), row=1, col=1)
 
     # Bars first (no text — labels added as a separate trace on top of everything)
     fig.add_trace(go.Bar(

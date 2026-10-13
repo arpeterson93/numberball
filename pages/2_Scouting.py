@@ -1692,22 +1692,9 @@ with tab_p:
             else:
                 @st.fragment
                 def _suggest_swing_backtest_section_p(df_p, result_ranges):
-                    _swbt_c1, _swbt_c2 = st.columns([2, 1])
-                    with _swbt_c1:
-                        _swbt_n = st.slider("Pitches to backtest", 5, 100,
-                                            min(30, st.session_state.get("last_n_pitch", 50)), step=5,
-                                            key=f"p_swbt_n_{tab_p_pitcher}",
-                                            help="Each one re-runs the full model against nearly its own "
-                                                 "full preceding history, so this is meaningfully heavier "
-                                                 "than the live view above - kept off auto-run below.")
-                    with _swbt_c2:
-                        _swbt_metric = st.radio("Metric", ["OBP", "SLG"], horizontal=True,
-                                                key=f"p_swbt_metric_{tab_p_pitcher}")
-                    _swbt_run_key = f"p_swbt_ran_{tab_p_pitcher}"
-                    if st.button("Run backtest", key=f"p_swbt_run_{tab_p_pitcher}"):
-                        st.session_state[_swbt_run_key] = True
-                    if not st.session_state.get(_swbt_run_key):
-                        return
+                    _swbt_n = 100
+                    _swbt_metric = st.radio("Metric", ["OBP", "SLG"], horizontal=True,
+                                            key=f"p_swbt_metric_{tab_p_pitcher}")
 
                     with st.spinner(f"Walking the last {_swbt_n} pitches..."):
                         _swbt_pts = _recent_pitch_densities_cached(
@@ -1740,6 +1727,12 @@ with tab_p:
                     _swbt_labels = {"baseline": "Baseline", "model_peak": "Model (peak)",
                                     "combined": "Model (FFT-optimal)", **utils._PL_SIGNAL_SHORT_LABELS}
                     _swbt_results_by_key: dict[str, list[str | None]] = {k: [] for k in _swbt_keys}
+                    # Every backtested pitch's own combined-model ("Model
+                    # (FFT-optimal)") suggested swing, keyed by that pitch's
+                    # id - stashed in session_state below so the Last N
+                    # Pitches chart (outside this fragment, further down the
+                    # page) can overlay it on the real pitch/swing lines.
+                    _swbt_combined_swing_by_id: dict[int, int] = {}
                     for _pt in _swbt_pts:
                         _sig_density_by_name = {s["name"]: s["density"] for s in _pt["signals"]}
                         for _key in _swbt_keys:
@@ -1754,8 +1747,14 @@ with tab_p:
                                     continue
                                 _swing, _ = utils.suggest_swing_from_density(
                                     _density, result_ranges, _swbt_metric_key)
+                            if _key == "combined":
+                                _swbt_combined_swing_by_id[int(_pt["id"])] = _swing
                             _diff = utils.circular_diff(_pt["actual"], _swing)
                             _swbt_results_by_key[_key].append(utils._diff_to_result(_diff, result_ranges))
+
+                    st.session_state[f"p_swbt_model_swing_{tab_p_pitcher}"] = {
+                        "by_id": _swbt_combined_swing_by_id, "n": _swbt_n, "metric": _swbt_metric,
+                    }
 
                     _swbt_rows = [{"key": k, "label": _swbt_labels[k], "results": _swbt_results_by_key[k]}
                                   for k in _swbt_keys]
@@ -2518,6 +2517,22 @@ with tab_p:
         with _p_chart_c2:
             est_delta_p = st.toggle("Est. Δ overlay", key="est_delta_p", value=False,
                                     help="Shows batter's estimated delta (swing vs prior pitch) as a diamond line on the delta chart.")
+        # The Suggested-Swing Backtest above now runs automatically (its own
+        # @st.fragment, st.session_state read here) - this toggle's own
+        # availability still only updates on this chart's next full-page
+        # rerun, not instantly the moment that fragment's data lands.
+        _swbt_model_data_p = st.session_state.get(f"p_swbt_model_swing_{tab_p_pitcher}")
+        _model_overlay_by_id_p = None
+        if _swbt_model_data_p and _swbt_model_data_p.get("by_id"):
+            _model_overlay_on_p = st.toggle(
+                "Model Swings", key="p_lnc_model_overlay", value=False,
+                help=f"From the Suggested-Swing Backtest above (N={_swbt_model_data_p['n']}, "
+                     f"{_swbt_model_data_p['metric']}) - each backtested pitch's own combined-model "
+                     "(Model (FFT-optimal)) best swing, plotted alongside the actual pitch it was "
+                     "graded against.",
+            )
+            if _model_overlay_on_p:
+                _model_overlay_by_id_p = _swbt_model_data_p["by_id"]
         st.plotly_chart(
             utils.last_n_combined_chart(df_p_pred, n=n_pitches, delta_col="pitch",
                                         title=f"Last {_actual_pitches_p} Pitches",
@@ -2525,7 +2540,8 @@ with tab_p:
                                         segment_games=True,
                                         tick_weights=_lnc_weights_p or None,
                                         pannable=True,
-                                        est_delta_overlay=est_delta_p),
+                                        est_delta_overlay=est_delta_p,
+                                        model_swing_overlay=_model_overlay_by_id_p),
             width="stretch", key="p_last_n",
         )
 
