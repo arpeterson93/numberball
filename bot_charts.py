@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import io
 import os
+import pathlib
+import sys
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from PIL import Image, ImageOps
@@ -27,6 +30,26 @@ import scouting_data
 import utils
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# tools/ holds standalone CLI scripts, not an installed package - add it to
+# sys.path the same way pages/2_Scouting.py does, so the pitch-likelihood
+# model (fit once, offline, by tools/pitch_likelihood_calibrate.py) stays a
+# single source of truth instead of being re-implemented here.
+_TOOLS_DIR = str(pathlib.Path(_REPO_ROOT) / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+from pitch_likelihood_backtest import (
+    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, recent_pitch_densities,
+)
+
+# Same model settings pages/2_Scouting.py's own live prediction uses - keep
+# these in sync with that page's _pitch_likelihood_prediction call sites if
+# those ever get re-tuned.
+_PL_SIGMA = 75.0
+_PL_PITCH_WIDTH = 100
+_PL_COOLDOWN_RADIUS = 50.0
+_PL_LEVERAGE_WIDTH = 0.5
+_PL_MIN_EFFECTIVE_N = 20.0
 
 HOT_ZONE_BUCKET_CHOICES = [50, 100, 125, 200, 250, 500]
 HOT_ZONE_DEFAULT_BUCKET = 200
@@ -116,6 +139,236 @@ def apply_prior_context(
     )
 
 
+# ── pitch likelihood model ───────────────────────────────────────────────────
+
+def _pitch_likelihood_prediction(
+    df_hist: pd.DataFrame, live_inning: int | None = None, live_half: str | None = None,
+    live_outs: int | None = None, live_obc: str | None = None,
+    live_away_score: int | None = None, live_home_score: int | None = None,
+) -> dict | None:
+    """Combined pitch-likelihood prediction as of the end of df_hist - plain
+    (uncached) counterpart to pages/2_Scouting.py's own
+    _pitch_likelihood_prediction, since this module has no Streamlit
+    st.cache_data to lean on. live_inning/live_half/... (from
+    scouting_data.resolve_game_state via _live_ctx_from_game_code below)
+    activate the leverage signal the same way that page's live view does;
+    left as None, leverage just sits out. Returns None if there's not
+    enough history yet (<2 pitches)."""
+    cfg = Config(sigma=_PL_SIGMA, min_effective_n=_PL_MIN_EFFECTIVE_N, pitch_width=_PL_PITCH_WIDTH,
+                 cooldown_radius=_PL_COOLDOWN_RADIUS, leverage_width=_PL_LEVERAGE_WIDTH,
+                 weights=DEFAULT_WEIGHTS)
+    builders = list(SIGNAL_BUILDERS.values())
+    target_row = None
+    if live_inning is not None and live_half is not None:
+        target_row = pd.Series({
+            "inning": live_inning, "half": live_half, "outs": live_outs or 0,
+            "obc": live_obc or "000", "away_score": live_away_score or 0,
+            "home_score": live_home_score or 0,
+        })
+    state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=target_row)
+    if state is None or not signals:
+        return None
+    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    return {
+        "state": state, "baseline": baseline,
+        "signals": [{"name": s.name, "n_eff": s.n_eff, "density": s.density} for s in signals],
+        "combined": combined,
+    }
+
+
+def pitch_likelihood_density_fig(df: pd.DataFrame, live_ctx: dict | None = None) -> go.Figure | None:
+    pl = _pitch_likelihood_prediction(df, **(live_ctx or {}))
+    if pl is None:
+        return None
+    # dark_mode=True - see last2_digit_radial_fig's own comment on why (no
+    # Streamlit theme signal to read here, so default to what Discord's own
+    # default UI, and most viewers, actually use).
+    return utils.pitch_likelihood_density_chart(pl["baseline"], pl["signals"], pl["combined"], dark_mode=True)
+
+
+def pitch_likelihood_radial_fig(df: pd.DataFrame, live_ctx: dict | None = None) -> go.Figure | None:
+    pl = _pitch_likelihood_prediction(df, **(live_ctx or {}))
+    if pl is None:
+        return None
+    return utils.pitch_likelihood_radial_chart(pl["baseline"], pl["signals"], pl["combined"], dark_mode=True)
+
+
+def pitch_likelihood_breakdown_fig(df: pd.DataFrame, pitch_value: int | None = None,
+                                    live_ctx: dict | None = None) -> go.Figure | None:
+    """Defaults pitch_value to the model's own top-predicted value (same
+    fallback pages/2_Scouting.py's "Inspect pitch value" input uses) when not
+    given."""
+    pl = _pitch_likelihood_prediction(df, **(live_ctx or {}))
+    if pl is None:
+        return None
+    pv = pitch_value or (int(np.argmax(pl["combined"])) + 1)
+    return utils.pitch_likelihood_breakdown_chart(
+        pl["baseline"], pl["signals"], DEFAULT_WEIGHTS, _PL_MIN_EFFECTIVE_N, pv, dark_mode=True)
+
+
+def expected_swing_score_fig(df: pd.DataFrame, result_ranges: list | None = None, metric: str = "obp",
+                              live_ctx: dict | None = None) -> go.Figure | None:
+    pl = _pitch_likelihood_prediction(df, **(live_ctx or {}))
+    if pl is None:
+        return None
+    ranges = result_ranges or utils.RESULT_RANGES
+    base_scores = utils.expected_swing_scores(pl["baseline"], ranges, metric)
+    comb_scores = utils.expected_swing_scores(pl["combined"], ranges, metric)
+    signal_scores = [
+        {"name": s["name"], "scores": utils.expected_swing_scores(s["density"], ranges, metric)}
+        for s in pl["signals"]
+    ]
+    return utils.expected_swing_score_radial_chart(base_scores, signal_scores, comb_scores, metric.upper(),
+                                                     dark_mode=True)
+
+
+def _recent_pitch_pts(df_hist: pd.DataFrame, n: int) -> list[dict]:
+    cfg = Config(sigma=_PL_SIGMA, min_effective_n=_PL_MIN_EFFECTIVE_N, pitch_width=_PL_PITCH_WIDTH,
+                 cooldown_radius=_PL_COOLDOWN_RADIUS, leverage_width=_PL_LEVERAGE_WIDTH,
+                 weights=DEFAULT_WEIGHTS)
+    return recent_pitch_densities(df_hist, cfg, n)
+
+
+def _model_swing_overlay(df_hist: pd.DataFrame, n: int, result_ranges: list, metric: str) -> dict[int, int] | None:
+    """{pitch id: combined-model best swing} for last_n_combined_chart's own
+    model_swing_overlay - same "Model (FFT-optimal)" definition the
+    Suggested-Swing Backtest's combined row uses on the Streamlit page
+    (utils.suggest_swing_from_density on each historical point's own combined
+    density), without building the rest of that backtest's grid/table/rolling
+    chart here."""
+    pts = _recent_pitch_pts(df_hist, n)
+    if not pts:
+        return None
+    by_id = {}
+    for pt in pts:
+        swing, _ = utils.suggest_swing_from_density(pt["combined"], result_ranges, metric)
+        by_id[int(pt["id"])] = swing
+    return by_id or None
+
+
+# ── suggested-swing backtest ─────────────────────────────────────────────────
+
+def _suggested_swing_backtest_rows(df_hist: pd.DataFrame, n: int, result_ranges: list,
+                                    metric: str) -> list[dict] | None:
+    """Per-indication (Baseline, each of the 7 raw signals, Model (peak),
+    Model (FFT-optimal)) per-pitch result list for the last n pitches - same
+    computation pages/2_Scouting.py's own Suggested-Swing Backtest fragment
+    does, minus that page's own table/chart assembly. "results" entries are
+    already resolved via utils._diff_to_result, same shape
+    suggested_swing_backtest_chart/suggested_swing_rolling_chart expect."""
+    pts = _recent_pitch_pts(df_hist, n)
+    if not pts:
+        return None
+    keys = ["baseline"] + list(utils._PL_SIGNAL_ORDER) + ["model_peak", "combined"]
+    labels = {"baseline": "Baseline", "model_peak": "Model (peak)",
+              "combined": "Model (FFT-optimal)", **utils._PL_SIGNAL_SHORT_LABELS}
+    results_by_key: dict[str, list[str | None]] = {k: [] for k in keys}
+    for pt in pts:
+        sig_density_by_name = {s["name"]: s["density"] for s in pt["signals"]}
+        for key in keys:
+            if key == "model_peak":
+                swing = int(np.argmax(pt["combined"])) + 1
+            else:
+                density = (pt["baseline"] if key == "baseline"
+                           else pt["combined"] if key == "combined"
+                           else sig_density_by_name.get(key))
+                if density is None:
+                    results_by_key[key].append(None)
+                    continue
+                swing, _ = utils.suggest_swing_from_density(density, result_ranges, metric)
+            diff = utils.circular_diff(pt["actual"], swing)
+            results_by_key[key].append(utils._diff_to_result(diff, result_ranges))
+    return [{"key": k, "label": labels[k], "results": results_by_key[k]} for k in keys]
+
+
+def _suggested_swing_avg_table(rows: list[dict], result_ranges: list, metric: str,
+                                metric_label: str) -> tuple[list[dict], list[str]]:
+    seen = {res for r in rows for res in r["results"] if res is not None}
+    result_cols = [res for res, _lo, _hi in result_ranges if res in seen]
+    table_rows = []
+    for r in rows:
+        avail = [res for res in r["results"] if res is not None]
+        row = {
+            "Indication": r["label"], "N": len(avail),
+            metric_label: (sum(utils.result_metric_value(res, metric) for res in avail)
+                           / len(avail)) if avail else None,
+        }
+        counts = pd.Series(avail).value_counts() if avail else pd.Series(dtype=int)
+        for col in result_cols:
+            row[col] = int(counts.get(col, 0))
+        table_rows.append(row)
+    return table_rows, result_cols
+
+
+def suggested_swing_backtest_table_fig(table_rows: list[dict], metric_label: str,
+                                        result_cols: list[str]) -> go.Figure:
+    """Suggested-Swing Backtest's avg table (Indication/N/OBP-or-SLG/per-
+    result counts) as a styled image - go.Table, same convention
+    strategy_table_fig uses for the Manager strategy table."""
+    header_vals = ["Indication", "N", metric_label] + result_cols
+    cell_vals = [
+        [r["Indication"] for r in table_rows],
+        [r["N"] for r in table_rows],
+        [f"{r[metric_label]:.3f}" if r[metric_label] is not None else "-" for r in table_rows],
+    ] + [[r[col] for r in table_rows] for col in result_cols]
+    col_widths = [150, 45, 60] + [42] * len(result_cols)
+    align = ["left", "center", "center"] + ["center"] * len(result_cols)
+    n = len(table_rows)
+    row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=col_widths,
+        header=dict(values=header_vals, fill_color="#085d05", font=dict(color=DARK_TEXT, size=13),
+                    align=align, height=30, line_color="#085d05"),
+        cells=dict(values=cell_vals, fill_color=[row_colors] * len(cell_vals), align=align,
+                   font=dict(size=12, color=DARK_TEXT), height=28, line_color=DARK_GRID),
+    )])
+    fig.update_layout(
+        title=dict(text="Suggested-Swing Backtest - averages", x=0.5, xanchor="center",
+                    font=dict(color=DARK_TEXT)),
+        margin=dict(l=10, r=10, t=40, b=10), paper_bgcolor=DARK_BG,
+        width=sum(col_widths) + 40, height=max(220, 32 * n + 70),
+    )
+    return fig
+
+
+def suggested_swing_backtest_figs(df: pd.DataFrame, n: int = 100, result_ranges: list | None = None,
+                                   metric: str = "obp", window: int = 30) -> dict[str, go.Figure]:
+    """{filename: fig} for /pitcher-likelihood backtest - the grid, the avg
+    table, and the rolling-performance chart, built off one shared pass over
+    the last n pitches (recent_pitch_densities is the expensive part, same as
+    the Streamlit page's own fragment) rather than three independent ones."""
+    ranges = result_ranges or utils.RESULT_RANGES
+    rows = _suggested_swing_backtest_rows(df, n, ranges, metric)
+    if rows is None:
+        return {}
+    metric_label = metric.upper()
+    table_rows, result_cols = _suggested_swing_avg_table(rows, ranges, metric, metric_label)
+    window = max(3, min(window, len(rows[0]["results"])))
+    rolling_rows = [
+        {"key": r["key"], "label": r["label"],
+         "values": [utils.result_metric_value(res, metric) if res is not None else float("nan")
+                    for res in r["results"]]}
+        for r in rows
+    ]
+    # Neither chart sets an explicit layout width (Streamlit's own
+    # st.plotly_chart(width="stretch") handles that responsively there) - a
+    # heatmap grid with up to 100 columns reads far too cramped at kaleido's
+    # fixed default canvas, so give both figures here a width that scales
+    # with the actual number of backtested pitches instead.
+    n_cols = len(rows[0]["results"])
+    chart_width = min(2000, max(700, 12 * n_cols + 200))
+    grid_fig = utils.suggested_swing_backtest_chart(rows, dark_mode=True)
+    grid_fig.update_layout(width=chart_width)
+    rolling_fig = utils.suggested_swing_rolling_chart(rolling_rows, window, metric_label, dark_mode=True)
+    rolling_fig.update_layout(width=chart_width)
+    return {
+        "swing_backtest_grid.png": grid_fig,
+        "swing_backtest_table.png": suggested_swing_backtest_table_fig(table_rows, metric_label, result_cols),
+        "swing_backtest_rolling.png": rolling_fig,
+    }
+
+
 # ── pitcher ──────────────────────────────────────────────────────────────────
 
 def hot_zone_fig(df: pd.DataFrame, init_bucket: int = HOT_ZONE_DEFAULT_BUCKET,
@@ -140,11 +393,17 @@ def shadow_delta_result_fig(df: pd.DataFrame) -> go.Figure:
 
 
 def last_n_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, swing_offset: bool = False,
-               est_delta_overlay: bool = False, show_swings: bool = False) -> go.Figure:
+               est_delta_overlay: bool = False, show_swings: bool = False,
+               model_swings: bool = False, metric: str = "obp",
+               result_ranges: list | None = None) -> go.Figure:
+    overlay = None
+    if model_swings:
+        overlay = _model_swing_overlay(df, n, result_ranges or utils.RESULT_RANGES, metric)
     return utils.last_n_combined_chart(df, n=n, delta_col="pitch", title=f"Last {n} Pitches",
                                         swing_offset=swing_offset, segment_games=True, pannable=False,
                                         est_delta_overlay=est_delta_overlay,
-                                        show_value=True, show_opp=show_swings)
+                                        show_value=True, show_opp=show_swings,
+                                        model_swing_overlay=overlay)
 
 
 def delta_heatmap_fig(df: pd.DataFrame, bucket: int = DELTA_DEFAULT_BUCKET) -> go.Figure:

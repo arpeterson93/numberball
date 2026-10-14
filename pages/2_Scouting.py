@@ -1801,7 +1801,7 @@ with tab_p:
                     # ── rolling performance ──────────────────────────────────────
                     st.markdown("**Rolling Performance**")
                     _swbt_window = st.slider(
-                        "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(10, len(_swbt_pts)),
+                        "Rolling window (pitches)", 3, max(3, len(_swbt_pts)), min(30, len(_swbt_pts)),
                         key=f"p_swbt_window_{tab_p_pitcher}",
                     )
                     _swbt_rolling_rows = [

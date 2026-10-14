@@ -117,10 +117,11 @@ async def _run_chart_command(interaction: discord.Interaction, role: str, name: 
 
 
 async def _run_multi_chart_command(interaction: discord.Interaction, role: str, name: str | None,
-                                    builder, **builder_kwargs) -> None:
+                                    builder, already_deferred: bool = False, **builder_kwargs) -> None:
     """Like _run_chart_command, but builder returns {filename: fig|None} and every
     non-None figure is sent as a separate attachment in one message."""
-    await interaction.response.defer()
+    if not already_deferred:
+        await interaction.response.defer()
 
     def _resolve_and_build():
         player = name or _last_player[role]
@@ -169,14 +170,37 @@ _SACF_EXTRA = frozenset({"SacF", "DSacF", "GORA"})
 
 def _resolve_result_ranges(game_code: int | None, swing_type: str) -> list:
     """Normal/bunt result ranges for a swing-value-dependent chart - from a
-    live game's sheet when game_code is given, else utils.RESULT_RANGES (the
+    live game's sheet when game_code is given (falling back to the active
+    game set via /game set when it isn't), else utils.RESULT_RANGES (the
     generic default, what swing_predictor_chart itself falls back to)."""
+    game_code = game_code if game_code is not None else _active_game_code
     if game_code is None:
         return utils.RESULT_RANGES
     state = scouting_data.resolve_game_state(game_code)
     if swing_type == "Bunt":
         return state.get("bunt_ranges") or state.get("result_ranges") or utils.RESULT_RANGES
     return state.get("result_ranges") or utils.RESULT_RANGES
+
+
+def _live_ctx_from_game_code(game_code: int | None) -> dict:
+    """live_inning/live_half/live_outs/live_obc/live_away_score/live_home_score
+    kwargs for bot_charts' pitch-likelihood functions, from a live game's
+    current state (same fields pages/2_Scouting.py's own Context Filters
+    section reads for its live Leverage caption) - falls back to the active
+    game set via /game set when game_code isn't given; {} (leverage sits
+    out, same as the Streamlit page with no matchup loaded) when neither is
+    set, or the game has no sheet on file."""
+    game_code = game_code if game_code is not None else _active_game_code
+    if game_code is None:
+        return {}
+    state = scouting_data.resolve_game_state(game_code)
+    if not state:
+        return {}
+    return dict(
+        live_inning=state.get("inning"), live_half=state.get("half"),
+        live_outs=state.get("outs"), live_obc=state.get("obc"),
+        live_away_score=state.get("away_score"), live_home_score=state.get("home_score"),
+    )
 
 
 async def _resolve_obr(swing_value: int | None, swing_type: str, extend_sacf: bool,
@@ -201,11 +225,14 @@ async def _resolve_obr(swing_value: int | None, swing_type: str, extend_sacf: bo
 
 _swing_type_choices = [app_commands.Choice(name="Normal Swing", value="Normal Swing"),
                         app_commands.Choice(name="Bunt", value="Bunt")]
+_metric_choices = [app_commands.Choice(name="OBP", value="obp"), app_commands.Choice(name="SLG", value="slg")]
+_GAME_CODE_RANGES_DESCRIBE = ("Game to pull live ranges from (defaults to the active game set via "
+                              "/game set, else the generic ranges table)")
 _OBR_DESCRIBE = dict(
     swing_value="Proposed swing - overlays the On-Base Range on the radial as a gray band",
     swing_type="Which ranges table to use for the OBR (default: Normal Swing)",
     extend_sacf="Include SacF/DSacF/GORA in the OBR band",
-    game_code="Game to pull live ranges from (defaults to the generic ranges table)",
+    game_code=_GAME_CODE_RANGES_DESCRIBE,
 )
 
 
@@ -241,6 +268,9 @@ pitcher_radial_adv_group = app_commands.Group(name="pitcher-radial-adv",
                                                description="Pitcher radial charts - delta-squared & combined")
 pitcher_analysis_group = app_commands.Group(name="pitcher-analysis",
                                              description="Pitcher heatmaps, swing & result analysis")
+pitcher_likelihood_group = app_commands.Group(
+    name="pitcher-likelihood",
+    description="Pitch-likelihood model - combined prediction, radial view, breakdown, and swing scoring")
 batter_group = app_commands.Group(name="batter", description="Batter scouting charts")
 catcher_group = app_commands.Group(name="catcher", description="Catcher scouting charts")
 catcher_radial_group = app_commands.Group(name="catcher-radial", description="Catcher radial charts - throws & deltas")
@@ -414,14 +444,113 @@ async def pitcher_radial_combined(interaction: discord.Interaction, name: str | 
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), n="How many recent pitches to show",
                         show_swings="Also show the batter's swing values (default: pitches only)",
                         swing_offset="Shift swing markers right by one AB",
-                        est_delta_overlay="Overlay the batter's estimated delta vs. prior pitch")
+                        est_delta_overlay="Overlay the batter's estimated delta vs. prior pitch",
+                        model_swings="Overlay each pitch's own combined pitch-likelihood model "
+                                     "best swing (FFT-optimal, same definition the Streamlit app's "
+                                     "Suggested-Swing Backtest uses for its 'combined' row)",
+                        metric="Score the model swing overlay optimizes for",
+                        swing_type="Ranges table the model swing overlay scores against",
+                        game_code="Game to pull live ranges from for the overlay (defaults to the active "
+                                  "game set via /game set, else the generic ranges table)")
+@app_commands.choices(metric=_metric_choices, swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_lastn(interaction: discord.Interaction, name: str | None = None,
                          n: int = bot_charts.RADIAL_DEFAULT_N, show_swings: bool = False,
-                         swing_offset: bool = False, est_delta_overlay: bool = False) -> None:
+                         swing_offset: bool = False, est_delta_overlay: bool = False,
+                         model_swings: bool = False, metric: str = "obp",
+                         swing_type: str = "Normal Swing", game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ranges = (await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+              if model_swings else None)
     await _run_chart_command(interaction, "pitcher", name, bot_charts.last_n_fig, "last_n.png",
-                              n=n, show_swings=show_swings, swing_offset=swing_offset,
-                              est_delta_overlay=est_delta_overlay)
+                              already_deferred=True, n=n, show_swings=show_swings, swing_offset=swing_offset,
+                              est_delta_overlay=est_delta_overlay, model_swings=model_swings,
+                              metric=metric, result_ranges=ranges)
+
+
+# ── pitcher-likelihood ───────────────────────────────────────────────────────
+
+_PL_GAME_CODE_DESCRIBE = ("Live game to activate the leverage signal from (defaults to the active game "
+                          "set via /game set, else no live context, same as the Streamlit page with no "
+                          "matchup loaded)")
+
+
+@pitcher_likelihood_group.command(name="density", description="Combined pitch-likelihood prediction (linear)")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), game_code=_PL_GAME_CODE_DESCRIBE)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_likelihood_density(interaction: discord.Interaction, name: str | None = None,
+                                      game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ctx = await asyncio.to_thread(_live_ctx_from_game_code, game_code)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.pitch_likelihood_density_fig,
+                              "pitch_likelihood.png", already_deferred=True, live_ctx=ctx)
+
+
+@pitcher_likelihood_group.command(name="radial", description="Combined pitch-likelihood prediction, radial view")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), game_code=_PL_GAME_CODE_DESCRIBE)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_likelihood_radial(interaction: discord.Interaction, name: str | None = None,
+                                     game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ctx = await asyncio.to_thread(_live_ctx_from_game_code, game_code)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.pitch_likelihood_radial_fig,
+                              "pitch_likelihood_radial.png", already_deferred=True, live_ctx=ctx)
+
+
+@pitcher_likelihood_group.command(name="breakdown",
+                                   description="How each signal pushes the combined prediction at one pitch value")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"),
+                        pitch_value="Pitch value to inspect (1-1000, defaults to the model's own top-predicted value)",
+                        game_code=_PL_GAME_CODE_DESCRIBE)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_likelihood_breakdown(interaction: discord.Interaction, name: str | None = None,
+                                        pitch_value: int | None = None, game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ctx = await asyncio.to_thread(_live_ctx_from_game_code, game_code)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.pitch_likelihood_breakdown_fig,
+                              "pitch_likelihood_breakdown.png", already_deferred=True,
+                              pitch_value=pitch_value, live_ctx=ctx)
+
+
+@pitcher_likelihood_group.command(name="swing-score",
+                                   description="Expected OBP/SLG by swing value, from the pitch-likelihood model")
+@app_commands.describe(name=_NAME_HELP.format(role="pitcher"), metric="Score to optimize",
+                        swing_type="Ranges table to use",
+                        game_code="Game to pull live ranges AND leverage context from "
+                                  "(defaults to the active game set via /game set, else the "
+                                  "generic ranges table with no leverage context)")
+@app_commands.choices(metric=_metric_choices, swing_type=_swing_type_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_likelihood_swing_score(interaction: discord.Interaction, name: str | None = None,
+                                          metric: str = "obp", swing_type: str = "Normal Swing",
+                                          game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ranges = await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+    ctx = await asyncio.to_thread(_live_ctx_from_game_code, game_code)
+    await _run_chart_command(interaction, "pitcher", name, bot_charts.expected_swing_score_fig,
+                              "expected_swing_score.png", already_deferred=True,
+                              result_ranges=ranges, metric=metric, live_ctx=ctx)
+
+
+@pitcher_likelihood_group.command(
+    name="backtest",
+    description="Suggested-Swing Backtest - per-pitch grid, averages table, and rolling performance")
+@app_commands.describe(
+    name=_NAME_HELP.format(role="pitcher"), n="How many recent pitches to backtest",
+    metric="Score to optimize", swing_type="Ranges table to use",
+    window="Rolling-average window, in pitches, for the rolling performance chart",
+    game_code="Game to pull live ranges from (defaults to the active game set via /game set, else the "
+              "generic ranges table) - leverage context for each backtested pitch always comes from "
+              "that pitch's own real recorded game state, regardless of this")
+@app_commands.choices(metric=_metric_choices, swing_type=_swing_type_choices)
+@app_commands.autocomplete(name=_player_autocomplete)
+async def pitcher_likelihood_backtest(interaction: discord.Interaction, name: str | None = None,
+                                       n: int = 100, metric: str = "obp", swing_type: str = "Normal Swing",
+                                       window: int = 30, game_code: int | None = None) -> None:
+    await interaction.response.defer()
+    ranges = await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+    await _run_multi_chart_command(interaction, "pitcher", name, bot_charts.suggested_swing_backtest_figs,
+                                    already_deferred=True, n=n, result_ranges=ranges, metric=metric, window=window)
 
 
 @pitcher_analysis_group.command(name="delta-heatmap", description="Next pitch delta vs prior pitch delta")
@@ -603,7 +732,7 @@ async def pitcher_sequence_viewer(interaction: discord.Interaction, name: str | 
 @app_commands.describe(name=_NAME_HELP.format(role="pitcher"), swing_value="Proposed swing value",
                         n="How many recent pitches to overlay", swing_type="Ranges table to use",
                         extend_sacf="Include SacF/DSacF/GORA in the OBR coloring",
-                        game_code="Game to pull live ranges from (defaults to the generic ranges table)")
+                        game_code=_GAME_CODE_RANGES_DESCRIBE)
 @app_commands.choices(swing_type=_swing_type_choices)
 @app_commands.autocomplete(name=_player_autocomplete)
 async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: int, name: str | None = None,
@@ -622,7 +751,7 @@ async def pitcher_swing_analyzer(interaction: discord.Interaction, swing_value: 
                         basis="Project from recent pitch values, deltas, or delta-squareds",
                         n="How many recent pitches to base the projection on", swing_type="Ranges table to use",
                         extend_sacf="Include SacF/DSacF/GORA in the OBR",
-                        game_code="Game to pull live ranges from (defaults to the generic ranges table)")
+                        game_code=_GAME_CODE_RANGES_DESCRIBE)
 @app_commands.choices(metric=[app_commands.Choice(name="OBP", value="obp"), app_commands.Choice(name="SLG", value="slg")],
                        basis=[app_commands.Choice(name="Recent pitch values", value="values"),
                               app_commands.Choice(name="Recent pitch deltas", value="delta"),
@@ -1005,6 +1134,7 @@ bot.tree.add_command(pitcher_group)
 bot.tree.add_command(pitcher_radial_group)
 bot.tree.add_command(pitcher_radial_adv_group)
 bot.tree.add_command(pitcher_analysis_group)
+bot.tree.add_command(pitcher_likelihood_group)
 bot.tree.add_command(batter_group)
 bot.tree.add_command(catcher_group)
 bot.tree.add_command(catcher_radial_group)
