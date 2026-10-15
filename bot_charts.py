@@ -218,8 +218,18 @@ def expected_swing_score_fig(df: pd.DataFrame, result_ranges: list | None = None
         {"name": s["name"], "scores": utils.expected_swing_scores(s["density"], ranges, metric)}
         for s in pl["signals"]
     ]
-    return utils.expected_swing_score_radial_chart(base_scores, signal_scores, comb_scores, metric.upper(),
-                                                     dark_mode=True)
+    # Pitcher-relative percentile needs the same last-N replay the backtest
+    # uses (one extra walk, a few seconds); the league lookup alone is
+    # instant, so a failed/short replay just drops the pitcher clause.
+    try:
+        history = _recent_pitch_pts(df, 100)
+    except Exception:
+        history = None
+    conf = utils.swing_confidence_summary(
+        pl["baseline"], pl["combined"], metric, result_ranges=ranges, history_points=history)
+    return utils.expected_swing_score_radial_chart(
+        base_scores, signal_scores, comb_scores, metric.upper(), dark_mode=True,
+        confidence_text=utils.swing_confidence_text(conf, metric.upper()))
 
 
 def _recent_pitch_pts(df_hist: pd.DataFrame, n: int) -> list[dict]:
@@ -281,15 +291,35 @@ def _suggested_swing_backtest_rows(df_hist: pd.DataFrame, n: int, result_ranges:
     return [{"key": k, "label": labels[k], "results": results_by_key[k]} for k in keys]
 
 
+def _upcoming_swing_by_key(pl: dict | None, result_ranges: list, metric: str) -> dict[str, int]:
+    """{indication key: suggested swing for the UPCOMING pitch} - same
+    definitions the backtest rows use (suggest_swing_from_density per
+    baseline/signal/combined density, plain argmax for "model_peak"), taken
+    from the current live prediction rather than a past point. Empty when
+    there's no prediction yet; a signal that had too little context just has
+    no key."""
+    if not pl:
+        return {}
+    out: dict[str, int] = {}
+    densities = {"baseline": pl["baseline"], "combined": pl["combined"],
+                 **{s["name"]: s["density"] for s in pl["signals"]}}
+    for key, density in densities.items():
+        out[key], _ = utils.suggest_swing_from_density(density, result_ranges, metric)
+    out["model_peak"] = int(np.argmax(pl["combined"])) + 1
+    return out
+
+
 def _suggested_swing_avg_table(rows: list[dict], result_ranges: list, metric: str,
-                                metric_label: str) -> tuple[list[dict], list[str]]:
+                                metric_label: str,
+                                upcoming_swing: dict[str, int] | None = None) -> tuple[list[dict], list[str]]:
+    upcoming_swing = upcoming_swing or {}
     seen = {res for r in rows for res in r["results"] if res is not None}
     result_cols = [res for res, _lo, _hi in result_ranges if res in seen]
     table_rows = []
     for r in rows:
         avail = [res for res in r["results"] if res is not None]
         row = {
-            "Indication": r["label"], "N": len(avail),
+            "Indication": r["label"], "Swing": upcoming_swing.get(r["key"]), "N": len(avail),
             metric_label: (sum(utils.result_metric_value(res, metric) for res in avail)
                            / len(avail)) if avail else None,
         }
@@ -302,17 +332,19 @@ def _suggested_swing_avg_table(rows: list[dict], result_ranges: list, metric: st
 
 def suggested_swing_backtest_table_fig(table_rows: list[dict], metric_label: str,
                                         result_cols: list[str]) -> go.Figure:
-    """Suggested-Swing Backtest's avg table (Indication/N/OBP-or-SLG/per-
-    result counts) as a styled image - go.Table, same convention
+    """Suggested-Swing Backtest's avg table (Indication/Swing/N/OBP-or-SLG/
+    per-result counts - Swing is each indication's suggested swing for the
+    UPCOMING pitch) as a styled image - go.Table, same convention
     strategy_table_fig uses for the Manager strategy table."""
-    header_vals = ["Indication", "N", metric_label] + result_cols
+    header_vals = ["Indication", "Swing", "N", metric_label] + result_cols
     cell_vals = [
         [r["Indication"] for r in table_rows],
+        [r["Swing"] if r.get("Swing") is not None else "-" for r in table_rows],
         [r["N"] for r in table_rows],
         [f"{r[metric_label]:.3f}" if r[metric_label] is not None else "-" for r in table_rows],
     ] + [[r[col] for r in table_rows] for col in result_cols]
-    col_widths = [150, 45, 60] + [42] * len(result_cols)
-    align = ["left", "center", "center"] + ["center"] * len(result_cols)
+    col_widths = [150, 55, 45, 60] + [42] * len(result_cols)
+    align = ["left", "center", "center", "center"] + ["center"] * len(result_cols)
     n = len(table_rows)
     row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
 
@@ -333,7 +365,8 @@ def suggested_swing_backtest_table_fig(table_rows: list[dict], metric_label: str
 
 
 def suggested_swing_backtest_figs(df: pd.DataFrame, n: int = 100, result_ranges: list | None = None,
-                                   metric: str = "obp", window: int = 30) -> dict[str, go.Figure]:
+                                   metric: str = "obp", window: int = 30,
+                                   live_ctx: dict | None = None) -> dict[str, go.Figure]:
     """{filename: fig} for /pitcher-likelihood backtest - the grid, the avg
     table, and the rolling-performance chart, built off one shared pass over
     the last n pitches (recent_pitch_densities is the expensive part, same as
@@ -343,7 +376,9 @@ def suggested_swing_backtest_figs(df: pd.DataFrame, n: int = 100, result_ranges:
     if rows is None:
         return {}
     metric_label = metric.upper()
-    table_rows, result_cols = _suggested_swing_avg_table(rows, ranges, metric, metric_label)
+    upcoming = _upcoming_swing_by_key(
+        _pitch_likelihood_prediction(df, **(live_ctx or {})), ranges, metric)
+    table_rows, result_cols = _suggested_swing_avg_table(rows, ranges, metric, metric_label, upcoming)
     window = max(3, min(window, len(rows[0]["results"])))
     rolling_rows = [
         {"key": r["key"], "label": r["label"],

@@ -68,6 +68,24 @@ def _write_png(fig, buf) -> None:
         fig.write_image(buf, format="png", scale=2)
 
 
+def _player_header(player: str, df) -> str:
+    """"**Name** · Last Pitch: x · Last Swing: y" - the most recent recorded
+    pitch and swing in the loaded history, so it's visible at a glance
+    whether the latest plays have synced to Supabase. Each is the last
+    NON-null value in id order (a play can have a pitch recorded before its
+    swing is). Note the loaders cache for an hour, so this reflects what the
+    bot loaded, not necessarily what's in Supabase this second."""
+    parts = [f"**{player}**"]
+    try:
+        ordered = df.sort_values("id") if "id" in df.columns else df
+        for label, col in (("Last Pitch", "pitch"), ("Last Swing", "swing")):
+            vals = ordered[col].dropna() if col in ordered.columns else []
+            parts.append(f"{label}: {int(vals.iloc[-1])}" if len(vals) else f"{label}: -")
+    except Exception:
+        return f"**{player}**"
+    return " · ".join(parts)
+
+
 async def _player_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     current = current.lower()
     matches = [n for n in scouting_data.all_player_names() if current in n.lower()]
@@ -99,7 +117,7 @@ async def _run_chart_command(interaction: discord.Interaction, role: str, name: 
         buf = io.BytesIO()
         _write_png(fig, buf)
         buf.seek(0)
-        return "ok", (player, buf)
+        return "ok", (_player_header(player, df), buf)
 
     status, payload = await asyncio.to_thread(_resolve_and_build)
     if status == "no_figs":
@@ -113,7 +131,7 @@ async def _run_chart_command(interaction: discord.Interaction, role: str, name: 
         await interaction.followup.send(f"No plays found for **{payload}**.", ephemeral=True)
         return
     player, buf = payload
-    await interaction.followup.send(content=f"**{player}**", file=discord.File(buf, filename=filename))
+    await interaction.followup.send(content=player, file=discord.File(buf, filename=filename))
 
 
 async def _run_multi_chart_command(interaction: discord.Interaction, role: str, name: str | None,
@@ -147,7 +165,7 @@ async def _run_multi_chart_command(interaction: discord.Interaction, role: str, 
             files.append((fname, buf))
         if not files:
             return "no_figs", player
-        return "ok", (player, files)
+        return "ok", (_player_header(player, df), files)
 
     status, payload = await asyncio.to_thread(_resolve_and_build)
     if status == "no_player":
@@ -162,7 +180,7 @@ async def _run_multi_chart_command(interaction: discord.Interaction, role: str, 
         return
     player, files = payload
     discord_files = [discord.File(buf, filename=fname) for fname, buf in files]
-    await interaction.followup.send(content=f"**{player}**", files=discord_files)
+    await interaction.followup.send(content=player, files=discord_files)
 
 
 _SACF_EXTRA = frozenset({"SacF", "DSacF", "GORA"})
@@ -549,8 +567,13 @@ async def pitcher_likelihood_backtest(interaction: discord.Interaction, name: st
                                        window: int = 30, game_code: int | None = None) -> None:
     await interaction.response.defer()
     ranges = await asyncio.to_thread(_resolve_result_ranges, game_code, swing_type)
+    # Live game state only feeds the averages table's "Swing" column (each
+    # indication's suggested swing for the upcoming pitch) - the backtested
+    # points themselves always use their own recorded state.
+    ctx = await asyncio.to_thread(_live_ctx_from_game_code, game_code)
     await _run_multi_chart_command(interaction, "pitcher", name, bot_charts.suggested_swing_backtest_figs,
-                                    already_deferred=True, n=n, result_ranges=ranges, metric=metric, window=window)
+                                    already_deferred=True, n=n, result_ranges=ranges, metric=metric, window=window,
+                                    live_ctx=ctx)
 
 
 @pitcher_analysis_group.command(name="delta-heatmap", description="Next pitch delta vs prior pitch delta")
@@ -793,7 +816,7 @@ async def _run_tendencies_command(interaction: discord.Interaction, role: str, n
         buf = io.BytesIO()
         _write_png(fig, buf)
         buf.seek(0)
-        return "ok", (player, text, buf)
+        return "ok", (_player_header(player, df), text, buf)
 
     status, payload = await asyncio.to_thread(_resolve_and_build)
     if status == "no_player":

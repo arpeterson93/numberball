@@ -1633,6 +1633,20 @@ with tab_p:
                          "scores": utils.expected_swing_scores(s["density"], result_ranges, _pl_swing_metric_key)}
                         for s in _pl["signals"]
                     ]
+                    # Same last-100 replay the Suggested-Swing Backtest
+                    # below uses (identical cache key), so this is free once
+                    # either has run.
+                    with st.spinner("Placing this prediction in context..."):
+                        _pl_hist_pts = _recent_pitch_densities_cached(
+                            df_p, 100, sigma=75.0, pitch_width=100, cooldown_radius=50.0,
+                            leverage_width=0.5, min_effective_n=20.0, weights=DEFAULT_WEIGHTS,
+                        )
+                    _pl_conf = utils.swing_confidence_summary(
+                        _pl["baseline"], _pl["combined"], _pl_swing_metric_key, result_ranges=result_ranges,
+                        history_points=_pl_hist_pts)
+                    _pl_conf_text = utils.swing_confidence_text(_pl_conf, _pl_swing_metric)
+                    for _pl_conf_line in _pl_conf_text.split("\n"):
+                        st.caption(_pl_conf_line)
                     st.plotly_chart(
                         utils.expected_swing_score_radial_chart(
                             _pl_base_scores, _pl_signal_scores, _pl_comb_scores, _pl_swing_metric,
@@ -2544,6 +2558,12 @@ with tab_p:
                  "distance) of the trigger pitch to count as 'returning' to that "
                  "zone.")
         _cd_radius_p = _cd_bucket_p / 2
+        # League overlay must be the table fit at THIS radius - radius 50 is
+        # the model's own production table; every other bucket size comes
+        # from tools/cooldown_league_tables.py (None -> no overlay, never a
+        # mismatched one).
+        _cd_league_p = (COOLDOWN_LEAGUE_RATES if _cd_radius_p == 50.0
+                        else utils.cooldown_league_rates_for_radius("pitch", _cd_radius_p))
         _cd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch", radius=_cd_radius_p)
         if _cd_events_p.empty:
             st.caption("Not enough history to compute cooldown returns.")
@@ -2562,7 +2582,7 @@ with tab_p:
                     if not _cd_resolved_p.empty or not _cd_live_p.empty:
                         st.plotly_chart(
                             utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p,
-                                                     league_pmf=COOLDOWN_LEAGUE_RATES.get(_cd_cat)),
+                                                     league_pmf=(_cd_league_p or {}).get(_cd_cat)),
                             width="stretch", config={"displayModeBar": False},
                             key=f"p_cooldown_{_cd_cat}",
                         )
@@ -2598,6 +2618,8 @@ with tab_p:
                  "(circular delta distance) of the trigger delta to count as "
                  "'returning' to that move size.")
         _dcd_radius_p = _dcd_bucket_p / 2
+        _dcd_league_p = (DELTA_COOLDOWN_LEAGUE_RATES if _dcd_radius_p == 50.0
+                         else utils.cooldown_league_rates_for_radius("delta", _dcd_radius_p))
         _dcd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch_circ_delta", radius=_dcd_radius_p)
         if _dcd_events_p.empty:
             st.caption("Not enough history to compute delta cooldown returns.")
@@ -2612,7 +2634,7 @@ with tab_p:
                     if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
                         st.plotly_chart(
                             utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat, live=_dcd_live_p,
-                                                     signed=True, league_pmf=DELTA_COOLDOWN_LEAGUE_RATES.get(_dcd_cat)),
+                                                     signed=True, league_pmf=(_dcd_league_p or {}).get(_dcd_cat)),
                             width="stretch", config={"displayModeBar": False},
                             key=f"p_delta_cooldown_{_dcd_cat}",
                         )

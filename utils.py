@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import pathlib
 import sys
 import numpy as np
 import pandas as pd
@@ -4611,7 +4612,7 @@ def pitch_likelihood_radial_chart(
 
 def expected_swing_score_radial_chart(
     baseline_scores, signal_scores: list[dict], combined_scores, metric_label: str,
-    title: str = "Expected Swing Score", dark_mode: bool = False,
+    title: str = "Expected Swing Score", dark_mode: bool = False, confidence_text: str = "",
 ) -> go.Figure:
     """Companion to pitch_likelihood_radial_chart, same angle convention
     (swing value 1-1000, 1 at 12 o'clock, clockwise) but a different
@@ -4637,10 +4638,9 @@ def expected_swing_score_radial_chart(
     data's own min/max anyway (same reasoning as the density radial: most of
     a zero-based axis would be spent below every curve's shared floor,
     compressing the actual baseline-vs-combined gap this chart exists to
-    show). A star marker (plus label) marks baseline's and combined's own
-    argmax - the swing suggest_swing_from_density would actually pick for
-    each; individual signals are shown as plain curves (no stars) to keep
-    this from turning into a 9-star field."""
+    show). A star marker (plus label) marks combined's own argmax - the swing
+    suggest_swing_from_density would actually pick; baseline and the
+    individual signals are shown as plain curves (no stars)."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
     grid_color = "rgba(255,255,255,0.15)" if dark_mode else "rgba(0,0,0,0.15)"
     sig_colors = _PL_SIG_COLORS_DARK if dark_mode else _PL_SIG_COLORS_LIGHT
@@ -4658,7 +4658,6 @@ def expected_swing_score_radial_chart(
     pad = (r_max - r_min) * 0.08 or (abs(r_max) * 0.08 or 0.01)
     radial_range = [r_min - pad, r_max + pad]
 
-    base_best_idx = int(np.argmax(baseline_scores))
     comb_best_idx = int(np.argmax(combined_scores))
 
     fig = go.Figure()
@@ -4679,20 +4678,21 @@ def expected_swing_score_radial_chart(
         line=dict(color=combined_color, width=2.5),
     ))
     fig.add_trace(go.Scatterpolar(
-        r=[baseline_scores[base_best_idx]], theta=[theta[base_best_idx]], mode="markers+text",
-        marker=dict(symbol="star", size=11, color=baseline_color, line=dict(color=text_color, width=1)),
-        text=[f"{base_best_idx + 1}"], textposition="top center", textfont=dict(color=text_color, size=10),
-        name="Baseline best swing", showlegend=False, hoverinfo="skip",
-    ))
-    fig.add_trace(go.Scatterpolar(
         r=[combined_scores[comb_best_idx]], theta=[theta[comb_best_idx]], mode="markers+text",
         marker=dict(symbol="star", size=11, color=combined_color, line=dict(color=text_color, width=1)),
         text=[f"{comb_best_idx + 1}"], textposition="top center", textfont=dict(color=text_color, size=10),
         name="Model best swing", showlegend=False, hoverinfo="skip",
     ))
 
+    # swing_confidence_text, when given, rides as a small second title line
+    # (the bot has no caption to put it in; the Streamlit page passes "" and
+    # shows the same text as a caption instead).
+    _top_margin = 44 if not confidence_text else (92 if chr(10) in confidence_text else 78)
+    _title_text = (f"{title}<br><sup>{confidence_text.replace(chr(10), '<br>')}</sup>"
+                   if confidence_text else title)
+
     fig.update_layout(
-        title=dict(text=title, x=0.5, xanchor="center", font=dict(color=text_color)),
+        title=dict(text=_title_text, x=0.5, xanchor="center", font=dict(color=text_color)),
         polar=dict(
             hole=0.1,
             bgcolor="rgba(0,0,0,0)",
@@ -4703,7 +4703,7 @@ def expected_swing_score_radial_chart(
                              range=radial_range),
         ),
         height=490,
-        margin=dict(l=30, r=30, t=44, b=100),
+        margin=dict(l=30, r=30, t=_top_margin, b=100),
         paper_bgcolor="rgba(0,0,0,0)",
         # Below the plot, not above it - same reason/sizing as
         # pitch_likelihood_radial_chart's own legend (now also up to 9
@@ -5917,6 +5917,172 @@ def suggest_swing_from_density(
     scores = expected_swing_scores(density, result_ranges, metric, obr_extra)
     best_idx = int(np.argmax(scores) if maximize else np.argmin(scores))
     return best_idx + 1, float(scores[best_idx])
+
+
+_COOLDOWN_RATES_BY_RADIUS_PATH = (
+    pathlib.Path(__file__).resolve().parent / "tools" / "cooldown_league_rates_by_radius.json")
+_cooldown_rates_by_radius_cache: dict | None = None
+
+
+def cooldown_league_rates_for_radius(domain: str, radius: float) -> dict[str, dict[int, float]] | None:
+    """League-wide P(a cooldown resolves in exactly k pitches) per result
+    category, fit at THIS radius (tools/cooldown_league_tables.py) - the
+    overlay the cooldown CDF charts need to be comparable to the pitcher's
+    own curve at whatever bucket size the slider is on. domain is "pitch" or
+    "delta". None if the table file is missing or has no entry for that
+    radius (callers just skip the overlay rather than draw a mismatched one)."""
+    global _cooldown_rates_by_radius_cache
+    if _cooldown_rates_by_radius_cache is None:
+        try:
+            import json
+            _cooldown_rates_by_radius_cache = json.loads(_COOLDOWN_RATES_BY_RADIUS_PATH.read_text())
+        except Exception:
+            _cooldown_rates_by_radius_cache = {}
+    raw = _cooldown_rates_by_radius_cache.get(domain, {}).get(str(float(radius)))
+    if not raw:
+        return None
+    return {cat: {int(k): v for k, v in dist.items()} for cat, dist in raw.items()}
+
+
+# ── swing confidence (how much is the model's read worth, in context) ───────
+
+# Percentile tiers the league calibration table reports, as (lo, hi) of the
+# edge's own league percentile - the top is split finer on purpose, since
+# "the parameters are really stacking in our favor" is a top-of-the-
+# distribution question.
+SWING_CONFIDENCE_TIERS = [(0, 50), (50, 75), (75, 90), (90, 95), (95, 100)]
+_SWING_CONFIDENCE_PEAK_HALFWIDTH = 25
+_SWING_CONFIDENCE_REF_PATH = pathlib.Path(__file__).resolve().parent / "tools" / "swing_confidence_reference.json"
+_swing_confidence_ref_cache: dict | None = None
+
+
+def swing_confidence_stats(baseline, combined, result_ranges: list, metric: str = "obp") -> dict:
+    """Scalar confidence read on one prediction. "edge" is how much better
+    the combined model's own best swing scores under the combined density
+    than that SAME swing scores under the baseline (unconditioned) density -
+    i.e. what the context is adding, not just how spiky the density is (a
+    spiky density against a pitcher who's cheap to hit anyway isn't
+    actionable). "peak_mass" is the combined density's probability mass
+    within +/-_SWING_CONFIDENCE_PEAK_HALFWIDTH of its own single peak
+    (circular) - the "it lands right here X% of the time" intuition."""
+    comb_scores = expected_swing_scores(combined, result_ranges, metric)
+    base_scores = expected_swing_scores(baseline, result_ranges, metric)
+    best_idx = int(np.argmax(comb_scores))
+    comb = np.asarray(combined, dtype=float)
+    peak_idx = int(np.argmax(comb))
+    offsets = np.arange(-_SWING_CONFIDENCE_PEAK_HALFWIDTH, _SWING_CONFIDENCE_PEAK_HALFWIDTH + 1)
+    peak_mass = float(comb[(peak_idx + offsets) % len(comb)].sum())
+    return {
+        "best_swing": best_idx + 1,
+        "best_score": float(comb_scores[best_idx]),
+        "edge": float(comb_scores[best_idx] - base_scores[best_idx]),
+        "peak_mass": peak_mass,
+    }
+
+
+def swing_confidence_realized(baseline, combined, actual: int, result_ranges: list, metric: str = "obp") -> dict:
+    """What the model's swing and the baseline's swing would each ACTUALLY
+    have scored against the pitch that was thrown - the realized side of
+    swing_confidence_stats' predicted edge, for the calibration table."""
+    model_swing, _ = suggest_swing_from_density(combined, result_ranges, metric)
+    base_swing, _ = suggest_swing_from_density(baseline, result_ranges, metric)
+    out = {}
+    for key, swing in (("model", model_swing), ("baseline", base_swing)):
+        res = _diff_to_result(circular_diff(int(actual), int(swing)), result_ranges)
+        out[key] = result_metric_value(res, metric)
+    return out
+
+
+def load_swing_confidence_reference() -> dict | None:
+    """tools/pitch_confidence_reference.py's league reference table, cached
+    for the process. None if it hasn't been built yet (or is unreadable) -
+    callers just skip the league lines."""
+    global _swing_confidence_ref_cache
+    if _swing_confidence_ref_cache is None:
+        try:
+            import json
+            _swing_confidence_ref_cache = json.loads(_SWING_CONFIDENCE_REF_PATH.read_text())
+        except Exception:
+            _swing_confidence_ref_cache = {}
+    return _swing_confidence_ref_cache or None
+
+
+def _percentile_in_sorted(value: float, sorted_vals) -> float:
+    """Mid-rank percentile (0-100) of value within sorted_vals."""
+    arr = np.asarray(sorted_vals, dtype=float)
+    if arr.size == 0:
+        return float("nan")
+    lo = np.searchsorted(arr, value, side="left")
+    hi = np.searchsorted(arr, value, side="right")
+    return 100.0 * (lo + hi) / 2.0 / arr.size
+
+
+def swing_confidence_summary(
+    baseline, combined, metric: str = "obp", result_ranges: list | None = None,
+    history_points: list[dict] | None = None, min_history_points: int = 20,
+) -> dict | None:
+    """Everything the UI/bot needs to put one prediction in context.
+
+    history_points: this pitcher's own recent replay points
+    (recent_pitch_densities' {"baseline","combined",...} dicts) - their edge
+    under result_ranges is the pitcher-relative reference; skipped when
+    fewer than min_history_points. The league lookup always scores under
+    the generic utils.RESULT_RANGES (what the reference table was built
+    with), so the league percentile is apples-to-apples even when
+    result_ranges is a specific game's own table.
+
+    Returns {"stats", "pitcher_pct", "pitcher_n", "league_pct", "tier",
+    "league_n"} - pitcher_*/league_*/tier are None when unavailable."""
+    metric = metric.lower()
+    ranges = result_ranges or RESULT_RANGES
+    stats = swing_confidence_stats(baseline, combined, ranges, metric)
+    out = {"stats": stats, "pitcher_pct": None, "pitcher_n": 0,
+           "league_pct": None, "tier": None, "league_n": None}
+
+    if history_points and len(history_points) >= min_history_points:
+        hist_edges = np.sort([
+            swing_confidence_stats(pt["baseline"], pt["combined"], ranges, metric)["edge"]
+            for pt in history_points
+        ])
+        out["pitcher_pct"] = _percentile_in_sorted(stats["edge"], hist_edges)
+        out["pitcher_n"] = int(len(hist_edges))
+
+    ref = load_swing_confidence_reference()
+    ref_m = (ref or {}).get(metric)
+    if ref_m:
+        league_edge = (stats["edge"] if ranges is RESULT_RANGES
+                       else swing_confidence_stats(baseline, combined, RESULT_RANGES, metric)["edge"])
+        out["league_pct"] = float(np.interp(league_edge, ref_m["quantiles"], np.arange(len(ref_m["quantiles"]))))
+        for tier in ref_m.get("tiers", []):
+            if tier["lo_pct"] <= out["league_pct"] <= tier["hi_pct"]:
+                out["tier"] = tier
+                # first matching tier wins on the shared boundary - a value
+                # exactly on a boundary belongs to the lower tier
+                break
+        out["league_n"] = ref.get("meta", {}).get("n_points")
+    return out
+
+
+def swing_confidence_text(summary: dict | None, metric_label: str) -> str:
+    """Plain-text read of swing_confidence_summary (context line, then the
+    similar-spots calibration on its own line after a newline) - shared by the
+    Streamlit caption and the Discord bot's chart annotation. Empty string
+    when there's nothing to say."""
+    if not summary:
+        return ""
+    st = summary["stats"]
+    parts = [f"Edge {st['edge']:+.3f} {metric_label} (swing {st['best_swing']})"]
+    if summary.get("pitcher_pct") is not None:
+        parts.append(f"{summary['pitcher_pct']:.0f}th pct vs. this pitcher's last {summary['pitcher_n']}")
+    if summary.get("league_pct") is not None:
+        parts.append(f"{summary['league_pct']:.0f}th pct league-wide")
+    text = " · ".join(parts)
+    tier = summary.get("tier")
+    if tier and tier.get("n"):
+        # Own line - the context line above stays short enough to read at a glance.
+        text += (f"\nSimilar spots: model swing {tier['model_realized']:.3f} vs. baseline swing "
+                 f"{tier['baseline_realized']:.3f} {metric_label} (n={tier['n']})")
+    return text
 
 
 def result_metric_value(result: str, metric: str = "obp", obr_extra: frozenset[str] = frozenset()) -> float:
