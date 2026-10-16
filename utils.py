@@ -3438,6 +3438,9 @@ def cooldown_radial_chart(
     ticktext: list[str] | None = None,
     value_label: str = "Pitch",
     signed: bool = False,
+    league_pmf: dict[str, dict[int, float]] | None = None,
+    shrinkage_n: float = 20.0,
+    color_max: float = 12.0,
 ) -> go.Figure:
     """Radial view (1-1000 pitch wheel by default, same convention as the
     other radial charts on this tab) of every currently open cooldown at
@@ -3472,17 +3475,19 @@ def cooldown_radial_chart(
     wedges produces a muddy third color that doesn't clearly read as either
     one's actual value). Each slice instead resolves to exactly one color:
     the AVERAGE probability among every trigger whose zone covers it (equal
-    weight per trigger, regardless of category). That probability - from a
-    slice-covering trigger's own category's resolved distribution - is the
-    historical chance a cooldown would already be closed within one more
-    pitch than this one has run so far, i.e. CDF_category(elapsed + 1) (a
-    return on the very next pitch is the most immediate way a cooldown could
-    end). It maps through the same blue (low) -> white (mid) -> red (high)
-    diverging scale used for recency elsewhere on this tab (_freq_bwr_color),
-    so a red slice means "historically almost always resolved by now - this
-    one running long is notable," blue means "still well within normal," and
-    a slice no open trigger's zone reaches, or whose only covering
-    trigger(s) have no resolved history to judge from, renders neutral white.
+    weight per trigger, regardless of category). That probability is the
+    chance THIS cooldown resolves on the very next pitch - P(a cooldown of
+    this category resolves in exactly elapsed + 1 pitches), the same
+    p_return_now cooldown_signal/delta_cooldown_signal use as their bump
+    amplitude (the pitcher's own rate shrunk toward league_pmf's rate for
+    that category/k by alpha = n/(n + shrinkage_n) when league_pmf is given;
+    the pitcher's own rate alone otherwise). It maps through a blue (low) ->
+    white (mid) -> red (high) diverging scale from 0 to color_max percent
+    (per-pitch return odds live around 0-12%, so a 0-100 scale would render
+    everything the same blue), so a red slice means "an unusually likely
+    pitch to come back to this zone," blue means "unlikely right now," and a
+    slice no open trigger's zone reaches, or whose only covering trigger(s)
+    have no resolved history to judge from, renders neutral white.
 
     Maximal contiguous runs of equal-valued slices (in practice: the part of
     a trigger's own zone that no OTHER open trigger's zone overlaps, or two
@@ -3501,20 +3506,32 @@ def cooldown_radial_chart(
     r_max = 1.0
     hole = 0.08  # matches the hole size used by the other radial charts on this tab
 
-    # One CDF table per category actually needed, sized to cover every live
-    # trigger of that category (elapsed + 1) - computed once up front rather
-    # than per-row, since several open triggers can share a category.
-    cdf_by_cat: dict[str, dict[int, float]] = {}
-    for cat, grp in live.groupby("category"):
-        resolved_vals = events.loc[(events["category"] == cat) & events["resolved"], "pitches"]
-        max_needed = int(grp["pitches"].max()) + 1
-        if not resolved_vals.empty:
-            max_needed = max(max_needed, int(resolved_vals.max()) + 1)
-        cdf_by_cat[cat] = _cooldown_empirical_cdf(resolved_vals, max_needed)
+    # Per-trigger odds the cooldown resolves on the very next pitch (k =
+    # elapsed + 1): the pitcher's own share of resolved cooldowns that took
+    # exactly k pitches, shrunk toward the league's rate for that category/k
+    # the same way cooldown_signal's _shrunk_return_prob does. A category
+    # with no resolved history of its own has nothing to judge from (None).
+    resolved_by_cat = {
+        cat: events.loc[(events["category"] == cat) & events["resolved"], "pitches"].astype(int)
+        for cat in live["category"].unique()
+    }
+
+    def _next_pitch_prob(cat: str, elapsed: int) -> float | None:
+        resolved_vals = resolved_by_cat.get(cat)
+        if resolved_vals is None or resolved_vals.empty:
+            return None
+        k = elapsed + 1
+        n_eff_cat = len(resolved_vals)
+        p_pitcher = float((resolved_vals == k).sum()) / n_eff_cat
+        p_league = (league_pmf or {}).get(cat, {}).get(k)
+        if p_league is None:
+            return p_pitcher * 100.0
+        alpha = n_eff_cat / (n_eff_cat + shrinkage_n)
+        return (alpha * p_pitcher + (1 - alpha) * p_league) * 100.0
 
     triggers = []  # (trigger_pitch, probability-or-None, result, elapsed_pitches, category)
     for _, row in live.iterrows():
-        prob = cdf_by_cat.get(row["category"], {}).get(int(row["pitches"]) + 1)
+        prob = _next_pitch_prob(row["category"], int(row["pitches"]))
         triggers.append((int(row["trigger_pitch"]), prob, str(row["result"]),
                          int(row["pitches"]), str(row["category"])))
 
@@ -3562,7 +3579,8 @@ def cooldown_radial_chart(
         mid_val = domain_lo + (mid_bin + 0.5) * bin_width
         run_theta.append((mid_val * 360.0 / 1000.0) % 360.0)
         run_width.append(length * 360.0 / n_bins)
-        run_colors.append(_freq_bwr_color(val, 0, 100) if val is not None else _freq_bwr_color(50, 0, 100))
+        run_colors.append(_freq_bwr_color(min(val, color_max), 0, color_max) if val is not None
+                          else _freq_bwr_color(color_max / 2, 0, color_max))
     fig.add_trace(go.Barpolar(
         r=[r_max] * len(runs), theta=run_theta, width=run_width,
         marker=dict(color=run_colors, line=dict(width=0)),
@@ -3578,7 +3596,7 @@ def cooldown_radial_chart(
         if val is None or length < min_run:
             continue
         label_theta.append(theta)
-        label_text.append(f"{val:.0f}%")
+        label_text.append(f"{val:.1f}%")
     if label_theta:
         fig.add_trace(go.Scatterpolar(
             r=[r_max * 0.6] * len(label_theta), theta=label_theta, mode="text",
@@ -3606,8 +3624,8 @@ def cooldown_radial_chart(
     dot_hover = [
         (f"{value_label} {t:+d} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>" if signed
          else f"{value_label} {t} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>")
-        + (f"{p:.0f}% chance closed by the next pitch" if p is not None
-           else "n/a chance closed by the next pitch")
+        + (f"{p:.1f}% chance it returns on the next pitch" if p is not None
+           else "n/a chance it returns on the next pitch")
         for t, p, r, e, _ in triggers
     ]
     # Dot fill color is the trigger's own result category, worst-for-the-

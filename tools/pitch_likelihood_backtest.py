@@ -107,8 +107,31 @@ import utils
 
 GRID_SIZE = 1000  # matches the app's 1-1000 pitch-value domain throughout
 
+# delta_after_leverage matches on a THREE-bucket leverage grouping (low / med /
+# high) instead of a fixed +/- window around the current leverage: a fixed
+# window held ~half of a pitcher's whole history at LI ~0.5 (no information)
+# but almost nothing above LI ~1.5. Cuts picked by head-to-head log-loss gain
+# over baseline across candidate cut pairs (<0.5 / 0.5-1.0 / 1.0+ won, with
+# roughly even-sized groups: ~47% / ~36% / ~16.5% of plays) - redo that
+# comparison before moving them.
+LEVERAGE_BUCKET_EDGES = (0.5, 1.0)
+
+
+def leverage_bucket_bounds(leverage: float) -> tuple[float, float]:
+    """[lo, hi) of the leverage bucket this leverage falls in (hi=inf for the
+    top bucket, lo=0 for the bottom one)."""
+    lo = 0.0
+    for edge in LEVERAGE_BUCKET_EDGES:
+        if leverage < edge:
+            return lo, edge
+        lo = edge
+    return lo, math.inf
+
 # tools/pitch_likelihood_calibrate.py's fit-weights result at sigma=75/
-# pitch_width=100/cooldown_radius=50/leverage_width=0.5/min_effective_n=20/
+# pitch_width=100/cooldown_radius=50/min_effective_n=20/ (delta_after_leverage
+# matching on LEVERAGE_BUCKET_EDGES low/med/high - refit when that replaced the
+# old +/-0.25 window; weights moved by <=0.008 each, held-out val/test log-loss
+# 6.9080->6.9076 / 6.9055->6.9051)/
 # min_history=100/cooldown rate-shrinkage ON - see the module docstring above
 # for the held-out numbers and the min-history=30->100 history behind this
 # fit. pitch_sequence and delta_cooldown both land at ~0 here (redundant
@@ -117,11 +140,11 @@ GRID_SIZE = 1000  # matches the app's 1-1000 pitch-value domain throughout
 # Used as the CLI --weights default; pass --weights to override.
 DEFAULT_WEIGHTS = {
     "pitch_sequence": 0.0,
-    "delta_sequence": 0.07,
-    "cooldown": 0.248,
-    "delta_after_result": 0.148,
-    "delta_after_leverage": 0.163,
-    "shadow_delta_after_result": 0.231,
+    "delta_sequence": 0.068,
+    "cooldown": 0.24,
+    "delta_after_result": 0.143,
+    "delta_after_leverage": 0.167,
+    "shadow_delta_after_result": 0.23,
     "delta_cooldown": 0.0,
 }
 
@@ -480,25 +503,26 @@ def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float,
     return Signal("delta_cooldown", density, float(min(n_effs)))
 
 
-def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, width: float, sigma: float) -> Signal | None:
+def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, sigma: float) -> Signal | None:
     """Historical pitch-to-pitch DELTAS (not absolute pitch values) measured
     on pitches thrown in situations whose own leverage (stakes, via
     utils.compute_play_leverage - outs/obc/score/inning, not what just
-    happened pitch-wise) falls within +/-width/2 of the CURRENT situation's
-    leverage, then projected onto an implied next pitch via the CURRENT
-    actual most recent pitch (state["prev_pitch"]) as anchor - same
-    anchor + delta projection delta_after_result_signal uses, same reasoning:
-    "under similar stakes, how far does the pitcher usually move" applied to
-    where they actually are right now, rather than "under similar stakes,
-    what absolute value do they land on," which ignores where they're coming
-    from each historical time and so doesn't generalize."""
+    happened pitch-wise) falls in the same low / med / high bucket as the
+    CURRENT situation's leverage (LEVERAGE_BUCKET_EDGES), then projected onto
+    an implied next pitch via the CURRENT actual most recent pitch
+    (state["prev_pitch"]) as anchor - same anchor + delta projection
+    delta_after_result_signal uses, same reasoning: "under similar stakes,
+    how far does the pitcher usually move" applied to where they actually
+    are right now, rather than "under similar stakes, what absolute value do
+    they land on," which ignores where they're coming from each historical
+    time and so doesn't generalize."""
     target_lev = state.get("target_leverage")
     if target_lev is None:
         return None
     df_lev = df_hist.copy()
     df_lev["_leverage"] = utils.compute_play_leverage(df_lev)
-    lo, hi = target_lev - width / 2, target_lev + width / 2
-    matched = df_lev[df_lev["_leverage"].between(lo, hi) & df_lev["pitch_circ_delta"].notna()]
+    lo, hi = leverage_bucket_bounds(target_lev)
+    matched = df_lev[(df_lev["_leverage"] >= lo) & (df_lev["_leverage"] < hi) & df_lev["pitch_circ_delta"].notna()]
     deltas = matched["pitch_circ_delta"].dropna().astype(int).to_numpy()
     if len(deltas) == 0:
         return None
@@ -513,7 +537,7 @@ SIGNAL_BUILDERS = {
         df_hist, cfg.cooldown_radius, cfg.cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
     "delta_after_result": lambda df_hist, state, cfg: delta_after_result_signal(df_hist, state, cfg.sigma),
     "delta_after_leverage": lambda df_hist, state, cfg: delta_after_leverage_signal(
-        df_hist, state, cfg.leverage_width, cfg.sigma),
+        df_hist, state, cfg.sigma),
     "shadow_delta_after_result": lambda df_hist, state, cfg: shadow_delta_after_result_signal(df_hist, state, cfg.sigma),
     "delta_cooldown": lambda df_hist, state, cfg: delta_cooldown_signal(
         df_hist, state, cfg.delta_cooldown_radius, cfg.delta_cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
@@ -553,6 +577,9 @@ class Config:
         self.min_effective_n = min_effective_n
         self.pitch_width = pitch_width
         self.cooldown_radius = cooldown_radius
+        # Legacy: delta_after_leverage no longer uses a +/- window (it matches
+        # on LEVERAGE_BUCKET_EDGES), so this is accepted and exported for
+        # callers/artifacts that still pass it but has no modeling effect.
         self.leverage_width = leverage_width
         self.delta_cooldown_radius = delta_cooldown_radius
         self.weights = weights
@@ -902,11 +929,13 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
         df_lev = df_hist.copy()
         df_lev["_leverage"] = utils.compute_play_leverage(df_lev)
         target_lev = state["target_leverage"]
-        lo, hi = target_lev - cfg.leverage_width / 2, target_lev + cfg.leverage_width / 2
-        matched = df_lev[df_lev["_leverage"].between(lo, hi) & df_lev["pitch_circ_delta"].notna()]
+        lo, hi = leverage_bucket_bounds(target_lev)
+        matched = df_lev[(df_lev["_leverage"] >= lo) & (df_lev["_leverage"] < hi) & df_lev["pitch_circ_delta"].notna()]
         raw_deltas = matched["pitch_circ_delta"].dropna().astype(int).tolist()
         derivation["delta_after_leverage"] = {
-            "anchor": state["prev_pitch"], "target_leverage": target_lev, "width": cfg.leverage_width,
+            "anchor": state["prev_pitch"], "target_leverage": target_lev,
+            "lo": lo, "hi": None if math.isinf(hi) else hi,
+            "width": None if math.isinf(hi) else hi - lo,
             "raw_deltas": raw_deltas,
             "raw_implied": [((state["prev_pitch"] + d - 1) % 1000) + 1 for d in raw_deltas],
         }
@@ -1019,7 +1048,8 @@ def main() -> None:
     ap.add_argument("--delta-cooldown-radius", type=float, default=50.0,
                      help="Radius (in delta units) for the delta_cooldown signal")
     ap.add_argument("--leverage-width", type=float, default=0.5,
-                     help="+/- band around the current situation's leverage for the leverage signal's match")
+                     help="Legacy / no effect: the leverage signal now matches on LEVERAGE_BUCKET_EDGES "
+                          "(low / med / high), not a +/- band")
     ap.add_argument("--weights", default=None,
                      help="Comma-separated name=value overrides for the log-linear pool (default: "
                           "DEFAULT_WEIGHTS, the calibrated fit - see the module docstring), e.g. "

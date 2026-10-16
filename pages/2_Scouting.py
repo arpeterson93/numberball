@@ -2693,8 +2693,12 @@ with tab_p:
                 _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
                 if not _cd_live_all_p.empty:
                     st.markdown("**Open Cooldowns**")
+                    st.caption(
+                        "Ring color: the chance each open cooldown resolves on the very next pitch "
+                        "(the same odds the cooldown indication uses), averaged where zones overlap - "
+                        "red = unusually likely, blue = unlikely.")
                     st.plotly_chart(
-                        utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
+                        utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p, league_pmf=_cd_league_p),
                         width="stretch", config={"displayModeBar": False},
                         key="p_cooldown_radial",
                     )
@@ -2753,6 +2757,7 @@ with tab_p:
                             _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
                             domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
                             ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
+                            league_pmf=_dcd_league_p,
                         ),
                         width="stretch", config={"displayModeBar": False},
                         key="p_delta_cooldown_radial",
