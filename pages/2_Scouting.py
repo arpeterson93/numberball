@@ -120,6 +120,56 @@ def _recent_pitch_densities_cached(df_hist: pd.DataFrame, n: int, sigma: float, 
     return recent_pitch_densities(df_hist, cfg, n)
 
 
+@st.cache_data(show_spinner=False)
+def _dot_color_df_cached(df: pd.DataFrame, color_by: str | None) -> pd.DataFrame:
+    """utils.add_dot_color_columns, cached on the history's own content (the
+    leverage column is a per-row calc)."""
+    return utils.add_dot_color_columns(df, color_by)
+
+
+@st.cache_data(show_spinner=False)
+def _cooldown_lag_profile_cached(df: pd.DataFrame, value_col: str) -> dict:
+    """utils.cooldown_lag_profile, cached on the history's own content (the
+    bootstrap band is the slow part)."""
+    return utils.cooldown_lag_profile(df, value_col)
+
+
+def _render_cooldown_lag_view(df: pd.DataFrame, value_col: str, domain: str, key_prefix: str,
+                               is_mobile: bool) -> None:
+    """Cooldown sections' "Distance by lag" view: per result category, the
+    average circular distance from the trigger value at each of the next 15
+    pitches (mean + bootstrap band, median, own-history null, league mean),
+    plus an all-categories overlay. No bucket size - it doesn't use a radius."""
+    st.caption(
+        "Average circular distance (0-500) between the pitch that got the result and each of the "
+        "next 15 pitches. Dotted line = what the same triggers would average if the following "
+        "pitches were random draws from this pitcher's own history; below it means pulled toward "
+        "the trigger, above it means pushed away. Shaded band = bootstrap 95% range for the mean.")
+    profiles = _cooldown_lag_profile_cached(df, value_col) if not df.empty else {}
+    if not profiles:
+        st.caption("Not enough history to compute distance by lag.")
+        return
+    league = utils.cooldown_league_lag_profile(domain) or {}
+    signed = domain == "delta"
+    n_cols = 1 if is_mobile else 2
+    cols = st.columns(n_cols)
+    shown = [c for c in utils.SEQ_RESULT_CATEGORIES if c in profiles]
+    # One zoomed y-window shared by every category chart (and the overlay).
+    y_range = utils.cooldown_lag_y_range({c: profiles[c] for c in shown}, league)
+    for i, cat in enumerate(shown):
+        with cols[i % n_cols]:
+            st.plotly_chart(
+                utils.cooldown_lag_distance_chart(profiles[cat], title=cat, league=league.get(cat), signed=signed,
+                                                  y_range=y_range),
+                width="stretch", config={"displayModeBar": False}, key=f"{key_prefix}_{cat}",
+            )
+    st.markdown("**All Categories**")
+    st.plotly_chart(
+        utils.cooldown_lag_overlay_chart({c: profiles[c] for c in shown}, y_range=y_range),
+        width="stretch", config={"displayModeBar": False}, key=f"{key_prefix}_overlay",
+    )
+
+
 _MLN_QS_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"
 _MLN_QS_SEASON   = 13
 
@@ -2031,8 +2081,11 @@ with tab_p:
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
-            _cf_result_pre_p = st.session_state.get("ctx_result_v_p", _cf_result_def_p)
-            _cf_result_lbl_p = f"Prev result ({_cf_result_pre_p})"
+            # Static toggle label on purpose: a label that embeds the current
+            # selection changes the widget's identity every time the selection
+            # changes, which resets the toggle (and the selections under it)
+            # to off. The current selection is echoed in a caption instead.
+            _cf_result_lbl_p = "Prev result"
 
             _cf_gs_remaining_p = utils.remaining_half_innings(
                 _cf_gs_inn_p, _cf_gs_half_p, utils.game_innings(st.session_state.get("mgr_league", "MLN")))
@@ -2232,11 +2285,20 @@ with tab_p:
             with _cfp2:
                 _cf_result_on_p = st.toggle(_cf_result_lbl_p, key="ctx_result_on_p", value=False)
                 _cf_result_cat_p = None
+                _cf_result_lag_p = 1
                 if _cf_result_on_p:
                     _cf_result_cat_p = st.selectbox(
                         "Previous result category", utils.SEQ_RESULT_CATEGORIES,
                         index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
                     )
+                    _cf_result_lag_p = st.selectbox(
+                        "Pitches after result", [1, 2, 3, 4, 5], index=0, key="ctx_result_lag_p",
+                        help="1 = the pitch right after this result (default). 2-5 = that many "
+                             "pitches later, to see whether the result's effect lingers.",
+                    )
+                    st.caption(f"Keeping pitches thrown {_cf_result_lag_p} "
+                               f"{'pitch' if _cf_result_lag_p == 1 else 'pitches'} after a "
+                               f"**{_cf_result_cat_p}** result.")
 
                 st.markdown(f"**{_cf_leverage_lbl_p}**")
                 _cf_leverage_label_p = st.radio(
@@ -2267,6 +2329,22 @@ with tab_p:
             # pitcher's own delta history on what the hitters just did) -
             # previous result, leverage, and the
             # 1st-pitch toggles are shared context, so they narrow all four.
+            _dot_color_label_p = st.radio(
+                "Color radial dots by", ["Recency", "Leverage", "Prev result", "Result"], horizontal=True,
+                key="ctx_dot_color_p",
+                help="Recency (default): oldest blue to newest red. Leverage: the stakes each pitch "
+                     "was thrown into - darker blue = lower, darker red = higher, white = neutral (1.0). "
+                     "Prev result: the result of the pitch before it - dark blue = XBH, light blue = "
+                     "BB-1B, light red = Out, dark red = K+. Result: the same scale, for the result of the "
+                     "pitch itself. Radius still shows recency.",
+            )
+            _dot_color_by_p = {"Recency": None, "Leverage": "leverage", "Prev result": "result",
+                               "Result": "result_own"}[_dot_color_label_p]
+            # Always attach the leverage / previous-result columns: the radials'
+            # hover text (LI + result) reads them whichever coloring is picked.
+            _df_cf_base_p = (_dot_color_df_cached(df_p_pred, _dot_color_by_p)
+                             if not df_p_pred.empty else df_p_pred)
+
             _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_pitch_bucket2_p, _cf_result_cat_p,
                                         _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p,
@@ -2279,14 +2357,15 @@ with tab_p:
                                              _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             if (_cf_active_pitches_p or _cf_active_deltas_p or _cf_active_delta2_p
                     or _cf_active_shadow_delta_p) and not df_p_pred.empty:
-                _df_ctx_p = df_p_pred.copy()
-                if _cf_leverage_bucket_p is not None:
+                _df_ctx_p = _df_cf_base_p.copy()
+                if _cf_leverage_bucket_p is not None and "_leverage" not in _df_ctx_p.columns:
                     _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
                 _df_radial_pitches_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_pitch_bucket=_cf_pitch_bucket_p,
                     prev_pitch_bucket2=_cf_pitch_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
+                    prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
@@ -2301,6 +2380,7 @@ with tab_p:
                     prev_est_delta_bucket=_cf_est_bucket_p,
                     prev_est_delta_bucket2=_cf_est_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
+                    prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
@@ -2311,6 +2391,7 @@ with tab_p:
                     prev_delta2_bucket=_cf_delta2_bucket_p,
                     prev_delta2_bucket2=_cf_delta2_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
+                    prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
@@ -2321,6 +2402,7 @@ with tab_p:
                     prev_shadow_delta_bucket=_cf_shadow_delta_bucket_p,
                     prev_shadow_delta_bucket2=_cf_shadow_delta_bucket2_p,
                     prev_result_cat=_cf_result_cat_p,
+                    prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
@@ -2330,10 +2412,10 @@ with tab_p:
                           f"Delta²: {len(_df_radial_delta2_p)} · "
                           f"Shadow Δ: {len(_df_radial_shadow_delta_p)} matching historical instance(s).")
             else:
-                _df_radial_pitches_p = df_p_pred
-                _df_radial_deltas_p  = df_p_pred
-                _df_radial_delta2_p  = df_p_pred
-                _df_radial_shadow_delta_p = df_p_pred
+                _df_radial_pitches_p = _df_cf_base_p
+                _df_radial_deltas_p  = _df_cf_base_p
+                _df_radial_delta2_p  = _df_cf_base_p
+                _df_radial_shadow_delta_p = _df_cf_base_p
 
         # ── expected swing score rim band, shared by all 5 radials below ────────
         # Same combined-model density Combined Pitch Likelihood's own Expected
@@ -2373,7 +2455,8 @@ with tab_p:
                                               title=f"Last {_actual_pitches_radial_p} Pitches",
                                               obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
                                               sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                              score_band_scores=_score_band_scores_p),
+                                              score_band_scores=_score_band_scores_p,
+                                              color_by=_dot_color_by_p),
             width="stretch", key="p_radial",
         )
         _actual_deltas_radial_p = len(_df_radial_deltas_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_deltas_p.empty else 0
@@ -2392,7 +2475,8 @@ with tab_p:
                                              anchor=_pf_true_anchor_p,
                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                             score_band_scores=_score_band_scores_p),
+                                             score_band_scores=_score_band_scores_p,
+                                             color_by=_dot_color_by_p),
             width="stretch", key="p_radial_delta",
         )
         st.toggle(
@@ -2418,7 +2502,8 @@ with tab_p:
                                              anchor_delta=_pf_true_anchor_delta_p,
                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                             score_band_scores=_score_band_scores_p),
+                                             score_band_scores=_score_band_scores_p,
+                                             color_by=_dot_color_by_p),
             width="stretch", key="p_radial_delta2",
         )
         st.toggle(
@@ -2450,7 +2535,8 @@ with tab_p:
                                              title=_shadow_delta_radial_title_p,
                                              center_on_prev=_center_shadow_delta_p,
                                              anchor=_pf_true_anchor_swing_p,
-                                             score_band_scores=_score_band_scores_p),
+                                             score_band_scores=_score_band_scores_p,
+                                             color_by=_dot_color_by_p),
             width="stretch", key="p_radial_shadow_delta",
         )
         st.toggle(
@@ -2474,7 +2560,8 @@ with tab_p:
                                         include_delta2=_cf_delta2_combined_on_p,
                                         score_band_scores=_score_band_scores_p,
                                         obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                        sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p),
+                                        sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                                        color_by=_dot_color_by_p),
             width="stretch", key="p_radial_combined",
         )
 
@@ -2551,115 +2638,125 @@ with tab_p:
             "Following a result, what's the % chance that they'd have thrown another "
             "pitch within the radius of the pitch by X pitches later? Yellow diamonds "
             "are still-open cooldowns.")
-        _cd_bucket_p = st.select_slider(
-            "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
-            help="Same bucket sizes as the Hot Zone Pitch Matrix. A later pitch "
-                 "must land within +/- half this width (circular pitch-value "
-                 "distance) of the trigger pitch to count as 'returning' to that "
-                 "zone.")
-        _cd_radius_p = _cd_bucket_p / 2
-        # League overlay must be the table fit at THIS radius - radius 50 is
-        # the model's own production table; every other bucket size comes
-        # from tools/cooldown_league_tables.py (None -> no overlay, never a
-        # mismatched one).
-        _cd_league_p = (COOLDOWN_LEAGUE_RATES if _cd_radius_p == 50.0
-                        else utils.cooldown_league_rates_for_radius("pitch", _cd_radius_p))
-        _cd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch", radius=_cd_radius_p)
-        if _cd_events_p.empty:
-            st.caption("Not enough history to compute cooldown returns.")
+        _cd_view_p = st.radio("View", ["Return CDF", "Distance by lag"], horizontal=True,
+                              key="p_cooldown_view")
+        if _cd_view_p == "Distance by lag":
+            _render_cooldown_lag_view(df_p_pred, "pitch", "pitch", "p_cd_lag", _is_mobile)
         else:
-            # Stack single-column on mobile so the categories read top
-            # to bottom in SEQ_RESULT_CATEGORIES order - a 2-col grid
-            # would otherwise interleave as XBH, Out, BB-1B, K+ once
-            # narrow columns stack.
-            _cd_n_cols_p = 1 if _is_mobile else 2
-            _cd_cols_p = st.columns(_cd_n_cols_p)
-            for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
-                _cd_cat_events_p = _cd_events_p[_cd_events_p["category"] == _cd_cat]
-                _cd_resolved_p = _cd_cat_events_p.loc[_cd_cat_events_p["resolved"], "pitches"]
-                _cd_live_p = _cd_cat_events_p.loc[~_cd_cat_events_p["resolved"]]
-                with _cd_cols_p[_cd_i % _cd_n_cols_p]:
-                    if not _cd_resolved_p.empty or not _cd_live_p.empty:
-                        st.plotly_chart(
-                            utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p,
-                                                     league_pmf=(_cd_league_p or {}).get(_cd_cat)),
-                            width="stretch", config={"displayModeBar": False},
-                            key=f"p_cooldown_{_cd_cat}",
-                        )
-                    else:
-                        st.caption(f"No {_cd_cat} triggers yet.")
+            _cd_bucket_p = st.select_slider(
+                "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
+                help="Same bucket sizes as the Hot Zone Pitch Matrix. A later pitch "
+                     "must land within +/- half this width (circular pitch-value "
+                     "distance) of the trigger pitch to count as 'returning' to that "
+                     "zone.")
+            _cd_radius_p = _cd_bucket_p / 2
+            # League overlay must be the table fit at THIS radius - radius 50 is
+            # the model's own production table; every other bucket size comes
+            # from tools/cooldown_league_tables.py (None -> no overlay, never a
+            # mismatched one).
+            _cd_league_p = (COOLDOWN_LEAGUE_RATES if _cd_radius_p == 50.0
+                            else utils.cooldown_league_rates_for_radius("pitch", _cd_radius_p))
+            _cd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch", radius=_cd_radius_p)
+            if _cd_events_p.empty:
+                st.caption("Not enough history to compute cooldown returns.")
+            else:
+                # Stack single-column on mobile so the categories read top
+                # to bottom in SEQ_RESULT_CATEGORIES order - a 2-col grid
+                # would otherwise interleave as XBH, Out, BB-1B, K+ once
+                # narrow columns stack.
+                _cd_n_cols_p = 1 if _is_mobile else 2
+                _cd_cols_p = st.columns(_cd_n_cols_p)
+                for _cd_i, _cd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                    _cd_cat_events_p = _cd_events_p[_cd_events_p["category"] == _cd_cat]
+                    _cd_resolved_p = _cd_cat_events_p.loc[_cd_cat_events_p["resolved"], "pitches"]
+                    _cd_live_p = _cd_cat_events_p.loc[~_cd_cat_events_p["resolved"]]
+                    with _cd_cols_p[_cd_i % _cd_n_cols_p]:
+                        if not _cd_resolved_p.empty or not _cd_live_p.empty:
+                            st.plotly_chart(
+                                utils.cooldown_cdf_chart(_cd_resolved_p, title=_cd_cat, live=_cd_live_p,
+                                                         league_pmf=(_cd_league_p or {}).get(_cd_cat)),
+                                width="stretch", config={"displayModeBar": False},
+                                key=f"p_cooldown_{_cd_cat}",
+                            )
+                        else:
+                            st.caption(f"No {_cd_cat} triggers yet.")
 
-            # ── all categories overlaid on one CDF ───────────────────────────
-            st.markdown("**All Categories**")
-            st.plotly_chart(
-                utils.cooldown_cdf_overlay_chart(_cd_events_p),
-                width="stretch", config={"displayModeBar": False},
-                key="p_cooldown_overlay",
-            )
-
-            # ── open cooldowns, all categories at once ──────────────────────
-            _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
-            if not _cd_live_all_p.empty:
-                st.markdown("**Open Cooldowns**")
+                # ── all categories overlaid on one CDF ───────────────────────────
+                st.markdown("**All Categories**")
                 st.plotly_chart(
-                    utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
+                    utils.cooldown_cdf_overlay_chart(_cd_events_p),
                     width="stretch", config={"displayModeBar": False},
-                    key="p_cooldown_radial",
+                    key="p_cooldown_overlay",
                 )
+
+                # ── open cooldowns, all categories at once ──────────────────────
+                _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
+                if not _cd_live_all_p.empty:
+                    st.markdown("**Open Cooldowns**")
+                    st.plotly_chart(
+                        utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p),
+                        width="stretch", config={"displayModeBar": False},
+                        key="p_cooldown_radial",
+                    )
 
         # ── delta cooldown ───────────────────────────────────────────────
         st.subheader("Delta Cooldown")
         st.caption(
             "Similar to Pitch Zone Cooldown, but return value is delta instead of "
             "pitch value.")
-        _dcd_bucket_p = st.select_slider(
-            "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_delta_cooldown_bucket",
-            help="A later pitch's own delta must land within +/- half this width "
-                 "(circular delta distance) of the trigger delta to count as "
-                 "'returning' to that move size.")
-        _dcd_radius_p = _dcd_bucket_p / 2
-        _dcd_league_p = (DELTA_COOLDOWN_LEAGUE_RATES if _dcd_radius_p == 50.0
-                         else utils.cooldown_league_rates_for_radius("delta", _dcd_radius_p))
-        _dcd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch_circ_delta", radius=_dcd_radius_p)
-        if _dcd_events_p.empty:
-            st.caption("Not enough history to compute delta cooldown returns.")
+        _dcd_view_p = st.radio("View", ["Return CDF", "Distance by lag"], horizontal=True,
+                              key="p_delta_cooldown_view")
+        if _dcd_view_p == "Distance by lag":
+            _render_cooldown_lag_view(df_p_pred, "pitch_circ_delta", "delta", "p_dcd_lag", _is_mobile)
         else:
-            _dcd_n_cols_p = 1 if _is_mobile else 2
-            _dcd_cols_p = st.columns(_dcd_n_cols_p)
-            for _dcd_i, _dcd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
-                _dcd_cat_events_p = _dcd_events_p[_dcd_events_p["category"] == _dcd_cat]
-                _dcd_resolved_p = _dcd_cat_events_p.loc[_dcd_cat_events_p["resolved"], "pitches"]
-                _dcd_live_p = _dcd_cat_events_p.loc[~_dcd_cat_events_p["resolved"]]
-                with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
-                    if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
-                        st.plotly_chart(
-                            utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat, live=_dcd_live_p,
-                                                     signed=True, league_pmf=(_dcd_league_p or {}).get(_dcd_cat)),
-                            width="stretch", config={"displayModeBar": False},
-                            key=f"p_delta_cooldown_{_dcd_cat}",
-                        )
-                    else:
-                        st.caption(f"No {_dcd_cat} triggers yet.")
+            _dcd_bucket_p = st.select_slider(
+                "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_delta_cooldown_bucket",
+                help="A later pitch's own delta must land within +/- half this width "
+                     "(circular delta distance) of the trigger delta to count as "
+                     "'returning' to that move size.")
+            _dcd_radius_p = _dcd_bucket_p / 2
+            _dcd_league_p = (DELTA_COOLDOWN_LEAGUE_RATES if _dcd_radius_p == 50.0
+                             else utils.cooldown_league_rates_for_radius("delta", _dcd_radius_p))
+            _dcd_events_p = utils.cooldown_events(df_p_pred, value_col="pitch_circ_delta", radius=_dcd_radius_p)
+            if _dcd_events_p.empty:
+                st.caption("Not enough history to compute delta cooldown returns.")
+            else:
+                _dcd_n_cols_p = 1 if _is_mobile else 2
+                _dcd_cols_p = st.columns(_dcd_n_cols_p)
+                for _dcd_i, _dcd_cat in enumerate(utils.SEQ_RESULT_CATEGORIES):
+                    _dcd_cat_events_p = _dcd_events_p[_dcd_events_p["category"] == _dcd_cat]
+                    _dcd_resolved_p = _dcd_cat_events_p.loc[_dcd_cat_events_p["resolved"], "pitches"]
+                    _dcd_live_p = _dcd_cat_events_p.loc[~_dcd_cat_events_p["resolved"]]
+                    with _dcd_cols_p[_dcd_i % _dcd_n_cols_p]:
+                        if not _dcd_resolved_p.empty or not _dcd_live_p.empty:
+                            st.plotly_chart(
+                                utils.cooldown_cdf_chart(_dcd_resolved_p, title=_dcd_cat, live=_dcd_live_p,
+                                                         signed=True, league_pmf=(_dcd_league_p or {}).get(_dcd_cat)),
+                                width="stretch", config={"displayModeBar": False},
+                                key=f"p_delta_cooldown_{_dcd_cat}",
+                            )
+                        else:
+                            st.caption(f"No {_dcd_cat} triggers yet.")
 
-            st.markdown("**All Categories**")
-            st.plotly_chart(
-                utils.cooldown_cdf_overlay_chart(_dcd_events_p, title="All Categories"),
-                width="stretch", config={"displayModeBar": False},
-                key="p_delta_cooldown_overlay",
-            )
-
-            _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
-            if not _dcd_live_all_p.empty:
-                st.markdown("**Open Delta Cooldowns**")
+                st.markdown("**All Categories**")
                 st.plotly_chart(
-                    utils.cooldown_radial_chart(
-                        _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
-                        domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
-                        ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
-                    ),
+                    utils.cooldown_cdf_overlay_chart(_dcd_events_p, title="All Categories"),
                     width="stretch", config={"displayModeBar": False},
-                    key="p_delta_cooldown_radial",
+                    key="p_delta_cooldown_overlay",
                 )
+
+                _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
+                if not _dcd_live_all_p.empty:
+                    st.markdown("**Open Delta Cooldowns**")
+                    st.plotly_chart(
+                        utils.cooldown_radial_chart(
+                            _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
+                            domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
+                            ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
+                        ),
+                        width="stretch", config={"displayModeBar": False},
+                        key="p_delta_cooldown_radial",
+                    )
 
         _h_outs   = int(st.session_state.get("mgr_sheet_outs") or 0)
         _h_obc    = st.session_state.get("mgr_sheet_obc") or "000"

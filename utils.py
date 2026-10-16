@@ -1027,8 +1027,15 @@ def filter_by_prior_context(
     fp_app_col: str = "is_fp_app",
     fp_inn_col: str = "is_fp_inn",
     result_category_fn=None,
+    prev_result_lag: int = 1,
 ) -> pd.DataFrame:
     """Keep only rows matching every active condition, id-sorted.
+
+    prev_result_lag: how many rows back prev_result_cat looks - 1 (default)
+    is the immediately preceding row's result, 2 the one before that, and so
+    on ("the distribution k pitches after a <category> result"). Rows in id
+    order, so like every other prev_* condition here it can cross a game or
+    PA boundary; rows without that many predecessors are dropped.
 
     prev_pitch_bucket/prev_delta_bucket/prev_delta2_bucket/prev_shadow_delta_bucket/
     prev_result_cat look at the row immediately BEFORE each one (what the
@@ -1120,7 +1127,7 @@ def filter_by_prior_context(
         keep &= pd.to_numeric(d[est_delta_col], errors="coerce").shift(2).between(lo, hi)
 
     if prev_result_cat is not None:
-        prev_cat = d["result"].shift(1).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
+        prev_cat = d["result"].shift(max(1, int(prev_result_lag))).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
         keep &= (prev_cat == prev_result_cat)
 
     if leverage_bucket is not None and "_leverage" in d.columns:
@@ -3089,6 +3096,255 @@ def cooldown_cdf_chart(
     return fig
 
 
+# ── cooldown: distance from the trigger pitch, by pitches since ──────────────
+
+COOLDOWN_LAG_MAX = 15
+
+
+def _circ_abs_diff(a, b):
+    """Elementwise circular distance on the 1000-wide wheel (0-500) - same
+    wraparound convention cooldown_events uses."""
+    d = np.abs(np.asarray(a, dtype=float) - np.asarray(b, dtype=float))
+    return np.where(d > 500, 1000 - d, d)
+
+
+def cooldown_lag_distances(
+    df: pd.DataFrame, value_col: str = "pitch", max_lag: int = COOLDOWN_LAG_MAX,
+    result_col: str = "result", result_category_fn=None,
+) -> dict[str, dict]:
+    """For every trigger (a pitch whose result is recorded, same definition
+    as cooldown_events), the circular distance between that trigger's value
+    and the pitch thrown 1, 2, ..., max_lag pitches later - ALL of them, not
+    just the first one that comes back within a radius, so there's no radius
+    to pick. Returns {category: {"D": (n_triggers, max_lag) array, NaN where
+    the history ends before that lag; "null": (n_triggers,) array}}.
+
+    "null" is each trigger's own no-information reference: the average
+    circular distance from that trigger's value to a pitch drawn at random
+    from this pitcher's WHOLE history of values. A pitcher who lives near
+    500 is close to every 500-ish trigger just by habit, so "average
+    distance 180" only means something against what his own distribution
+    gives for free, not against the flat-wheel 250."""
+    if result_category_fn is None:
+        result_category_fn = seq_result_category
+    d = df[df[value_col].notna()].sort_values("id")
+    vals = d[value_col].astype(int).to_numpy()
+    results = d[result_col].to_numpy() if result_col in d.columns else np.full(len(d), None)
+    n = len(vals)
+    by_cat: dict[str, list[int]] = {}
+    for i in range(n):
+        r = results[i]
+        if pd.isna(r):
+            continue
+        by_cat.setdefault(result_category_fn(r), []).append(i)
+
+    out: dict[str, dict] = {}
+    for cat, idxs in by_cat.items():
+        D = np.full((len(idxs), max_lag), np.nan)
+        null = np.empty(len(idxs))
+        for row, i in enumerate(idxs):
+            hi = min(max_lag, n - 1 - i)
+            if hi > 0:
+                D[row, :hi] = _circ_abs_diff(vals[i + 1:i + 1 + hi], vals[i])
+            null[row] = float(_circ_abs_diff(vals, vals[i]).mean())
+        out[cat] = {"D": D, "null": null}
+    return out
+
+
+def _nan_agg(D: np.ndarray, fn) -> np.ndarray:
+    """Per-column mean/median that returns NaN (no warning) for a column with
+    no data."""
+    out = np.full(D.shape[1], np.nan)
+    for c in range(D.shape[1]):
+        col = D[:, c]
+        col = col[~np.isnan(col)]
+        if col.size:
+            out[c] = fn(col)
+    return out
+
+
+def cooldown_lag_profile(
+    df: pd.DataFrame, value_col: str = "pitch", max_lag: int = COOLDOWN_LAG_MAX,
+    n_boot: int = 300, seed: int = 0, result_category_fn=None,
+) -> dict[str, dict]:
+    """Per category: n triggers, per-lag mean/median distance from the
+    trigger pitch, the pitcher's own no-information "null" mean, per-lag n,
+    and a bootstrap 95% band around the per-lag MEAN (lo/hi). The band
+    resamples whole TRIGGERS with replacement (not individual pitches) n_boot
+    times and recomputes the mean curve each time - triggers close together
+    share the same following pitches, so pitches within a trigger aren't
+    independent and resampling them one by one would make the band look
+    tighter than the data deserves. Fixed seed so the band doesn't jitter
+    between reruns."""
+    rng = np.random.default_rng(seed)
+    raw = cooldown_lag_distances(df, value_col, max_lag, result_category_fn=result_category_fn)
+    out: dict[str, dict] = {}
+    for cat, blob in raw.items():
+        D, null = blob["D"], blob["null"]
+        n = D.shape[0]
+        if n > 1:
+            boots = np.empty((n_boot, max_lag))
+            for b in range(n_boot):
+                boots[b] = _nan_agg(D[rng.integers(0, n, n)], np.mean)
+            with np.errstate(all="ignore"):
+                lo = np.nanpercentile(boots, 2.5, axis=0)
+                hi = np.nanpercentile(boots, 97.5, axis=0)
+        else:
+            lo = hi = np.full(max_lag, np.nan)
+        out[cat] = {
+            "n": n, "n_by_lag": (~np.isnan(D)).sum(axis=0),
+            "mean": _nan_agg(D, np.mean), "median": _nan_agg(D, np.median),
+            "lo": lo, "hi": hi, "null": float(null.mean()),
+        }
+    return out
+
+
+def cooldown_league_lag_profile(domain: str) -> dict[str, dict] | None:
+    """League-wide per-category {"mean": [...], "median": [...], "null": x}
+    for cooldown_lag_distance_chart's overlay, from the same tools/
+    cooldown_league_tables.py file as the per-radius rate tables. None when
+    the file has no "lag_profile" yet."""
+    cooldown_league_rates_for_radius(domain, 50.0)  # primes the shared file cache
+    raw = (_cooldown_rates_by_radius_cache or {}).get("lag_profile", {}).get(domain)
+    if not raw:
+        return None
+    return {cat: {"mean": np.array(v["mean"], dtype=float), "median": np.array(v["median"], dtype=float),
+                  "null": float(v["null"])} for cat, v in raw.items()}
+
+
+def cooldown_lag_y_range(profiles: dict[str, dict], league: dict | None = None,
+                         pad_frac: float = 0.08) -> list[float] | None:
+    """One shared [lo, hi] y-axis window for every category's distance-by-lag
+    chart, zoomed to the data instead of starting at 0: spans the lowest to
+    the highest of every category's bootstrap band, mean, median, own-history
+    null and (if given) league mean, plus a small pad, clamped to the
+    0-500 distance range and snapped outward to a multiple of 5. Shared so
+    the four categories stay directly comparable at a glance. None when
+    there's nothing to span."""
+    line_vals: list[float] = []   # mean / median / null / league - always inside the window
+    band_vals: list[float] = []   # bootstrap band edges - can be extreme at thin lags
+    for cat, p in profiles.items():
+        for key in ("mean", "median"):
+            line_vals += [v for v in np.asarray(p[key], dtype=float) if np.isfinite(v)]
+        band_vals += [v for key in ("lo", "hi") for v in np.asarray(p[key], dtype=float) if np.isfinite(v)]
+        line_vals.append(float(p["null"]))
+        lg = (league or {}).get(cat)
+        if lg is not None:
+            line_vals += [v for v in np.asarray(lg["mean"], dtype=float) if np.isfinite(v)]
+            line_vals.append(float(lg["null"]))
+    if not line_vals:
+        return None
+    lo, hi = min(line_vals), max(line_vals)
+    if band_vals:
+        # Stretch toward the band, but only out to its 10th / 90th percentile
+        # (across every category and lag) - a handful of wide bands from the
+        # thinnest lags shouldn't flatten everything else; those few clip.
+        lo = min(lo, float(np.percentile(band_vals, 10)))
+        hi = max(hi, float(np.percentile(band_vals, 90)))
+    pad = max((hi - lo) * pad_frac, 2.0)
+    lo = max(0.0, np.floor((lo - pad) / 5.0) * 5.0)
+    hi = min(500.0, np.ceil((hi + pad) / 5.0) * 5.0)
+    return [float(lo), float(hi)]
+
+
+def cooldown_lag_distance_chart(
+    profile: dict, title: str = "Cooldown", league: dict | None = None, signed: bool = False,
+    y_range: list[float] | None = None,
+) -> go.Figure:
+    """One category's average distance from the trigger pitch at each lag:
+    mean (solid) with its bootstrap 95% band, median (dashed), the pitcher's
+    own no-information reference (dotted - what the same triggers would sit
+    at if the next pitches were drawn at random from this pitcher's own
+    history), and optionally the league's mean for the same category."""
+    lags = np.arange(1, len(profile["mean"]) + 1)
+    ok = profile["n_by_lag"] > 0
+    lags_ok = lags[ok]
+    fig = go.Figure()
+    band_ok = ok & ~np.isnan(profile["lo"]) & ~np.isnan(profile["hi"])
+    if band_ok.any():
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([lags[band_ok], lags[band_ok][::-1]]),
+            y=np.concatenate([profile["hi"][band_ok], profile["lo"][band_ok][::-1]]),
+            fill="toself", fillcolor="rgba(76,120,168,0.18)", line=dict(width=0),
+            hoverinfo="skip", name="95% band (mean)", showlegend=True,
+        ))
+    fig.add_trace(go.Scatter(
+        x=lags_ok, y=profile["mean"][ok], mode="lines+markers", name="Mean",
+        line=dict(color="#4C78A8", width=2), marker=dict(size=5),
+        customdata=profile["n_by_lag"][ok],
+        hovertemplate="Pitch +%{x}: mean %{y:.0f} (n=%{customdata})<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=lags_ok, y=profile["median"][ok], mode="lines+markers", name="Median",
+        line=dict(color="#4C78A8", width=1.5, dash="dash"), marker=dict(size=4, symbol="diamond"),
+        hovertemplate="Pitch +%{x}: median %{y:.0f}<extra></extra>",
+    ))
+    fig.add_hline(y=profile["null"], line=dict(color="rgba(150,150,150,0.9)", width=1.2, dash="dot"),
+                  annotation_text=f"own-history null {profile['null']:.0f}", annotation_position="top left",
+                  annotation_font=dict(size=10))
+    if league is not None:
+        fig.add_trace(go.Scatter(
+            x=lags[: len(league["mean"])], y=league["mean"], mode="lines", name="League mean",
+            line=dict(color="rgba(170,170,170,0.9)", width=1.5, dash="longdash"),
+            hovertemplate="League +%{x}: %{y:.0f}<extra></extra>",
+        ))
+    fig.update_layout(
+        title=dict(text=f"{title} (n={profile['n']})", x=0.5, xanchor="center"),
+        xaxis=dict(title="Pitches after the trigger", tickmode="linear", tick0=1, dtick=1,
+                    range=[0.5, len(lags) + 0.5], showgrid=True, gridcolor="rgba(128,128,128,0.25)"),
+        yaxis=dict(title="Avg circular distance from trigger " + ("delta" if signed else "pitch"),
+                    **(dict(range=y_range) if y_range else dict(rangemode="tozero"))),
+        height=340, legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+                                 font=dict(size=10)),
+        margin=dict(l=55, r=10, t=52, b=50), dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def cooldown_lag_overlay_chart(profiles: dict[str, dict], title: str = "All Categories",
+                               y_range: list[float] | None = None) -> go.Figure:
+    """Every category's MEAN distance-by-lag curve on one axis (category
+    colors from _COOLDOWN_CAT_COLORS), each with its own no-information
+    reference as a dotted line of the same color - lines only, no bands, same
+    restraint cooldown_cdf_overlay_chart shows."""
+    fig = go.Figure()
+    n_lags = 0
+    for cat in SEQ_RESULT_CATEGORIES:
+        p = profiles.get(cat)
+        if p is None:
+            continue
+        color = _COOLDOWN_CAT_COLORS.get(cat, "#888888")
+        ok = p["n_by_lag"] > 0
+        lags = np.arange(1, len(p["mean"]) + 1)
+        n_lags = max(n_lags, len(lags))
+        fig.add_trace(go.Scatter(
+            x=lags[ok], y=p["mean"][ok], mode="lines", name=f"{cat} (n={p['n']})",
+            line=dict(color=color, width=2),
+            hovertemplate=f"{cat} +%{{x}}: %{{y:.0f}}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[1, len(lags)], y=[p["null"], p["null"]], mode="lines", showlegend=False,
+            line=dict(color=color, width=1, dash="dot"), hoverinfo="skip",
+        ))
+    if not fig.data:
+        return go.Figure()
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center"),
+        xaxis=dict(title="Pitches after the trigger", tickmode="linear", tick0=1, dtick=1,
+                    range=[0.5, n_lags + 0.5], showgrid=True, gridcolor="rgba(128,128,128,0.25)"),
+        yaxis=dict(title="Mean circular distance",
+                    **(dict(range=y_range) if y_range else dict(rangemode="tozero"))),
+        height=340, legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1,
+                                 font=dict(size=10)),
+        margin=dict(l=55, r=10, t=52, b=50), dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d",
+                        "zoomOut2d", "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 def cooldown_cdf_overlay_chart(
     events: pd.DataFrame,
     title: str = "All Categories",
@@ -4334,6 +4590,133 @@ def _rim_layer(
     return traces, r_band_outer
 
 
+def _hover_context(heads: list[str], rows: pd.DataFrame, ago: list[int] | None = None) -> list[str]:
+    """Radial hover text: each point's own value line, then "LI x.x" (the
+    leverage it was thrown into, when a "_leverage" column is attached - see
+    add_dot_color_columns) and its result (the raw result string, e.g. 1B/2B/
+    K) - as "previous result -> result" when the previous row's raw result
+    ("_prev_result") is attached - each on its own line and each skipped when
+    unavailable, then "N
+    pitches ago" last. rows must be the same rows, in the same order, as
+    heads. ago: per-point pitches-ago counts (the Combined radial's shared
+    recency scale); defaults to the position from the end of heads."""
+    lv = pd.to_numeric(rows["_leverage"], errors="coerce").tolist() if "_leverage" in rows.columns else None
+    res = rows["result"].tolist() if "result" in rows.columns else None
+    prev = rows["_prev_result"].tolist() if "_prev_result" in rows.columns else None
+    out = []
+    for i, head in enumerate(heads):
+        lines = [head]
+        if lv is not None and i < len(lv) and pd.notna(lv[i]):
+            lines.append(f"LI {lv[i]:.1f}")
+        if res is not None and i < len(res) and pd.notna(res[i]):
+            has_prev = prev is not None and i < len(prev) and pd.notna(prev[i])
+            lines.append(f"{prev[i]} → {res[i]}" if has_prev else str(res[i]))
+        n_ago = ago[i] if ago is not None else len(heads) - i
+        lines.append(f"{n_ago} pitch{'es' if n_ago != 1 else ''} ago")
+        out.append("<br>".join(lines))
+    return out
+
+
+# ── radial dot coloring (alternative to recency) ──────────────────────────────
+
+_DOT_LEVERAGE_STOPS = [(0.0, "#2166ac"), (0.4, "#ffffff"), (1.0, "#b2182b")]
+_DOT_LEVERAGE_MAX = 2.5   # white sits at leverage 1.0 (neutral): 1.0 / 2.5 = 0.4
+_DOT_MISSING_COLOR = "#9a9a9a"
+
+
+def _lerp_color(stops: list[tuple[float, str]], t: float) -> str:
+    """Hex color at position t (0-1, clipped) along a piecewise-linear
+    (position, hex) gradient."""
+    t = min(1.0, max(0.0, t))
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        if t <= p1:
+            f = 0.0 if p1 == p0 else (t - p0) / (p1 - p0)
+            a = [int(c0[i:i + 2], 16) for i in (1, 3, 5)]
+            b = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+            return "#" + "".join(f"{round(x + (y - x) * f):02x}" for x, y in zip(a, b))
+    return stops[-1][1]
+
+
+def add_dot_color_columns(df: pd.DataFrame, color_by: str | None) -> pd.DataFrame:
+    """id-sorted copy of df carrying what the radials' hover text and "color
+    dots by" option read: "_leverage" (the stakes each pitch was thrown into,
+    compute_play_leverage) and "_prev_result_cat" (the PREVIOUS row's result
+    category - the same "what just happened" the Prev result context filter
+    keys on). color_by is accepted for call-site clarity but both columns are
+    always attached now (hover needs leverage regardless). Must run on the UNFILTERED
+    history, since the previous row is only meaningful before any context
+    filter drops rows; the filtered frames downstream inherit the columns."""
+    d = df.sort_values("id")
+    if "_leverage" not in d.columns:
+        d = d.assign(_leverage=compute_play_leverage(d))
+    if "result" in d.columns:
+        _cat = d["result"].map(lambda r: seq_result_category(r) if pd.notna(r) else None)
+        if "_result_cat" not in d.columns:
+            d = d.assign(_result_cat=_cat)
+        if "_prev_result" not in d.columns:
+            d = d.assign(_prev_result=d["result"].shift(1))
+        if "_prev_result_cat" not in d.columns:
+            d = d.assign(_prev_result_cat=_cat.shift(1))
+    return d
+
+
+def _dot_color_spec(rows: pd.DataFrame, color_by: str | None) -> dict | None:
+    """Per-dot hex colors for the rows a radial is plotting (same rows, same
+    order as its theta) plus what the legend/colorbar needs. None when
+    color_by is off or the needed column wasn't attached (add_dot_color_
+    columns) - the chart then keeps its recency coloring."""
+    if color_by == "leverage" and "_leverage" in rows.columns:
+        vals = pd.to_numeric(rows["_leverage"], errors="coerce").tolist()
+        colors = [_DOT_MISSING_COLOR if pd.isna(v) else _lerp_color(_DOT_LEVERAGE_STOPS, v / _DOT_LEVERAGE_MAX)
+                  for v in vals]
+        return {"kind": "leverage", "colors": colors, "present": set()}
+    for mode, col, title in (("result", "_prev_result_cat", "Prev result"),
+                             ("result_own", "_result_cat", "Result")):
+        if color_by == mode and col in rows.columns:
+            cats = rows[col].tolist()
+            colors = [_COOLDOWN_CAT_COLORS.get(c, _DOT_MISSING_COLOR) if isinstance(c, str) else _DOT_MISSING_COLOR
+                      for c in cats]
+            return {"kind": "result", "colors": colors, "present": {c for c in cats if isinstance(c, str)},
+                    "title": title}
+    return None
+
+
+def _dot_color_legend_traces(kind: str, present: set[str], title: str = "Result") -> list:
+    """Zero-size traces that exist only to give the figure a color key, always
+    as a COLORBAR on the right (same thickness/length as the recency bar, so
+    the radial is the same size whichever coloring is picked): a stepped
+    four-band bar for the result categories (XBH on top, K+ at the bottom -
+    SEQ_RESULT_CATEGORIES' own worst-to-best order), or the leverage
+    gradient."""
+    if kind == "result":
+        cats = list(reversed(SEQ_RESULT_CATEGORIES))   # bottom -> top
+        k = len(cats)
+        scale = []
+        for idx, cat in enumerate(cats):
+            scale += [[idx / k, _COOLDOWN_CAT_COLORS[cat]], [(idx + 1) / k, _COOLDOWN_CAT_COLORS[cat]]]
+        return [go.Scatterpolar(
+            r=[0], theta=[0], mode="markers", hoverinfo="skip", showlegend=False,
+            marker=dict(
+                size=0.001, opacity=0, color=[0.0, float(k)], colorscale=scale, cmin=0.0, cmax=float(k),
+                showscale=True,
+                colorbar=dict(title=dict(text=title, side="right"),
+                              tickvals=[idx + 0.5 for idx in range(k)], ticktext=cats,
+                              thickness=14, len=0.7),
+            ),
+        )]
+    return [go.Scatterpolar(
+        r=[0], theta=[0], mode="markers", hoverinfo="skip", showlegend=False,
+        marker=dict(
+            size=0.001, opacity=0, color=[0.0, _DOT_LEVERAGE_MAX],
+            colorscale=[[p, c] for p, c in _DOT_LEVERAGE_STOPS], cmin=0.0, cmax=_DOT_LEVERAGE_MAX,
+            showscale=True,
+            colorbar=dict(title=dict(text="Leverage", side="right"),
+                          tickvals=[0, 1.0, _DOT_LEVERAGE_MAX], ticktext=["Low", "Neutral", "High"],
+                          thickness=14, len=0.7),
+        ),
+    )]
+
+
 def _radial_recency_figure(
     theta: list[float],
     hover: list[str],
@@ -4342,6 +4725,7 @@ def _radial_recency_figure(
     ticktext: list[str],
     range_rings: list[tuple[float, float, str, float]] | None = None,
     score_band: dict | None = None,
+    dot_color: dict | None = None,
 ) -> go.Figure:
     """Shared doughnut-style polar scatter: recency sets both radius and color
     (oldest at the center, newest at the rim, blue-white-red diverging scale).
@@ -4360,6 +4744,9 @@ def _radial_recency_figure(
     score_band: see _rim_layer/_expected_score_band_trace - when given, it
     becomes the outermost rim ring itself, with range_rings (OBR/SacF) drawn
     as tick marks on it rather than their own separate ring further out.
+
+    dot_color: _dot_color_spec output - when given, the dots take these
+    colors instead of the recency scale (radius still encodes recency).
     """
     n_actual = len(theta)
     if n_actual == 0:
@@ -4371,22 +4758,32 @@ def _radial_recency_figure(
     fig.add_trace(_slice_background_trace(theta, r_max))
     for rt in rim_traces:
         fig.add_trace(rt)
-    fig.add_trace(go.Scatterpolar(
-        r=r, theta=theta, mode="markers",
-        marker=dict(
-            size=6.7,
-            color=r,
-            colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
-            line=dict(color="rgba(80,80,80,0.6)", width=1),
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="Recency", side="right"),
-                tickvals=[1, n_actual], ticktext=["Oldest", "Newest"],
-                thickness=14, len=0.7,
+    if dot_color is not None and len(dot_color["colors"]) == n_actual:
+        fig.add_trace(go.Scatterpolar(
+            r=r, theta=theta, mode="markers",
+            marker=dict(size=6.7, color=dot_color["colors"], line=dict(color="rgba(80,80,80,0.6)", width=1)),
+            text=hover, hoverinfo="text", showlegend=False,
+        ))
+        for tr in _dot_color_legend_traces(dot_color["kind"], dot_color["present"], dot_color.get("title", "Result")):
+            fig.add_trace(tr)
+    else:
+        dot_color = None
+        fig.add_trace(go.Scatterpolar(
+            r=r, theta=theta, mode="markers",
+            marker=dict(
+                size=6.7,
+                color=r,
+                colorscale=[[0, "#2166ac"], [0.5, "#ffffff"], [1, "#d6604d"]],
+                line=dict(color="rgba(80,80,80,0.6)", width=1),
+                showscale=True,
+                colorbar=dict(
+                    title=dict(text="Recency", side="right"),
+                    tickvals=[1, n_actual], ticktext=["Oldest", "Newest"],
+                    thickness=14, len=0.7,
+                ),
             ),
-        ),
-        text=hover, hoverinfo="text",
-    ))
+            text=hover, hoverinfo="text",
+        ))
 
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=13)),
@@ -4964,6 +5361,7 @@ def radial_recent_pitches_chart(
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
     score_band_scores: "numpy.ndarray | list | None" = None,
+    color_by: str | None = None,
 ) -> go.Figure:
     """Value sets angle (1-1000, clockwise from 12 o'clock, matching zone_polar's
     convention); recency sets radius and color. See _radial_recency_figure.
@@ -4982,16 +5380,13 @@ def radial_recent_pitches_chart(
     vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
     theta = [v * 360.0 / 1000.0 for v in vals]
-    hover = [
-        f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
-        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-        for i, v in enumerate(vals)
-    ]
+    hover = _hover_context([f"{v}" for v in vals], df[df[value_col].notna()].sort_values("id").tail(n))
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
     score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
 
     tickvals, ticktext = _pitch_value_ticks()
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
+    dot_color = _dot_color_spec(df[df[value_col].notna()].sort_values("id").tail(n), color_by)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band, dot_color)
 
 
 def _implied_pitch_points(
@@ -5021,10 +5416,9 @@ def _implied_pitch_points(
         anchor = int(pitch_vals.iloc[-1])
     implied = [((anchor + d - 1) % 1000) + 1 for d in vals]
     theta = [v * 360.0 / 1000.0 for v in implied]
-    hover = [
-        f"{v} (prev {anchor} {d:+d})<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-        for i, (v, d) in enumerate(zip(implied, vals))
-    ]
+    hover = _hover_context(
+        [f"{v} (prev {anchor} {d:+d})" for v, d in zip(implied, vals)],
+        df[df[delta_col].notna()].sort_values("id").tail(n))
     return theta, hover
 
 
@@ -5064,11 +5458,9 @@ def _implied_pitch_points_delta2(
         anchor_delta = int(delta_vals.iloc[-1])
     implied = [((anchor + anchor_delta + d2 - 1) % 1000) + 1 for d2 in vals]
     theta = [v * 360.0 / 1000.0 for v in implied]
-    hover = [
-        f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>"
-        f"{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-        for i, (v, d2) in enumerate(zip(implied, vals))
-    ]
+    hover = _hover_context(
+        [f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})" for v, d2 in zip(implied, vals)],
+        df[df[delta2_col].notna()].sort_values("id").tail(n))
     return theta, hover
 
 
@@ -5086,6 +5478,7 @@ def radial_recent_delta2_chart(
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
+    color_by: str | None = None,
     score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
     """Signed delta² (-500..+500) sets angle, same convention as
@@ -5126,10 +5519,7 @@ def radial_recent_delta2_chart(
         vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
         theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
-        hover = [
-            f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-            for i, d in enumerate(vals)
-        ]
+        hover = _hover_context([f"{d:+d}" for d in vals], df[df[delta2_col].notna()].sort_values("id").tail(n))
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
@@ -5145,7 +5535,8 @@ def radial_recent_delta2_chart(
         )
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
+    dot_color = _dot_color_spec(df[df[delta2_col].notna()].sort_values("id").tail(n), color_by)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band, dot_color)
 
 
 def radial_recent_deltas_chart(
@@ -5159,6 +5550,7 @@ def radial_recent_deltas_chart(
     obr_lo: int | None = None,
     obr_hi: int | None = None,
     sacf_lo: int | None = None,
+    color_by: str | None = None,
     sacf_hi: int | None = None,
     score_band_scores: "numpy.ndarray | list | None" = None,
 ) -> go.Figure:
@@ -5196,10 +5588,7 @@ def radial_recent_deltas_chart(
         vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
         theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
-        hover = [
-            f"{d:+d}<br>{n_actual - i} pitch{'es' if n_actual - i != 1 else ''} ago"
-            for i, d in enumerate(vals)
-        ]
+        hover = _hover_context([f"{d:+d}" for d in vals], df[df[delta_col].notna()].sort_values("id").tail(n))
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
@@ -5211,7 +5600,8 @@ def radial_recent_deltas_chart(
         )
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, translate) if translate else []
-    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band)
+    dot_color = _dot_color_spec(df[df[delta_col].notna()].sort_values("id").tail(n), color_by)
+    return _radial_recency_figure(theta, hover, title, tickvals, ticktext, range_rings, score_band, dot_color)
 
 
 def radial_combined_chart(
@@ -5228,6 +5618,7 @@ def radial_combined_chart(
     include_delta2: bool = False,
     obr_lo: int | None = None,
     obr_hi: int | None = None,
+    color_by: str | None = None,
     sacf_lo: int | None = None,
     sacf_hi: int | None = None,
     score_band_scores: "numpy.ndarray | list | None" = None,
@@ -5293,27 +5684,28 @@ def radial_combined_chart(
     rank = {id_: r for r, id_ in enumerate(all_ids, start=1)}
     n_total = len(all_ids)
 
-    theta_a, r_a, hover_a = [], [], []
+    theta_a, r_a, hover_a, ago_a = [], [], [], []
     for pid, v in zip(pitch_rows["id"], pitch_rows[value_col].astype(int)):
         r = rank[pid]
         ago = n_total - r + 1
         theta_a.append(v * 360.0 / 1000.0)
         r_a.append(r)
-        hover_a.append(
-            f"{v} ({((v - 1) // 100) * 100 + 1}-{((v - 1) // 100 + 1) * 100})<br>"
-            f"{ago} pitch{'es' if ago != 1 else ''} ago"
-        )
+        hover_a.append(f"{v}")
+        ago_a.append(ago)
+    hover_a = _hover_context(hover_a, pitch_rows, ago_a)
 
-    theta_b, r_b, hover_b = [], [], []
+    theta_b, r_b, hover_b, ago_b = [], [], [], []
     for pid, d in zip(delta_rows["id"], delta_rows[delta_col].astype(int)):
         r = rank[pid]
         ago = n_total - r + 1
         v = ((anchor + d - 1) % 1000) + 1
         theta_b.append(v * 360.0 / 1000.0)
         r_b.append(r)
-        hover_b.append(f"{v} (prev {anchor} {d:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago")
+        hover_b.append(f"{v} (prev {anchor} {d:+d})")
+        ago_b.append(ago)
+    hover_b = _hover_context(hover_b, delta_rows, ago_b)
 
-    theta_c, r_c, hover_c = [], [], []
+    theta_c, r_c, hover_c, ago_c = [], [], [], []
     if n_c:
         for pid, d2 in zip(delta2_rows["id"], delta2_rows[delta2_col].astype(int)):
             r = rank[pid]
@@ -5321,9 +5713,9 @@ def radial_combined_chart(
             v = ((anchor + anchor_delta + d2 - 1) % 1000) + 1
             theta_c.append(v * 360.0 / 1000.0)
             r_c.append(r)
-            hover_c.append(
-                f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})<br>{ago} pitch{'es' if ago != 1 else ''} ago"
-            )
+            hover_c.append(f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})")
+            ago_c.append(ago)
+        hover_c = _hover_context(hover_c, delta2_rows, ago_c)
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
     score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
@@ -5334,6 +5726,29 @@ def radial_combined_chart(
         line=dict(color="rgba(80,80,80,0.6)", width=1),
     )
 
+    # Alternative dot coloring (leverage / previous result) - per-group specs
+    # built from the same rows each group plots; radius stays recency.
+    spec_a = _dot_color_spec(pitch_rows, color_by) if n_a else None
+    spec_b = _dot_color_spec(delta_rows, color_by) if n_b else None
+    spec_c = _dot_color_spec(delta2_rows, color_by) if n_c else None
+    specs = [sp for sp in (spec_a, spec_b, spec_c) if sp is not None]
+    alt_kind = specs[0]["kind"] if specs else None
+    alt_present = set().union(*[sp["present"] for sp in specs]) if specs else set()
+    alt_title = specs[0].get("title", "Result") if specs else "Result"
+
+    def _group_marker(spec, r_vals, symbol, show_recency_bar):
+        if spec is None:
+            return dict(
+                **marker_base, symbol=symbol, color=r_vals, cmin=1, cmax=n_total,
+                showscale=show_recency_bar and alt_kind is None,
+                **(dict(colorbar=dict(title=dict(text="Recency", side="right"),
+                                      tickvals=[1, n_total], ticktext=["Oldest", "Newest"],
+                                      thickness=14, len=0.7))
+                   if show_recency_bar and alt_kind is None else {}),
+            )
+        return dict(size=6.7, symbol=symbol, color=spec["colors"],
+                    line=dict(color="rgba(80,80,80,0.6)", width=1))
+
     fig = go.Figure()
     fig.add_trace(_slice_background_trace(theta_a + theta_b + theta_c, r_max))
     for rt in rim_traces:
@@ -5341,27 +5756,24 @@ def radial_combined_chart(
     if n_a:
         fig.add_trace(go.Scatterpolar(
             r=r_a, theta=theta_a, mode="markers", name="Actual",
-            marker=dict(
-                **marker_base, symbol="circle", color=r_a, cmin=1, cmax=n_total,
-                showscale=True,
-                colorbar=dict(title=dict(text="Recency", side="right"),
-                              tickvals=[1, n_total], ticktext=["Oldest", "Newest"],
-                              thickness=14, len=0.7),
-            ),
+            marker=_group_marker(spec_a, r_a, "circle", True),
             text=hover_a, hoverinfo="text", showlegend=True,
         ))
     if n_b:
         fig.add_trace(go.Scatterpolar(
             r=r_b, theta=theta_b, mode="markers", name="Implied",
-            marker=dict(**marker_base, symbol="diamond", color=r_b, cmin=1, cmax=n_total, showscale=False),
+            marker=_group_marker(spec_b, r_b, "diamond", False),
             text=hover_b, hoverinfo="text", showlegend=True,
         ))
     if n_c:
         fig.add_trace(go.Scatterpolar(
             r=r_c, theta=theta_c, mode="markers", name="Implied Δ²",
-            marker=dict(**marker_base, symbol="square", color=r_c, cmin=1, cmax=n_total, showscale=False),
+            marker=_group_marker(spec_c, r_c, "square", False),
             text=hover_c, hoverinfo="text", showlegend=True,
         ))
+    if alt_kind is not None:
+        for tr in _dot_color_legend_traces(alt_kind, alt_present, alt_title):
+            fig.add_trace(tr)
 
     tickvals, ticktext = _pitch_value_ticks()
     fig.update_layout(
@@ -9586,26 +9998,7 @@ def steal_color_bar(proposed_value: int, safe_range: int,
 
 
 # ------------------------------------------------------------------ at-bat range calculator
-# Derived from MLN Calculator 11.0 formulas (calculator tab).
-# OBR helper table: range widths at each differential -5..+5 for each result type.
-_DIFFS = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
-
-_OBR_TABLE: dict[str, list[int]] = {
-    "Hit":    [84, 99, 110, 119, 126, 132, 138, 145, 154, 165, 180],
-    "HR":     [1,  1,  8,  16,  18,  20,  22,  24,  32,  47,  62],
-    "3B":     [1,  1,  3,   4,   5,   6,   7,   8,   9,  11,  14],
-    "2B":     [15, 20, 24,  27,  29,  30,  31,  33,  36,  40,  45],
-    "IF1B":   [1,  2,  6,   8,   9,  10,  11,  12,  14,  18,  24],
-    "BB":     [1,  3, 14,  23,  30,  35,  40,  47,  56,  67,  78],
-    "FO_HND": [147,132,121,112, 105, 100,  95,  88,  79,  68,  53],  # /500 = FO%
-    "PO_HND": [188,171,158,146, 135, 125, 115, 104,  92,  79,  62],  # /500 = PO%
-    "K":      [183,160,142,127, 115, 105,  95,  83,  68,  50,  27],
-}
-
-# 1B extra adjustments (rows 40-43 of calculator tab)
-_1B_SPD_AWR = {-5:-3,-4:-3,-3:-2,-2:-2,-1:-1,0:0,1:1,2:2,3:2,4:3,5:3}
-_1B_PITCH_AWR = {-3:3,-2:2,-1:1,0:0,1:-1,2:-2,3:-3}  # keyed by pitcher_awr-3, clamped -3..3
-_1B_HIT_NEG = {-5:5,-4:5,-3:5,-2:5,-1:5,0:3,1:0,2:0,3:0,4:0,5:0}  # row 43
+# Ranges come from sheet_calculator.py (exact port of the stadium sheet's calculator tab).
 
 # Steal safe-range table: differential -5..+5 in 0.5 steps (21 values)
 STEAL_DIFFS = [-5,-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5]
@@ -9647,9 +10040,20 @@ RESULT_COLORS = {
 }
 
 
-def _obr_lookup(key: str, diff: int) -> int:
-    idx = _DIFFS.index(max(-5, min(5, diff)))
-    return _OBR_TABLE[key][idx]
+_SHEET_CALC = None
+
+
+def _sheet_calculator():
+    """Lazily build the exact port of the stadium sheet's calculator tab (sheet_calculator.py), using the
+    constants exported to sheet_calculator_params.json (tools/export_calculator_data.py)."""
+    global _SHEET_CALC
+    if _SHEET_CALC is None:
+        import json
+        from pathlib import Path
+        import sheet_calculator
+        path = Path(__file__).resolve().parent / "sheet_calculator_params.json"
+        _SHEET_CALC = sheet_calculator.SheetCalculator(json.loads(path.read_text(encoding="utf-8")))
+    return _SHEET_CALC
 
 
 def compute_at_bat_ranges(
@@ -9676,445 +10080,39 @@ def compute_at_bat_ranges(
 ) -> "list[dict] | tuple[list[dict], dict]":
     """Compute at-bat result ranges from pitcher/batter stats.
 
-    Returns list of dicts: {result, range, low, high}.
-    When _debug=True, returns (result_list, debug_dict) with intermediate values.
-    Verified against MLN Calculator 11.0.
-    hit_and_run: batter CON -1; runner SPD +1 for all dynamic rate calcs.
-    infield_in: IF1B removed, +20 to 1B (W14); GORA = 0.
-    obc: on-base string "3b2b1b" e.g. "010" = runner on 2B only.
-    runner_Xb_spd: runner speeds for WH%, FO, LO, GO subrange splits.
+    Thin wrapper over sheet_calculator.SheetCalculator, an exact port of the stadium sheet's calculator tab
+    (verified cell-for-cell by tools/verify_sheet_calculator.py).  Returns list of dicts
+    {result, range, low, high}: the bunt table when bunt=True, else the swing table.  With _debug=True returns
+    (result_list, debug_dict).
+    hit_and_run: batter CON -1 and runner SPD +1 (live-mode rule).
+    infield_in: only has an effect with a runner on 3rd and fewer than 2 outs (as in the sheet).
+    obc: on-base string "3b2b1b" e.g. "010" = runner on 2B only.  A runner flagged on base with no speed
+    given is treated as SPD 3.
     """
-    import math
+    def _stat(v):
+        try:
+            return max(1, min(5, int(v)))
+        except (TypeError, ValueError):
+            return 3
 
-    def clamp(v, lo, hi):
-        return max(lo, min(hi, int(v)))
-
-    def clampf(v, lo=0.0, hi=1.0):
-        return max(lo, min(hi, float(v)))
-
-    # OBC bits
-    on_3b = len(obc) >= 1 and obc[0] == "1"
-    on_2b = len(obc) >= 2 and obc[1] == "1"
-    on_1b = len(obc) >= 3 and obc[2] == "1"
-    _has_runners = on_3b or on_2b or on_1b or runners_on
-
-    # H&R: batter CON reduced by 1 before any differential calculation
-    _batter_con = batter_con - 1 if hit_and_run else batter_con
-
-    # Handedness modifier
-    if str(batter_hand).upper() == "S":
-        hnd = 1.0
-    elif str(pitcher_hand).upper() == str(batter_hand).upper():
-        hnd = 0.975
-    else:
-        hnd = 1.025
-
-    # Stat differentials (clamped -5..+5)
-    d_hit = clamp(_batter_con - pitcher_mov, -5, 5)
-    d_pow = clamp(batter_pow - pitcher_vel, -5, 5)
-    d_spd = clamp(batter_spd - pitcher_awr, -5, 5)
-    d_eye = clamp(batter_eye - pitcher_cmd, -5, 5)
-
-    _dbg: dict = {
-        "d_hit": d_hit, "d_pow": d_pow, "d_spd": d_spd, "d_eye": d_eye,
-        "hnd": round(hnd, 3),
-    }
-
-    def w_std(key, diff):
-        return max(1, math.floor(_obr_lookup(key, diff) * hnd))
-
-    w_hr   = w_std("HR", d_pow)
-    w_3b   = w_std("3B", d_spd)
-    w_2b   = w_std("2B", d_spd)
-    # Base IF1B width (SPD:AWR diff + handedness) - always computed for bonus transfers
-    _base_if1b = w_std("IF1B", d_spd)
-    # Slot is removed when infield_in (AC17); not affected by hit_and_run
-    w_if1b = 0 if infield_in else _base_if1b
-    w_bb   = w_std("BB", d_eye)
-    w_k    = w_std("K", d_hit)
-
-    _dbg.update({
-        "w_hr": w_hr, "w_3b": w_3b, "w_2b": w_2b, "w_1b": None,
-        "w_if1b": w_if1b, "w_bb": w_bb, "w_k": w_k,
-    })
-
-    # 1B: Hit-base * handedness + modifiers + constant - XBH
-    # +20 fixed when infield_in (Excel W14: IF(AC17,20,0))
-    hit_base = math.floor(_obr_lookup("Hit", d_hit) * hnd)
-    w_1b = max(1,
-        hit_base
-        + _1B_HIT_NEG[d_hit]
-        + _1B_SPD_AWR[d_spd]
-        + _1B_PITCH_AWR.get(clamp(pitcher_awr - 3, -3, 3), 0)
-        + 5
-        - w_hr - w_3b - w_2b
-        + (20 if infield_in else 0)
+    bits = [len(obc) >= 3 and obc[2] == "1", len(obc) >= 2 and obc[1] == "1", len(obc) >= 1 and obc[0] == "1"]
+    spds = [runner_1b_spd, runner_2b_spd, runner_3b_spd]
+    if not any(bits):                         # no obc string: fall back to whichever speeds were supplied
+        bits = [s is not None for s in spds]
+    runner_speeds = tuple((_stat(s) if s is not None else 3) if on else None for on, s in zip(bits, spds))
+    res = _sheet_calculator().compute(
+        pit_hand=str(pitcher_hand or "R").upper(), pit_mov=_stat(pitcher_mov), pit_cmd=_stat(pitcher_cmd),
+        pit_vel=_stat(pitcher_vel), pit_awr=_stat(pitcher_awr),
+        bat_hand=str(batter_hand or "R").upper(), bat_con=_stat(batter_con), bat_eye=_stat(batter_eye),
+        bat_pow=_stat(batter_pow), bat_spd=_stat(batter_spd),
+        runner_speeds=runner_speeds, outs=int(outs), hit_and_run=bool(hit_and_run), infield_in=bool(infield_in),
     )
-    _dbg["w_1b"] = w_1b
-
-    # FO and PO: rate-based from d_pow
-    fo_rate = _obr_lookup("FO_HND", d_pow) / 500
-    po_rate = _obr_lookup("PO_HND", d_pow) / 500
-    after_hits = 500 - (w_hr + w_3b + w_2b + w_1b + _base_if1b + w_bb)
-    after_bb   = 500 - w_bb
-    w_fo = max(1, math.floor(after_hits * fo_rate * (1 - po_rate)))
-    w_po = max(1, math.floor(after_bb   * fo_rate * po_rate))
-
-    # LO: 4-wide slot, only with runners on and fewer than 2 outs (W21)
-    w_lo = 4 if (_has_runners and outs < 2) else 0
-
-    # GO: remainder of 501 total (0-500 inclusive)
-    # Use _base_if1b (not w_if1b): when II, w_if1b=0 but 1B_plain gains +_base_if1b,
-    # so the IF1B width still comes out of the GO pool either way.
-    w_go = 500 - (w_hr + w_3b + w_2b + w_1b + _base_if1b + w_bb + w_fo + w_po + w_k + w_lo) + 1
-
-    if bunt:
-        b1bwh   = 9
-        total_hit = w_hr + w_3b + w_2b + w_1b + w_if1b
-        base_hit  = total_hit - 1
-        spd_mov   = batter_spd - pitcher_mov
-        b1b = max(1, round((1 + spd_mov * 0.04) * base_hit) - b1bwh)
-        b_bb = w_bb
-        b_k  = w_k
-        # TP and LOTP: base of 4 each when runners on base (used for SacB/BDP pool)
-        _b_tp_base   = 4 if _has_runners else 0
-        _b_lotp_base = 4 if _has_runners else 0
-        b_go_pool = max(0, 500 - (b1bwh + b1b + b_bb + b_k + _b_tp_base + _b_lotp_base))
-
-        # TP final width: rate (T62) = 1 when outs==0 AND on_1b AND on_2b, else 0
-        _b_tp_active = on_1b and on_2b and outs == 0
-        _b_tp_final  = 4 if _b_tp_active else 0
-
-        # LOTP final width: rate (T63) = 0.25 when outs==0, TP not active, >=2 runners
-        _runner_count = sum(1 for b in [on_1b, on_2b, on_3b] if b)
-        _b_lotp_rate  = 0.25 if (_has_runners and not _b_tp_active and outs == 0 and _runner_count >= 2) else 0.0
-        _b_lotp_final = math.floor(_b_lotp_rate * _b_lotp_base)
-
-        # SacB rate from A85:N89 lookup keyed on d_spd (batter_spd - pitcher_awr)
-        # Bunt use determined by lead runner: on_3b -> Runner Home, on_2b -> Runner to 3rd, else -> Runner to 2nd
-        if not _has_runners:
-            sacb_rate = 0.0
-            bdp_rate  = 0.0
-        elif on_3b:
-            sacb_rate = clampf(0.06 + 0.01 * d_spd)
-            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
-        elif on_2b:
-            sacb_rate = clampf(0.27 + 0.03 * d_spd)
-            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
-        else:
-            sacb_rate = clampf(0.50 + 0.07 * d_spd)
-            bdp_rate  = clampf(0.10 - 0.02 * d_spd)
-        b_sacb = math.floor(sacb_rate * b_go_pool)
-        b_bdp  = math.floor(bdp_rate  * b_go_pool)
-        # BFC = 501 - all other finals (V73 formula); pool uses bases, BFC uses finals
-        b_go = max(0, 501 - b1bwh - b1b - b_bb - b_k - b_sacb - b_bdp - _b_tp_final - _b_lotp_final)
-        _dbg.update({
-            "mode": "bunt",
-            "total_hit": total_hit, "base_hit": base_hit,
-            "b1bwh": b1bwh, "b1b": b1b,
-            "b_tp_base": _b_tp_base, "b_lotp_base": _b_lotp_base,
-            "b_tp_final": _b_tp_final, "b_lotp_final": _b_lotp_final,
-            "b_go_pool": b_go_pool,
-            "sacb_rate": sacb_rate, "bdp_rate": bdp_rate,
-            "b_sacb": b_sacb, "b_bdp": b_bdp, "b_go": b_go,
-        })
-        # BFC when runners on base, GO when bases empty
-        _go_label = "BFC" if _has_runners else "GO"
-        # Bunt order from calculator S67:S75
-        _BUNT_ORDER = ["B1BWH","B1B","BB","SacB","K",_go_label,"BDP","TP","LOTP"]
-        _bunt_w: dict[str, int] = {
-            "B1BWH": b1bwh, "B1B": b1b, "BB": b_bb, "K": b_k,
-            "SacB": b_sacb, _go_label: b_go, "BDP": b_bdp,
-            "TP": _b_tp_final, "LOTP": _b_lotp_final,
-        }
-        rows = [(_n, _bunt_w[_n]) for _n in _BUNT_ORDER if _bunt_w.get(_n, 0) > 0]
-    else:
-        # Runner effective speeds: H&R gives +1 SPD to all runners for dynamic rate calcs
-        def _eff(s: int | None) -> int | None:
-            return (s + (1 if hit_and_run else 0)) if s is not None else None
-
-        s1 = _eff(runner_1b_spd) if on_1b else None
-        s2 = _eff(runner_2b_spd) if on_2b else None
-        s3 = _eff(runner_3b_spd) if on_3b else None
-
-        def _avg(*vals: int | None) -> float:
-            v = [x for x in vals if x is not None]
-            return float(sum(v)) / len(v) if v else 3.0
-
-        # --- Well Hit % (H75/H76) ---
-        # H&R multiplier effectively forces WH% = 1.0; 2-out mult = 3; else 1
-        def _wh_rate(spd: int | None) -> float:
-            if spd is None:
-                return 0.0
-            if hit_and_run:
-                return 1.0 if spd > 0 else 0.0
-            mult = 3.0 if outs == 2 else 1.0
-            delta = spd - 3
-            return clampf((0.15 + delta * (1.0 if delta >= 0 else 0.5) * 0.07) * mult)
-
-        # F75: lead runner (2B if present, else 1B)
-        _lead_spd = s2 if on_2b else (s1 if on_1b else None)
-        # F76: trail runner (1B capped at 2B speed; only exists when both runners present)
-        _trail_spd: int | None = None
-        if on_1b and on_2b:
-            _trail_spd = min(
-                s1 if s1 is not None else 3,
-                s2 if s2 is not None else 3,
-            )
-
-        _lead_wh  = _wh_rate(_lead_spd)
-        _trail_wh = _wh_rate(_trail_spd) if _trail_spd is not None else None
-
-        # T30: 2BWH rate - 0 if no runner on 1B; else trail_wh or lead_wh
-        _2bwh_rate = (_trail_wh if _trail_wh is not None else _lead_wh) if on_1b else 0.0
-        # T33: 1BWH rate - 0 if no runners on 1B/2B; else trail_wh or lead_wh
-        _1bwh_rate = (_trail_wh if _trail_wh is not None else _lead_wh) if (on_1b or on_2b) else 0.0
-        # T34: 1BWH2 rate - only when runners on 1B AND 2B
-        _1bwh2_rate = clampf(_lead_wh - (_trail_wh or 0.0)) if (on_1b and on_2b) else 0.0
-
-        # 2B split (V30/V31)
-        w_2bwh = math.floor(_2bwh_rate * w_2b)
-        w_2b_plain = max(0, w_2b - w_2bwh)
-
-        # 1B split (V33/V34/V35); V33 adds IF1B base width when H&R AND Infield In both on
-        # V35 = U35 - V33 - V34 (catch-all, no min) + IF1B base width when Infield In
-        _if1b_bonus = _base_if1b if (hit_and_run and infield_in) else 0
-        w_1bwh  = math.floor(_1bwh_rate  * w_1b) + _if1b_bonus
-        w_1bwh2 = math.floor(_1bwh2_rate * w_1b)
-        w_1b_plain = max(0, w_1b - w_1bwh - w_1bwh2) + (_base_if1b if infield_in else 0)
-
-        # --- I75: DFO% (for FO split) - lead runner WH% sans 2-out mult, only if runner on 2B ---
-        _dfo_pct = 0.0
-        if on_2b and outs < 2:
-            _s2_eff = s2 if s2 is not None else 3
-            delta = _s2_eff - 3
-            _dfo_pct = clampf(0.15 + delta * (1.0 if delta >= 0 else 0.5) * 0.07)
-
-        # --- FO split (T41-T44 / V41-V44) ---
-        # DSacF/DFO require runners on 2B AND 3B, <2 outs
-        # SacF requires runner on 3B, <2 outs
-        # DFO (2B runner tags to 3B) applies whenever runner on 2B, <2 outs
-        _fo_rows: list[tuple[str, int]] = []
-        if outs == 2 or (not on_2b and not on_3b):
-            # No tagging opportunity or 2-out: plain FO
-            _fo_rows = [("FO", w_fo)]
-        elif on_3b and on_2b:
-            # 3B runner always scores; _dfo_pct share of 2B runner also tags (DSacF), rest is SacF
-            # DSacF and DFO are mutually exclusive - DFO does not appear when on_3b
-            w_dsacf      = math.floor(_dfo_pct * w_fo)
-            w_sacf_final = max(0, w_fo - w_dsacf)
-            if w_dsacf      > 0: _fo_rows.append(("DSacF", w_dsacf))
-            if w_sacf_final > 0: _fo_rows.append(("SacF",  w_sacf_final))
-        elif on_3b:
-            # Only 3B runner; no 2B to tag - entire FO pool is SacF
-            _fo_rows = [("SacF", w_fo)]
-        else:  # on_2b and not on_3b: 2B runner can tag to 3B (DFO); no scoring runner
-            w_dfo      = math.floor(_dfo_pct * w_fo)
-            w_fo_plain = max(0, w_fo - w_dfo)
-            if w_dfo      > 0: _fo_rows.append(("DFO", w_dfo))
-            if w_fo_plain > 0: _fo_rows.append(("FO",  w_fo_plain))
-
-        # --- LO split (V61/V62) ---
-        # TP: runners on 1B AND 2B and 0 outs -> full LO = TP
-        # LODP: runners present, no runner on 1B (CSV T61: Z11=1B runner; LODP=0 when Z11>0)
-        # When runner on 1B and no TP: LODP=0, LO width reallocated to K (CSV V59)
-        _lo_rows: list[tuple[str, int]] = []
-        _k_lo_bonus = 0
-        if w_lo > 0:
-            if on_1b and on_2b and outs == 0:
-                _lo_rows = [("TP", w_lo)]
-            elif not on_1b:
-                _lo_rows = [("LODP", w_lo)]
-            else:
-                # Runner on 1B (but not TP): LODP rate = 0, reallocated to K (CSV V59)
-                _k_lo_bonus = w_lo
-
-        # --- GO split (T48-T57 / V48-V57) ---
-        _dp_base = clampf(0.5 - 0.1 * (batter_spd - 3))
-        _dp_mult = 0.15  # E57: DP range multiplier for OBC 4
-
-        def _gora_r() -> float:
-            """Dynamic GORA rate. 0 when infield_in, outs==2, or no runners."""
-            if infield_in or outs == 2 or not _has_runners:
-                return 0.0
-            if on_1b and not on_2b and not on_3b:       # 001
-                return clampf(0.09 + 0.023 * ((s1 or 3) - 3))
-            if not on_1b and on_2b and not on_3b:       # 010
-                return clampf(0.25 + 0.05  * ((s2 or 3) - 3))
-            if not on_1b and not on_2b and on_3b:       # 100
-                return clampf(0.25 + 0.05  * ((s3 or 3) - 3))
-            if on_1b and on_2b and not on_3b:            # 011
-                return clampf(0.09 + 0.023 * (_avg(s1, s2) - 3))
-            if on_1b and not on_2b and on_3b:            # 101
-                return clampf(0.09 + 0.023 * (_avg(s1, s3) - 3))
-            if not on_1b and on_2b and on_3b:            # 110
-                return clampf(0.35 + 0.05  * (_avg(s2, s3) - 3))
-            if on_1b and on_2b and on_3b:                # 111: equals OBC 5 formula
-                return clampf(0.09 + 0.023 * (_avg(s1, s3) - 3))
-            return 0.0
-
-        gora_rate = _gora_r()
-        w_gora = math.floor(gora_rate * w_go)
-
-        _go_rows:   list[tuple[str, int]] = []
-        _go_detail: list[tuple[str, str, int]] = []  # (name, rate_str, width) for debug
-        if w_gora > 0:
-            _go_rows.append(("GORA", w_gora))
-            _go_detail.append(("GORA", f"{gora_rate:.4f}", w_gora))
-
-        _go_rem = w_go - w_gora
-
-        if not _has_runners or outs == 2:
-            # No FC/DP/FCH without runners or with 2 outs
-            if _go_rem > 0:
-                _go_rows.append(("GO", _go_rem))
-
-        elif on_1b and not on_2b and not on_3b:         # 001: GORA + FC + DP
-            dp_r  = _dp_base
-            fc_r  = clampf(1.0 - gora_rate - dp_r)
-            w_fc  = math.floor(fc_r * w_go)
-            w_dp  = max(0, _go_rem - w_fc)   # DP is last -> catch-all
-            if w_fc > 0: _go_rows.append(("FC", w_fc))
-            if w_dp > 0: _go_rows.append(("DP", w_dp))
-            _go_detail += [("FC", f"{fc_r:.4f}", w_fc), ("DP", "catch", w_dp)]
-
-        elif not on_1b and on_2b and not on_3b:         # 010: GORA + GO
-            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
-
-        elif not on_1b and not on_2b and on_3b:         # 100: GORA + GO
-            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
-
-        elif on_1b and on_2b and not on_3b:              # 011: GORA + FC + FC3rd + DP21 + DP31
-            dp31_r  = clampf((_dp_base / 2) * (1 + _dp_mult))
-            dp21_r  = dp31_r
-            fc_half = clampf((1.0 - dp21_r - dp31_r - gora_rate) / 2)
-            w_dp21  = math.floor(dp21_r  * w_go)
-            w_fc    = math.floor(fc_half  * w_go)
-            w_fc3rd = math.floor(fc_half  * w_go)
-            # DP31 absorbs the floor-rounding remainder (CSV V55 catch-all)
-            w_dp31  = max(0, w_go - w_gora - w_dp21 - w_fc - w_fc3rd)
-            if w_fc    > 0: _go_rows.append(("FC",    w_fc))
-            if w_fc3rd > 0: _go_rows.append(("FC3rd", w_fc3rd))
-            if w_dp21  > 0: _go_rows.append(("DP21",  w_dp21))
-            if w_dp31  > 0: _go_rows.append(("DP31",  w_dp31))
-            _go_detail += [
-                ("FC",    f"{fc_half:.4f}", w_fc),
-                ("FC3rd", f"{fc_half:.4f}", w_fc3rd),
-                ("DP21",  f"{dp21_r:.4f}",  w_dp21),
-                ("DP31",  "catch",          w_dp31),
-            ]
-
-        elif on_1b and not on_2b and on_3b:              # 101: GORA + FC + DPRun + DP
-            dp_5    = clampf((_dp_base / 2) * (1 + _dp_mult))
-            dprun_5 = clampf((1.0 - gora_rate - 2 * dp_5) / 2) if outs == 0 else 0.0
-            fc_5    = clampf(1.0 - gora_rate - dp_5 - dprun_5)
-            w_dprun_5 = math.floor(dprun_5 * w_go)
-            w_fc_5    = math.floor(fc_5    * w_go)
-            # DP absorbs the floor-rounding remainder (G64 sheet: FC is a derived rate)
-            w_dp_5    = max(0, _go_rem - w_fc_5 - w_dprun_5)
-            if w_dprun_5 > 0: _go_rows.append(("DPRun", w_dprun_5))
-            if w_fc_5    > 0: _go_rows.append(("FC",    w_fc_5))
-            if w_dp_5    > 0: _go_rows.append(("DP",    w_dp_5))
-            _go_detail += [
-                ("DPRun", f"{dprun_5:.4f}", w_dprun_5),
-                ("FC",    f"{fc_5:.4f}",    w_fc_5),
-                ("DP",    "catch",          w_dp_5),
-            ]
-
-        elif not on_1b and on_2b and on_3b:              # 110: GORA + GO
-            if _go_rem > 0: _go_rows.append(("GO", _go_rem))
-
-        elif on_1b and on_2b and on_3b:                  # 111: GORA + FCH + DP21 + DP31 + DPH1
-            _avg_spd_13 = _avg(s1, s3)
-            fch_r  = clampf(0.15 + 0.025 * (_avg_spd_13 - 3))
-            _rem7  = clampf(1.0 - fch_r - gora_rate)
-            div_31 = 4 if infield_in else 3
-            div_h1 = 2 if infield_in else 3
-            dp31_r = math.floor(clampf(_rem7 / div_31) * 1000) / 1000
-            dph1_r = math.floor(clampf(_rem7 / div_h1) * 1000) / 1000
-            dp21_r = clampf(_rem7 - dp31_r - dph1_r)
-            w_fch  = math.floor(fch_r  * w_go)
-            w_dp31 = math.floor(dp31_r * w_go)
-            w_dp21 = math.floor(dp21_r * w_go)
-            # DPH1 is last in _SWING_ORDER -> catch-all
-            w_dph1 = max(0, _go_rem - w_fch - w_dp21 - w_dp31)
-            if w_fch  > 0: _go_rows.append(("FCH",  w_fch))
-            if w_dp21 > 0: _go_rows.append(("DP21", w_dp21))
-            if w_dp31 > 0: _go_rows.append(("DP31", w_dp31))
-            if w_dph1 > 0: _go_rows.append(("DPH1", w_dph1))
-            _go_detail += [
-                ("FCH",  f"{fch_r:.4f}",  w_fch),
-                ("DP21", f"{dp21_r:.4f}", w_dp21),
-                ("DP31", f"{dp31_r:.4f}", w_dp31),
-                ("DPH1", "catch",         w_dph1),
-            ]
-
-        else:
-            # Runners present but OBC not recognized (e.g. runners_on=True, obc="000")
-            if _go_rem > 0:
-                _go_rows.append(("GO", _go_rem))
-
-        _dbg.update({
-            "mode": "hnr" if hit_and_run else ("ifin" if infield_in else "swing"),
-            # FO detail
-            "fo_rate": round(fo_rate, 4), "po_rate": round(po_rate, 4),
-            "after_hits": after_hits, "w_fo": w_fo, "w_po": w_po,
-            "dfo_pct": round(_dfo_pct, 4), "fo_rows": list(_fo_rows),
-            # WH detail
-            "s1": s1, "s2": s2, "s3": s3,
-            "lead_spd": _lead_spd, "trail_spd": _trail_spd,
-            "lead_wh": round(_lead_wh, 4),
-            "trail_wh": round(_trail_wh, 4) if _trail_wh is not None else None,
-            "2bwh_rate": round(_2bwh_rate, 4),
-            "1bwh_rate": round(_1bwh_rate, 4), "1bwh2_rate": round(_1bwh2_rate, 4),
-            "if1b_bonus": _if1b_bonus,
-            "w_2bwh": w_2bwh, "w_1bwh": w_1bwh, "w_1bwh2": w_1bwh2, "w_1b_plain": w_1b_plain,
-            # GO detail
-            "dp_base": round(_dp_base, 4), "dp_mult": _dp_mult,
-            "w_go": w_go, "gora_rate": round(gora_rate, 4), "w_gora": w_gora,
-            "go_rows": list(_go_rows), "go_detail": list(_go_detail),
-        })
-
-        # Fixed stack order from calculator S column (S26:S63)
-        # Order 1-9: hits/BB; 10: GORA; 11-14: FO group; 15: PO;
-        # 16-20: GO group (non-DP); 21: K; 22-25: DP group; 30-32: LO
-        _SWING_ORDER = [
-            "HR","3B","2BWH","2B","1BWH","1BWH2","1B","IF1B","BB",
-            "GORA",
-            "DSacF","DFO","SacF","FO",
-            "PO",
-            "FCH","FC","GO","FC3rd","DPRun",
-            "K",
-            "DP","DP21","DP31","DPH1",
-            "LODP","TP","LOTP",
-        ]
-
-        # Collect all widths into a dict
-        _widths: dict[str, int] = {
-            "HR": w_hr, "3B": w_3b,
-            "2BWH": w_2bwh, "2B": w_2b_plain,
-            "1BWH": w_1bwh, "1BWH2": w_1bwh2, "1B": w_1b_plain,
-            "IF1B": (w_if1b if not (hit_and_run and infield_in) else 0),
-            "BB": w_bb, "PO": w_po, "K": w_k + _k_lo_bonus,
-        }
-        for _name, _w in _fo_rows:
-            _widths[_name] = _widths.get(_name, 0) + _w
-        for _name, _w in _lo_rows:
-            _widths[_name] = _widths.get(_name, 0) + _w
-        for _name, _w in _go_rows:
-            _widths[_name] = _widths.get(_name, 0) + _w
-
-        rows = [(_n, _widths[_n]) for _n in _SWING_ORDER if _widths.get(_n, 0) > 0]
-
-    result = []
-    pos = 0
-    for name, width in rows:
-        if width <= 0:
-            continue
-        result.append({"result": name, "range": width, "low": pos, "high": pos + width - 1})
-        pos += width
+    rows = res["bunt_ranges"] if bunt else res["swing_ranges"]
+    result = [{"result": name, "range": width, "low": lo, "high": hi} for name, width, lo, hi in rows]
     if _debug:
-        return result, _dbg
+        dbg = dict(res["debug"])
+        dbg["mode"] = "bunt" if bunt else ("hnr" if hit_and_run else ("ifin" if infield_in else "swing"))
+        return result, dbg
     return result
 
 
