@@ -5134,48 +5134,86 @@ def pitch_likelihood_breakdown_chart(
     dark_mode: bool = False,
 ) -> go.Figure:
     """Diverging bar breakdown of how the combined prediction at ONE pitch
-    value was built: each signal's weight * log(shrunk/baseline) push, plus
-    the net sum - mirrors the 'Pitch Signal Autopsy' artifact's waterfall.
-    Right/green = this signal pushed pitch_value MORE likely than baseline
-    alone; left/red = less likely."""
+    value was built, in log-odds relative to a flat (uniform) 1/1000 - every
+    bar adds up to the final one, so it explains the curve you actually see,
+    not just the signals' adjustment to it:
+
+      Baseline         ln(1000 * baseline[v]): how much more/less likely than
+                       a coin flip over the wheel this pitcher's own history
+                       already says v is - the part the signals start from.
+      each signal      weight * ln(shrunk / baseline), same as the pool
+                       combine_signals runs: right/green = pushed v MORE
+                       likely than baseline alone, left/red = less.
+      Net push         the signals' subtotal.
+      Normalization    -ln(Z): the pooled curve is renormalized to sum to 1,
+                       which lifts or lowers every value equally.
+      Combined         ln(1000 * combined[v]) = Baseline + Net push +
+                       Normalization: where the combined curve sits at v,
+                       which is what makes a peak a peak.
+
+    A peak can therefore have a NEGATIVE net push: the signals lean slightly
+    against it, but the baseline was tall enough there that it still wins."""
     text_color = "#e8e8e8" if dark_mode else "#2b2b2b"
     up_color, down_color = "#4CAF50", "#d6604d"  # matches this file's existing delta-coloring convention
+    total_color = "#4C78A8"
 
+    base = np.asarray(baseline, dtype=float)
     idx = pitch_value - 1
     eps = 1e-12
     by_name = {s["name"]: s for s in signals}
-    rows = []
-    net = 0.0
+
+    rows = [("Baseline (vs. uniform)", math.log(1000.0 * (base[idx] + eps)), "base")]
+    net_vec = np.zeros_like(base)
     for name in _PL_SIGNAL_ORDER:
         s = by_name.get(name)
         if s is None:
             continue
         w = weights.get(name, 1.0)
         alpha = s["n_eff"] / (s["n_eff"] + min_effective_n)
-        shrunk = alpha * s["density"][idx] + (1 - alpha) * baseline[idx]
-        push = w * math.log((shrunk + eps) / (baseline[idx] + eps))
-        net += push
-        rows.append((_PL_SIGNAL_LABELS[name], push))
-    rows.append(("Net push", net))
+        dens = np.asarray(s["density"], dtype=float)
+        shrunk = alpha * dens + (1 - alpha) * base
+        push_vec = w * np.log((shrunk + eps) / (base + eps))
+        net_vec = net_vec + push_vec
+        rows.append((_PL_SIGNAL_LABELS[name], float(push_vec[idx]), "push"))
+    net = float(net_vec[idx])
+    # Z = sum over the whole wheel of the un-normalized pool - the same
+    # normalizer combine_signals divides by.
+    log_z = float(np.log(np.sum((base + eps) * np.exp(net_vec))))
+    combined_log = rows[0][1] + net - log_z
+    rows.append(("Net push", net, "net"))
+    rows.append(("Normalization", -log_z, "push"))
+    rows.append(("Combined (vs. uniform)", combined_log, "total"))
 
     labels = [r[0] for r in rows]
     values = [r[1] for r in rows]
-    colors = [up_color if v >= 0 else down_color for v in values]
+    colors = [total_color if kind in ("base", "net", "total") else (up_color if v >= 0 else down_color)
+              for _, v, kind in rows]
+    texts = [
+        f"{v:+.3f} ({math.exp(v):.2f}x)" if kind in ("base", "total") else f"{v:+.3f}"
+        for _, v, kind in rows
+    ]
+    # Outside-bar labels sit past each bar's end, so pad the axis on both
+    # sides by enough of its span to hold the longest label (otherwise the
+    # tallest bars' text runs off the plot / under the y labels).
+    lo, hi = min(min(values), 0.0), max(max(values), 0.0)
+    span = max(hi - lo, 0.2)
+    x_range = [lo - (0.32 * span if lo < 0 else 0.0), hi + (0.32 * span if hi > 0 else 0.0)]
 
     fig = go.Figure(go.Bar(
         x=values, y=labels, orientation="h", marker_color=colors,
-        text=[f"{v:+.3f}" for v in values], textposition="outside",
+        text=texts, textposition="outside", cliponaxis=False,
         hovertemplate="%{y}: %{x:+.4f}<extra></extra>",
     ))
     fig.update_layout(
         title=dict(text=f"How the combination adds up at pitch {pitch_value}", x=0.5, xanchor="center",
                     font=dict(color=text_color)),
-        xaxis=dict(title="weight × log(shrunk / baseline)", gridcolor="rgba(128,128,128,0.2)",
+        xaxis=dict(title="log-odds vs. uniform (signals: weight x ln(shrunk / baseline))",
+                    range=x_range, gridcolor="rgba(128,128,128,0.2)",
                     tickfont=dict(color=text_color), title_font=dict(color=text_color),
                     zeroline=True, zerolinecolor=text_color, zerolinewidth=1),
         yaxis=dict(tickfont=dict(color=text_color), autorange="reversed"),
-        height=330,
-        margin=dict(l=170, r=50, t=40, b=40),
+        height=400,
+        margin=dict(l=170, r=30, t=40, b=40),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
