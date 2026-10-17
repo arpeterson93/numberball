@@ -8,3 +8,15 @@ roster_maturity/data/
 # Key Moments feed data: built fresh by the Actions Pages deploy (see
 # .github/workflows/key_moments.yml), never committed.
 docs/data/*.json
+
+# Local preview builds (key_moments_build.py --sheet-id/--out-dir) used to
+# validate archive-sheet edits before pasting them back into the real sheet.
+docs/data/_preview/
+
+# Immaculate Innings artifact: fetched plays and built outputs (tools/immaculate/build_artifact.py)
+tools/immaculate/data/
+
+# GM Tools / hitting lab working files
+tools/diff_lab/cache/
+tools/offense_lab/*.log
+tools/offense_lab/*.done

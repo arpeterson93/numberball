@@ -1,0 +1,618 @@
+<title>Diff Distribution Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+#tbl2 th.bl,#tbl2 td.bl{border-left:1px solid var(--line)}
+#tbl2 th[data-tk]{cursor:pointer}
+/* Layout: control bar, one league chart (result mix by diff), then a sortable player/team table whose rows expand into a diff histogram and swing log. */
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --fg:#161715; --fg2:#55554f; --muted:#8a8982; --line:#e2e1dc; --accent:#256abf;
+  --good:#1a7f4b; --bad:#c23b3b;
+  --c0:#104281; --c1:#256abf; --c2:#3987e5; --c3:#9ec5f4; --c4:#1baf7a; --c5:#8a8982; --c6:#b3b2ab; --c7:#d3d2cb; --cout:#b3b2ab;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141413; --panel:#1c1c1a; --fg:#efeee9; --fg2:#bcbbb3; --muted:#8a8982; --line:#2e2e2b; --accent:#6da7ec;
+  --good:#4cc38a; --bad:#ee7676;
+  --c0:#cde2fb; --c1:#86b6ef; --c2:#3987e5; --c3:#1c5cab; --c4:#199e70; --c5:#6e6d66; --c6:#55554f; --c7:#403f3b; --cout:#55554f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141413; --panel:#1c1c1a; --fg:#efeee9; --fg2:#bcbbb3; --muted:#8a8982; --line:#2e2e2b; --accent:#6da7ec;
+  --good:#4cc38a; --bad:#ee7676;
+  --c0:#cde2fb; --c1:#86b6ef; --c2:#3987e5; --c3:#1c5cab; --c4:#199e70; --c5:#6e6d66; --c6:#55554f; --c7:#403f3b; --cout:#55554f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--sans);padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1760px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:15px;font-weight:600;margin:0}
+p{margin:0;color:var(--fg2);max-width:75ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end}
+.ctl{display:flex;flex-direction:column;gap:4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ctl select,.ctl input[type=number]{font:13px var(--sans);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:5px 8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{font:13px var(--sans);background:var(--bg);color:var(--fg2);border:0;padding:5px 10px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--bg)}
+button:focus-visible,select:focus-visible,input:focus-visible,th:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--fg2);margin-top:8px}
+.legend span[data-lg]{cursor:pointer;user-select:none}
+.legend span.off{opacity:.4;text-decoration:line-through}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--fg2);font:11px var(--mono)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:6px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:500;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+th[aria-sort]{color:var(--fg)}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--bg)}
+td.num{font-family:var(--mono);font-size:13px}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.detail{padding:12px 4px 16px;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
+
+.log{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:4px}
+.log table{font-size:12px}
+.mix{font-family:var(--mono);font-size:11px;color:var(--fg2)}
+.note{font-size:12px;color:var(--muted);max-width:90ch}
+#tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);font:12px/1.4 var(--mono);padding:6px 8px;border-radius:4px;display:none;z-index:9;white-space:pre}
+.tabs{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}
+.badge{display:inline-block;font:11px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--fg2)}
+input[type=range]{accent-color:var(--accent)}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:6px">
+    <h1>Diff Distribution Lab</h1>
+    <p id="hdrp">MLN swings from Season 5 on. Each swing's diff is mapped to the league-wide mix of results at that diff, giving every hitter and team an expected OBP and SLG next to the actual one.</p>
+  </header>
+
+  <div class="panel controls">
+    <label class="ctl">Season<select id="season"></select></label>
+    <div class="ctl">Perspective<span class="seg" id="persp"><button data-v="bat" aria-pressed="true">Hitting</button><button data-v="pit" aria-pressed="false">Pitching</button></span></div>
+    <label class="ctl" title="Swings whose result only a hit and run explains: left out of the league mix, and their expected 1B counts as 1BWH and 2B as 2BWH"><span>Hit-and-run calls</span><span style="text-transform:none;letter-spacing:0;color:var(--fg2)"><input type="checkbox" id="hnr" checked> adjust for them</span></label>
+    <div class="ctl">Metric set<span class="seg" id="mset"><button data-v="simple" aria-pressed="true">Simple (OBP / SLG)</button><button data-v="state" aria-pressed="false">Game state (runs / WPA)</button></span></div>
+    <div class="ctl">Bucket width<span class="seg" id="bw"><button data-v="1" aria-pressed="true">1</button><button data-v="5" aria-pressed="false">5</button><button data-v="25" aria-pressed="false">25</button><button data-v="50" aria-pressed="false">50</button></span></div>
+    <div class="ctl">League chart<span class="seg" id="mode"><button data-v="smooth" aria-pressed="true">Smoothed</button><button data-v="raw" aria-pressed="false">Raw</button><button data-v="model" aria-pressed="false" title="Stack every swing's calculator ranges instead of counting results">Calculator model</button></span></div>
+    <label class="ctl">Smoothing width <span id="smv" style="text-transform:none;letter-spacing:0;color:var(--fg2)"></span><input type="range" id="sm" min="1" max="30" value="8"></label>
+    <label class="ctl">Min PA<input type="number" id="minpa" min="0" value="50" style="width:80px"></label>
+  </div>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <h2 id="lgtitle">Result mix by diff</h2><span class="note" id="lgsum"></span>
+    </div>
+    <div class="controls" id="stateSel" hidden style="margin:8px 0 4px">
+      <label class="ctl">Outs<select id="lgouts"><option value="all">All</option><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
+      <label class="ctl">Bases<select id="lgbases"><option value="all">All</option><option value="0">Empty</option><option value="1">1B</option><option value="2">2B</option><option value="3">3B</option><option value="4">1B+2B</option><option value="5">1B+3B</option><option value="6">2B+3B</option><option value="7">Loaded</option></select></label>
+    </div>
+    <p class="note" style="margin:4px 0 10px">All MLN swings S5+. Lower diff is better. Hover a column for the share of each result and the expected OBP / SLG at that diff.</p>
+    <div id="lgchart"></div><div class="legend" id="lglegend"></div>
+  </section>
+
+  <section class="panel">
+    <div class="tabs">
+      <div class="seg" id="view"><button data-v="bat" aria-pressed="true" id="vbat">Hitters</button><button data-v="team" aria-pressed="false">Teams</button></div>
+      <span class="note" id="tblnote"></span>
+    </div>
+    <div class="scroll" style="max-height:640px;overflow:auto"><table id="tbl"></table></div>
+  </section>
+
+  <section class="note" id="note1">
+    <b>Reading the table.</b> <b>xOBP / xSLG</b> are what the league-wide result mix at each of the hitter's diffs would produce. <b>Build gap</b> is actual OPS minus xOPS: positive means their attribute ranges turn diffs into better results than the league mix does. Diff itself is treated as skill, so there is no luck column.
+    Outcomes counted: swings with a recorded diff, excluding intentional walks, auto K/BB, bunts, steals and live-game scrimmages. Hits include 1BWH / 2BWH; walks count toward OBP only; sac flies count as outs. Expected curves are Gaussian-smoothed per diff, then forced to be non-increasing in diff (pool-adjacent-violators) so a better diff never has a lower expected OBP or SLG.
+  </section>
+  <section class="panel">
+    <div class="tabs"><h2 style="margin:0">Team summary: hitting and pitching</h2><span class="note" id="teamnote"></span></div>
+    <div class="scroll" style="overflow:auto"><table id="tbl2"></table></div>
+  </section>
+
+  <section class="note" id="modelnote"></section>
+  <section class="note" id="hnrnote"></section>
+  <section class="note" id="note2" hidden>
+    <b>Game-state mode.</b> Every swing gets a run value from the play log: run expectancy after the play plus runs scored on it, minus run expectancy before it (RE24 matrix). WPA is win probability after minus before from the batting team's side, using the win probability table. The expected versions take the league's result mix at that diff <i>within the same outs and bases state</i> and weight each result's run value and WPA for that exact situation (inning, score, outs, bases) using the runner-advancement table. Runs vs x and WPA vs x are therefore the effect of the hitter's build against the league's mix, with diff treated as skill. Results are kept at full granularity (1BWH, 2BWH, GORA, FC, each DP type, fly vs pop outs and so on); DPRun, TP and LODP are merged into DP because they are too rare to model; 1BWH2 (a less well-hit single with runners on 1st and 2nd: the runner on 1st stops at 2nd) is its own result. The league mix per state is Gaussian-smoothed over diff and shrunk slightly toward the all-states mix restricted to results that occur in that state, so sparse states stay stable. Raise the smoothing width if curves look noisy.
+  </section>
+</div>
+<div id="tip"></div>
+
+<script>
+const DATA=/*DATA*/null;
+const CL=['HR','3B','2B','1B','BB','K','GO','Air'];
+const sw=DATA.rows.map(r=>({s:r[0],t:r[1],b:r[2],p:r[3],d:r[4],c:r[5],raw:r[6],g:r[7],hf:r[12],dt:r[13]}));
+const $=id=>document.getElementById(id);
+const st={season:'all',bw:1,outs:'lump',mode:'smooth',sm:8,minpa:50,view:'bat',sort:{k:'pa',dir:-1},open:new Set(),logSort:{k:'seq',dir:1},dview:'dist',opsBw:25,hid:new Set(),hnr:true,persp:'bat'};
+const PS=()=>st.persp==='pit'?-1:1;
+const mixSet=()=>st.hnr?sw.filter(x=>!x.hf):sw;
+const unb=b=>{const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);const w=new Uint16Array(u.buffer);const f=new Float32Array(w.length);for(let i=0;i<w.length;i++)f[i]=w[i]/65535;return f};
+let _MD=null;const MD=()=>_MD||(_MD={pn:unb(DATA.model.pn),ph:unb(DATA.model.ph),p8:unb(DATA.model.p8)});
+
+// ---------- league model ----------
+let M=null;
+function pav(v,w){ // non-increasing fit
+  const bl=[];
+  for(let i=0;i<v.length;i++){
+    bl.push({s:v[i]*w[i],w:w[i],n:1});
+    while(bl.length>1){const a=bl[bl.length-2],b=bl[bl.length-1];
+      if(a.s/a.w<b.s/b.w){bl.splice(bl.length-2,2,{s:a.s+b.s,w:a.w+b.w,n:a.n+b.n});}else break;}
+  }
+  const o=[];bl.forEach(b=>{for(let k=0;k<b.n;k++)o.push(b.s/b.w)});return o;
+}
+function build(bw){
+  const n=new Float64Array(501),c=CL.map(()=>new Float64Array(501));
+  mixSet().forEach(x=>{n[x.d]++;c[x.c][x.d]++});
+  const p=CL.map(()=>new Float64Array(501));
+  const R=Math.ceil(bw*3);
+  for(let d=0;d<=500;d++){
+    let den=0;const num=new Float64Array(8);
+    for(let k=Math.max(0,d-R);k<=Math.min(500,d+R);k++){
+      const w=Math.exp(-0.5*((k-d)/bw)**2);den+=w*n[k];
+      for(let j=0;j<8;j++)num[j]+=w*c[j][k];
+    }
+    for(let j=0;j<8;j++)p[j][d]=den?num[j]/den:0;
+  }
+  if(st.mode==='model'){const m=MD().p8;for(let j=0;j<8;j++)for(let d=0;d<=500;d++)p[j][d]=m[j*501+d]}
+  const obp=[],tb=[],ab=[],wt=[];
+  for(let d=0;d<=500;d++){
+    obp.push(p[0][d]+p[1][d]+p[2][d]+p[3][d]+p[4][d]);
+    tb.push(p[3][d]+2*p[2][d]+3*p[1][d]+4*p[0][d]);
+    ab.push(1-p[4][d]);wt.push(n[d]+1e-6);
+  }
+  if(st.mode==='model'){const T=sw.length;for(let d=0;d<=500;d++)n[d]=T*(d===0||d===500?0.001:0.002)}   // the model needs no observed swings at a diff: weight diffs by how likely each roll is
+  M={n,c,p,obp:st.mode==='model'?obp:pav(obp,wt),tb:st.mode==='model'?tb:pav(tb,wt),ab};
+}
+
+// ---------- aggregation ----------
+const HIT=[1,1,1,1,0,0,0,0],TBV=[4,3,2,1,0,0,0,0];
+function agg(list){
+  let pa=0,h=0,bb=0,tb=0,xo=0,xt=0,xa=0,ds=0;const act=[0,0,0,0,0],exp=[0,0,0,0,0];
+  for(const x of list){if(x.c<5)act[x.c]++;for(let j=0;j<5;j++)exp[j]+=M.p[j][x.d];pa++;h+=HIT[x.c];if(x.c===4)bb++;tb+=TBV[x.c];xo+=M.obp[x.d];xt+=M.tb[x.d];xa+=M.ab[x.d];ds+=x.d}
+  const ab=pa-bb;
+  return {pa,diff:ds/pa,obp:(h+bb)/pa,slg:ab?tb/ab:0,xobp:xo/pa,xslg:xa?xt/xa:0,act,exp};
+}
+function filt(){return st.season==='all'?sw:sw.filter(x=>x.s===st.season)}
+
+// ---------- chart ----------
+const tip=$('tip');
+function showTip(e,t){tip.textContent=t;tip.style.display='block';const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8);tip.style.left=x+'px';tip.style.top=(e.clientY+14)+'px'}
+function hideTip(){tip.style.display='none'}
+document.addEventListener('mouseover',e=>{const t=e.target.closest('[data-tip]');if(t)showTip(e,t.dataset.tip);else hideTip()});
+document.addEventListener('mousemove',e=>{const t=e.target.closest('[data-tip]');if(t)showTip(e,t.dataset.tip);else hideTip()});
+
+function classes(){return [0,1,2,3,4,'out']}
+function cname(c){return c==='out'?'Out':CL[c]}
+function ccol(c){return c==='out'?'var(--cout)':`var(--c${c})`}
+function lgd(items){return items.map(([n,col])=>`<span data-lg="${n}" class="${st.hid.has(n)?'off':''}" role="button" tabindex="0" title="Click to show or hide, double-click to show only this"><i style="background:${col}"></i>${n}</span>`).join('')}
+function fold(vals){return [vals[0],vals[1],vals[2],vals[3],vals[4],vals[5]+vals[6]+vals[7]]}
+
+// buckets: [{x0,x1,vals(8 counts or shares),n,ref}]
+function stacked(bk,o){
+  const W=900,H=o.h||280,L=o.left||40,Bm=26,T=8,iw=W-L-8,ih=H-Bm-T;
+  const cs=o.cs||classes(),bwid=iw/bk.length,gp=bwid>6?1:0;
+  const nmf=o.nm||cname,vis=cs.map(c=>!st.hid.has(nmf(c))),anyHid=vis.some(x=>!x);
+  const vsum=b=>(o.fold||fold)(b.vals).reduce((a,x,j)=>a+(vis[j]?x:0),0);
+  const mx=o.mode==='share'?(anyHid?Math.max(...bk.map(vsum),0.01):1):Math.max(...bk.map(vsum),...bk.map(b=>b.ref||0),1);
+  let g='';
+  for(let i=0;i<=4;i++){const y=T+ih-ih*i/4;g+=`<line x1="${L}" x2="${W-8}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+4}" text-anchor="end">${o.mode==='share'?Math.round(100*mx*i/4)+'%':Math.round(mx*i/4)}</text>`}
+  bk.forEach((b,i)=>{
+    const v=(o.fold||fold)(b.vals),tot=v.reduce((a,x)=>a+x,0);let y=T+ih;
+    cs.forEach((c,j)=>{if(!vis[j])return;const hh=ih*v[j]/mx;if(hh<=0)return;y-=hh;g+=`<rect x="${L+i*bwid+gp}" y="${y}" width="${Math.max(bwid-2*gp,0.8)}" height="${hh}" fill="${(o.col||ccol)(c)}"/>`});
+    g+=`<rect x="${L+i*bwid}" y="${T}" width="${bwid}" height="${ih}" fill="transparent" data-tip="${esc(o.tip(b,v))}"/>`;
+    if(o.mode!=='share'&&b.ref!=null){const ry=T+ih-ih*b.ref/mx;g+=`<line x1="${L+i*bwid+gp}" x2="${L+(i+1)*bwid-gp}" y1="${ry}" y2="${ry}" stroke="var(--fg)" stroke-width="2"/>`}
+  });
+  const step=Math.max(1,Math.round(50/st.bw));
+  bk.forEach((b,i)=>{if(i%step===0)g+=`<text x="${L+i*bwid}" y="${H-8}" text-anchor="middle" transform="translate(0,0)">${b.x0}</text>`});
+  if((bk.length-1)%step!==0||st.bw>1)g+=`<text x="${W-8}" y="${H-8}" text-anchor="end">500</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.label)}">${g}</svg>`;
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+const pct=v=>(100*v).toFixed(1)+'%';
+const f3=v=>v.toFixed(3).replace(/^0/,'');
+function nb(){return st.bw===1?501:Math.ceil(500/st.bw)}
+function bidx(d){return Math.min(Math.floor(d/st.bw),nb()-1)}
+
+function leagueChart(){
+  const k=nb(),bk=[];
+  for(let i=0;i<k;i++)bk.push({x0:i*st.bw,x1:st.bw===1?i:Math.min(500,(i+1)*st.bw),cnt:new Float64Array(8),sm:new Float64Array(8),n:0,o:0,t:0,a:0});
+  for(let d=0;d<=500;d++){
+    const b=bk[bidx(d)],n=M.n[d];b.n+=n;b.o+=n*M.obp[d];b.t+=n*M.tb[d];b.a+=n*M.ab[d];
+    for(let j=0;j<8;j++){b.cnt[j]+=M.c[j][d];b.sm[j]+=n*M.p[j][d]}
+  }
+  const rows=bk.map(b=>{
+    const src=st.mode==='raw'?b.cnt:b.sm;const tot=b.n||1;
+    return {x0:b.x0,x1:b.x1,n:b.n,vals:Array.from(src).map(v=>v/tot),xo:b.o/tot,xs:b.a?b.t/b.a:0};
+  });
+  $('lgchart').innerHTML=stacked(rows,{mode:'share',label:'Result mix by diff bucket',tip:(b,v)=>{
+    const cs=classes();
+    return `diff ${b.x0===b.x1?b.x0:b.x0+'-'+b.x1}  (${b.n.toLocaleString()} swings)\n`+cs.map((c,j)=>cname(c).padEnd(4)+pct(v[j]).padStart(7)).join('\n')+`\nxOBP ${f3(b.xo)}  xSLG ${f3(b.xs)}`}});
+  $('lglegend').innerHTML=lgd(classes().map(c=>[cname(c),ccol(c)]));
+  const tot=sw.length;let o=0,t=0,a=0;for(let d=0;d<=500;d++){o+=M.n[d]*M.obp[d];t+=M.n[d]*M.tb[d];a+=M.n[d]*M.ab[d]}
+  $('lgsum').textContent=`${tot.toLocaleString()} swings · modeled lg ${f3(o/tot)} OBP / ${f3(t/a)} SLG`;
+}
+
+// ---------- tables ----------
+const COLS=[
+ ['name','Name',true],['team','Current team',true],['pa','PA'],['diff','Avg diff'],
+ ['xobp','xOBP'],['obp','OBP'],['xslg','xSLG'],['slg','SLG'],['xops','xOPS'],['ops','OPS'],
+ ['gap','Build gap'],['c4','BB'],['c3','1B'],['c2','2B'],['c1','3B'],['c0','HR']
+];
+function fmtSigned(v){const s=(v>=0?'+':'')+v.toFixed(3).replace(/^(-?)0\./,'$1.');return `<span class="${(v>=0)!==(st.persp==='pit')?'pos':'neg'}">${s}</span>`}
+const gkey=()=>st.persp==='bat'?(st.view==='bat'?'b':'t'):(st.view==='bat'?'p':'dt');
+const gname=k=>st.view==='bat'?(st.persp==='bat'?DATA.bat[k]:DATA.pit[k]):DATA.teams[k];
+const gteam=x=>DATA.teams[st.persp==='bat'?x.t:x.dt];
+const noun=()=>st.view==='bat'?(st.persp==='bat'?'hitters':'pitchers'):'teams';
+const who=x=>st.persp==='bat'?DATA.pit[x.p]:DATA.bat[x.b];
+const pcols=()=>st.persp==='bat'?[['bat','Hitter',1],['pit','Pitcher',1]]:[['pit','Pitcher',1],['bat','Hitter',1]];
+const pair=e=>(st.persp==='bat'?[e.bat,e.pit]:[e.pit,e.bat]).map(n=>`<td class="l">${esc(n)}</td>`).join('');
+function render(){
+  const base=filt();
+  const lg=agg(base);
+  const key=gkey();
+  const groups=new Map();
+  base.forEach(x=>{const k=x[key];if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x)});
+  let rows=[];
+  groups.forEach((list,k)=>{
+    if(list.length<st.minpa)return;
+    const a=agg(list);
+    
+    let last=list[0];for(const x of list)if(x.s>last.s||(x.s===last.s&&x.g>last.g))last=x;const teams=[abbr(gteam(last))];
+    rows.push({k,list,name:gname(k),team:st.view==='bat'?teams[0]:'',...a,
+      x0:a.exp[0],x1:a.exp[1],x2:a.exp[2],x3:a.exp[3],x4:a.exp[4],c0:a.act[0],c1:a.act[1],c2:a.act[2],c3:a.act[3],c4:a.act[4],xops:a.xobp+a.xslg,ops:a.obp+a.slg,gap:a.obp+a.slg-a.xobp-a.xslg});
+  });
+  const {k:sk,dir}=st.sort;
+  rows.sort((p,q)=>{const a=p[sk],b=q[sk];return (typeof a==='string'?a.localeCompare(b):a-b)*dir});
+  const cols=st.view==='team'?COLS.filter(c=>c[0]!=='team'):COLS;
+  const arrow=k=>sk===k?(dir>0?' ▲':' ▼'):'';
+  let h='<thead><tr>'+cols.map(c=>{
+    if(/^c\d$/.test(c[0])){const x='x'+c[0][1];
+      return `<th tabindex="0" ${sk===c[0]||sk===x?`aria-sort="${dir>0?'ascending':'descending'}"`:''}><span data-k="${c[0]}" style="cursor:pointer">${c[1]}${arrow(c[0])}</span> <span data-k="${x}" style="cursor:pointer;text-transform:none">/ x${arrow(x)}</span></th>`}
+    return `<th tabindex="0" data-k="${c[0]}" class="${c[2]?'l':''}" ${sk===c[0]?`aria-sort="${dir>0?'ascending':'descending'}"`:''}>${c[1]}${arrow(c[0])}</th>`}).join('')+'</tr></thead><tbody>';
+  const cap=300;
+  rows.slice(0,cap).forEach(r=>{
+    const id=st.persp+st.view+r.k+'|'+st.season,isOpen=st.open.has(id);
+    h+=`<tr class="row" data-id="${id}" data-k="${r.k}"><td class="l">${isOpen?'▾':'▸'} ${esc(r.name)}</td>`+(st.view==='bat'?`<td class="l">${esc(r.team)}</td>`:'')+
+      `<td class="num">${r.pa}</td><td class="num">${r.diff.toFixed(0)}</td><td class="num">${f3(r.xobp)}</td><td class="num">${f3(r.obp)}</td><td class="num">${f3(r.xslg)}</td><td class="num">${f3(r.slg)}</td><td class="num">${f3(r.xops)}</td><td class="num">${f3(r.ops)}</td><td class="num">${fmtSigned(r.gap)}</td>${[4,3,2,1,0].map(j=>`<td class="num">${r.act[j]} <span style="color:var(--muted)">/ ${r.exp[j].toFixed(1)}</span></td>`).join('')}</tr>`;
+    if(isOpen)h+=`<tr><td colspan="${cols.length}">${detail(r)}</td></tr>`;
+  });
+  h+='</tbody>';
+  $('tbl').innerHTML=h;
+  $('tblnote').textContent=`${rows.length} ${noun()} with ${st.minpa}+ ${st.persp==='bat'?'PA':'batters faced'}${rows.length>cap?` (showing top ${cap})`:''} · league ${f3(lg.obp)} OBP / ${f3(lg.slg)} SLG, modeled ${f3(lg.xobp)} / ${f3(lg.xslg)} · OPS ${f3(lg.obp+lg.slg)} (xOPS ${f3(lg.xobp+lg.xslg)}) · ${st.season==='all'?'S5-S13':'S'+st.season}`;
+}
+function abbr(n){return n.split(' ').slice(-1)[0]}
+
+function opsChart(list,w){
+  const k=Math.ceil(501/w),bk=[];
+  for(let i=0;i<k;i++)bk.push({n:0,h:0,bb:0,tb:0,xo:0,xt:0,xa:0});
+  list.forEach(x=>{const b=bk[Math.min(Math.floor(x.d/w),k-1)];b.n++;b.h+=HIT[x.c];if(x.c===4)b.bb++;b.tb+=TBV[x.c];b.xo+=M.obp[x.d];b.xt+=M.tb[x.d];b.xa+=M.ab[x.d]});
+  const pts=bk.map((b,i)=>{
+    if(!b.n)return null;const ab=b.n-b.bb;
+    return {i,n:b.n,ops:(b.h+b.bb)/b.n+(ab?b.tb/ab:0),xops:b.xo/b.n+(b.xa?b.xt/b.xa:0),obp:(b.h+b.bb)/b.n,slg:ab?b.tb/ab:0,lo:i*w,hi:Math.min(500,(i+1)*w-1)};
+  });
+  const real=pts.filter(Boolean),W=900,H=260,L=34,Bm=26,T=8,iw=W-L-8,ih=H-Bm-T;
+  const ym=Math.max(1,Math.ceil(2*Math.max(...real.map(p=>Math.max(p.ops,p.xops)),0))/2);
+  const nm=Math.max(...real.map(p=>p.n),1),bw=iw/k;
+  const X=i=>L+(i+0.5)*bw,Y=v=>T+ih-ih*v/ym;
+  let g='';
+  for(let i=0;i<=4;i++){const y=T+ih-ih*i/4;g+=`<line x1="${L}" x2="${W-8}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+4}" text-anchor="end">${(ym*i/4).toFixed(1)}</text>`}
+  real.forEach(p=>{const hh=0.22*ih*p.n/nm;g+=`<rect x="${L+p.i*bw+1}" y="${T+ih-hh}" width="${Math.max(1,bw-2)}" height="${hh}" fill="var(--line)"/>`});
+  const line=(key,col,dash)=>{
+    let d='',open=false;
+    pts.forEach((p,i)=>{if(!p){open=false;return}d+=(open?'L':'M')+X(i).toFixed(1)+' '+Y(p[key]).toFixed(1)+' ';open=true});
+    return `<path d="${d}" fill="none" stroke="${col}" stroke-width="2" ${dash?'stroke-dasharray="5 4"':''} stroke-linejoin="round"/>`;
+  };
+  g+=line('xops','var(--fg2)',true)+line('ops','var(--accent)',false);
+  real.forEach(p=>{g+=`<circle cx="${X(p.i)}" cy="${Y(p.ops)}" r="3" fill="var(--accent)" stroke="var(--panel)" stroke-width="1.5"/>`});
+  const step=Math.max(1,Math.round(50/w));
+  for(let i=0;i<k;i+=step)g+=`<text x="${L+i*bw}" y="${H-8}" text-anchor="middle">${i*w}</text>`;
+  pts.forEach((p,i)=>{if(!p)return;
+    g+=`<rect x="${L+i*bw}" y="${T}" width="${bw}" height="${ih}" fill="transparent" data-tip="${esc(`diff ${p.lo}-${p.hi}  (${p.n} swings)\nOPS  ${f3(p.ops)}  (OBP ${f3(p.obp)} SLG ${f3(p.slg)})\nxOPS ${f3(p.xops)}\ndiff ${(p.ops-p.xops>=0?'+':'')+(p.ops-p.xops).toFixed(3)}`)}"/>`});
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="OPS and xOPS by diff bucket">${g}</svg>`;
+}
+
+function detail(r){
+  const k=nb(),bk=[];
+  for(let i=0;i<k;i++)bk.push({x0:i*st.bw,x1:st.bw===1?i:Math.min(500,(i+1)*st.bw),vals:new Array(8).fill(0),n:0,ref:0});
+  const base=filt();
+  r.list.forEach(x=>{const b=bk[bidx(x.d)];b.vals[x.c]++;b.n++});
+  // league reference share of swings in this bucket (same season filter)
+  const lgc=new Array(k).fill(0);base.forEach(x=>lgc[bidx(x.d)]++);
+  bk.forEach((b,i)=>b.ref=r.pa*lgc[i]/base.length);
+  const chart=stacked(bk,{mode:'count',h:200,left:30,label:'Swings by diff bucket',tip:(b,v)=>{
+    const cs=classes();return `diff ${b.x0}-${b.x1}\n${b.n} swings (league-avg ${b.ref.toFixed(1)})\n`+cs.map((c,j)=>cname(c).padEnd(4)+String(v[j]).padStart(4)).join('\n')}});
+  const E=r.list.map(x=>{
+    const p=M.p.map(a=>a[x.d]);
+    const top=[0,1,2,3,4].map(j=>[CL[j],p[j]]).concat([['Out',p[5]+p[6]+p[7]]]).filter(e=>e[1]>=.005).sort((a,b)=>b[1]-a[1]).map(e=>e[0]+' '+Math.round(e[1]*100)).join(' / ');
+    const val=(x.c<5?1:0)+TBV[x.c],xv=M.obp[x.d]+M.tb[x.d];
+    return {x,top,s:x.s,pit:DATA.pit[x.p],bat:DATA.bat[x.b],d:x.d,res:DATA.raw[x.raw],xo:M.obp[x.d],xs:M.ab[x.d]?M.tb[x.d]/M.ab[x.d]:0,val,xv,dv:val-xv,seq:x.s*1e7+x.g};
+  });
+  const {k:lk,dir:ld}=st.logSort;
+  E.sort((p,q)=>{const a=p[lk],b=q[lk];return (typeof a==='string'?a.localeCompare(b):a-b)*ld||p.seq-q.seq});
+  const lim=E.slice(0,1500);
+  const fd=v=>`<span class="${(v>=0)!==(st.persp==='pit')?'pos':'neg'}">${v>=0?'+':''}${v.toFixed(2)}</span>`;
+  const log=lim.map(e=>`<tr><td class="l">S${e.s}</td>${pair(e)}<td class="num">${e.d}</td><td class="l"><b>${esc(e.res)}</b></td><td class="l mix">${e.top}</td><td class="num">${f3(e.xo)}</td><td class="num">${f3(e.xs)}</td><td class="num">${e.val}</td><td class="num">${e.xv.toFixed(2)}</td><td class="num">${fd(e.dv)}</td></tr>`).join('');
+  const LC=[['seq','Szn',1],...pcols(),['d','Diff'],['res','Actual',1],['top','Expected mix %',1],['xo','xOBP'],['xs','xSLG'],['val','OB+TB'],['xv','xOB+xTB'],['dv','Diff vs x']].filter(c=>c[1]!==null);
+  const lh=LC.map(c=>`<th data-lk="${c[0]}" class="${c[2]?'l':''}" ${lk===c[0]?`aria-sort="${ld>0?'ascending':'descending'}"`:''}>${c[1]}${lk===c[0]?(ld>0?' ▲':' ▼'):''}</th>`).join('');
+  const hd=txt=>`<h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">${txt}</h2>`;
+  const tog=`<div class="seg" data-dvwrap>${[['dist','Distribution'],['log','Swing log'],['ops','OPS vs xOPS']].map(([v,l])=>`<button data-dv="${v}" aria-pressed="${st.dview===v}">${l}</button>`).join('')}</div>`;
+  let body='';
+  if(st.dview==='dist'){
+    body=hd('Swings by diff bucket (line = league-average count)')+chart+`<div class="legend">${lgd(classes().map(c=>[cname(c),ccol(c)]))}</div>`;
+  }else if(st.dview==='log'){
+    body=hd(`Swing log${r.list.length>1500?' (first 1,500)':''} <span style="text-transform:none">- OB+TB is on-base (0/1) plus total bases (0-4) for the swing; Diff vs x is actual minus expected</span>`)+
+      `<div class="log"><table><thead><tr>${lh}</tr></thead><tbody>${log}</tbody></table></div>`;
+  }else{
+    body=hd('OPS and xOPS by diff bucket')+`<div class="seg" id="opsbw" style="margin-bottom:8px">${[10,25,50].map(w=>`<button data-ow="${w}" aria-pressed="${st.opsBw===w}">${w}-wide</button>`).join('')}</div>`+opsChart(r.list,st.opsBw)+
+      `<div class="legend"><span><i style="background:var(--accent)"></i>OPS (actual)</span><span><i style="background:var(--fg2)"></i>xOPS</span><span><i style="background:var(--line)"></i>swing count</span></div>`;
+  }
+  return `<div class="detail"><div>${tog}${body}</div></div>`;
+}
+
+// ---------- wiring ----------
+let lgTimer=null;
+document.addEventListener('click',e=>{const el=e.target.closest('[data-lg]');if(!el)return;const n=el.dataset.lg;clearTimeout(lgTimer);lgTimer=setTimeout(()=>{st.hid.has(n)?st.hid.delete(n):st.hid.add(n);all()},230)});
+document.addEventListener('dblclick',e=>{const el=e.target.closest('[data-lg]');if(!el)return;clearTimeout(lgTimer);e.preventDefault();
+  const n=el.dataset.lg,names=[...el.parentElement.querySelectorAll('[data-lg]')].map(s=>s.dataset.lg);
+  const only=names.every(m=>m===n?!st.hid.has(m):st.hid.has(m));
+  st.hid.clear();if(!only)names.forEach(m=>{if(m!==n)st.hid.add(m)});all()});
+document.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const el=e.target.closest&&e.target.closest('[data-lg]');if(!el)return;e.preventDefault();const n=el.dataset.lg;st.hid.has(n)?st.hid.delete(n):st.hid.add(n);all()});
+function seg(id,key,cast){
+  $(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+    st[key]=cast?cast(b.dataset.v):b.dataset.v;
+    [...$(id).children].forEach(c=>c.setAttribute('aria-pressed',c===b));
+    all()});
+}
+function all(){leagueChart();render()}
+(function init(){
+  const seasons=[...new Set(sw.map(x=>x.s))].sort((a,b)=>b-a);
+  $('season').innerHTML='<option value="all">All (S5-S'+seasons[0]+')</option>'+seasons.map(s=>`<option value="${s}">Season ${s}</option>`).join('');
+  $('season').onchange=e=>{st.season=e.target.value==='all'?'all':+e.target.value;render()};
+  seg('bw','bw',Number);seg('mode','mode');seg('view','view');seg('persp','persp');
+  $('mode').addEventListener('click',()=>{$('sm').disabled=st.mode==='model';build(st.sm);all()});
+  $('persp').addEventListener('click',()=>{$('vbat').textContent=st.persp==='bat'?'Hitters':'Pitchers'});
+  $('hnr').onchange=e=>{st.hnr=e.target.checked;build(st.sm);all()};
+  $('sm').oninput=e=>{st.sm=+e.target.value;$('smv').textContent='±'+st.sm;build(st.sm);all()};
+  $('minpa').oninput=e=>{st.minpa=+e.target.value||0;render()};
+  $('smv').textContent='±'+st.sm;
+  $('tbl').addEventListener('click',e=>{
+    const dv=e.target.closest('[data-dv]');
+    if(dv){st.dview=dv.dataset.dv;render();return}
+    const ow=e.target.closest('[data-ow]');
+    if(ow){st.opsBw=+ow.dataset.ow;render();return}
+    const lg=e.target.closest('[data-lk]');
+    if(lg){const k=lg.dataset.lk;st.logSort=st.logSort.k===k?{k,dir:-st.logSort.dir}:{k,dir:(k==='pit'||k==='bat'||k==='res'||k==='seq')?1:-1};render();return}
+    const th=e.target.closest('[data-k]');
+    if(th&&th.tagName!=='TR'){const k=th.dataset.k;st.sort=st.sort.k===k?{k,dir:-st.sort.dir}:{k,dir:(k==='name'||k==='team')?1:-1};render();return}
+    if(e.target.closest('.detail'))return;
+    const tr=e.target.closest('tr.row');if(tr){const id=tr.dataset.id;st.open.has(id)?st.open.delete(id):st.open.add(id);render()}
+  });
+  (function(){const T=DATA.model.tv,dl=DATA.model.diffs;
+    $('modelnote').innerHTML='<b>Calculator model.</b> Instead of counting the results at each diff and smoothing, this stacks the full set of result ranges the sheet calculator gives each real swing (from its own pitcher, batter, outs and runner speeds) and reads off, at each diff, the share of swings whose ranges put that diff on each result. Per outs-and-bases state for game-state mode, with no smoothing, and the shares always add to 100%. For swings flagged as hit-and-run calls it uses the hit-and-run ranges (CON -1, runners +1) in place of the 1B to 1BWH remap. '+
+      `Check against what actually happened: the gap between observed and modeled result counts, as a share of swings, is ${T.map(r=>"S"+r[0]+" "+(100*r[1]).toFixed(1)+"%").join(", ")}. Biggest gaps over all seasons (observed vs model): ${dl.map(r=>r[0]+" "+r[1]+" vs "+r[2]).join(", ")}. GO/PO is the out-type boundary that differs most; the extra 1BWH/2BWH are hit-and-run calls the model does not include.`})();
+  (function(){const H=DATA.hnr,sum=i=>H.reduce((a,r)=>a+r[i],0),pc=(a,b)=>(100*a/b).toFixed(1)+'%';
+    $('hnrnote').innerHTML='<b>Hit-and-run calls.</b> With a runner on 1st or 2nd and fewer than 2 outs the manager can call a hit and run, which turns every 1B into 1BWH and every 2B into 2BWH (and takes 1 off the batter’s CON). A 1BWH or 2BWH at a diff where the normal table says plain 1B / 1BWH2 / 2B can only be that call, so those swings are flagged. With <i>adjust</i> on, flagged swings are left out of the league mix (so it is the mix for normal swings) and their expected result treats 1B and 1BWH2 as 1BWH and 2B as 2BWH, so a hitter or pitcher is not credited for what the call did. '+
+      `Flagged swings per swing with a runner on 1st/2nd, under 2 outs vs. at 2 outs (where no call is possible, so any flag there is noise): ${H.map(r=>'S'+r[0]+' '+pc(r[1],r[2])+' vs '+pc(r[3],r[4])).join(', ')}. `+
+      'The flag is only clean where the first figure is well above the second (S12-13). In S5-11 the two are close (the old rules drift from today’s tables), so roughly half or more of the flags there are noise rather than calls and the adjustment is approximate; the effect is small either way, about 1% of swings. A call is only detectable where the two tables disagree, so the real number of calls is higher than the flags. Infield-in plays are not separated.'})();
+  build(st.sm);all();
+})();
+</script>
+
+<script>
+(function(){
+const GC=DATA.GC,NG=GC.length,RVT=DATA.rvt,CTX=DATA.ctx,D=501;
+const BASES=['Empty','1B','2B','3B','1B+2B','1B+3B','2B+3B','Loaded'];
+sw.forEach((x,i)=>{const r=DATA.rows[i];x.gc=r[8];x.cx=r[9];x.rv=r[10];x.wpa=r[11];const c=CTX[x.cx];x.s8=c[2]*8+c[3];x.inn=c[0];x.half=c[1];x.lead=c[4];x.outs=c[2];x.brc=c[3]});
+const fam=(h,s,ls)=>ls.map(l=>`hsl(${h} ${s}% ${l}%)`);
+const GCOL=[...fam(215,70,[24,31,38,45,52,59,66,73]),...fam(160,60,[42]),...fam(45,75,[36,44,52,60,68]),...fam(18,70,[34,44,54,64,72]),'hsl(0 0% 52%)',...fam(345,60,[34,44,54,64])];
+const ALL=GC.map((_,i)=>i),colG=i=>GCOL[i],ident=v=>v;
+const IB=GC.indexOf('1B'),IW=GC.indexOf('1BWH'),I2=GC.indexOf('1BWH2'),DB=GC.indexOf('2B'),DW=GC.indexOf('2BWH');
+// expected result mix for a swing; on a swing with hit-and-run evidence every 1B (or 1BWH2) is a 1BWH and every 2B a 2BWH
+function pmix(x){const pr=new Float64Array(NG),o=x.s8*NG;for(let g=0;g<NG;g++)pr[g]=P[(o+g)*D+x.d];
+  if(st.mode==='model'){const k=DATA.model.hs.indexOf(x.s8);
+    if(st.hnr&&x.hf&&k>=0){const m=MD().ph;let tot=0;for(let g=0;g<NG;g++){pr[g]=RVT[x.s8][g]!=null?m[(k*NG+g)*D+x.d]:0;tot+=pr[g]}if(tot>0)for(let g=0;g<NG;g++)pr[g]/=tot}
+    return pr}
+  if(st.hnr&&x.hf===1){pr[IW]+=pr[IB]+pr[I2];pr[IB]=0;pr[I2]=0}else if(st.hnr&&x.hf===2){pr[DW]+=pr[DB];pr[DB]=0}
+  return pr}
+const KAPPA=4;let P=null,NSA=null,EVR=null,dirty=true;
+st.mset='simple';st.sortS={k:'pa',dir:-1};st.logS={k:'seq',dir:1};st.dvS='dist';st.byBw=25;st.byMet='runs';st.lgOuts='all';st.lgBases='all';
+
+function buildS(bw){
+  const R=Math.ceil(bw*3),W=[];for(let k=-R;k<=R;k++)W.push(Math.exp(-0.5*(k/bw)**2));
+  const n=new Float64Array(24*D),c=new Float64Array(24*NG*D);
+  mixSet().forEach(x=>{n[x.s8*D+x.d]++;c[(x.s8*NG+x.gc)*D+x.d]++});
+  const tot=new Float64Array(24*NG);
+  for(let s=0;s<24;s++)for(let g=0;g<NG;g++){let t=0;const o=(s*NG+g)*D;for(let d=0;d<D;d++)t+=c[o+d];tot[s*NG+g]=t}
+  const pn=new Float64Array(D),pc=new Float64Array(NG*D);
+  for(let s=0;s<24;s++){for(let d=0;d<D;d++)pn[d]+=n[s*D+d];for(let g=0;g<NG;g++){const o=(s*NG+g)*D;for(let d=0;d<D;d++)pc[g*D+d]+=c[o+d]}}
+  const p0=new Float64Array(NG*D);
+  for(let d=0;d<D;d++){let N=0;const C=new Float64Array(NG);
+    for(let k=-R;k<=R;k++){const kk=d+k;if(kk<0||kk>500)continue;const w=W[k+R];N+=w*pn[kk];for(let g=0;g<NG;g++)C[g]+=w*pc[g*D+kk]}
+    for(let g=0;g<NG;g++)p0[g*D+d]=N?C[g]/N:0}
+  P=new Float32Array(24*NG*D);EVR=new Float32Array(24*D);
+  for(let s=0;s<24;s++){
+    const sup=[];for(let g=0;g<NG;g++)sup.push(tot[s*NG+g]>=1);
+    for(let d=0;d<D;d++){
+      let N=0;const C=new Float64Array(NG);
+      for(let k=-R;k<=R;k++){const kk=d+k;if(kk<0||kk>500)continue;const w=W[k+R];N+=w*n[s*D+kk];for(let g=0;g<NG;g++)C[g]+=w*c[(s*NG+g)*D+kk]}
+      let ps=0;for(let g=0;g<NG;g++)if(sup[g])ps+=p0[g*D+d];
+      let ev=0;
+      for(let g=0;g<NG;g++){const pr=sup[g]&&ps>0?p0[g*D+d]/ps:0;const p=(C[g]+KAPPA*pr)/(N+KAPPA);P[(s*NG+g)*D+d]=p;const rv=RVT[s][g];if(rv!=null)ev+=p*rv}
+      EVR[s*D+d]=ev;
+    }
+  }
+  if(st.mode==='model'){const m=MD().pn;
+    for(let s=0;s<24;s++)for(let d=0;d<D;d++){let tot=0;for(let g=0;g<NG;g++)if(RVT[s][g]!=null)tot+=m[(s*NG+g)*D+d];
+      let ev=0;for(let g=0;g<NG;g++){const p=RVT[s][g]!=null&&tot>0?m[(s*NG+g)*D+d]/tot:0;P[(s*NG+g)*D+d]=p;if(p)ev+=p*RVT[s][g]}EVR[s*D+d]=ev}}
+  sw.forEach(x=>{const w=CTX[x.cx][5],pr=pmix(x);let xw=0,ev=0;for(let g=0;g<NG;g++){if(w[g]!=null)xw+=pr[g]*w[g];const rv=RVT[x.s8][g];if(rv!=null)ev+=pr[g]*rv}x.xrv=ev;x.xwpa=xw});
+  if(st.mode==='model')for(let s=0;s<24;s++){let t=0;for(let d=0;d<D;d++)t+=n[s*D+d];for(let d=0;d<D;d++)n[s*D+d]=t*(d===0||d===500?0.001:0.002)}
+  NSA=n;dirty=false;
+}
+const _build=build;
+build=function(bw){_build(bw);dirty=true;if(st.mset==='state')buildS(bw)};
+
+function aggS(list,qq){const q=qq||PS();let pa=0,rv=0,xr=0,w=0,xw=0,ds=0,hn=0;for(const x of list){pa++;rv+=q*x.rv;xr+=q*x.xrv;w+=q*x.wpa;xw+=q*x.xwpa;ds+=x.d;if(x.hf)hn++}return{pa,diff:ds/pa,rv,xrv:xr,wpa:w,xwpa:xw,hn}}
+const sg=(v,dp,sc)=>{const s=v*(sc||1);return `<span class="${s>=0?'pos':'neg'}">${s>=0?'+':''}${s.toFixed(dp)}</span>`};
+
+// ---------- league chart ----------
+const _league=leagueChart;
+leagueChart=function(){
+  if(st.mset!=='state')return _league();
+  if(dirty)buildS(st.sm);
+  const sel=[];for(let s=0;s<24;s++){if(st.lgOuts!=='all'&&Math.floor(s/8)!==+st.lgOuts)continue;if(st.lgBases!=='all'&&s%8!==+st.lgBases)continue;sel.push(s)}
+  const k=nb(),bk=[];
+  for(let i=0;i<k;i++)bk.push({x0:i*st.bw,x1:st.bw===1?i:Math.min(500,(i+1)*st.bw),vals:new Float64Array(NG),n:0,ev:0});
+  const cnt=new Float64Array(k*NG);
+  sw.forEach(x=>{if(sel.indexOf(x.s8)<0)return;cnt[bidx(x.d)*NG+x.gc]++});
+  for(const s of sel)for(let d=0;d<D;d++){
+    const b=bk[bidx(d)],nn=NSA[s*D+d];if(!nn)continue;b.n+=nn;b.ev+=nn*EVR[s*D+d];
+    if(st.mode!=='raw')for(let g=0;g<NG;g++)b.vals[g]+=nn*P[(s*NG+g)*D+d];
+  }
+  bk.forEach((b,i)=>{if(st.mode==='raw'){for(let g=0;g<NG;g++)b.vals[g]=cnt[i*NG+g]}const t=b.n||1;b.vals=Array.from(b.vals).map(v=>v/t);b.ev=b.ev/t});
+  $('lgchart').innerHTML=stacked(bk,{mode:'share',cs:ALL,col:colG,fold:ident,nm:g=>GC[g],label:'Result mix by diff bucket',tip:(b,v)=>{
+    const top=v.map((p,g)=>[GC[g],p]).filter(e=>e[1]>=.01).sort((a,c)=>c[1]-a[1]).map(e=>e[0].padEnd(5)+pct(e[1]).padStart(7)).join('\n');
+    return `diff ${b.x0===b.x1?b.x0:b.x0+'-'+b.x1}  (${Math.round(b.n).toLocaleString()} swings)\n${top}\nxRuns/PA ${b.ev>=0?'+':''}${b.ev.toFixed(2)}`}});
+  $('lglegend').innerHTML=lgd(GC.map((g,i)=>[g,GCOL[i]]));
+  let nn=0;sel.forEach(s=>{for(let d=0;d<D;d++)nn+=NSA[s*D+d]});
+  $('lgsum').textContent=`${Math.round(nn).toLocaleString()} swings in selected state${sel.length>1?'s':''}`;
+};
+
+// ---------- table ----------
+const COLS=[['name','Name',1],['team','Current team',1],['pa','PA'],['diff','Avg diff'],['rv','Runs'],['xrv','xRuns'],['gap','Runs vs x'],['gap100','Runs vs x /100 PA'],['wpa','WPA'],['xwpa','xWPA'],['wgap','WPA vs x']];
+const SAVED={'Runs':'Runs saved','xRuns':'xRuns saved','Runs vs x':'Saved vs x','Runs vs x /100 PA':'Saved vs x /100 PA'};
+const slab=t=>st.persp==='pit'?(SAVED[t]||t):t;
+const _render=render;
+render=function(){
+  if(st.mset!=='state')return _render();
+  if(dirty)buildS(st.sm);
+  const base=filt(),key=gkey(),groups=new Map();
+  base.forEach(x=>{const k=x[key];if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x)});
+  const lg=aggS(base);let rows=[];
+  groups.forEach((list,k)=>{
+    if(list.length<st.minpa)return;
+    const a=aggS(list);let last=list[0];for(const x of list)if(x.s>last.s||(x.s===last.s&&x.g>last.g))last=x;
+    rows.push({k,list,name:gname(k),team:st.view==='bat'?abbr(gteam(last)):'',...a,gap:a.rv-a.xrv,gap100:100*(a.rv-a.xrv)/a.pa,wgap:a.wpa-a.xwpa});
+  });
+  const {k:sk,dir}=st.sortS;
+  rows.sort((p,q)=>{const a=p[sk],b=q[sk];return (typeof a==='string'?a.localeCompare(b):a-b)*dir});
+  const cols=st.view==='team'?COLS.filter(c=>c[0]!=='team'):COLS;
+  let h='<thead><tr>'+cols.map(c=>`<th tabindex="0" data-sk="${c[0]}" class="${c[2]?'l':''}" ${sk===c[0]?`aria-sort="${dir>0?'ascending':'descending'}"`:''}>${slab(c[1])}${sk===c[0]?(dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr></thead><tbody>';
+  const cap=300;
+  rows.slice(0,cap).forEach(r=>{
+    const id='S'+st.persp+st.view+r.k+'|'+st.season,open=st.open.has(id);
+    h+=`<tr class="row" data-id="${id}"><td class="l">${open?'▾':'▸'} ${esc(r.name)}</td>`+(st.view==='bat'?`<td class="l">${esc(r.team)}</td>`:'')+
+      `<td class="num">${r.pa}</td><td class="num">${r.diff.toFixed(0)}</td><td class="num">${r.rv.toFixed(1)}</td><td class="num">${r.xrv.toFixed(1)}</td><td class="num">${sg(r.gap,1)}</td><td class="num">${sg(r.gap100,2)}</td><td class="num">${r.wpa.toFixed(2)}</td><td class="num">${r.xwpa.toFixed(2)}</td><td class="num">${sg(r.wgap,2)}</td></tr>`;
+    if(open)h+=`<tr><td colspan="${cols.length}">${detailS(r)}</td></tr>`;
+  });
+  $('tbl').innerHTML=h+'</tbody>';
+  $('tblnote').textContent=`${rows.length} ${noun()} with ${st.minpa}+ ${st.persp==='bat'?'PA':'batters faced'}${rows.length>cap?` (showing top ${cap})`:''} · league ${(lg.rv/lg.pa).toFixed(3)} runs/PA vs ${(lg.xrv/lg.pa).toFixed(3)} expected · WPA in wins${st.persp==='pit'?' (pitching side: positive = saved)':''} · ${st.season==='all'?'S5-S13':'S'+st.season}${st.hnr?` · ${lg.hn} swings read as hit-and-run`:''}`;
+};
+
+// ---------- expander ----------
+function topMix(x){
+  const pr=pmix(x),out=[];for(let g=0;g<NG;g++)out.push([g,pr[g]]);
+  return out.sort((a,b)=>b[1]-a[1]).slice(0,3).filter(e=>e[1]>=.03).map(e=>GC[e[0]]+' '+Math.round(e[1]*100)).join(' / ');
+}
+function linesS(list,w,met){
+  const k=Math.ceil(501/w),bk=[];for(let i=0;i<k;i++)bk.push({n:0,a:0,x:0});
+  list.forEach(x=>{const b=bk[Math.min(Math.floor(x.d/w),k-1)];b.n++;const q=PS();if(met==='runs'){b.a+=q*x.rv;b.x+=q*x.xrv}else{b.a+=q*100*x.wpa;b.x+=q*100*x.xwpa}});
+  const pts=bk.map((b,i)=>b.n?{i,n:b.n,a:b.a/b.n,x:b.x/b.n,lo:i*w,hi:Math.min(500,(i+1)*w-1)}:null);
+  const real=pts.filter(Boolean),W=900,H=260,L=40,Bm=26,T=8,iw=W-L-8,ih=H-Bm-T;
+  let lo=Math.min(0,...real.map(p=>Math.min(p.a,p.x))),hi=Math.max(0,...real.map(p=>Math.max(p.a,p.x)));
+  const unit=met==='runs'?0.5:5;lo=Math.floor(lo/unit)*unit;hi=Math.ceil(hi/unit)*unit;if(hi===lo)hi=lo+unit;
+  const nm=Math.max(...real.map(p=>p.n),1),bw=iw/k,X=i=>L+(i+.5)*bw,Y=v=>T+ih-ih*(v-lo)/(hi-lo);
+  let g='';
+  for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,y=Y(v);g+=`<line x1="${L}" x2="${W-8}" y1="${y}" y2="${y}" stroke="${Math.abs(v)<1e-9?'var(--fg2)':'var(--line)'}"/><text x="${L-6}" y="${y+4}" text-anchor="end">${v.toFixed(met==='runs'?2:1)}</text>`}
+  real.forEach(p=>{const hh=.2*ih*p.n/nm;g+=`<rect x="${L+p.i*bw+1}" y="${T+ih-hh}" width="${Math.max(1,bw-2)}" height="${hh}" fill="var(--line)"/>`});
+  const line=(key,col,dash)=>{let d='',open=false;pts.forEach((p,i)=>{if(!p){open=false;return}d+=(open?'L':'M')+X(i).toFixed(1)+' '+Y(p[key]).toFixed(1)+' ';open=true});return `<path d="${d}" fill="none" stroke="${col}" stroke-width="2" ${dash?'stroke-dasharray="5 4"':''} stroke-linejoin="round"/>`};
+  g+=line('x','var(--fg2)',true)+line('a','var(--accent)',false);
+  real.forEach(p=>{g+=`<circle cx="${X(p.i)}" cy="${Y(p.a)}" r="3" fill="var(--accent)" stroke="var(--panel)" stroke-width="1.5"/>`});
+  const step=Math.max(1,Math.round(50/w));for(let i=0;i<k;i+=step)g+=`<text x="${L+i*bw}" y="${H-8}" text-anchor="middle">${i*w}</text>`;
+  const u=met==='runs'?'runs':'win pts',dp=met==='runs'?3:2;
+  pts.forEach((p,i)=>{if(!p)return;g+=`<rect x="${L+i*bw}" y="${T}" width="${bw}" height="${ih}" fill="transparent" data-tip="${esc(`diff ${p.lo}-${p.hi}  (${p.n} swings)\nactual   ${p.a>=0?'+':''}${p.a.toFixed(dp)} ${u}/PA\nexpected ${p.x>=0?'+':''}${p.x.toFixed(dp)}\ngap      ${(p.a-p.x>=0?'+':'')+(p.a-p.x).toFixed(dp)}`)}"/>`});
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Actual vs expected by diff bucket">${g}</svg>`;
+}
+function detailS(r){
+  const hd=t=>`<h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">${t}</h2>`;
+  const tog=`<div class="seg">${[['dist','Distribution'],['res','Results'],['by','By diff'],['log','Swing log']].map(([v,l])=>`<button data-sdv="${v}" aria-pressed="${st.dvS===v}">${l}</button>`).join('')}</div>`;
+  let body='';
+  if(st.dvS==='dist'){
+    const k=nb(),bk=[],base=filt();
+    for(let i=0;i<k;i++)bk.push({x0:i*st.bw,x1:st.bw===1?i:Math.min(500,(i+1)*st.bw),vals:new Array(NG).fill(0),n:0,ref:0});
+    r.list.forEach(x=>{const b=bk[bidx(x.d)];b.vals[x.gc]++;b.n++});
+    const lgc=new Array(k).fill(0);base.forEach(x=>lgc[bidx(x.d)]++);bk.forEach((b,i)=>b.ref=r.pa*lgc[i]/base.length);
+    body=hd('Swings by diff bucket (line = league-average count)')+stacked(bk,{mode:'count',cs:ALL,col:colG,fold:ident,nm:g=>GC[g],h:200,left:30,label:'Swings by diff bucket',tip:(b,v)=>
+      `diff ${b.x0===b.x1?b.x0:b.x0+'-'+b.x1}\n${b.n} swings (league-avg ${b.ref.toFixed(1)})\n`+v.map((c,j)=>[GC[j],c]).filter(e=>e[1]>0).map(e=>e[0].padEnd(5)+String(e[1]).padStart(4)).join('\n')})+
+      `<div class="legend">${lgd(GC.map((g,i)=>[g,GCOL[i]]))}</div>`;
+  }else if(st.dvS==='res'){
+    const act=new Float64Array(NG),exp=new Float64Array(NG);
+    r.list.forEach(x=>{act[x.gc]++;const pr=pmix(x);for(let g=0;g<NG;g++)exp[g]+=pr[g]});
+    const rows=GC.map((g,i)=>i).sort((a,b)=>exp[b]-exp[a]).map(g=>{const d=act[g]-exp[g];
+      return `<tr><td class="l"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:${GCOL[g]}"></i>${GC[g]}</td><td class="num">${act[g]}</td><td class="num">${exp[g].toFixed(1)}</td><td class="num">${sg(d,1)}</td><td class="num">${(100*act[g]/r.pa).toFixed(1)}%</td><td class="num">${(100*exp[g]/r.pa).toFixed(1)}%</td></tr>`}).join('');
+    body=hd('Actual vs expected results')+`<div class="log" style="max-width:640px"><table><thead><tr><th class="l">Result</th><th>Actual</th><th>Expected</th><th>Diff</th><th>Actual %</th><th>Expected %</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }else if(st.dvS==='by'){
+    body=hd(`${st.byMet==='runs'?'Run value':'WPA'} per PA by diff bucket`)+
+      `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div class="seg">${[10,25,50].map(w=>`<button data-sbw="${w}" aria-pressed="${st.byBw===w}">${w}-wide</button>`).join('')}</div><div class="seg">${[['runs','Runs'],['wpa','WPA']].map(([v,l])=>`<button data-smet="${v}" aria-pressed="${st.byMet===v}">${l}</button>`).join('')}</div></div>`+
+      linesS(r.list,st.byBw,st.byMet)+`<div class="legend"><span><i style="background:var(--accent)"></i>Actual</span><span><i style="background:var(--fg2)"></i>Expected</span><span><i style="background:var(--line)"></i>swing count</span></div>`;
+  }else{
+    const E=r.list.map(x=>({x,s:x.s,seq:x.s*1e7+x.g,inn:x.inn*2+x.half,outs:x.outs,brc:x.brc,lead:x.lead,pit:DATA.pit[x.p],bat:DATA.bat[x.b],d:x.d,res:DATA.raw[x.raw],mix:topMix(x),rv:PS()*x.rv,xrv:PS()*x.xrv,dr:PS()*(x.rv-x.xrv),wpa:PS()*100*x.wpa,xw:PS()*100*x.xwpa,dw:PS()*100*(x.wpa-x.xwpa)}));
+    const {k:lk,dir:ld}=st.logS;
+    E.sort((p,q)=>{const a=p[lk],b=q[lk];return (typeof a==='string'?a.localeCompare(b):a-b)*ld||p.seq-q.seq});
+    const LC=[['seq','Szn',1],['inn','Inn',1],['outs','Outs'],['brc','Bases',1],['lead','Score'],...pcols(),['d','Diff'],['res','Actual',1],['mix','Expected mix %',1],['rv',slab('Runs')],['xrv',slab('xRuns')],['dr',slab('Runs vs x')],['wpa','WPA'],['xw','xWPA'],['dw','WPA vs x']];
+    const lh=LC.map(c=>`<th data-slk="${c[0]}" class="${c[2]?'l':''}" ${lk===c[0]?`aria-sort="${ld>0?'ascending':'descending'}"`:''}>${c[1]}${lk===c[0]?(ld>0?' ▲':' ▼'):''}</th>`).join('');
+    const f2=v=>(v>=0?'+':'')+v.toFixed(2);
+    const lim=E.slice(0,1500).map(e=>`<tr><td class="l">S${e.s}</td><td class="l">${e.inn%2?'B':'T'}${(e.inn>>1)}</td><td class="num">${e.outs}</td><td class="l">${BASES[e.brc]}</td><td class="num">${e.lead>0?'+':''}${e.lead}</td>${pair(e)}<td class="num">${e.d}</td><td class="l"><b>${esc(e.res)}</b></td><td class="l mix">${e.mix}</td><td class="num">${f2(e.rv)}</td><td class="num">${f2(e.xrv)}</td><td class="num">${sg(e.dr,2)}</td><td class="num">${f2(e.wpa)}</td><td class="num">${f2(e.xw)}</td><td class="num">${sg(e.dw,1)}</td></tr>`).join('');
+    body=hd(`Swing log${r.list.length>1500?' (first 1,500)':''} <span style="text-transform:none">- score is the batting team's lead before the swing; WPA in win-probability points</span>`)+`<div class="log"><table><thead><tr>${lh}</tr></thead><tbody>${lim}</tbody></table></div>`;
+  }
+  return `<div class="detail"><div>${tog}${body}</div></div>`;
+}
+
+// ---------- wiring ----------
+$('tbl').addEventListener('click',e=>{
+  if(st.mset!=='state')return;
+  const q=a=>e.target.closest('['+a+']');
+  let el;
+  if(el=q('data-sdv')){st.dvS=el.dataset.sdv;render();return}
+  if(el=q('data-sbw')){st.byBw=+el.dataset.sbw;render();return}
+  if(el=q('data-smet')){st.byMet=el.dataset.smet;render();return}
+  if(el=q('data-slk')){const k=el.dataset.slk;st.logS=st.logS.k===k?{k,dir:-st.logS.dir}:{k,dir:['pit','bat','res','seq','inn','brc','mix'].includes(k)?1:-1};render();return}
+  if(el=q('data-sk')){const k=el.dataset.sk;st.sortS=st.sortS.k===k?{k,dir:-st.sortS.dir}:{k,dir:(k==='name'||k==='team')?1:-1};render();return}
+});
+$('mset').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  st.mset=b.dataset.v;[...$('mset').children].forEach(c=>c.setAttribute('aria-pressed',c===b));
+  const S=st.mset==='state';
+  $('stateSel').hidden=!S;$('note1').hidden=S;$('note2').hidden=!S;
+  $('lgtitle').textContent=S?'Result mix by diff, by outs and bases':'Result mix by diff';
+  $('hdrp').textContent=S?'MLN swings from Season 5 on. Each swing is valued in runs (RE24) and win probability from the play log, then compared with what the league typically gets at that diff in the same outs and bases state.':'MLN swings from Season 5 on. Each swing\'s diff is mapped to the league-wide mix of results at that diff, giving every hitter and team an expected OBP and SLG next to the actual one.';
+  all();
+});
+$('lgouts').onchange=e=>{st.lgOuts=e.target.value;leagueChart()};
+$('lgbases').onchange=e=>{st.lgBases=e.target.value;leagueChart()};
+
+// ---------- team summary (always game-state metrics, follows the season, baseline and hit-and-run settings) ----------
+st.tsort={k:'tot',dir:-1};
+function teamEx(){
+  if(dirty)buildS(st.sm);
+  const base=filt(),H=new Map(),Pm=new Map();
+  base.forEach(x=>{if(!H.has(x.t))H.set(x.t,[]);H.get(x.t).push(x);if(!Pm.has(x.dt))Pm.set(x.dt,[]);Pm.get(x.dt).push(x)});
+  const rows=[];
+  H.forEach((hl,t)=>{const pl=Pm.get(t)||[],h=aggS(hl,1),p=aggS(pl,-1);
+    rows.push({t,name:DATA.teams[t],h,p,hg:h.rv-h.xrv,hw:h.wpa-h.xwpa,pg:p.rv-p.xrv,pw:p.wpa-p.xwpa,tg:h.rv-h.xrv+p.rv-p.xrv,tw:h.wpa-h.xwpa+p.wpa-p.xwpa})});
+  const val={name:r=>r.name,hpa:r=>r.h.pa,hd:r=>r.h.diff,hr:r=>r.h.rv,hx:r=>r.h.xrv,hg:r=>r.hg,hwp:r=>r.h.wpa,hxw:r=>r.h.xwpa,hw:r=>r.hw,
+    ppa:r=>r.p.pa,pd:r=>r.p.diff,pr:r=>r.p.rv,px:r=>r.p.xrv,pg:r=>r.pg,pwp:r=>r.p.wpa,pxw:r=>r.p.xwpa,pw:r=>r.pw,tot:r=>r.tg,totw:r=>r.tw};
+  const {k,dir}=st.tsort,f=val[k]||val.tot;
+  rows.sort((a,b)=>{const x=f(a),y=f(b);return (typeof x==='string'?x.localeCompare(y):x-y)*dir});
+  const cols=[['hpa','PA'],['hd','DPA'],['hr','Runs'],['hx','xRuns'],['hg','Runs vs x'],['hwp','WPA'],['hxw','xWPA'],['hw','WPA vs x']];
+  const pcols=[['ppa','PA'],['pd','DPA'],['pr','Runs'],['px','xRuns'],['pg','Runs vs x'],['pwp','WPA'],['pxw','xWPA'],['pw','WPA vs x']];
+  const tcols=[['tot','Runs vs x'],['totw','WPA vs x']];
+  const th=(c,cl)=>`<th tabindex="0" data-tk="${c[0]}" class="${cl||''}" ${k===c[0]?`aria-sort="${dir>0?'ascending':'descending'}"`:''}>${c[1]}${k===c[0]?(dir>0?' ▲':' ▼'):''}</th>`;
+  let h=`<thead><tr><th rowspan="2" class="l" data-tk="name">Team${k==='name'?(dir>0?' ▲':' ▼'):''}</th><th colspan="8" style="text-align:center;border-left:1px solid var(--line)">Hitting</th><th colspan="8" style="text-align:center;border-left:1px solid var(--line)">Pitching</th><th colspan="2" style="text-align:center;border-left:1px solid var(--line)">Total</th></tr><tr>`+
+    cols.map((c,i)=>th(c,i===0?'bl':'')).join('')+pcols.map((c,i)=>th(c,i===0?'bl':'')).join('')+tcols.map((c,i)=>th(c,i===0?'bl':'')).join('')+'</tr></thead><tbody>';
+  const blk=(a,pre)=>`<td class="num bl">${a.pa}</td><td class="num">${a.diff.toFixed(0)}</td><td class="num">${a.rv.toFixed(1)}</td><td class="num">${a.xrv.toFixed(1)}</td><td class="num">${sg(a.rv-a.xrv,1)}</td><td class="num">${a.wpa.toFixed(2)}</td><td class="num">${a.xwpa.toFixed(2)}</td><td class="num">${sg(a.wpa-a.xwpa,2)}</td>`;
+  rows.forEach(r=>{h+=`<tr><td class="l">${esc(r.name)}</td>${blk(r.h)}${blk(r.p)}<td class="num bl">${sg(r.tg,1)}</td><td class="num">${sg(r.tw,2)}</td></tr>`});
+  $('tbl2').innerHTML=h+'</tbody>';
+  $('teamnote').textContent=`${st.season==='all'?'S5-S13':'S'+st.season} · pitching is from the pitching side (positive = runs / win probability saved) · Total = hitting + pitching gap vs x · DPA = average diff per PA`;
+}
+$('tbl2').addEventListener('click',e=>{const el=e.target.closest('[data-tk]');if(!el)return;const k=el.dataset.tk;st.tsort=st.tsort.k===k?{k,dir:-st.tsort.dir}:{k,dir:k==='name'?1:-1};teamEx()});
+const _render2=render;render=function(){_render2();teamEx()};
+teamEx();
+})();
+</script>
