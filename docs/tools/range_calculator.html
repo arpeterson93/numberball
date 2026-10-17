@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range calculator</title>
+<style>
+:root{
+  --navy:#0f2238; --red:#c8102e; --blue:#1550a1; --green:#1e7d32;
+  --bg:#eef1f4; --card:#ffffff; --border:#e0e4e9; --text:#1a1d24; --muted:#6b7280; --tint:#f3f5f8;
+  --accent:#1550a1; --warn:#a15c00; --warn-bg:#fff6e0;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --navy:#3f6699; --red:#ff8494; --blue:#6ea8f0; --green:#55c47a;
+    --bg:#12161c; --card:#1a2029; --border:#2b323d; --text:#e8eaed; --muted:#9aa4b2; --tint:#232b36;
+    --accent:#6ea8f0; --warn:#e0b13c; --warn-bg:#2a2412;
+  }
+}
+*{box-sizing:border-box;}
+body{margin:0; background:var(--bg); color:var(--text); font-family:Arial,"Helvetica Neue",Helvetica,sans-serif; font-size:14px;}
+.wrap{max-width:1180px; margin:0 auto; padding:18px 16px 60px;}
+h1{font-size:19px; margin:0 0 4px;}
+.lede{color:var(--muted); font-size:12.5px; margin:0 0 14px;}
+.card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px;}
+.card h2{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 8px;}
+.row{display:flex; flex-wrap:wrap; gap:10px 18px; align-items:flex-end;}
+label.f{display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;}
+select,input[type=text],input[type=number]{font:inherit; font-size:14px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--card); color:var(--text);}
+input[type=number]{width:62px;}
+input.name{width:240px; max-width:100%;}
+.seg{display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
+.seg button{font:inherit; font-size:13px; padding:7px 12px; background:var(--card); color:var(--text); border:0; border-right:1px solid var(--border); cursor:pointer;}
+.seg button:last-child{border-right:0;}
+.seg button[aria-pressed=true]{background:var(--accent); color:#fff; font-weight:700;}
+.people{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:12px;}
+.person .stats{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+.person.off{opacity:.55;}
+.chk{display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700;}
+.hint{font-size:11.5px; color:var(--muted); margin-top:6px;}
+.msg{background:var(--warn-bg); color:var(--warn); border:1px solid var(--warn); border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:12px;}
+.tables{display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:12px;}
+.active-title::after{content:" · in use"; color:var(--accent); font-weight:800;}
+.bar{display:flex; height:46px; border-radius:6px; overflow:hidden; border:1px solid var(--border); margin-bottom:10px;}
+.bar div{display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; overflow:hidden; white-space:nowrap; text-shadow:0 1px 1px rgba(0,0,0,.35);}
+table{border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums;}
+th,td{padding:5px 8px; text-align:right; border-bottom:1px solid var(--border);}
+th{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
+th:first-child,td:first-child{text-align:left;}
+.sw{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px;}
+.note{font-size:11.5px; color:var(--muted);}
+details summary{cursor:pointer; font-size:12.5px; color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Range calculator</h1>
+  <p class="lede">Exact port of the stadium sheet's calculator tab. Pick a pitcher, batter, outs, runners and strategy; stat boxes can be overridden. Results are the swing and bunt ranges on the 0-499 diff scale.</p>
+
+  <div class="card">
+    <div class="row">
+      <label class="f">Season (builds)<select id="season"></select></label>
+      <div class="f">Strategy
+        <div class="seg" id="strategy">
+          <button data-v="normal" aria-pressed="true">Normal swing</button>
+          <button data-v="hnr" aria-pressed="false">Hit and run</button>
+          <button data-v="bunt" aria-pressed="false">Bunt</button>
+          <button data-v="infield" aria-pressed="false">Infield in</button>
+        </div>
+      </div>
+      <div class="f">Outs
+        <div class="seg" id="outs">
+          <button data-v="0" aria-pressed="true">0</button>
+          <button data-v="1" aria-pressed="false">1</button>
+          <button data-v="2" aria-pressed="false">2</button>
+        </div>
+      </div>
+    </div>
+    <details style="margin-top:8px"><summary>Advanced</summary>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input type="checkbox" id="dyn"> Dynamic GO/FO/PO rates</label>
+        <label class="chk"><input type="checkbox" id="lotp"> Include LOTP</label>
+      </div>
+    </details>
+  </div>
+
+  <div id="msg"></div>
+
+  <div class="people" id="people"></div>
+
+  <div class="tables" id="out" style="margin-top:12px"></div>
+  <div class="card" id="steals" hidden></div>
+  <p class="note">Hit and run: batter CON -1 and runner speed +1 (live-mode rule). Infield in only applies with a runner on 3rd and fewer than 2 outs. Steal safe ranges use the pitcher's AWR with the catcher's EYE, as the sheet does.</p>
+</div>
+
+<script src="../js/sheet_calculator.js"></script>
+<script>
+"use strict";
+const COLORS = {
+  HR:"#0b3d91", "3B":"#1550a1", "2BWH":"#2a69c4", "2B":"#3f7fd6", "1BWH":"#5b97e3", "1BWH2":"#6fa6ea", "1B":"#8bb8f0", IF1B:"#a8cbf5",
+  B1BWH:"#2a69c4", B1B:"#5b97e3",
+  BB:"#1e8a7a",
+  SacF:"#d9a300", DSacF:"#c79200", DFO:"#e6b82e", FO:"#f0cb55", PO:"#c9b068", SacB:"#d9a300",
+  GORA:"#7d8794", FC:"#6b7480", FC3rd:"#5a6470", FCH:"#8e98a5", GO:"#9aa4b2", BFC:"#9aa4b2", DPRun:"#4d5662",
+  K:"#c8102e", LODP:"#7a1a2a", TP:"#5c1020", LOTP:"#4a0d19",
+  DP:"#8a1c2e", DP21:"#7a1a2a", DP31:"#6a1626", DPH1:"#5a1220", BDP:"#8a1c2e"
+};
+const PEOPLE = [
+  {id:"pit", title:"Pitcher", stats:[["mov","MOV"],["cmd","CMD"],["vel","VEL"],["awr","AWR"]], hand:true, pitcher:true},
+  {id:"bat", title:"Batter", stats:[["con","CON"],["eye","EYE"],["pwr","POW"],["spd","SPD"]], hand:true},
+  {id:"cat", title:"Catcher (steals only)", stats:[["eye","EYE"]], hand:false, pos:"C"},
+  {id:"r1", title:"Runner on 1st", stats:[["spd","SPD"]], hand:false, runner:true},
+  {id:"r2", title:"Runner on 2nd", stats:[["spd","SPD"]], hand:false, runner:true},
+  {id:"r3", title:"Runner on 3rd", stats:[["spd","SPD"]], hand:false, runner:true},
+];
+const S = {season:null, strategy:"normal", outs:0, params:null, builds:null, bySeason:{}};
+const el = (t, a={}, ...k) => { const e = document.createElement(t); for (const [x,v] of Object.entries(a)) { if (x==="class") e.className=v; else if (x.startsWith("on")) e.addEventListener(x.slice(2), v); else e.setAttribute(x,v);} k.flat().forEach(c => e.append(c)); return e; };
+
+function build() {
+  const host = document.getElementById("people");
+  PEOPLE.forEach(p => {
+    const card = el("div", {class:"card person", id:"p_"+p.id});
+    const head = el("div", {class:"row", style:"justify-content:space-between"});
+    head.append(el("h2", {style:"margin:0"}, p.title));
+    if (p.runner) {
+      const c = el("label", {class:"chk"}, el("input", {type:"checkbox", id:p.id+"_on"}), "On base");
+      head.append(c);
+    }
+    card.append(head);
+    const nm = el("input", {type:"text", class:"name", id:p.id+"_name", placeholder:"Search player...", list:"dl_"+p.id, autocomplete:"off"});
+    card.append(el("div", {style:"margin-top:8px"}, nm), el("datalist", {id:"dl_"+p.id}));
+    const row = el("div", {class:"stats"});
+    if (p.hand) row.append(el("label", {class:"f"}, "Hand", el("select", {id:p.id+"_hand"}, ...["R","L","S"].map(h => el("option", {value:h}, h)))));
+    p.stats.forEach(([k,l]) => row.append(el("label", {class:"f"}, l, el("input", {type:"number", min:"1", max:"5", step:"1", id:p.id+"_"+k, value:"3"}))));
+    card.append(row);
+    host.append(card);
+    nm.addEventListener("input", () => pick(p));
+    card.addEventListener("input", compute);
+    card.addEventListener("change", compute);
+  });
+}
+
+function labelOf(r) { return `${r.name} (${r.team || "-"}${r.pos ? " " + r.pos : ""})`; }
+
+function fillLists() {
+  const rows = S.bySeason[S.season] || [];
+  PEOPLE.forEach(p => {
+    const dl = document.getElementById("dl_"+p.id);
+    dl.replaceChildren();
+    let list = rows;
+    if (p.pitcher) list = rows.filter(r => r.mov != null || r.pos === "P");
+    if (p.pos) list = rows.filter(r => r.pos === p.pos);
+    rows.length && list.forEach(r => dl.append(el("option", {value:labelOf(r)})));
+  });
+}
+
+function pick(p) {
+  const v = document.getElementById(p.id+"_name").value;
+  const r = (S.bySeason[S.season] || []).find(x => labelOf(x) === v);
+  if (!r) return;
+  if (p.hand && r.hand) document.getElementById(p.id+"_hand").value = r.hand;
+  p.stats.forEach(([k]) => {
+    const inp = document.getElementById(p.id+"_"+k);
+    inp.value = r[k] == null ? "" : r[k];
+  });
+  if (p.runner) document.getElementById(p.id+"_on").checked = true;
+  compute();
+}
+
+function num(id) { const v = document.getElementById(id).value; return v === "" ? null : Number(v); }
+
+function readInputs() {
+  const miss = [];
+  const need = (id, label) => { const v = num(id); if (v == null || !(v >= 1 && v <= 5)) miss.push(label); return v; };
+  const pit = {hand:document.getElementById("pit_hand").value, mov:need("pit_mov","pitcher MOV"), cmd:need("pit_cmd","pitcher CMD"), vel:need("pit_vel","pitcher VEL"), awr:need("pit_awr","pitcher AWR")};
+  const bat = {hand:document.getElementById("bat_hand").value, con:need("bat_con","batter CON"), eye:need("bat_eye","batter EYE"), pwr:need("bat_pwr","batter POW"), spd:need("bat_spd","batter SPD")};
+  const runners = ["r1","r2","r3"].map((id, i) => {
+    const on = document.getElementById(id+"_on").checked;
+    document.getElementById("p_"+id).classList.toggle("off", !on);
+    if (!on) return null;
+    const v = num(id+"_spd");
+    if (v == null || v < 1 || v > 5) miss.push(["1st","2nd","3rd"][i] + " runner SPD");
+    return v;
+  });
+  const cat = num("cat_eye");
+  return {pit, bat, runners, cat, miss};
+}
+
+function segVal(id) { return document.querySelector("#"+id+" button[aria-pressed=true]").dataset.v; }
+
+function compute() {
+  const msg = document.getElementById("msg"), out = document.getElementById("out");
+  const {pit, bat, runners, cat, miss} = readInputs();
+  msg.replaceChildren(); out.replaceChildren(); document.getElementById("steals").hidden = true;
+  if (miss.length) { msg.append(el("div", {class:"msg"}, "Enter " + miss.join(", ") + " (1-5).")); return; }
+  const strat = segVal("strategy"), outs = +segVal("outs");
+  const o = {
+    pit_hand:pit.hand, pit_mov:pit.mov, pit_cmd:pit.cmd, pit_vel:pit.vel, pit_awr:pit.awr,
+    bat_hand:bat.hand, bat_con:bat.con, bat_eye:bat.eye, bat_pow:bat.pwr, bat_spd:bat.spd,
+    runner_speeds:runners, outs, hit_and_run: strat === "hnr", infield_in: strat === "infield",
+    dynamic: document.getElementById("dyn").checked, include_lotp: document.getElementById("lotp").checked,
+    catcher_eye: cat
+  };
+  let r;
+  try { r = new SheetCalculator(S.params).compute(o); }
+  catch (e) { msg.append(el("div", {class:"msg"}, "Cannot compute: " + e.message)); return; }
+  const warn = [];
+  if (strat === "infield" && (runners[2] == null || outs === 2)) warn.push("Infield in has no effect without a runner on 3rd and fewer than 2 outs.");
+  if (strat === "hnr" && runners.every(x => x == null)) warn.push("Hit and run needs at least one runner.");
+  if (strat === "bunt" && runners.every(x => x == null)) warn.push("Bunt with the bases empty shows only the bunt-for-hit table.");
+  warn.forEach(w => msg.append(el("div", {class:"msg"}, w)));
+  out.append(table("Swing", r.swing_ranges, strat !== "bunt"), table("Bunt", r.bunt_ranges, strat === "bunt"));
+  if (r.steals && r.steals.some(x => x)) {
+    const box = document.getElementById("steals"); box.hidden = false; box.replaceChildren();
+    box.append(el("h2", {}, "Steal safe ranges (diff <= safe is a stolen base)"));
+    const t = el("table"); t.append(el("thead", {}, el("tr", {}, ...["Runner","Matchup","Safe up to"].map(h => el("th", {}, h)))));
+    const tb = el("tbody");
+    r.steals.forEach((s, i) => { if (!s) return; tb.append(el("tr", {}, el("td", {}, `Runner on ${["1st","2nd","3rd"][i]} to ${s.base}`), el("td", {}, s.matchup.toFixed(1)), el("td", {}, s.safe == null ? "n/a" : String(s.safe)))); });
+    t.append(tb); box.append(t);
+  }
+}
+
+function table(title, ranges, active) {
+  const card = el("div", {class:"card"});
+  card.append(el("h2", {class: active ? "active-title" : ""}, title));
+  const bar = el("div", {class:"bar"});
+  ranges.forEach(([name, w]) => {
+    const seg = el("div", {title:`${name}: ${w}`, style:`width:${w/5}%;background:${COLORS[name]||"#888"}`}, w >= 18 ? name : "");
+    bar.append(seg);
+  });
+  card.append(bar);
+  const t = el("table");
+  t.append(el("thead", {}, el("tr", {}, ...["Result","Width","Range","Share"].map(h => el("th", {}, h)))));
+  const tb = el("tbody");
+  ranges.forEach(([name, w, lo, hi]) => {
+    tb.append(el("tr", {}, el("td", {}, el("span", {class:"sw", style:`background:${COLORS[name]||"#888"}`}), name),
+      el("td", {}, String(w)), el("td", {}, `${lo}-${hi}`), el("td", {}, (w/5).toFixed(1) + "%")));
+  });
+  t.append(tb); card.append(t);
+  return card;
+}
+
+function wireSeg(id) {
+  document.getElementById(id).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    [...b.parentNode.children].forEach(c => c.setAttribute("aria-pressed", c === b));
+    compute();
+  });
+}
+
+async function init() {
+  build(); wireSeg("strategy"); wireSeg("outs");
+  ["dyn","lotp"].forEach(id => document.getElementById(id).addEventListener("change", compute));
+  const [p, b] = await Promise.all([
+    fetch("../data/calculator_params.json").then(r => r.json()),
+    fetch("../data/builds.json").then(r => r.json()),
+  ]);
+  S.params = p;
+  b.rows.forEach(row => {
+    const o = {}; b.cols.forEach((c, i) => o[c] = row[i]);
+    (S.bySeason[o.season] = S.bySeason[o.season] || []).push(o);
+  });
+  const seasons = Object.keys(S.bySeason).map(Number).sort((a, b) => b - a);
+  const sel = document.getElementById("season");
+  seasons.forEach(s => sel.append(el("option", {value:s}, "Season " + s)));
+  S.season = seasons[0]; sel.value = S.season;
+  sel.addEventListener("change", () => { S.season = +sel.value; fillLists(); });
+  fillLists(); compute();
+}
+init().catch(e => { document.getElementById("msg").append(el("div", {class:"msg"}, "Failed to load data: " + e.message)); });
+</script>
+</body>
+</html>
