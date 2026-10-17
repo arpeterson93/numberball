@@ -1,0 +1,835 @@
+<title>Immaculate Innings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --surface-2:   #f3f2ee;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-muted:   #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --blue:        #2a78d6;
+    --blue-soft:   #cde2fb;
+    --orange:      #c8960c;
+    --orange-soft: #f6e4ae;
+    --good:        #0ca30c;
+    --shadow:      0 1px 2px rgba(11,11,11,0.04), 0 8px 24px rgba(11,11,11,0.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --page:        #0d0d0d;
+      --surface:     #1a1a19;
+      --surface-2:   #212120;
+      --ink:         #ffffff;
+      --ink-2:       #c3c2b7;
+      --ink-muted:   #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --border:      rgba(255,255,255,0.10);
+      --blue:        #3987e5;
+      --blue-soft:   #1c3a5c;
+      --orange:      #e0a815;
+      --orange-soft: #4a3a12;
+      --good:        #0ca30c;
+      --shadow:      0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --surface-2:   #212120;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --ink-muted:   #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.10);
+    --blue:        #3987e5;
+    --blue-soft:   #1c3a5c;
+    --orange:      #e0a815;
+    --orange-soft: #4a3a12;
+    --good:        #0ca30c;
+    --shadow:      0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  *{ box-sizing:border-box; }
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-inline:20px;
+    padding-block:28px 60px;
+    max-width:1180px;
+    margin:0 auto;
+  }
+  h1,h2,h3{ font-family:"Oswald", system-ui, sans-serif; text-wrap:balance; margin:0; letter-spacing:0.01em; }
+  .mono{ font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+
+  /* ---------- header ---------- */
+  header{ display:flex; flex-direction:column; gap:10px; margin-bottom:28px; }
+  .eyebrow{
+    font-family:"Oswald", sans-serif; font-size:12px; font-weight:600;
+    letter-spacing:0.14em; text-transform:uppercase; color:var(--orange);
+  }
+  h1{ font-size:clamp(28px,5vw,42px); font-weight:700; color:var(--ink); }
+  header p{ margin:0; max-width:66ch; color:var(--ink-2); font-size:15px; line-height:1.55; }
+  .def-box{
+    margin-top:6px; padding:12px 16px; border:1px solid var(--border); border-radius:10px;
+    background:var(--surface-2); font-size:13.5px; color:var(--ink-2); line-height:1.6;
+  }
+  .def-box b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- stat tiles ---------- */
+  .tiles{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:10px; margin:26px 0;
+  }
+  .tile{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 16px 14px; box-shadow:var(--shadow);
+  }
+  .tile .num{ font-family:"Oswald",sans-serif; font-size:30px; font-weight:600; line-height:1; color:var(--ink); }
+  .tile .num small{ font-size:16px; font-weight:500; color:var(--ink-muted); }
+  .tile .label{ margin-top:6px; font-size:12px; color:var(--ink-muted); line-height:1.4; }
+  .tile.accent .num{ color:var(--orange); }
+
+  /* ---------- section shell ---------- */
+  section{ margin-top:40px; }
+  .section-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .section-head h2{ font-size:20px; font-weight:600; }
+  .section-sub{ font-size:13px; color:var(--ink-muted); max-width:60ch; }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:20px; box-shadow:var(--shadow);
+  }
+  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px){ .grid-2{ grid-template-columns:1fr; } }
+
+  /* ---------- highlight cards ---------- */
+  .highlight{
+    display:flex; gap:14px; align-items:flex-start; padding:16px; border-radius:12px;
+    border:1px solid var(--border); background:var(--surface);
+  }
+  .highlight .tag{
+    flex:0 0 auto; width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    font-family:"Oswald",sans-serif; font-weight:700; font-size:15px; color:#fff;
+  }
+  .highlight.close .tag{ background:var(--orange); }
+  .highlight.dominant .tag{ background:var(--blue); }
+  .highlight h3{ font-size:14.5px; font-weight:600; margin-bottom:3px; }
+  .highlight .meta{ font-size:12.5px; color:var(--ink-muted); margin-bottom:8px; }
+  .diff-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .diff-chip{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; padding:3px 8px; border-radius:6px;
+    background:var(--surface-2); border:1px solid var(--border); color:var(--ink-2);
+  }
+  .diff-chip.min{ background:var(--orange-soft); color:var(--ink); border-color:transparent; font-weight:600; }
+
+  /* ---------- legend ---------- */
+  .legend{ display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--ink-2); }
+  .legend .item{ display:flex; align-items:center; gap:6px; }
+  .legend .swatch{ width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
+  .legend .swatch.line{ width:14px; height:2px; border-radius:1px; }
+
+  /* ---------- charts ---------- */
+  .chart-ylabel{ font-size:11px; color:var(--ink-muted); margin-bottom:4px; }
+  .chart-wrap{ position:relative; width:100%; }
+  svg.chart{ width:100%; height:auto; display:block; overflow:visible; }
+  .axis-label{ fill:var(--ink-2); font-size:13px; font-family:"Public Sans",sans-serif; }
+  .axis-line{ stroke:var(--baseline); stroke-width:1; }
+  .gridline{ stroke:var(--grid); stroke-width:1; }
+  .bar{ fill:var(--blue); }
+  .bar:hover{ fill:var(--orange); }
+  .bar.pitcher{ fill:var(--blue); }
+  .bar.pitcher:hover{ fill:var(--orange); }
+
+  .tooltip{
+    position:absolute; pointer-events:none; z-index:5; opacity:0; transition:opacity .08s ease;
+    background:var(--ink); color:var(--page); font-size:12px; line-height:1.5;
+    padding:8px 10px; border-radius:8px; box-shadow:var(--shadow); white-space:nowrap;
+    transform:translate(-50%,-100%);
+  }
+  :root:not([data-theme="light"]) .tooltip{ background:var(--surface-2); color:var(--ink); border:1px solid var(--border); }
+  :root[data-theme="dark"] .tooltip{ background:var(--surface-2); color:var(--ink); border:1px solid var(--border); }
+  .tooltip .tt-title{ font-weight:600; margin-bottom:2px; }
+  .hover-target{ fill:transparent; }
+
+  /* ---------- tabs ---------- */
+  .tabs{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+  .tab-btn{
+    font-family:"Oswald",sans-serif; font-size:12.5px; font-weight:600; letter-spacing:0.03em;
+    text-transform:uppercase; padding:8px 14px; border-radius:999px; border:1px solid var(--border);
+    background:var(--surface); color:var(--ink-2); cursor:pointer;
+  }
+  .tab-btn:hover{ color:var(--ink); }
+  .tab-btn.active{ background:var(--ink); color:var(--page); border-color:var(--ink); }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* ---------- table ---------- */
+  .table-controls{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .search{
+    font-family:"Public Sans",sans-serif; font-size:13px; padding:8px 12px; border-radius:8px;
+    border:1px solid var(--border); background:var(--surface); color:var(--ink); min-width:220px;
+  }
+  .search:focus{ outline:2px solid var(--blue); outline-offset:1px; }
+  .table-scroll{ max-height:520px; overflow:auto; border:1px solid var(--border); border-radius:12px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  thead th{
+    position:sticky; top:0; background:var(--surface-2); text-align:left; padding:10px 12px;
+    font-family:"Oswald",sans-serif; font-size:11px; letter-spacing:0.05em; text-transform:uppercase;
+    color:var(--ink-muted); cursor:pointer; user-select:none; border-bottom:1px solid var(--border);
+    white-space:nowrap;
+  }
+  thead th:hover{ color:var(--ink); }
+  thead th .arrow{ opacity:0.4; margin-left:3px; }
+  thead th.sorted .arrow{ opacity:1; color:var(--orange); }
+  tbody td{ padding:9px 12px; border-bottom:1px solid var(--border); color:var(--ink-2); white-space:nowrap; }
+  tbody tr:hover td{ background:var(--surface-2); color:var(--ink); }
+  td.num, th.num{ font-family:"IBM Plex Mono",monospace; text-align:right; }
+  .row-count{ font-size:12px; color:var(--ink-muted); }
+  .min-badge{
+    display:inline-block; padding:1px 7px; border-radius:5px; background:var(--orange-soft);
+    font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:12px;
+  }
+  .gameday-link{ color:var(--blue); text-decoration:none; font-weight:600; }
+  .gameday-link:hover{ text-decoration:underline; }
+
+  footer{ margin-top:48px; padding-top:18px; border-top:1px solid var(--border); font-size:12px; color:var(--ink-muted); line-height:1.7; }
+</style>
+
+<header>
+  <div class="eyebrow">Numberball</div>
+  <h1>Immaculate Innings</h1>
+</header>
+
+<div class="tiles" id="statTiles"></div>
+
+<section>
+  <div class="section-head">
+    <h2>How rare is a clean strikeout streak?</h2>
+  </div>
+  <div class="card">
+    <div class="chart-wrap" id="funnelChart"></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Extremes</h2></div>
+  <div class="grid-2">
+    <div class="highlight close">
+      <div class="tag">K</div>
+      <div>
+        <h3 id="closeTitle"></h3>
+        <div class="meta" id="closeMeta"></div>
+        <div class="diff-chips" id="closeChips"></div>
+      </div>
+    </div>
+    <div class="highlight dominant">
+      <div class="tag">K</div>
+      <div>
+        <h3 id="domTitle"></h3>
+        <div class="meta" id="domMeta"></div>
+        <div class="diff-chips" id="domChips"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Minimum Diff Distribution</h2>
+    <div class="section-sub">For each of the immaculate innings, the smallest of the 3 strikeout diffs.</div>
+  </div>
+  <div class="card">
+    <div class="chart-wrap" id="histChart"></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Survival curve: how often was every diff bigger than X?</h2>
+    <div class="section-sub">Reading the x-axis as a threshold: the y-value is the share of the <span class="nImm">186</span> immaculate innings where <em>all three</em> strikeout diffs cleared that number.</div>
+  </div>
+  <div class="card">
+    <div class="chart-wrap" id="survivalChart"></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Splits</h2>
+  </div>
+  <div class="tabs" id="aggTabs">
+    <button class="tab-btn active" data-tab="pitcher">By pitcher</button>
+    <button class="tab-btn" data-tab="team">By pitching franchise</button>
+    <button class="tab-btn" data-tab="batting">By batting franchise</button>
+    <button class="tab-btn" data-tab="season">By season</button>
+    <button class="tab-btn" data-tab="inning">By inning</button>
+  </div>
+  <div class="card">
+    <div class="tab-panel active" id="panel-pitcher">
+      <div class="chart-wrap" id="pitcherChart"></div>
+    </div>
+    <div class="tab-panel" id="panel-team">
+      <div class="chart-wrap" id="teamChart"></div>
+    </div>
+    <div class="tab-panel" id="panel-batting">
+      <div class="chart-wrap" id="battingTeamChart"></div>
+    </div>
+    <div class="tab-panel" id="panel-season">
+      <div class="chart-ylabel">Rate per 1,000 half innings</div>
+      <div class="chart-wrap" id="seasonChart"></div>
+    </div>
+    <div class="tab-panel" id="panel-inning">
+      <div class="chart-ylabel">Rate per 1,000 half innings</div>
+      <div class="chart-wrap" id="inningChart"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>All <span class="nImm">186</span> innings</h2>
+  </div>
+  <div class="table-controls">
+    <input class="search" id="tableSearch" type="text" placeholder="Filter by pitcher, team, or game code&hellip;">
+    <span class="row-count" id="rowCount"></span>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th data-key="gameday_url">Gameday <span class="arrow">&#9650;</span></th>
+          <th data-key="game_code">Game <span class="arrow">&#9650;</span></th>
+          <th data-key="season" class="num">Season <span class="arrow">&#9650;</span></th>
+          <th data-key="inning" class="num">Inn <span class="arrow">&#9650;</span></th>
+          <th data-key="half">Half <span class="arrow">&#9650;</span></th>
+          <th data-key="pitcher_name">Pitcher <span class="arrow">&#9650;</span></th>
+          <th data-key="team">Pitching Team <span class="arrow">&#9650;</span></th>
+          <th data-key="batting_team">Batting Team <span class="arrow">&#9650;</span></th>
+          <th data-key="diff1" class="num">Diff 1 <span class="arrow">&#9650;</span></th>
+          <th data-key="diff2" class="num">Diff 2 <span class="arrow">&#9650;</span></th>
+          <th data-key="diff3" class="num">Diff 3 <span class="arrow">&#9650;</span></th>
+          <th data-key="min_diff" class="num">Min Diff <span class="arrow">&#9650;</span></th>
+          <th data-key="avg_diff" class="num sorted">Avg Diff <span class="arrow">&#9660;</span></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>3-Pitch Equivalent</h2>
+    <div class="section-sub">Every MLN result is decided on one roll, but real strikeouts take an average of 4&ndash;5 pitches to get there. Using the real-MLB rate of strikeouts that end in exactly 3 pitches, this finds the MLN diff above which a strikeout is that same kind of clean.</div>
+  </div>
+  <div class="tiles" id="cleanKTiles"></div>
+  <div class="card" style="margin-bottom:16px;">
+    <div class="chart-ylabel">MLB 3-pitch strikeout rate by year</div>
+    <div class="chart-wrap" id="mlbRateChart"></div>
+  </div>
+  <div class="tabs" id="cleanKTabs"></div>
+  <div class="card">
+    <div class="section-sub" id="cleanKSub" style="margin-bottom:10px;"></div>
+    <div class="chart-wrap" id="cleanKChart"></div>
+  </div>
+</section>
+
+<footer>
+  <p id="autokFooter"></p>
+</footer>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = /*__DATA__*/;
+</script>
+<script>
+(function(){
+  "use strict";
+
+  const tooltip = document.getElementById("tooltip");
+  function showTip(x, y, html){
+    tooltip.innerHTML = html;
+    tooltip.style.left = x + "px";
+    tooltip.style.top = (y - 10) + "px";
+    tooltip.style.opacity = 1;
+  }
+  function hideTip(){ tooltip.style.opacity = 0; }
+
+  function fmt(n){ return n.toLocaleString("en-US"); }
+  function pct(n, d, digits){
+    digits = digits === undefined ? 2 : digits;
+    return (100 * n / d).toFixed(digits) + "%";
+  }
+
+  // ============================================================ stat tiles
+  const tilesEl = document.getElementById("statTiles");
+  const total = DATA.total_half_innings;
+  const occCount = DATA.occurrences.length;
+  document.querySelectorAll('.nImm').forEach(e => { e.textContent = occCount; });
+  const tiles = [
+    { num: fmt(total), label: "Half innings" },
+    { num: fmt(occCount), label: "Immaculate innings", accent: true },
+    { num: pct(occCount, total, 2), label: "~ 1 in " + Math.round(total / occCount) + " half innings" },
+    { num: fmt(DATA.pitcher_agg.length), label: "Unique pitchers" },
+  ];
+  tilesEl.innerHTML = tiles.map(t =>
+    `<div class="tile${t.accent ? " accent" : ""}"><div class="num">${t.num}</div><div class="label">${t.label}</div></div>`
+  ).join("");
+
+  document.getElementById("autokFooter").textContent =
+    `${DATA.excluded_autok} additional innings had all three plate appearances end in a strikeout but included an auto-strikeout.`;
+
+  // ============================================================ funnel
+  (function(){
+    const rows = [
+      { label: "1 strikeout to start", count: DATA.streak_ge1 },
+      { label: "2 straight to start", count: DATA.streak_ge2 },
+      { label: "Immaculate Innings", count: DATA.streak_ge3 },
+    ];
+    const w = 900, barH = 34, gap = 22, padL = 210, padR = 90, padT = 10, padB = 10;
+    const h = rows.length * (barH + gap) - gap + padT + padB;
+    const maxV = rows[0].count;
+    const scaleW = v => (v / maxV) * (w - padL - padR);
+
+    let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+    rows.forEach((r, i) => {
+      const y = padT + i * (barH + gap);
+      const bw = scaleW(r.count);
+      const color = i === rows.length - 1 ? "var(--orange)" : "var(--blue)";
+      svg += `<text class="axis-label" x="${padL - 12}" y="${y + barH / 2 + 4}" text-anchor="end">${r.label}</text>`;
+      svg += `<rect x="${padL}" y="${y}" width="${bw}" height="${barH}" rx="6" fill="${color}"
+                data-tip="${r.label}: ${fmt(r.count)} half-innings (${pct(r.count, total)})"></rect>`;
+      svg += `<text class="axis-label mono" x="${padL + bw + 10}" y="${y + barH / 2 + 4}" fill="var(--ink)" style="font-weight:600;">${pct(r.count, total)}</text>`;
+    });
+    svg += `</svg>`;
+    const el = document.getElementById("funnelChart");
+    el.innerHTML = svg;
+    attachRectTooltips(el);
+  })();
+
+  function attachRectTooltips(container){
+    container.querySelectorAll("rect[data-tip]").forEach(rect => {
+      rect.addEventListener("mousemove", e => {
+        const box = container.getBoundingClientRect();
+        showTip(e.clientX - box.left + container.offsetLeft, e.clientY - box.top + container.offsetTop, rect.getAttribute("data-tip"));
+      });
+      rect.addEventListener("mouseleave", hideTip);
+    });
+  }
+
+  // ============================================================ extremes
+  (function(){
+    const occs = DATA.occurrences; // sorted ascending by min_diff already
+    const close = occs[0];
+    const dom = occs[occs.length - 1];
+
+    function fill(prefix, o, label){
+      document.getElementById(prefix + "Title").textContent = `${o.pitcher_name}: ${label}`;
+      document.getElementById(prefix + "Meta").textContent =
+        `${o.team} · Game ${o.game_code} · Season ${o.season} (${o.league}) · ${cap(o.half)} ${ordinal(o.inning)}`;
+      const chips = document.getElementById(prefix + "Chips");
+      chips.innerHTML = o.diffs.map(d => `<span class="diff-chip${d === o.min_diff ? " min" : ""}">${d}</span>`).join("") +
+        `<span class="diff-chip min">min ${o.min_diff}</span>`;
+    }
+    fill("close", close, "closest call on record");
+    fill("dom", dom, "most dominant inning");
+  })();
+
+  function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+  function ordinal(n){
+    const s = ["th","st","nd","rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  // ============================================================ generic chart helpers
+  function makeScale(domain, range){
+    const [d0, d1] = domain, [r0, r1] = range;
+    return v => r0 + (v - d0) / (d1 - d0 || 1) * (r1 - r0);
+  }
+
+  // Ticks at round multiples of `step` strictly between lo/hi, plus lo and hi
+  // themselves exactly - so the axis starts precisely at the data minimum.
+  function axisTicks(lo, hi, step){
+    const ticks = [lo];
+    let v = Math.ceil(lo / step) * step;
+    if (v <= lo) v += step;
+    for (; v < hi; v += step) ticks.push(v);
+    if (ticks[ticks.length - 1] !== hi) ticks.push(hi);
+    return ticks;
+  }
+
+  // ============================================================ histogram
+  (function(){
+    const w = 900, h = 340, padL = 46, padR = 16, padT = 16, padB = 40;
+    const innerW = w - padL - padR, innerH = h - padT - padB;
+    const bins = DATA.histogram;
+    const xLo = DATA.min_diff_lo, xHi = 500;
+    const rawMaxCount = Math.max(...bins.map(b => b.count));
+    const yStep = rawMaxCount <= 20 ? 5 : 10;
+    const maxCount = Math.ceil((rawMaxCount * 1.08) / yStep) * yStep;
+
+    const x = makeScale([xLo, xHi], [padL, padL + innerW]);
+    const y = makeScale([0, maxCount], [padT + innerH, padT]);
+    const barW = (innerW / bins.length) * 0.72;
+
+    let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+
+    // gridlines + y ticks, at round multiples of yStep
+    for (let v = 0; v <= maxCount; v += yStep){
+      const yy = y(v);
+      svg += `<line class="gridline" x1="${padL}" x2="${padL + innerW}" y1="${yy}" y2="${yy}"></line>`;
+      svg += `<text class="axis-label" x="${padL - 8}" y="${yy + 4}" text-anchor="end">${v}</text>`;
+    }
+    axisTicks(xLo, xHi, 25).forEach(v => {
+      const xx = x(v);
+      svg += `<text class="axis-label" x="${xx}" y="${padT + innerH + 20}" text-anchor="middle">${v}</text>`;
+    });
+    svg += `<text class="axis-label" x="${padL + innerW / 2}" y="${h - 4}" text-anchor="middle">Min Diff (of the 3 strikeouts)</text>`;
+    svg += `<line class="axis-line" x1="${padL}" x2="${padL + innerW}" y1="${padT + innerH}" y2="${padT + innerH}"></line>`;
+
+    // bars
+    bins.forEach(b => {
+      const cx = x(b.bin_lo) + (x(b.bin_hi) - x(b.bin_lo)) / 2;
+      const bx = cx - barW / 2;
+      const by = y(b.count);
+      const bh = (padT + innerH) - by;
+      svg += `<rect class="bar" x="${bx}" y="${by}" width="${barW}" height="${Math.max(bh,0)}" rx="2"
+                data-tip="Diff ${b.bin_lo}–${b.bin_hi - 1}: <b>${b.count}</b> inning${b.count===1?"":"s"}"></rect>`;
+    });
+
+    svg += `</svg>`;
+    const el = document.getElementById("histChart");
+    el.innerHTML = svg;
+    attachRectTooltips(el);
+  })();
+
+  // ============================================================ survival curve
+  (function(){
+    const w = 900, h = 320, padL = 50, padR = 16, padT = 16, padB = 40;
+    const innerW = w - padL - padR, innerH = h - padT - padB;
+    const pts = DATA.survival;
+    const xLo = pts[0].x, xHi = 500;
+
+    const x = makeScale([xLo, xHi], [padL, padL + innerW]);
+    const y = makeScale([0, 100], [padT + innerH, padT]);
+
+    let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+    [0, 25, 50, 75, 100].forEach(v => {
+      const yy = y(v);
+      svg += `<line class="gridline" x1="${padL}" x2="${padL + innerW}" y1="${yy}" y2="${yy}"></line>`;
+      svg += `<text class="axis-label" x="${padL - 8}" y="${yy + 4}" text-anchor="end">${v}%</text>`;
+    });
+    axisTicks(xLo, xHi, 25).forEach(v => {
+      const xx = x(v);
+      svg += `<text class="axis-label" x="${xx}" y="${padT + innerH + 20}" text-anchor="middle">${v}</text>`;
+    });
+    svg += `<text class="axis-label" x="${padL + innerW / 2}" y="${h - 4}" text-anchor="middle">Diff threshold X</text>`;
+    svg += `<line class="axis-line" x1="${padL}" x2="${padL + innerW}" y1="${padT + innerH}" y2="${padT + innerH}"></line>`;
+
+    const linePts = pts.map(p => [x(p.x), y(p.pct)]);
+    const areaPath = "M" + linePts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L") +
+      ` L${padL + innerW},${padT + innerH} L${padL},${padT + innerH} Z`;
+    const linePath = "M" + linePts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L");
+    svg += `<path d="${areaPath}" fill="var(--blue)" opacity="0.12"></path>`;
+    svg += `<path d="${linePath}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></path>`;
+
+    // one hover target per x-axis unit, so every diff value gets its own tooltip
+    const step = innerW / (pts.length - 1);
+    pts.forEach((p, i) => {
+      const cx = x(p.x);
+      svg += `<rect class="hover-target" x="${(cx - step/2).toFixed(1)}" y="${padT}" width="${step.toFixed(1)}" height="${innerH}"
+                data-tip="Threshold ${p.x}: <b>${p.count}</b> innings (${p.pct}%) had every diff above ${p.x}"></rect>`;
+    });
+
+    svg += `</svg>`;
+    const el = document.getElementById("survivalChart");
+    el.innerHTML = svg;
+    attachRectTooltips(el);
+  })();
+
+  // ============================================================ horizontal bar chart (pitcher / team)
+  function horizontalBarChart(containerId, rows, opts){
+    opts = opts || {};
+    const valueKey = opts.valueKey || "count";
+    const labelKey = opts.labelKey || "label";
+    const tipFn = opts.tipFn || (r => `${r[labelKey]}: ${r[valueKey]}`);
+    const rowH = 26, gap = 8;
+    const padL = opts.padL || 190, padR = 44, padT = 8, padB = 8;
+    const w = 900;
+    const innerW = w - padL - padR;
+    const h = rows.length * (rowH + gap) - gap + padT + padB;
+    const maxV = Math.max(...rows.map(r => r[valueKey]));
+    const x = makeScale([0, maxV], [0, innerW]);
+
+    let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+    rows.forEach((r, i) => {
+      const y0 = padT + i * (rowH + gap);
+      const bw = Math.max(x(r[valueKey]), 3);
+      svg += `<text class="axis-label" x="${padL - 12}" y="${y0 + rowH / 2 + 4}" text-anchor="end">${escapeHtml(r[labelKey])}</text>`;
+      svg += `<rect class="bar pitcher" x="${padL}" y="${y0}" width="${bw}" height="${rowH}" rx="5"
+                data-tip="${escapeHtml(tipFn(r))}"></rect>`;
+      svg += `<text class="axis-label mono" x="${padL + bw + 8}" y="${y0 + rowH / 2 + 4}" fill="var(--ink)" style="font-weight:600;">${r[valueKey]}</text>`;
+    });
+    svg += `</svg>`;
+    const el = document.getElementById(containerId);
+    el.innerHTML = svg;
+    attachRectTooltips(el);
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  horizontalBarChart("pitcherChart", DATA.pitcher_agg.slice(0, 15), {
+    valueKey: "count", labelKey: "pitcher_name",
+    tipFn: r => `${r.pitcher_name}: ${r.count} immaculate inning${r.count===1?"":"s"} &middot; avg min diff ${r.avg_min_diff} &middot; most dominant ${r.best_min_diff} &middot; closest call ${r.closest_min_diff} &middot; seasons ${r.seasons.join(", ")}`,
+  });
+
+  horizontalBarChart("teamChart", DATA.team_agg, {
+    valueKey: "count", labelKey: "team", padL: 210,
+    tipFn: r => `${r.team}: ${r.count} immaculate inning${r.count===1?"":"s"} · avg min diff ${r.avg_min_diff}`,
+  });
+
+  horizontalBarChart("battingTeamChart", DATA.batting_team_agg, {
+    valueKey: "count", labelKey: "team", padL: 210,
+    tipFn: r => `${r.team}: struck out in order ${r.count} time${r.count===1?"":"s"} · avg min diff ${r.avg_min_diff}`,
+  });
+
+  // ============================================================ vertical bar chart (season / inning, rate-based)
+  // Step size for ~4 gridlines that lands on a clean 1/2/5-times-power-of-10 number
+  function niceStep(rawMax, targetTicks){
+    targetTicks = targetTicks || 4;
+    const rough = rawMax / targetTicks;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough || 1)));
+    const norm = rough / mag;
+    let step;
+    if (norm < 1.5) step = 1; else if (norm < 3) step = 2; else if (norm < 7) step = 5; else step = 10;
+    return step * mag;
+  }
+
+  function verticalBarChart(containerId, rows, opts){
+    opts = opts || {};
+    const valueKey = opts.valueKey, labelKey = opts.labelKey, tipFn = opts.tipFn || (r => `${r[labelKey]}: ${r[valueKey]}`);
+    const w = 900, h = 320, padL = 50, padR = 16, padT = 16, padB = 46;
+    const innerW = w - padL - padR, innerH = h - padT - padB;
+    const rawMax = Math.max(...rows.map(r => r[valueKey]));
+    const yStep = niceStep(rawMax);
+    const maxV = Math.ceil((rawMax * 1.08) / yStep) * yStep;
+    const bandW = innerW / rows.length;
+    const barW = bandW * 0.6;
+    const y = makeScale([0, maxV], [padT + innerH, padT]);
+
+    let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+    for (let v = 0; v <= maxV + 1e-9; v += yStep){
+      const yy = y(v);
+      svg += `<line class="gridline" x1="${padL}" x2="${padL + innerW}" y1="${yy}" y2="${yy}"></line>`;
+      svg += `<text class="axis-label" x="${padL - 8}" y="${yy + 4}" text-anchor="end">${v.toFixed(yStep < 1 ? 1 : 0)}</text>`;
+    }
+    svg += `<line class="axis-line" x1="${padL}" x2="${padL + innerW}" y1="${padT + innerH}" y2="${padT + innerH}"></line>`;
+
+    rows.forEach((r, i) => {
+      const bx = padL + i * bandW + (bandW - barW) / 2;
+      const by = y(r[valueKey]);
+      const bh = (padT + innerH) - by;
+      svg += `<rect class="bar" x="${bx}" y="${by}" width="${barW}" height="${Math.max(bh,0)}" rx="3"
+                data-tip="${escapeHtml(tipFn(r))}"></rect>`;
+      svg += `<text class="axis-label" x="${bx + barW/2}" y="${padT + innerH + 18}" text-anchor="middle">${r[labelKey]}</text>`;
+    });
+    svg += `</svg>`;
+    const el = document.getElementById(containerId);
+    el.innerHTML = svg;
+    attachRectTooltips(el);
+  }
+
+  verticalBarChart("seasonChart", DATA.season_agg, {
+    valueKey: "rate_per_1000", labelKey: "season",
+    tipFn: r => `Season ${r.season} (${r.league}): ${r.count} innings in ${fmt(r.half_innings)} half-innings, ${r.rate_per_1000} per 1,000 · avg min diff ${r.avg_min_diff}`,
+  });
+
+  verticalBarChart("inningChart", DATA.inning_agg, {
+    valueKey: "rate_per_1000", labelKey: "inning",
+    tipFn: r => `Inning ${r.inning}: ${r.count} innings in ${fmt(r.half_innings)} half-innings, ${r.rate_per_1000} per 1,000`,
+  });
+
+  // ============================================================ tabs
+  document.getElementById("aggTabs").addEventListener("click", e => {
+    const btn = e.target.closest(".tab-btn");
+    if (!btn) return;
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+  });
+
+  // ============================================================ table
+  const tableRows = DATA.occurrences.map(o => ({
+    game_code: o.game_code, season: o.season, inning: o.inning, half: cap(o.half),
+    pitcher_name: o.pitcher_name, team: o.team, batting_team: o.batting_team,
+    diff1: o.diffs[0], diff2: o.diffs[1], diff3: o.diffs[2], min_diff: o.min_diff, avg_diff: o.avg_diff,
+    gameday_url: o.gameday_url,
+  }));
+
+  let sortKey = "avg_diff", sortAsc = false;
+  let filterText = "";
+
+  function renderTable(){
+    let rows = tableRows;
+    if (filterText){
+      const f = filterText.toLowerCase();
+      rows = rows.filter(r =>
+        r.pitcher_name.toLowerCase().includes(f) ||
+        r.team.toLowerCase().includes(f) ||
+        r.batting_team.toLowerCase().includes(f) ||
+        r.game_code.toLowerCase().includes(f)
+      );
+    }
+    rows = rows.slice().sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      let cmp;
+      if (typeof av === "string") cmp = av.localeCompare(bv);
+      else cmp = av - bv;
+      return sortAsc ? cmp : -cmp;
+    });
+
+    document.getElementById("rowCount").textContent = `${rows.length} of ${tableRows.length} innings`;
+
+    document.getElementById("tableBody").innerHTML = rows.map(r => `
+      <tr>
+        <td><a class="gameday-link" href="${r.gameday_url}" target="_blank" rel="noopener">View</a></td>
+        <td class="mono">${r.game_code}</td>
+        <td class="num">${r.season}</td>
+        <td class="num">${r.inning}</td>
+        <td>${r.half}</td>
+        <td>${escapeHtml(r.pitcher_name)}</td>
+        <td>${escapeHtml(r.team)}</td>
+        <td>${escapeHtml(r.batting_team)}</td>
+        <td class="num mono">${r.diff1}</td>
+        <td class="num mono">${r.diff2}</td>
+        <td class="num mono">${r.diff3}</td>
+        <td class="num"><span class="min-badge">${r.min_diff}</span></td>
+        <td class="num mono">${r.avg_diff.toFixed(1)}</td>
+      </tr>
+    `).join("");
+  }
+
+  document.querySelectorAll("thead th").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      if (sortKey === key) sortAsc = !sortAsc; else { sortKey = key; sortAsc = true; }
+      document.querySelectorAll("thead th").forEach(t => { t.classList.remove("sorted"); t.querySelector(".arrow").textContent = "▲"; });
+      th.classList.add("sorted");
+      th.querySelector(".arrow").textContent = sortAsc ? "▲" : "▼";
+      renderTable();
+    });
+  });
+
+  document.getElementById("tableSearch").addEventListener("input", e => {
+    filterText = e.target.value.trim();
+    renderTable();
+  });
+
+  renderTable();
+
+  // ============================================================ clean-K threshold
+  (function(){
+    const ck = DATA.clean_k;
+
+    document.getElementById("cleanKTiles").innerHTML = [
+      { num: fmt(ck.combined.n), label: "Bases-empty strikeouts analyzed (season 5+)" },
+      { num: (ck.mlb_avg_rate * 100).toFixed(1) + "%", label: "MLB 3-pitch strikeout rate, 2021–26 avg" },
+      { num: fmt(ck.threshold), label: "MLN diff threshold", accent: true },
+      { num: ck.combined.pct_at_or_above_threshold + "%", label: "Of all bases-empty MLN strikeouts clear it" },
+    ].map(t =>
+      `<div class="tile${t.accent ? " accent" : ""}"><div class="num">${t.num}</div><div class="label">${t.label}</div></div>`
+    ).join("");
+
+    const years = Object.keys(ck.mlb_3pk_rate_by_year).sort();
+    verticalBarChart("mlbRateChart", years.map(y => ({ year: y, rate: +(ck.mlb_3pk_rate_by_year[y] * 100).toFixed(2) })), {
+      valueKey: "rate", labelKey: "year",
+      tipFn: r => `${r.year}: ${r.rate}% of MLB strikeouts were 3 pitches`,
+    });
+
+    const groups = [{ key: "combined", label: "All seasons", data: ck.combined }];
+    Object.keys(ck.by_season).sort((a, b) => +a - +b).forEach(s => {
+      groups.push({ key: s, label: "Season " + s, data: ck.by_season[s] });
+    });
+
+    document.getElementById("cleanKTabs").innerHTML = groups.map((g, i) =>
+      `<button class="tab-btn${i === 0 ? " active" : ""}" data-clean-tab="${g.key}">${g.label}</button>`
+    ).join("");
+
+    function renderCleanKChart(group){
+      const w = 900, h = 320, padL = 50, padR = 16, padT = 16, padB = 40;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const pts = group.data.survival;
+      const xLo = ck.lo, xHi = 500;
+      const x = makeScale([xLo, xHi], [padL, padL + innerW]);
+      const y = makeScale([0, 100], [padT + innerH, padT]);
+
+      let svg = `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet">`;
+      [0, 25, 50, 75, 100].forEach(v => {
+        const yy = y(v);
+        svg += `<line class="gridline" x1="${padL}" x2="${padL + innerW}" y1="${yy}" y2="${yy}"></line>`;
+        svg += `<text class="axis-label" x="${padL - 8}" y="${yy + 4}" text-anchor="end">${v}%</text>`;
+      });
+      axisTicks(xLo, xHi, 25).forEach(v => {
+        const xx = x(v);
+        svg += `<text class="axis-label" x="${xx}" y="${padT + innerH + 20}" text-anchor="middle">${v}</text>`;
+      });
+      svg += `<text class="axis-label" x="${padL + innerW / 2}" y="${h - 4}" text-anchor="middle">Diff</text>`;
+      svg += `<line class="axis-line" x1="${padL}" x2="${padL + innerW}" y1="${padT + innerH}" y2="${padT + innerH}"></line>`;
+
+      const linePts = pts.map(p => [x(p.x), y(p.pct)]);
+      const areaPath = "M" + linePts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L") +
+        ` L${padL + innerW},${padT + innerH} L${padL},${padT + innerH} Z`;
+      const linePath = "M" + linePts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L");
+      svg += `<path d="${areaPath}" fill="var(--blue)" opacity="0.12"></path>`;
+      svg += `<path d="${linePath}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></path>`;
+
+      // threshold marker
+      const tx = x(ck.threshold);
+      svg += `<line x1="${tx}" x2="${tx}" y1="${padT}" y2="${padT + innerH}" stroke="var(--orange)" stroke-width="2" stroke-dasharray="4,3"></line>`;
+      svg += `<text class="axis-label" x="${tx + 6}" y="${padT + 14}" fill="var(--orange)" style="font-weight:600;">${ck.threshold}</text>`;
+
+      const step = innerW / (pts.length - 1);
+      pts.forEach(p => {
+        const cx = x(p.x);
+        svg += `<rect class="hover-target" x="${(cx - step / 2).toFixed(1)}" y="${padT}" width="${step.toFixed(1)}" height="${innerH}"
+                  data-tip="Diff threshold ${p.x}: ${p.pct}% of ${group.label.toLowerCase()} strikeouts cleared it"></rect>`;
+      });
+
+      svg += `</svg>`;
+      const el = document.getElementById("cleanKChart");
+      el.innerHTML = svg;
+      attachRectTooltips(el);
+
+      document.getElementById("cleanKSub").textContent =
+        `${group.label}: ${fmt(group.data.n)} bases-empty strikeouts · ${group.data.pct_at_or_above_threshold}% at or above the ${ck.threshold} threshold.`;
+    }
+
+    document.getElementById("cleanKTabs").addEventListener("click", e => {
+      const btn = e.target.closest(".tab-btn");
+      if (!btn) return;
+      document.querySelectorAll("#cleanKTabs .tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const g = groups.find(g => g.key === btn.dataset.cleanTab);
+      renderCleanKChart(g);
+    });
+
+    renderCleanKChart(groups[0]);
+  })();
+})();
+</script>
