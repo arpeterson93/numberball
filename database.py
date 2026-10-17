@@ -343,6 +343,73 @@ def get_all_teams() -> list[dict]:
 
 
 @st.cache_data(ttl=3600)
+def get_mln_teams_for_season(season: int) -> list[dict]:
+    """MLN teams that existed in a season: abbrev and full team name (matches plays.off_team / def_team)."""
+    rows = _fetch_all(
+        _client().table("teams")
+        .select("abbrev, full_team")
+        .eq("league", "MLN")
+        .eq("season", season)
+        .order("abbrev")
+    )
+    return [r for r in rows if r.get("abbrev") and r.get("full_team")]
+
+
+@st.cache_data(ttl=3600)
+def get_pitcher_faced_counts(season: int) -> dict[int, int]:
+    """{pitcher player_id: swings faced} for live MLN games in a season - the weights for a league pitcher mix."""
+    rows = _fetch_all(
+        _client().table("plays")
+        .select("pitcher_id")
+        .eq("league", "MLN")
+        .eq("season", season)
+        .eq("play_type", "Swing")
+        .eq("game_type", "live")
+    )
+    counts: dict[int, int] = {}
+    for r in rows:
+        pid = r.get("pitcher_id")
+        if pid is not None:
+            counts[int(pid)] = counts.get(int(pid), 0) + 1
+    return counts
+
+
+@st.cache_data(ttl=3600)
+def get_catcher_faced_counts(season: int) -> dict[int, int]:
+    """{catcher player_id: swings caught} for live MLN games in a season - the weights for a league catcher mix."""
+    rows = _fetch_all(
+        _client().table("plays")
+        .select("catcher_id")
+        .eq("league", "MLN")
+        .eq("season", season)
+        .eq("play_type", "Swing")
+        .eq("game_type", "live")
+    )
+    counts: dict[int, int] = {}
+    for r in rows:
+        cid = r.get("catcher_id")
+        if cid is not None:
+            counts[int(cid)] = counts.get(int(cid), 0) + 1
+    return counts
+
+
+@st.cache_data(ttl=3600)
+def get_team_swing_order(team_name: str, season: int) -> list[dict]:
+    """Light (game_id, play_num, batter_id) swing rows for a team's offense in live MLN games - enough to
+    estimate who bats where."""
+    return _fetch_all(
+        _client().table("plays")
+        .select("game_id, play_num, batter_id")
+        .eq("league", "MLN")
+        .eq("season", season)
+        .eq("off_team", team_name)
+        .eq("play_type", "Swing")
+        .eq("game_type", "live")
+        .order("play_num")
+    )
+
+
+@st.cache_data(ttl=3600)
 def get_stadium_sheets(ballpark_url: str, season: int) -> dict:
     """Return scenario sheet URLs for the stadium matching ballpark_url and season.
 

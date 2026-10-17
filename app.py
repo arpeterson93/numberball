@@ -179,6 +179,7 @@ with st.sidebar:
 
 pages = [
     st.Page("pages/2_Scouting.py", title="Scouting", icon="⚾"),
+    st.Page("pages/3_GM_Tools.py", title="GM Tools", icon="🧰"),
     st.Page("pages/1_Games.py", title="Sync Data", icon="🔄"),
 ]
 pg = st.navigation(pages)
