@@ -646,9 +646,10 @@ def apply_mixtures(combined: np.ndarray, df_hist: pd.DataFrame, state: dict, cfg
 
     1. Exact past values: (1-e)*combined + e*(his own empirical distribution of exact pitch values) - he re-throws
        numbers he has thrown before.
-    2. Repeat / echo spikes: point masses on the previous pitch, the previous swing against him, and the pitch before
-       last, each at a rate estimated ONLINE from his own history (hits / n, shrunk toward the league rate with
-       strength m_spike), so a pitcher who echoes gets a big spike and one who never does gets about the league's.
+    2. Repeat / echo spikes: point masses on the previous pitch and the previous swing against him, each at a rate
+       estimated ONLINE from his own history (hits / n, shrunk toward the league rate with strength m_spike), so a
+       pitcher who echoes gets a big spike and one who never does gets about the league's. (A third spike on the pitch
+       BEFORE last was dropped: removing it changed held-out log-loss by -0.0001, CI [-0.0016, +0.0016].)
        A reference only counts within the same game (a first pitch of a game has no 'previous pitch' to echo) when the
        target row carries a game_id; live predictions without one assume the last pitch is in the same game."""
     if not cfg.habit.get("mixtures", True):
@@ -673,7 +674,6 @@ def apply_mixtures(combined: np.ndarray, df_hist: pd.DataFrame, state: dict, cfg
     refs = {  # name -> (reference value now, historical hit flags, historical "defined" flags, that reference's game)
         "prev_pitch": (pv[-1], pv[1:] == pv[:-1], gm[1:] == gm[:-1], gm[-1]),
         "prev_swing": (sw[-1], pv[1:] == sw[:-1], gm[1:] == gm[:-1], gm[-1]),
-        "prev_pitch2": (pv[-2], pv[2:] == pv[:-2], gm[2:] == gm[:-2], gm[-2]),
     }
     total, add = 0.0, np.zeros(GRID_SIZE)
     for name, (val, hit, defined, ref_game) in refs.items():
