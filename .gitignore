@@ -20,3 +20,9 @@ tools/immaculate/data/
 tools/diff_lab/cache/
 tools/offense_lab/*.log
 tools/offense_lab/*.done
+docs/data/career/
+docs/data/search/
+tools/probe_output/pitch_screen/
+tools/probe_output/pitch_model_fit/
+tools/probe_output/pitch_calibration/
+tools/probe_output/transitions/
