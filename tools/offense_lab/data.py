@@ -8,9 +8,7 @@ import pandas as pd
 import offense_sim as o
 
 CACHE = ROOT / "tools/diff_lab/cache"
-INFIELD = ("1B", "2B", "3B", "SS")
-OUTFIELD = ("LF", "CF", "RF")
-DEFENSE = ("C",) + INFIELD + OUTFIELD
+from lineup_rules import INFIELD, OUTFIELD, DEFENSE, can_play  # shared with substitutions.py / the bot
 
 
 def load_players() -> pd.DataFrame:
@@ -67,26 +65,6 @@ def estimated_order(plays, season: int, team_name: str) -> pd.Series:
                 break
         slots += [(n, i + 1) for i, n in enumerate(seen)]
     return pd.DataFrame(slots, columns=["name", "slot"]).groupby("name").slot.agg(["mean", "count"]).sort_values("mean")
-
-
-def can_play(prim: str, sec, pos: str) -> bool:
-    """Position eligibility from rulebook section 8."""
-    if prim == pos:
-        return True
-    sec = sec or ""
-    if prim in INFIELD:
-        if sec in ("UTIL", "INF") and pos in INFIELD:
-            return True
-        if sec == "C" and pos == "C":
-            return True
-    if prim == "C":
-        if sec in ("CIF", "CINF") and pos in ("1B", "3B"):
-            return True
-        if sec == "COF" and pos in ("LF", "RF"):
-            return True
-    if prim in OUTFIELD and pos in OUTFIELD:
-        return True
-    return False
 
 
 def legal_defense(players: list[tuple]) -> bool:

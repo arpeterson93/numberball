@@ -3428,6 +3428,33 @@ def cooldown_cdf_overlay_chart(
     return fig
 
 
+# A cooldown trigger stops mattering once it has been open this many pitches: measured over every pitcher, the chance a
+# still-open trigger's next pitch lands in its +/-50 zone is within about a point of the by-chance 10.1% from the 5th
+# pitch on (and slightly BELOW chance for the first few). The model's cooldown signals and the radials share this.
+COOLDOWN_EXPIRE_ELAPSED = 5
+
+
+def cooldown_chance(radius: float) -> float:
+    """Share of the 1000-wide wheel inside a +/-radius zone: the return rate a trigger gets by pure chance."""
+    return (2 * int(radius) + 1) / 1000.0
+
+
+def cooldown_hazard_estimate(events: pd.DataFrame, category: str, k: int, league_h: float | None,
+                             shrinkage_n: float, chance: float) -> tuple[float, int]:
+    """(shrunk hazard, at-risk count): of this category's triggers whose k-th following pitch has been thrown (resolved or
+    still open), the share that came back on exactly that pitch - the CONDITIONAL return rate - shrunk toward the league
+    hazard (toward `chance` when there is no league entry) by n / (n + shrinkage_n). Unlike the unconditional "resolves
+    in exactly k pitches" mass, this does not fall toward 0 at long lags just because most triggers already resolved."""
+    ev = events[events["category"] == category]
+    at_risk = int((ev["pitches"] >= k).sum())
+    hits = int(((ev["pitches"] == k) & ev["resolved"]).sum())
+    prior = chance if league_h is None else league_h
+    if at_risk == 0:
+        return prior, 0
+    alpha = at_risk / (at_risk + shrinkage_n)
+    return alpha * (hits / at_risk) + (1 - alpha) * prior, at_risk
+
+
 def cooldown_radial_chart(
     events: pd.DataFrame,
     radius: float,
@@ -3438,9 +3465,10 @@ def cooldown_radial_chart(
     ticktext: list[str] | None = None,
     value_label: str = "Pitch",
     signed: bool = False,
-    league_pmf: dict[str, dict[int, float]] | None = None,
+    league_hazard: dict[str, dict[int, float]] | None = None,
     shrinkage_n: float = 20.0,
-    color_max: float = 12.0,
+    anchor: int | None = None,
+    expire_after: int | None = COOLDOWN_EXPIRE_ELAPSED,
 ) -> go.Figure:
     """Radial view (1-1000 pitch wheel by default, same convention as the
     other radial charts on this tab) of every currently open cooldown at
@@ -3459,6 +3487,13 @@ def cooldown_radial_chart(
     trigger values are then signed deltas rather than absolute pitch values,
     hence value_label="Δ"/signed=True to match.
 
+    anchor (delta-domain events only): the pitcher's most recent actual pitch.
+    When given, every trigger delta is mapped onto the 1-1000 pitch wheel as
+    anchor + delta (wrapped) - the same "map onto previous pitch" view the
+    Deltas radial offers - and the chart switches to the absolute pitch ticks
+    (domain_lo/tickvals/ticktext/value_label/signed are overridden). The ring
+    odds are unchanged: each trigger's +/- radius zone just rotates with it.
+
     Each open (resolved=False) trigger draws as a small dot at its trigger
     pitch's angular position. Its radius encodes RELATIVE recency among the
     open triggers themselves (min-max scaled off elapsed pitches, same
@@ -3476,18 +3511,19 @@ def cooldown_radial_chart(
     one's actual value). Each slice instead resolves to exactly one color:
     the AVERAGE probability among every trigger whose zone covers it (equal
     weight per trigger, regardless of category). That probability is the
-    chance THIS cooldown resolves on the very next pitch - P(a cooldown of
-    this category resolves in exactly elapsed + 1 pitches), the same
-    p_return_now cooldown_signal/delta_cooldown_signal use as their bump
-    amplitude (the pitcher's own rate shrunk toward league_pmf's rate for
-    that category/k by alpha = n/(n + shrinkage_n) when league_pmf is given;
-    the pitcher's own rate alone otherwise). It maps through a blue (low) ->
-    white (mid) -> red (high) diverging scale from 0 to color_max percent
-    (per-pitch return odds live around 0-12%, so a 0-100 scale would render
-    everything the same blue), so a red slice means "an unusually likely
-    pitch to come back to this zone," blue means "unlikely right now," and a
-    slice no open trigger's zone reaches, or whose only covering trigger(s)
-    have no resolved history to judge from, renders neutral white.
+    chance THIS trigger comes back on the very next pitch, given it is
+    still open: the pitcher's own share of that category's triggers (resolved
+    or still open) that returned on exactly this lag, shrunk toward
+    league_hazard's rate for that category/lag by n / (n + shrinkage_n)
+    (toward the by-chance rate when there is no league entry) - see
+    cooldown_hazard_estimate. That is a HAZARD, not the unconditional "resolves
+    in exactly k pitches" mass, which falls toward 0 at long lags only because
+    most triggers have already resolved by then. The scale is centred on the
+    by-chance rate for the radius (about 10% at +/-50, where the odds sit for
+    most lags): white = no better than chance, red = unusually likely to come
+    back, blue = unusually unlikely (5 points either side). Triggers open
+    `expire_after` pitches or more are dropped: beyond that the return rate is
+    indistinguishable from chance, so there is nothing to show.
 
     Maximal contiguous runs of equal-valued slices (in practice: the part of
     a trigger's own zone that no OTHER open trigger's zone overlaps, or two
@@ -3500,8 +3536,12 @@ def cooldown_radial_chart(
     if events.empty:
         return go.Figure()
     live = events.loc[~events["resolved"]]
+    if expire_after is not None:
+        live = live.loc[live["pitches"] < expire_after]
     if live.empty:
         return go.Figure()
+    if anchor is not None:
+        domain_lo, tickvals, ticktext, value_label, signed = 0.0, None, None, "Pitch", False
 
     r_max = 1.0
     hole = 0.08  # matches the hole size used by the other radial charts on this tab
@@ -3511,29 +3551,25 @@ def cooldown_radial_chart(
     # exactly k pitches, shrunk toward the league's rate for that category/k
     # the same way cooldown_signal's _shrunk_return_prob does. A category
     # with no resolved history of its own has nothing to judge from (None).
-    resolved_by_cat = {
-        cat: events.loc[(events["category"] == cat) & events["resolved"], "pitches"].astype(int)
-        for cat in live["category"].unique()
-    }
+    chance = cooldown_chance(radius)
 
     def _next_pitch_prob(cat: str, elapsed: int) -> float | None:
-        resolved_vals = resolved_by_cat.get(cat)
-        if resolved_vals is None or resolved_vals.empty:
-            return None
+        """Conditional odds (%) this still-open trigger comes back on the very next pitch (see
+        cooldown_hazard_estimate) - compare with `chance`, the odds a trigger gets for nothing."""
         k = elapsed + 1
-        n_eff_cat = len(resolved_vals)
-        p_pitcher = float((resolved_vals == k).sum()) / n_eff_cat
-        p_league = (league_pmf or {}).get(cat, {}).get(k)
-        if p_league is None:
-            return p_pitcher * 100.0
-        alpha = n_eff_cat / (n_eff_cat + shrinkage_n)
-        return (alpha * p_pitcher + (1 - alpha) * p_league) * 100.0
+        h, at_risk = cooldown_hazard_estimate(events, cat, k, (league_hazard or {}).get(cat, {}).get(k),
+                                              shrinkage_n, chance)
+        return h * 100.0
 
     triggers = []  # (trigger_pitch, probability-or-None, result, elapsed_pitches, category)
+    orig_deltas = []  # the unmapped trigger deltas, for the hover text when anchor maps them onto the pitch wheel
     for _, row in live.iterrows():
         prob = _next_pitch_prob(row["category"], int(row["pitches"]))
-        triggers.append((int(row["trigger_pitch"]), prob, str(row["result"]),
-                         int(row["pitches"]), str(row["category"])))
+        trig = int(row["trigger_pitch"])
+        orig_deltas.append(trig)
+        if anchor is not None:
+            trig = ((int(anchor) + trig - 1) % 1000) + 1
+        triggers.append((trig, prob, str(row["result"]), int(row["pitches"]), str(row["category"])))
 
     bin_width = 1000.0 / n_bins
     bin_vals = [domain_lo + (i + 0.5) * bin_width for i in range(n_bins)]
@@ -3573,14 +3609,16 @@ def cooldown_radial_chart(
     runs.append((run_start, run_len, run_val))
 
     fig = go.Figure()
+    # Colour scale: white at the by-chance rate, blue 5 points below it, red 5 points above.
+    c_lo, c_hi = max(0.0, chance * 100.0 - 5.0), chance * 100.0 + 5.0
     run_theta, run_width, run_colors = [], [], []
     for start, length, val in runs:
         mid_bin = (start + (length - 1) / 2.0) % n_bins
         mid_val = domain_lo + (mid_bin + 0.5) * bin_width
         run_theta.append((mid_val * 360.0 / 1000.0) % 360.0)
         run_width.append(length * 360.0 / n_bins)
-        run_colors.append(_freq_bwr_color(min(val, color_max), 0, color_max) if val is not None
-                          else _freq_bwr_color(color_max / 2, 0, color_max))
+        run_colors.append(_freq_bwr_color(min(max(val, c_lo), c_hi), c_lo, c_hi) if val is not None
+                          else _freq_bwr_color(chance * 100.0, c_lo, c_hi))
     fig.add_trace(go.Barpolar(
         r=[r_max] * len(runs), theta=run_theta, width=run_width,
         marker=dict(color=run_colors, line=dict(width=0)),
@@ -3622,11 +3660,14 @@ def cooldown_radial_chart(
     ]
     dot_theta = [(t * 360.0 / 1000.0) % 360.0 for t, _, _, _, _ in triggers]
     dot_hover = [
-        (f"{value_label} {t:+d} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>" if signed
+        (f"Implied pitch {t} (Δ{d:+d} from {anchor}) ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>"
+         if anchor is not None
+         else f"{value_label} {t:+d} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>" if signed
          else f"{value_label} {t} ({r}) - {e} pitch{'es' if e != 1 else ''} ago<br>")
         + (f"{p:.1f}% chance it returns on the next pitch" if p is not None
            else "n/a chance it returns on the next pitch")
-        for t, p, r, e, _ in triggers
+        + f" (chance alone: {chance * 100:.1f}%)"
+        for (t, p, r, e, _), d in zip(triggers, orig_deltas)
     ]
     # Dot fill color is the trigger's own result category, worst-for-the-
     # pitcher to best (matching SEQ_RESULT_CATEGORIES' own order): dark blue
@@ -4608,7 +4649,27 @@ def _rim_layer(
     return traces, r_band_outer
 
 
-def _hover_context(heads: list[str], rows: pd.DataFrame, ago: list[int] | None = None) -> list[str]:
+# Value columns the radials plot; add_dot_color_columns attaches true
+# "_prev_<col>"/"_next_<col>" neighbors for each, _hover_context reads them.
+_SEQ_COLS = ("pitch", "pitch_circ_delta", "pitch_circ_delta2_signed", "pitch_shadow_delta_signed")
+
+
+def _view_rows(df: pd.DataFrame, col: str, n: int) -> pd.DataFrame:
+    """The last n rows a radial plots for value column col (id-sorted, col
+    notna) with "_vprev"/"_vnext": each row's neighbors among the rows of df
+    AS GIVEN (i.e. after any context filter) - computed before the tail(n)
+    so the oldest/newest plotted dot still sees its neighbor just outside the
+    window."""
+    s = df[df[col].notna()].sort_values("id")
+    return s.assign(_vprev=s[col].shift(1), _vnext=s[col].shift(-1)).tail(n)
+
+
+def _signed_str(v) -> str:
+    return f"{int(v):+d}"
+
+
+def _hover_context(heads: list[str], rows: pd.DataFrame, ago: list[int] | None = None,
+                   seq_col: str | None = None, seq_fmt=None) -> list[str]:
     """Radial hover text: each point's own value line, then "LI x.x" (the
     leverage it was thrown into, when a "_leverage" column is attached - see
     add_dot_color_columns) and its result (the raw result string, e.g. 1B/2B/
@@ -4617,13 +4678,52 @@ def _hover_context(heads: list[str], rows: pd.DataFrame, ago: list[int] | None =
     unavailable, then "N
     pitches ago" last. rows must be the same rows, in the same order, as
     heads. ago: per-point pitches-ago counts (the Combined radial's shared
-    recency scale); defaults to the position from the end of heads."""
+    recency scale); defaults to the position from the end of heads.
+
+    seq_col (the column this radial plots) turns on up to two neighbor lines,
+    each "before -> <b>this</b> -> after" in the radial's OWN terms (seq_fmt
+    formats a raw value, e.g. signed for deltas or the implied pitch in a
+    mapped view; default is the plain integer): "Actual" names the true
+    chronological neighbors (add_dot_color_columns' "_prev_/_next_<col>",
+    unaffected by context filters) and "In view" the neighbors among the
+    plotted/filtered rows (_view_rows' "_vprev"/"_vnext"), shown only when it
+    differs from "Actual". A side with no neighbor at all is left off; a
+    neighbor with no value of its own for this column shows "-"."""
     lv = pd.to_numeric(rows["_leverage"], errors="coerce").tolist() if "_leverage" in rows.columns else None
+    fmt = seq_fmt or (lambda v: f"{int(v)}")
+    cols = set(rows.columns)
+
+    def _seq_line(label, prevs, curs, nexts, exists_prev=None, exists_next=None):
+        out_l = []
+        for i in range(len(curs)):
+            b, c, a = prevs[i], curs[i], nexts[i]
+            has_b = pd.notna(b) if exists_prev is None else bool(exists_prev[i])
+            has_a = pd.notna(a) if exists_next is None else bool(exists_next[i])
+            if pd.isna(c):
+                out_l.append(None)
+                continue
+            parts = ([fmt(b) if pd.notna(b) else "-"] if has_b else []) + [f"<b>{fmt(c)}</b>"] \
+                + ([fmt(a) if pd.notna(a) else "-"] if has_a else [])
+            out_l.append(f"{label}: " + " → ".join(parts))
+        return out_l
+
+    seq_true = seq_view = None
+    if seq_col is not None and seq_col in cols and len(rows) == len(heads):
+        cur = rows[seq_col].tolist()
+        if {f"_prev_{seq_col}", f"_next_{seq_col}", "_prev_pitch", "_next_pitch"} <= cols:
+            seq_true = _seq_line("Actual", rows[f"_prev_{seq_col}"].tolist(), cur, rows[f"_next_{seq_col}"].tolist(),
+                                 rows["_prev_pitch"].notna().tolist(), rows["_next_pitch"].notna().tolist())
+        if {"_vprev", "_vnext"} <= cols:
+            seq_view = _seq_line("In view", rows["_vprev"].tolist(), cur, rows["_vnext"].tolist())
     res = rows["result"].tolist() if "result" in rows.columns else None
     prev = rows["_prev_result"].tolist() if "_prev_result" in rows.columns else None
     out = []
     for i, head in enumerate(heads):
         lines = [head]
+        if seq_true is not None and seq_true[i]:
+            lines.append(seq_true[i])
+        if seq_view is not None and seq_view[i] and (seq_true is None or seq_view[i].split(": ", 1)[1] != (seq_true[i] or "").split(": ", 1)[-1]):
+            lines.append(seq_view[i])
         if lv is not None and i < len(lv) and pd.notna(lv[i]):
             lines.append(f"LI {lv[i]:.1f}")
         if res is not None and i < len(res) and pd.notna(res[i]):
@@ -4675,6 +4775,22 @@ def add_dot_color_columns(df: pd.DataFrame, color_by: str | None) -> pd.DataFram
             d = d.assign(_prev_result=d["result"].shift(1))
         if "_prev_result_cat" not in d.columns:
             d = d.assign(_prev_result_cat=_cat.shift(1))
+    if "pitch" in d.columns and "_prev_pitch" not in d.columns:
+        # True chronological neighbors for every value a radial plots, taken
+        # among rows that actually have a pitch (a steal row etc. has none)
+        # on the UNFILTERED history, so a radial's hover still names the
+        # real before/after values even when a context filter has dropped
+        # those rows from the plot. A neighbor row whose own value is NaN
+        # (e.g. the first pitch of a game has no delta) stays NaN here;
+        # _hover_context uses "_prev_pitch"/"_next_pitch" being NaN to tell
+        # "no neighbor row at all" from "neighbor exists but has no value".
+        _sub = d[d["pitch"].notna()]
+        _new = {}
+        for _c in _SEQ_COLS:
+            if _c in d.columns:
+                _new[f"_prev_{_c}"] = _sub[_c].shift(1).reindex(d.index)
+                _new[f"_next_{_c}"] = _sub[_c].shift(-1).reindex(d.index)
+        d = d.assign(**_new)
     return d
 
 
@@ -4852,12 +4968,14 @@ def _delta_value_ticks() -> tuple[list[float], list[str]]:
 # standalone "Pitch Signal Autopsy" artifact's own convention, so the same
 # signal always reads as the same color across both surfaces.
 _PL_SIGNAL_ORDER = ["pitch_sequence", "delta_sequence", "cooldown", "delta_cooldown",
-                     "delta_after_result", "delta_after_leverage", "shadow_delta_after_result"]
+                     "delta_after_result", "delta_after_leverage", "shadow_delta_after_result",
+                     "league_fine", "own_digits"]
 _PL_SIGNAL_LABELS = {
     "pitch_sequence": "Pitch sequence", "delta_sequence": "Delta sequence",
     "cooldown": "Cooldown", "delta_cooldown": "Delta cooldown",
     "delta_after_result": "Delta after result",
     "delta_after_leverage": "Delta after leverage", "shadow_delta_after_result": "Shadow delta after result",
+    "league_fine": "League number habits", "own_digits": "Own digit habits",
 }
 # Abbreviated row labels for suggested_swing_backtest_grid_chart - the full
 # _PL_SIGNAL_LABELS text (up to "Shadow delta after result") would force a
@@ -4868,9 +4986,15 @@ _PL_SIGNAL_SHORT_LABELS = {
     "cooldown": "Cooldown", "delta_cooldown": "Δ cooldown",
     "delta_after_result": "Δ after result",
     "delta_after_leverage": "Δ after leverage", "shadow_delta_after_result": "Shadow Δ",
+    "league_fine": "League habits", "own_digits": "Own digits",
 }
-_PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#8f3a85", "#4a3aa7", "#eda100", "#e87ba4"]
-_PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#b352a6", "#9085e9", "#c98500", "#d55181"]
+# Series drawn but hidden until clicked in the legend: the two number-habit signals are spiky (round numbers, repdigits)
+# and stretch the y-axis well past the other curves; Plotly's autorange ignores hidden traces.
+_PL_HIDDEN_BY_DEFAULT = ("league_fine", "own_digits")
+_PL_SIG_COLORS_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#8f3a85", "#4a3aa7", "#eda100", "#e87ba4",
+                        "#6b6b6b", "#0a8f9c"]
+_PL_SIG_COLORS_DARK  = ["#3987e5", "#d95926", "#199e70", "#b352a6", "#9085e9", "#c98500", "#d55181",
+                        "#9a9a9a", "#2bb5c4"]
 
 
 def pitch_likelihood_density_chart(
@@ -4898,7 +5022,8 @@ def pitch_likelihood_density_chart(
         if s is None:
             continue
         fig.add_trace(go.Scatter(x=x, y=s["density"], mode="lines", name=_PL_SIGNAL_LABELS[name],
-                                  line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
+                                  line=dict(color=sig_colors[i % len(sig_colors)], width=1.6),
+                                  visible="legendonly" if name in _PL_HIDDEN_BY_DEFAULT else True))
     fig.add_trace(go.Scatter(x=x, y=combined, mode="lines", name="Combined prediction",
                               line=dict(color=combined_color, width=3)))
     _comb_peak_idx = int(np.argmax(combined))
@@ -4990,7 +5115,8 @@ def pitch_likelihood_radial_chart(
         if s is None:
             continue
         fig.add_trace(go.Scatterpolar(r=s["density"], theta=theta, mode="lines", name=_PL_SIGNAL_LABELS[name],
-                                       line=dict(color=sig_colors[i % len(sig_colors)], width=1.6)))
+                                       line=dict(color=sig_colors[i % len(sig_colors)], width=1.6),
+                                       visible="legendonly" if name in _PL_HIDDEN_BY_DEFAULT else True))
     fig.add_trace(go.Scatterpolar(r=combined, theta=theta, mode="lines", name="Combined prediction",
                                    line=dict(color=combined_color, width=3)))
     _comb_peak_idx = int(np.argmax(np.asarray(combined)))
@@ -5131,7 +5257,7 @@ def expected_swing_score_radial_chart(
 
 def pitch_likelihood_breakdown_chart(
     baseline, signals: list[dict], weights: dict, min_effective_n: float, pitch_value: int,
-    dark_mode: bool = False,
+    dark_mode: bool = False, combined=None,
 ) -> go.Figure:
     """Diverging bar breakdown of how the combined prediction at ONE pitch
     value was built, in log-odds relative to a flat (uniform) 1/1000 - every
@@ -5182,6 +5308,12 @@ def pitch_likelihood_breakdown_chart(
     combined_log = rows[0][1] + net - log_z
     rows.append(("Net push", net, "net"))
     rows.append(("Normalization", -log_z, "push"))
+    if combined is not None:
+        # The model's final stage (exact past values + repeat/echo spikes) mixes in AFTER the pool, so it is its own
+        # bar: ln(final) - ln(pooled) at this value. Without it the bars would stop adding up to the curve on screen.
+        final_log = math.log(1000.0 * (float(np.asarray(combined, dtype=float)[idx]) + eps))
+        rows.append(("Exact-value & repeat spikes", final_log - combined_log, "push"))
+        combined_log = final_log
     rows.append(("Combined (vs. uniform)", combined_log, "total"))
 
     labels = [r[0] for r in rows]
@@ -5436,7 +5568,7 @@ def radial_recent_pitches_chart(
     vals = df[df[value_col].notna()].sort_values("id")[value_col].astype(int).tail(n).tolist()
     n_actual = len(vals)
     theta = [v * 360.0 / 1000.0 for v in vals]
-    hover = _hover_context([f"{v}" for v in vals], df[df[value_col].notna()].sort_values("id").tail(n))
+    hover = _hover_context([f"{v}" for v in vals], _view_rows(df, value_col, n), seq_col=value_col)
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
     score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None
 
@@ -5474,7 +5606,8 @@ def _implied_pitch_points(
     theta = [v * 360.0 / 1000.0 for v in implied]
     hover = _hover_context(
         [f"{v} (prev {anchor} {d:+d})" for v, d in zip(implied, vals)],
-        df[df[delta_col].notna()].sort_values("id").tail(n))
+        _view_rows(df, delta_col, n), seq_col=delta_col,
+        seq_fmt=lambda d: str(((anchor + int(d) - 1) % 1000) + 1))
     return theta, hover
 
 
@@ -5516,7 +5649,8 @@ def _implied_pitch_points_delta2(
     theta = [v * 360.0 / 1000.0 for v in implied]
     hover = _hover_context(
         [f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})" for v, d2 in zip(implied, vals)],
-        df[df[delta2_col].notna()].sort_values("id").tail(n))
+        _view_rows(df, delta2_col, n), seq_col=delta2_col,
+        seq_fmt=lambda d2: str(((anchor + anchor_delta + int(d2) - 1) % 1000) + 1))
     return theta, hover
 
 
@@ -5575,7 +5709,8 @@ def radial_recent_delta2_chart(
         vals = df[df[delta2_col].notna()].sort_values("id")[delta2_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
         theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
-        hover = _hover_context([f"{d:+d}" for d in vals], df[df[delta2_col].notna()].sort_values("id").tail(n))
+        hover = _hover_context([f"{d:+d}" for d in vals], _view_rows(df, delta2_col, n),
+                               seq_col=delta2_col, seq_fmt=_signed_str)
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
@@ -5644,7 +5779,8 @@ def radial_recent_deltas_chart(
         vals = df[df[delta_col].notna()].sort_values("id")[delta_col].astype(int).tail(n).tolist()
         n_actual = len(vals)
         theta = [(d * 180.0 / 500.0) % 360.0 for d in vals]
-        hover = _hover_context([f"{d:+d}" for d in vals], df[df[delta_col].notna()].sort_values("id").tail(n))
+        hover = _hover_context([f"{d:+d}" for d in vals], _view_rows(df, delta_col, n),
+                               seq_col=delta_col, seq_fmt=_signed_str)
         tick_deltas = [-500, -400, -300, -200, -100, 0, 100, 200, 300, 400]
         tickvals = [(d * 180.0 / 500.0) % 360.0 for d in tick_deltas]
         ticktext = ["±500" if d == -500 else f"{d:+d}" if d > 0 else str(d) for d in tick_deltas]
@@ -5713,9 +5849,9 @@ def radial_combined_chart(
     radial_recent_pitches_chart - always "pitch" domain here, for the same
     reason the OBR/SacF rings need no translation above.
     """
-    pitch_rows = df_pitches[df_pitches[value_col].notna()].sort_values("id").tail(n)
-    delta_rows = df_deltas[df_deltas[delta_col].notna()].sort_values("id").tail(n)
-    delta2_rows = (df_delta2[df_delta2[delta2_col].notna()].sort_values("id").tail(n)
+    pitch_rows = _view_rows(df_pitches, value_col, n)
+    delta_rows = _view_rows(df_deltas, delta_col, n)
+    delta2_rows = (_view_rows(df_delta2, delta2_col, n)
                    if include_delta2 and df_delta2 is not None else df_deltas.iloc[0:0])
 
     if anchor is None:
@@ -5748,7 +5884,7 @@ def radial_combined_chart(
         r_a.append(r)
         hover_a.append(f"{v}")
         ago_a.append(ago)
-    hover_a = _hover_context(hover_a, pitch_rows, ago_a)
+    hover_a = _hover_context(hover_a, pitch_rows, ago_a, seq_col=value_col)
 
     theta_b, r_b, hover_b, ago_b = [], [], [], []
     for pid, d in zip(delta_rows["id"], delta_rows[delta_col].astype(int)):
@@ -5759,7 +5895,8 @@ def radial_combined_chart(
         r_b.append(r)
         hover_b.append(f"{v} (prev {anchor} {d:+d})")
         ago_b.append(ago)
-    hover_b = _hover_context(hover_b, delta_rows, ago_b)
+    hover_b = _hover_context(hover_b, delta_rows, ago_b, seq_col=delta_col,
+                             seq_fmt=lambda d: str(((anchor + int(d) - 1) % 1000) + 1))
 
     theta_c, r_c, hover_c, ago_c = [], [], [], []
     if n_c:
@@ -5771,7 +5908,8 @@ def radial_combined_chart(
             r_c.append(r)
             hover_c.append(f"{v} (prev {anchor} Δ{anchor_delta:+d} Δ²{d2:+d})")
             ago_c.append(ago)
-        hover_c = _hover_context(hover_c, delta2_rows, ago_c)
+        hover_c = _hover_context(hover_c, delta2_rows, ago_c, seq_col=delta2_col,
+                                 seq_fmt=lambda d2: str(((anchor + anchor_delta + int(d2) - 1) % 1000) + 1))
 
     range_rings = _build_range_rings(obr_lo, obr_hi, sacf_lo, sacf_hi, _value_range_deg)
     score_band = {"scores": score_band_scores, "domain": "pitch"} if score_band_scores is not None else None

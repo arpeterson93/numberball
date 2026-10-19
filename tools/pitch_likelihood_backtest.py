@@ -139,13 +139,22 @@ def leverage_bucket_bounds(leverage: float) -> tuple[float, float]:
 # excluded, respectively, not uninformative in general - see docstring).
 # Used as the CLI --weights default; pass --weights to override.
 DEFAULT_WEIGHTS = {
-    "pitch_sequence": 0.0,
-    "delta_sequence": 0.068,
-    "cooldown": 0.24,
-    "delta_after_result": 0.143,
-    "delta_after_leverage": 0.167,
-    "shadow_delta_after_result": 0.23,
+    # Refit 2026-10-18 by tools/pitch_model_fit.py (joint fit of all nine pooled signals on 50 TRAIN pitchers, scored on
+    # 51 held-out pitchers; league tables built from the train pitchers only). Held-out log-loss 6.9037 -> 6.6792
+    # (-0.2245, pitcher-bootstrap 95% CI [-0.30, -0.15], 86% of pitchers improve); realized OBP of the suggested swing
+    # +0.022 (CI [+0.003, +0.043]), SLG +0.015 (CI includes 0). Almost all of the gain is the two habit signals and the
+    # mixtures below: refitting the ORIGINAL seven signals changed nothing (6.9042), and swapping the cooldowns to
+    # excess-over-chance was neutral on log-loss (6.9041) - it is kept because it matches the measured hazards, not
+    # because it scored better. delta_cooldown fits to 0: the delta-domain return rate sits at chance at every lag.
+    "pitch_sequence": 0.0126,
+    "delta_sequence": 0.1177,
+    "cooldown": 0.4344,
+    "delta_after_result": 0.1626,
+    "delta_after_leverage": 0.1177,
+    "shadow_delta_after_result": 0.0157,
     "delta_cooldown": 0.0,
+    "league_fine": 0.7388,
+    "own_digits": 0.5390,
 }
 
 # tools/pitch_likelihood_calibrate.py's fit-cooldown-table result (train+val
@@ -178,6 +187,53 @@ DELTA_COOLDOWN_LEAGUE_RATES = {
     "Out": {1: 0.0997, 2: 0.0935, 3: 0.0847, 4: 0.0754, 5: 0.0707, 6: 0.0631, 7: 0.0539, 8: 0.0466, 9: 0.0428, 10: 0.0362, 11: 0.0360, 12: 0.0311, 13: 0.0274, 14: 0.0229, 15: 0.0228, 16: 0.0202, 17: 0.0179, 18: 0.0157, 19: 0.0150, 20: 0.0123, 21: 0.0119, 22: 0.0104, 23: 0.0088, 24: 0.0085, 25: 0.0079, 26: 0.0056, 27: 0.0055, 28: 0.0050, 29: 0.0043, 30: 0.0043, 31: 0.0039, 32: 0.0035, 33: 0.0036, 34: 0.0038, 35: 0.0023, 36: 0.0022, 37: 0.0027, 38: 0.0018, 39: 0.0019, 40: 0.0012, 41: 0.0013, 42: 0.0010, 43: 0.0011, 44: 0.0008, 45: 0.0009, 46: 0.0008, 47: 0.0010, 48: 0.0007, 49: 0.0005, 50: 0.0004, 51: 0.0004, 52: 0.0003, 53: 0.0004, 54: 0.0004, 55: 0.0003, 56: 0.0003, 57: 0.0003, 58: 0.0002, 59: 0.0002, 60: 0.0002, 61: 0.0001, 62: 0.0003, 63: 0.0001, 64: 0.0002, 65: 0.0001, 66: 0.0001, 67: 0.0001, 68: 0.0001, 70: 0.0002, 74: 0.0001, 75: 0.0001, 76: 0.0001, 80: 0.0001, 82: 0.0001, 91: 0.0001, 94: 0.0001, 104: 0.0001, 107: 0.0001},
     "XBH": {1: 0.1006, 2: 0.0878, 3: 0.0819, 4: 0.0770, 5: 0.0674, 6: 0.0564, 7: 0.0520, 8: 0.0483, 9: 0.0430, 10: 0.0415, 11: 0.0356, 12: 0.0312, 13: 0.0285, 14: 0.0274, 15: 0.0242, 16: 0.0200, 17: 0.0189, 18: 0.0180, 19: 0.0151, 20: 0.0119, 21: 0.0108, 22: 0.0099, 23: 0.0107, 24: 0.0081, 25: 0.0075, 26: 0.0068, 27: 0.0053, 28: 0.0051, 29: 0.0042, 30: 0.0051, 31: 0.0039, 32: 0.0050, 33: 0.0018, 34: 0.0026, 35: 0.0031, 36: 0.0024, 37: 0.0017, 38: 0.0022, 39: 0.0013, 40: 0.0020, 41: 0.0013, 42: 0.0007, 43: 0.0013, 44: 0.0013, 45: 0.0009, 46: 0.0011, 47: 0.0004, 48: 0.0004, 49: 0.0011, 50: 0.0004, 51: 0.0004, 52: 0.0002, 53: 0.0004, 54: 0.0007, 55: 0.0004, 56: 0.0004, 57: 0.0004, 58: 0.0002, 59: 0.0004, 60: 0.0002, 62: 0.0002, 63: 0.0002, 64: 0.0002, 69: 0.0004, 77: 0.0002, 80: 0.0002, 103: 0.0002},
 }
+
+
+# --------------------------------------------------------------------- shipped league tables
+
+# pitch_model_tables.json (tools/build_pitch_model_tables.py) holds the league-level tables the newer parts of the
+# model use: cooldown HAZARDS (the conditional chance a still-open trigger's next pitch lands in its zone), the league
+# pitch-value counts behind the fine-structure prior, and league repeat/echo rates. Rebuild it (not by hand) when the
+# play log grows enough to matter; evaluation harnesses rebuild it from TRAIN pitchers only so a held-out pitcher never
+# feeds his own table.
+TABLES_PATH = pathlib.Path(__file__).resolve().parent.parent / "pitch_model_tables.json"
+COOLDOWN_EXPIRE_ELAPSED = utils.COOLDOWN_EXPIRE_ELAPSED   # open triggers older than this carry no information (see utils)
+N_EFF_FULL = 1e9              # "pre-shrunk" signals (their own smoothing is built in): combine_signals' alpha -> 1
+# fitted with DEFAULT_WEIGHTS above (tools/pitch_model_fit.py): e_exact = weight on his own past exact values, m_spike =
+# shrinkage strength of the online repeat / echo rates toward the league rate
+HABIT_DEFAULTS = {"mixtures": True, "e_exact": 0.02, "m_spike": 400.0}
+
+
+def prepare_tables(raw: dict) -> dict:
+    """Raw JSON -> the arrays the model reads: hazards keyed by int lag, the fine-structure log-ratio over the wheel
+    (league fine pmf / its own sigma-75 smoothing, so it carries ONLY what the pitcher KDE cannot see), spike rates."""
+    haz = {dom: {c: {int(k): v for k, v in lags.items() if v is not None} for c, lags in raw[dom].items()}
+           for dom in ("cooldown_hazard", "delta_cooldown_hazard")}
+    cnt = np.asarray(raw["league_counts"], dtype=float) + 0.5
+    q_fine = cnt / cnt.sum()
+    q_smooth = _kde_density_counts(cnt, 75.0)
+    return {"cooldown_hazard": haz["cooldown_hazard"], "delta_cooldown_hazard": haz["delta_cooldown_hazard"],
+            "log_fine": np.log(q_fine / q_smooth), "spike_rates": dict(raw["spike_rates"]),
+            "radius": raw.get("radius", 50)}
+
+
+def _kde_density_counts(counts: np.ndarray, sigma: float) -> np.ndarray:
+    idx = np.arange(GRID_SIZE)
+    d = np.abs(idx[:, None] - idx[None, :])
+    d = np.minimum(d, GRID_SIZE - d)
+    k = np.exp(-(d ** 2) / (2 * sigma ** 2))
+    out = k @ counts
+    return out / out.sum()
+
+
+_DEFAULT_TABLES: dict | None = None
+
+
+def default_tables() -> dict:
+    global _DEFAULT_TABLES
+    if _DEFAULT_TABLES is None:
+        _DEFAULT_TABLES = prepare_tables(json.loads(TABLES_PATH.read_text()))
+    return _DEFAULT_TABLES
 
 
 # --------------------------------------------------------------------- kernel / density
@@ -503,6 +559,140 @@ def delta_cooldown_signal(df_hist: pd.DataFrame, state: dict, radius: float,
     return Signal("delta_cooldown", density, float(min(n_effs)))
 
 
+def _zone_masses(radius: float) -> tuple[float, float]:
+    """(z, m): the share of a flat density inside a +/-radius zone, and the share of a cooldown bump (a sigma =
+    radius/2 wrapped Gaussian) inside it. A bump of weight a over a flat floor puts (1-a)*z + a*m in the zone."""
+    z = (2 * int(radius) + 1) / GRID_SIZE
+    bump = _kde_density(np.array([500]), sigma=radius / 2)
+    grid = np.arange(1, GRID_SIZE + 1)
+    m = float(bump[np.abs(grid - 500) <= radius].sum())
+    return z, m
+
+
+def _excess_weight(h: float, z: float, m: float) -> float:
+    """Bump weight that makes the zone's total mass equal the measured return rate h: (1-a)*z + a*m = h. The old
+    signal used the unconditional mass as the weight, which counted the by-chance landing twice (once in the mass,
+    once in the flat floor). Floored slightly below 0: right after a trigger pitchers land in the zone a touch LESS
+    than chance, which a small negative weight (a dent, not a bump) represents - bounded so the density stays >= 0."""
+    return float(np.clip((h - z) / (m - z), -0.06, 1.0))
+
+
+def _own_hazard(events: pd.DataFrame, category: str, k: int, league_h: float | None, shrinkage_n: float,
+                z: float) -> tuple[float, int]:
+    return utils.cooldown_hazard_estimate(events, category, k, league_h, shrinkage_n, z)
+
+
+def _cooldown_excess(df_hist: pd.DataFrame, state: dict, radius: float, hazard_table: dict, shrinkage_n: float,
+                     value_col: str, name: str, delta_anchor: bool) -> Signal | None:
+    events = utils.cooldown_events(df_hist, value_col=value_col, radius=radius)
+    if events.empty:
+        return None
+    live = events[(~events["resolved"]) & (events["pitches"] < COOLDOWN_EXPIRE_ELAPSED)]
+    if live.empty:
+        return None
+    z, m = _zone_masses(radius)
+    uniform = np.full(GRID_SIZE, 1.0 / GRID_SIZE)
+    densities, depths = [], []
+    for _, trig in live.iterrows():
+        k = int(trig["pitches"]) + 1
+        h, at_risk = _own_hazard(events, trig["category"], k, hazard_table.get(trig["category"], {}).get(k),
+                                 shrinkage_n, z)
+        center = trig["trigger_pitch"]
+        if delta_anchor:
+            center = ((state["prev_pitch"] + int(center) - 1) % 1000) + 1
+        a = _excess_weight(h, z, m)
+        densities.append((1 - a) * uniform + a * _kde_density(np.array([center]), sigma=radius / 2))
+        depths.append(at_risk)
+    density = np.mean(densities, axis=0)
+    return Signal(name, density / density.sum(), float(max(min(depths), 1)))
+
+
+def cooldown_signal_excess(df_hist, state, radius, hazard_table, shrinkage_n):
+    return _cooldown_excess(df_hist, state, radius, hazard_table, shrinkage_n, "pitch", "cooldown", False)
+
+
+def delta_cooldown_signal_excess(df_hist, state, radius, hazard_table, shrinkage_n):
+    return _cooldown_excess(df_hist, state, radius, hazard_table, shrinkage_n, "pitch_circ_delta",
+                            "delta_cooldown", True)
+
+
+def _baseline_of(df_hist: pd.DataFrame, cfg) -> np.ndarray:
+    return _kde_density(df_hist[df_hist["pitch"].notna()]["pitch"].astype(int).to_numpy(), cfg.sigma)
+
+
+def league_fine_signal(df_hist: pd.DataFrame, state: dict, cfg) -> Signal | None:
+    """What every pitcher shares and the sigma-75 pitcher KDE smooths away: humans pick round, patterned numbers
+    (3.9% of all pitches are multiples of 100). Expressed as baseline x league fine-structure factor so, pooled with a
+    weight, it multiplies the factor in (a factor, not a distribution: its own smoothing is built in, so n_eff is full)."""
+    b = _baseline_of(df_hist, cfg)
+    d = b * np.exp(cfg.tables["log_fine"])
+    return Signal("league_fine", d / d.sum(), N_EFF_FULL)
+
+
+def own_digits_signal(df_hist: pd.DataFrame, state: dict, cfg) -> Signal | None:
+    """This pitcher's own last-two-digit habit (01, 11, 69, 77, round numbers...): Dirichlet-smoothed share of his
+    earlier pitches ending in each two digits, over uniform, applied to the wheel as a factor on his baseline."""
+    pv = df_hist[df_hist["pitch"].notna()]["pitch"].astype(int).to_numpy()
+    l2 = np.bincount(pv % 100, minlength=100).astype(float)
+    factor = np.log(((l2 + 1.0) / (l2.sum() + 100.0)) * 100.0)[np.arange(1, GRID_SIZE + 1) % 100]
+    b = _baseline_of(df_hist, cfg)
+    d = b * np.exp(factor)
+    return Signal("own_digits", d / d.sum(), N_EFF_FULL)
+
+
+def apply_mixtures(combined: np.ndarray, df_hist: pd.DataFrame, state: dict, cfg,
+                   target_row: pd.Series | None = None) -> np.ndarray:
+    """Final stage after the pool: two mixtures that are not log-linear in nature.
+
+    1. Exact past values: (1-e)*combined + e*(his own empirical distribution of exact pitch values) - he re-throws
+       numbers he has thrown before.
+    2. Repeat / echo spikes: point masses on the previous pitch, the previous swing against him, and the pitch before
+       last, each at a rate estimated ONLINE from his own history (hits / n, shrunk toward the league rate with
+       strength m_spike), so a pitcher who echoes gets a big spike and one who never does gets about the league's.
+       A reference only counts within the same game (a first pitch of a game has no 'previous pitch' to echo) when the
+       target row carries a game_id; live predictions without one assume the last pitch is in the same game."""
+    if not cfg.habit.get("mixtures", True):
+        return combined
+    pitches = df_hist[df_hist["pitch"].notna()].sort_values("id")
+    n = len(pitches)
+    if n < 3:
+        return combined
+    pv = pitches["pitch"].astype(int).to_numpy()
+    sw = pitches["swing"].astype(float).to_numpy() if "swing" in pitches else np.full(n, np.nan)
+    gm = pitches["game_id"].astype(float).to_numpy() if "game_id" in pitches else np.zeros(n)
+
+    e = float(cfg.habit["e_exact"])
+    own = np.bincount((pv - 1) % GRID_SIZE, minlength=GRID_SIZE).astype(float)
+    q = (1 - e) * combined + e * own / own.sum()
+
+    tgt_game = None
+    if target_row is not None and "game_id" in target_row and pd.notna(target_row["game_id"]):
+        tgt_game = float(target_row["game_id"])
+    league = cfg.tables["spike_rates"]
+    m = float(cfg.habit["m_spike"])
+    refs = {  # name -> (reference value now, historical hit flags, historical "defined" flags, that reference's game)
+        "prev_pitch": (pv[-1], pv[1:] == pv[:-1], gm[1:] == gm[:-1], gm[-1]),
+        "prev_swing": (sw[-1], pv[1:] == sw[:-1], gm[1:] == gm[:-1], gm[-1]),
+        "prev_pitch2": (pv[-2], pv[2:] == pv[:-2], gm[2:] == gm[:-2], gm[-2]),
+    }
+    total, add = 0.0, np.zeros(GRID_SIZE)
+    for name, (val, hit, defined, ref_game) in refs.items():
+        if val != val or (tgt_game is not None and ref_game != tgt_game):
+            continue
+        rate = (float(hit[defined].sum()) + m * league[name]) / (float(defined.sum()) + m)
+        total += rate
+        add[int(val) - 1] += rate
+    return (1 - total) * q + add
+
+
+def predict_combined(df_hist: pd.DataFrame, baseline: np.ndarray, signals: list, state: dict, cfg,
+                     target_row: pd.Series | None = None) -> np.ndarray:
+    """THE model's final density: the log-linear pool of the signals, then the exact-value / repeat mixtures.
+    Every consumer (backtest, calibration, the Streamlit tab, the Discord bot) goes through this one function."""
+    pooled = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    return apply_mixtures(pooled, df_hist, state, cfg, target_row)
+
+
 def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, sigma: float) -> Signal | None:
     """Historical pitch-to-pitch DELTAS (not absolute pitch values) measured
     on pitches thrown in situations whose own leverage (stakes, via
@@ -533,14 +723,22 @@ def delta_after_leverage_signal(df_hist: pd.DataFrame, state: dict, sigma: float
 SIGNAL_BUILDERS = {
     "pitch_sequence": lambda df_hist, state, cfg: pitch_sequence_signal(df_hist, state, cfg.pitch_width, cfg.sigma),
     "delta_sequence": lambda df_hist, state, cfg: delta_sequence_signal(df_hist, state, cfg.pitch_width, cfg.sigma),
-    "cooldown": lambda df_hist, state, cfg: cooldown_signal(
-        df_hist, cfg.cooldown_radius, cfg.cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
+    "cooldown": lambda df_hist, state, cfg: (
+        cooldown_signal_excess(df_hist, state, cfg.cooldown_radius, cfg.tables["cooldown_hazard"],
+                               cfg.cooldown_rate_shrinkage_n)
+        if cfg.cooldown_mode == "excess" else cooldown_signal(
+            df_hist, cfg.cooldown_radius, cfg.cooldown_league_rates, cfg.cooldown_rate_shrinkage_n)),
     "delta_after_result": lambda df_hist, state, cfg: delta_after_result_signal(df_hist, state, cfg.sigma),
     "delta_after_leverage": lambda df_hist, state, cfg: delta_after_leverage_signal(
         df_hist, state, cfg.sigma),
     "shadow_delta_after_result": lambda df_hist, state, cfg: shadow_delta_after_result_signal(df_hist, state, cfg.sigma),
-    "delta_cooldown": lambda df_hist, state, cfg: delta_cooldown_signal(
-        df_hist, state, cfg.delta_cooldown_radius, cfg.delta_cooldown_league_rates, cfg.cooldown_rate_shrinkage_n),
+    "delta_cooldown": lambda df_hist, state, cfg: (
+        delta_cooldown_signal_excess(df_hist, state, cfg.delta_cooldown_radius, cfg.tables["delta_cooldown_hazard"],
+                                     cfg.cooldown_rate_shrinkage_n)
+        if cfg.cooldown_mode == "excess" else delta_cooldown_signal(
+            df_hist, state, cfg.delta_cooldown_radius, cfg.delta_cooldown_league_rates, cfg.cooldown_rate_shrinkage_n)),
+    "league_fine": lambda df_hist, state, cfg: league_fine_signal(df_hist, state, cfg),
+    "own_digits": lambda df_hist, state, cfg: own_digits_signal(df_hist, state, cfg),
 }
 
 
@@ -572,7 +770,7 @@ class Config:
     def __init__(self, sigma, min_effective_n, pitch_width, cooldown_radius, leverage_width=1.0,
                  delta_cooldown_radius=50.0, weights=None,
                  cooldown_rate_shrinkage_n=20.0, cooldown_league_rates=None,
-                 delta_cooldown_league_rates=None):
+                 delta_cooldown_league_rates=None, cooldown_mode="excess", tables=None, habit=None):
         self.sigma = sigma
         self.min_effective_n = min_effective_n
         self.pitch_width = pitch_width
@@ -592,6 +790,11 @@ class Config:
         # data backs this one category's hazard estimate), two different
         # shrinkage points - see cooldown_signal's docstring.
         self.cooldown_rate_shrinkage_n = cooldown_rate_shrinkage_n
+        # "excess": the cooldown bump's height is how much a still-open trigger's return rate beats chance (hazard-
+        # based, expires after COOLDOWN_EXPIRE_ELAPSED pitches); "pmf": the legacy unconditional-mass bump.
+        self.cooldown_mode = cooldown_mode
+        self.tables = tables if tables is not None else default_tables()
+        self.habit = {**HABIT_DEFAULTS, **(habit or {})}
         self.cooldown_league_rates = (
             cooldown_league_rates if cooldown_league_rates is not None else COOLDOWN_LEAGUE_RATES)
         self.delta_cooldown_league_rates = (
@@ -631,7 +834,7 @@ def backtest_pitcher(df: pd.DataFrame, min_history: int, cfg: Config,
         state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=pitches.loc[i])
         if state is None or signals is None:
             continue
-        combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+        combined = predict_combined(df_hist, baseline, signals, state, cfg, target_row=pitches.loc[i])
 
         actual = int(pitches.loc[i, "pitch"])
         idx = actual - 1
@@ -692,7 +895,7 @@ def recent_pitch_densities(df: pd.DataFrame, cfg: Config, n: int,
         state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=pitches.loc[i])
         if state is None or signals is None:
             continue
-        combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+        combined = predict_combined(df_hist, baseline, signals, state, cfg, target_row=pitches.loc[i])
         out.append({
             "id": cur_id, "actual": int(pitches.loc[i, "pitch"]), "baseline": baseline,
             "signals": [{"name": s.name, "density": s.density} for s in signals],
@@ -777,7 +980,8 @@ def explain_point(df: pd.DataFrame, cur_id, cfg: Config, active_signals: list[st
             print(f"    {v:>4d}: {d * 100:.3f}%")
     print()
 
-    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights) if signals else baseline
+    combined = (predict_combined(df_hist, baseline, signals, state, cfg, target_row=pitches.loc[i])
+                if signals else baseline)
     print("Combined prediction (all signals multiplied together, log-linear pool):")
     for v, d in _top_k(combined, 5):
         flag = "  <-- this happened" if v == actual else ""
@@ -825,7 +1029,7 @@ def build_explain_export(df: pd.DataFrame, pitcher: str, cur_id, cfg: Config,
     state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=pitches.loc[i])
     if state is None or signals is None:
         return None
-    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    combined = predict_combined(df_hist, baseline, signals, state, cfg, target_row=pitches.loc[i])
     sig_by_name = {s.name: s for s in signals}
 
     events = utils.cooldown_events(df_hist, value_col="pitch", radius=cfg.cooldown_radius)

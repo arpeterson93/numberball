@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import database as db
 import manager_calc
+import substitutions
 import scouting_data
 import utils
 
@@ -19,8 +20,8 @@ _TOOLS_DIR = str(pathlib.Path(__file__).resolve().parent.parent / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 from pitch_likelihood_backtest import (
-    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, build_explain_export,
-    recent_pitch_densities, COOLDOWN_LEAGUE_RATES, DELTA_COOLDOWN_LEAGUE_RATES,
+    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, predict_combined, build_explain_export,
+    recent_pitch_densities, COOLDOWN_LEAGUE_RATES, DELTA_COOLDOWN_LEAGUE_RATES, default_tables,
 )
 
 _dark_mode = st.context.theme.type == "dark"
@@ -67,7 +68,7 @@ def _pitch_likelihood_prediction(df_hist: pd.DataFrame, sigma: float, pitch_widt
     state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=target_row)
     if state is None or not signals:
         return None
-    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    combined = predict_combined(df_hist, baseline, signals, state, cfg, target_row=target_row)
     return {
         "state": state,
         "baseline": baseline,
@@ -1742,7 +1743,7 @@ with tab_p:
                 st.plotly_chart(
                     utils.pitch_likelihood_breakdown_chart(
                         _pl["baseline"], _pl["signals"], DEFAULT_WEIGHTS, 20.0,
-                        int(_pl_inspect), dark_mode=_dark_mode),
+                        int(_pl_inspect), dark_mode=_dark_mode, combined=_pl["combined"]),
                     width="stretch", config={"displayModeBar": False}, key="p_pl_breakdown",
                 )
 
@@ -2690,15 +2691,23 @@ with tab_p:
                 )
 
                 # ── open cooldowns, all categories at once ──────────────────────
-                _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]]
-                if not _cd_live_all_p.empty:
-                    st.markdown("**Open Cooldowns**")
-                    st.caption(
-                        "Ring color: the chance each open cooldown resolves on the very next pitch "
-                        "(the same odds the cooldown indication uses), averaged where zones overlap - "
-                        "red = unusually likely, blue = unlikely.")
+                _cd_live_all_p = _cd_events_p.loc[~_cd_events_p["resolved"]
+                                                  & (_cd_events_p["pitches"] < utils.COOLDOWN_EXPIRE_ELAPSED)]
+                st.markdown("**Open Cooldowns**")
+                st.caption(
+                    "Ring color: the chance each still-open cooldown comes back on the very next pitch, versus "
+                    f"the {utils.cooldown_chance(_cd_radius_p) * 100:.1f}% you'd get by chance alone (white), "
+                    "averaged where zones overlap - red = unusually likely, blue = unlikely. Triggers older than "
+                    f"{utils.COOLDOWN_EXPIRE_ELAPSED} pitches are dropped: past that the return rate is no better "
+                    "than chance.")
+                if _cd_live_all_p.empty:
+                    st.caption("No open cooldowns from the last "
+                               f"{utils.COOLDOWN_EXPIRE_ELAPSED} pitches.")
+                else:
                     st.plotly_chart(
-                        utils.cooldown_radial_chart(_cd_events_p, radius=_cd_radius_p, league_pmf=_cd_league_p),
+                        utils.cooldown_radial_chart(
+                            _cd_events_p, radius=_cd_radius_p,
+                            league_hazard=(default_tables()["cooldown_hazard"] if _cd_radius_p == 50.0 else None)),
                         width="stretch", config={"displayModeBar": False},
                         key="p_cooldown_radial",
                     )
@@ -2749,15 +2758,34 @@ with tab_p:
                     key="p_delta_cooldown_overlay",
                 )
 
-                _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]]
-                if not _dcd_live_all_p.empty:
-                    st.markdown("**Open Delta Cooldowns**")
+                _dcd_live_all_p = _dcd_events_p.loc[~_dcd_events_p["resolved"]
+                                                    & (_dcd_events_p["pitches"] < utils.COOLDOWN_EXPIRE_ELAPSED)]
+                st.markdown("**Open Delta Cooldowns**")
+                st.caption(
+                    "Same odds-versus-chance coloring as above, on deltas. Open deltas older than "
+                    f"{utils.COOLDOWN_EXPIRE_ELAPSED} pitches are dropped.")
+                if _dcd_live_all_p.empty:
+                    st.caption("No open delta cooldowns from the last "
+                               f"{utils.COOLDOWN_EXPIRE_ELAPSED} pitches.")
+                else:
+                    # True most-recent pitch (unfiltered history) - what each open delta is applied to when mapped.
+                    _dcd_anchor_vals_p = (df_p_pred[df_p_pred["pitch"].notna()].sort_values("id")["pitch"]
+                                          if not df_p_pred.empty else [])
+                    _dcd_anchor_p = int(_dcd_anchor_vals_p.iloc[-1]) if len(_dcd_anchor_vals_p) else None
+                    _dcd_map_p = st.toggle(
+                        "Map onto previous pitch", key="p_delta_cooldown_radial_map", value=False,
+                        disabled=_dcd_anchor_p is None,
+                        help="Shows each open delta applied to the last actual pitch, on the 1-1000 pitch "
+                             "scale - i.e. where the pitch would land if he repeated that move. The ring "
+                             "colors and odds are unchanged; the zones just rotate with the anchor.")
                     st.plotly_chart(
                         utils.cooldown_radial_chart(
-                            _dcd_events_p, radius=_dcd_radius_p, title="Open Delta Cooldowns",
+                            _dcd_events_p, radius=_dcd_radius_p,
+                            title="Open Delta Cooldowns (implied pitch)" if _dcd_map_p else "Open Delta Cooldowns",
                             domain_lo=-500.0, tickvals=utils._delta_value_ticks()[0],
                             ticktext=utils._delta_value_ticks()[1], value_label="Δ", signed=True,
-                            league_pmf=_dcd_league_p,
+                            league_hazard=(default_tables()["delta_cooldown_hazard"] if _dcd_radius_p == 50.0 else None),
+                            anchor=_dcd_anchor_p if _dcd_map_p else None,
                         ),
                         width="stretch", config={"displayModeBar": False},
                         key="p_delta_cooldown_radial",
@@ -5754,6 +5782,61 @@ with tab_m:
             )
             if _sandbox_diffs:
                 st.caption(f"\\* Sandbox differs from Normal Swing: {', '.join(_sandbox_diffs)}")
+
+        # Substitutions: every legal PH / PR / reliever / better-EYE catcher, scored with the sheet calculator
+        # (substitutions.py). Live-sheet mode only - it reads the lineups and rosters off the selected game sheet.
+        _sub_url = st.session_state.get("pred_sheet_sel")
+        if pred_mode != "Historical / Manual" and _sub_url:
+            with st.expander("Substitutions"):
+                st.caption("Checks every legal pinch hitter, pinch runner, reliever and better-EYE catcher against the "
+                           "current situation, one at a time. Bench = Active roster players who haven't appeared "
+                           "(replaced players can't return); lineups must stay legal per rulebook Section 8.")
+                if st.button("Analyze substitutions", key="mgr_sub_run"):
+                    with st.spinner("Reading lineups and rosters, scoring substitutions..."):
+                        _sub_game = next((g for g in all_games_meta if g.get("sheet_url") == _sub_url), {})
+                        _sub_plays = db.get_plays_for_game(_sub_game["id"]) if _sub_game.get("id") else []
+                        try:
+                            st.session_state["mgr_sub_result"] = (_sub_url, substitutions.analyze_sheet(
+                                _sub_url,
+                                {"obc": _current_obc, "outs": _current_outs, "inning": _mgr_inning, "half": _mgr_half,
+                                 "away_score": _mgr_away_score, "home_score": _mgr_home_score,
+                                 "league": st.session_state.get("mgr_league", "MLN")},
+                                _run_lookup, _sub_plays or [], bool(st.session_state.get("pred_calc_if_in", False))))
+                        except Exception as _sub_err:
+                            st.session_state["mgr_sub_result"] = (_sub_url, {"error": f"{type(_sub_err).__name__}: {_sub_err}"})
+                _sub_saved = st.session_state.get("mgr_sub_result")
+                if _sub_saved and _sub_saved[0] == _sub_url:
+                    _sub_res = _sub_saved[1]
+                    if _sub_res.get("error"):
+                        st.warning(_sub_res["error"])
+                    else:
+                        _sb = _sub_res["baseline"]
+                        st.caption(
+                            f"Now: {_sb['pitcher']} vs {_sb['batter']} (C {_sb['catcher']}, EYE {_sb['catcher_eye']}) - "
+                            f"best is {_sb['best']}"
+                            + (f", Exp WP {_sb['exp_wp'] * 100:.1f}%" if _sb["exp_wp"] is not None else "")
+                            + f", Exp Runs {_sb['exp_runs']:.2f}. Snapshot taken when you pressed Analyze.")
+                        if _sub_res["verified"].get("detail"):
+                            st.warning(_sub_res["verified"]["detail"])
+                        for _n in _sub_res.get("notes", []):
+                            st.caption(_n)
+                        for _title, _key in ((f"Hitting - {_sub_res['teams']['batting']} batting", "hitting"),
+                                             (f"Pitching - {_sub_res['teams']['fielding']}", "pitching"),
+                                             (f"Catching - {_sub_res['teams']['fielding']}", "catching")):
+                            st.markdown(f"**{_title}**")
+                            if _key == "catching" and not _sb["runners"]:
+                                st.caption("No runners on - catcher EYE only matters for steals and hit and run.")
+                                continue
+                            _srows = substitutions.sub_rows(_sub_res, _key)
+                            if not _srows:
+                                st.caption("No eligible bench options.")
+                                continue
+                            if not any(r["helps"] for r in _srows):
+                                st.caption("None beats the current matchup - closest shown.")
+                            st.dataframe(pd.DataFrame(_srows).drop(columns=["helps"]),
+                                         use_container_width=True, hide_index=True)
+                        st.caption("+ in the 'vs now' columns = helps the sub's own team. Single plate-appearance view: "
+                                   "later at-bats, defense and bench depth are not valued.")
 
         _proposed  = st.number_input("Proposed Value", min_value=1, max_value=1000,
                                     value=500, step=1, key="mgr_proposed")

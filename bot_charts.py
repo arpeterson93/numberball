@@ -39,7 +39,7 @@ _TOOLS_DIR = str(pathlib.Path(_REPO_ROOT) / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 from pitch_likelihood_backtest import (
-    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, recent_pitch_densities,
+    Config, SIGNAL_BUILDERS, DEFAULT_WEIGHTS, _prepare_step, combine_signals, predict_combined, recent_pitch_densities, default_tables,
 )
 
 # Same model settings pages/2_Scouting.py's own live prediction uses - keep
@@ -168,7 +168,7 @@ def _pitch_likelihood_prediction(
     state, baseline, signals = _prepare_step(df_hist, builders, cfg, target_row=target_row)
     if state is None or not signals:
         return None
-    combined = combine_signals(baseline, signals, cfg.min_effective_n, cfg.weights)
+    combined = predict_combined(df_hist, baseline, signals, state, cfg, target_row=target_row)
     return {
         "state": state, "baseline": baseline,
         "signals": [{"name": s.name, "n_eff": s.n_eff, "density": s.density} for s in signals],
@@ -203,7 +203,8 @@ def pitch_likelihood_breakdown_fig(df: pd.DataFrame, pitch_value: int | None = N
         return None
     pv = pitch_value or (int(np.argmax(pl["combined"])) + 1)
     return utils.pitch_likelihood_breakdown_chart(
-        pl["baseline"], pl["signals"], DEFAULT_WEIGHTS, _PL_MIN_EFFECTIVE_N, pv, dark_mode=True)
+        pl["baseline"], pl["signals"], DEFAULT_WEIGHTS, _PL_MIN_EFFECTIVE_N, pv, dark_mode=True,
+        combined=pl["combined"])
 
 
 def expected_swing_score_fig(df: pd.DataFrame, result_ranges: list | None = None, metric: str = "obp",
@@ -594,6 +595,69 @@ def strategy_table_fig(result: dict) -> go.Figure:
     return fig
 
 
+def substitution_table_fig(result: dict) -> go.Figure:
+    """Render substitutions.analyze_substitutions' output as one styled image: the current matchup's best strategy, then
+    the best hitting / pitching / catching subs (green = beats the current matchup for the sub's own team)."""
+    import substitutions
+    base = result["baseline"]
+    teams = result["teams"]
+    sections = [(f"Hitting - {teams['batting']} batting", "hitting"),
+                (f"Pitching - {teams['fielding']}", "pitching"),
+                (f"Catching - {teams['fielding']}", "catching")]
+    cols = ["Sub", "Best strategy", "Exp WP", "WP vs now (pp)", "Exp Runs", "Runs vs now"]
+    cells: list[list[str]] = [[] for _ in cols]
+    colors: list[str] = []
+
+    def add(vals, color):
+        for c, v in zip(cells, vals):
+            c.append(v)
+        colors.append(color)
+
+    for title, key in sections:
+        rows = substitutions.sub_rows(result, key)
+        if key == "catching" and not base["runners"]:
+            add([f"<b>{title}</b> - no runners on (EYE only matters for steals / H&R)", "", "", "", "", ""],
+                DARK_SECONDARY_BG)
+            continue
+        add([f"<b>{title}</b>", "", "", "", "", ""], DARK_SECONDARY_BG)
+        if not rows:
+            add(["(no eligible bench options)", "", "", "", "", ""], DARK_BG)
+        for r in rows:
+            add([r["Sub"], r["Best strategy"], r["Exp WP"], r["WP vs now (pp)"], r["Exp Runs"], r["Runs vs now"]],
+                "#1f3d2a" if r["helps"] else DARK_BG)
+        if rows and not any(r["helps"] for r in rows):
+            add(["(none beats the current matchup - closest shown)", "", "", "", "", ""], DARK_BG)
+
+    col_widths = [330, 110, 70, 100, 80, 90]
+    verified = result.get("verified") or {}
+    foot = []
+    if verified.get("detail"):
+        foot.append(verified["detail"])
+    if not result.get("uses_wp"):
+        foot.append("No win-probability table loaded - ranked by expected runs")
+    foot.append("One sub at a time, single plate-appearance view (later at-bats and defense not valued); "
+                "replaced players can't return. + = helps the sub's own team.")
+    fig = go.Figure(data=[go.Table(
+        columnwidth=col_widths,
+        header=dict(values=cols, fill_color="#085d05", font=dict(color=DARK_TEXT, size=13),
+                    align=["left"] + ["center"] * 5, height=32, line_color="#085d05"),
+        cells=dict(values=cells, fill_color=[colors] * len(cols), align=["left"] + ["center"] * 5,
+                   font=dict(size=12, color=DARK_TEXT), height=28, line_color=DARK_GRID),
+    )])
+    runners = ", ".join(f"{b}: {n}" for b, n in base["runners"].items()) or "bases empty"
+    wp = f"{base['exp_wp'] * 100:.1f}%" if base["exp_wp"] is not None else "-"
+    fig.add_annotation(text="<br>".join(foot), xref="paper", yref="paper", x=0.01, y=0, xanchor="left", yanchor="top",
+                       showarrow=False, font=dict(size=11, color="#9aa0a6"))
+    fig.update_layout(
+        title=dict(text=f"Substitutions: {base['pitcher']} vs {base['batter']} (C {base['catcher']}, EYE {base['catcher_eye']})<br>"
+                        f"<span style='font-size:12px;color:#9aa0a6'>Now: {base['best']} - Exp WP {wp}, "
+                        f"Exp Runs {base['exp_runs']:.2f}  ·  {runners}</span>", x=0.03, xanchor="left"),
+        margin=dict(l=10, r=10, t=70, b=10 + 16 * len(foot)),
+        width=sum(col_widths) + 40, height=110 + 28 * (len(colors) + 1) + 16 * len(foot),
+    )
+    return fig
+
+
 def cooldown_figs(df: pd.DataFrame, bucket: int = HOT_ZONE_DEFAULT_BUCKET,
                    by_category: bool = False) -> dict[str, go.Figure]:
     radius = bucket / 2
@@ -602,7 +666,9 @@ def cooldown_figs(df: pd.DataFrame, bucket: int = HOT_ZONE_DEFAULT_BUCKET,
         return {}
     figs = {
         "cooldown_overlay.png": utils.cooldown_cdf_overlay_chart(events),
-        "cooldown_radial.png": utils.cooldown_radial_chart(events, radius=radius),
+        "cooldown_radial.png": utils.cooldown_radial_chart(
+            events, radius=radius,
+            league_hazard=(default_tables()["cooldown_hazard"] if radius == 50 else None)),
     }
     if by_category:
         for cat in utils.SEQ_RESULT_CATEGORIES:

@@ -28,6 +28,7 @@ from discord.ext import commands
 import bot_charts
 import draft_order
 import manager_calc
+import substitutions
 import scouting_data
 import sync_plays
 import utils
@@ -295,6 +296,7 @@ catcher_radial_group = app_commands.Group(name="catcher-radial", description="Ca
 game_group = app_commands.Group(name="game", description="Tie scouting commands to a live game's active players")
 manager_group = app_commands.Group(name="manager", description="Manager decision-support tools")
 league_group = app_commands.Group(name="league", description="League-wide tools")
+
 
 # Discord caps a top-level command's serialized definition (name/description/
 # options/choices, all subcommands included) at 8000 characters. /pitcher and
@@ -1087,9 +1089,10 @@ async def game_status(interaction: discord.Interaction) -> None:
 
 @manager_group.command(name="strategy", description="Expected value / win probability by strategy for a game")
 @app_commands.describe(game_code="Numberball game code (defaults to the active game set via /game set)",
-                        infield_in="Evaluate Hit-and-Run assuming the defense currently has infield in")
+                        infield_in="Evaluate Hit-and-Run assuming the defense currently has infield in",
+                        subs="Also check every legal substitution (pinch hitter / runner, reliever, better-EYE catcher)")
 async def manager_strategy(interaction: discord.Interaction, game_code: int | None = None,
-                            infield_in: bool = False) -> None:
+                            infield_in: bool = False, subs: bool = True) -> None:
     gid = game_code if game_code is not None else _active_game_code
     if gid is None:
         await interaction.response.send_message(
@@ -1097,23 +1100,37 @@ async def manager_strategy(interaction: discord.Interaction, game_code: int | No
         return
     await interaction.response.defer()
 
-    def _build():
-        state = scouting_data.resolve_game_state(gid)
-        if not state:
-            return None
-        run_lookup = scouting_data.load_run_lookup()
-        result = manager_calc.build_strategy_table(state, run_lookup, if_in_checked=infield_in)
-        fig = bot_charts.strategy_table_fig(result)
+    def _png(fig):
         buf = io.BytesIO()
         _write_png(fig, buf)
         buf.seek(0)
         return buf
 
-    buf = await asyncio.to_thread(_build)
-    if buf is None:
+    def _build():
+        state = scouting_data.resolve_game_state(gid)
+        if not state:
+            return None, None, None
+        run_lookup = scouting_data.load_run_lookup()
+        result = manager_calc.build_strategy_table(state, run_lookup, if_in_checked=infield_in)
+        strat_buf = _png(bot_charts.strategy_table_fig(result))
+        if not subs:
+            return strat_buf, None, None
+        try:
+            sub_result = substitutions.analyze_game(gid, if_in_checked=infield_in)
+        except Exception as e:  # the strategy table is still worth sending if the substitution read fails
+            return strat_buf, None, f"Substitution check failed: {type(e).__name__}: {str(e)[:150]}"
+        if sub_result.get("error"):
+            return strat_buf, None, f"Substitution check skipped: {sub_result['error']}"
+        return strat_buf, _png(bot_charts.substitution_table_fig(sub_result)), None
+
+    strat_buf, sub_buf, sub_note = await asyncio.to_thread(_build)
+    if strat_buf is None:
         await interaction.followup.send(f"Couldn't read game state for `{gid}` (no sheet on file).", ephemeral=True)
         return
-    await interaction.followup.send(file=discord.File(buf, filename="strategy.png"))
+    files = [discord.File(strat_buf, filename="strategy.png")]
+    if sub_buf is not None:
+        files.append(discord.File(sub_buf, filename="substitutions.png"))
+    await interaction.followup.send(content=sub_note, files=files)
 
 
 # ── league ───────────────────────────────────────────────────────────────────
