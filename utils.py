@@ -1128,7 +1128,8 @@ def filter_by_prior_context(
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(max(1, int(prev_result_lag))).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
-        keep &= (prev_cat == prev_result_cat)
+        members = SEQ_RESULT_GROUPS.get(prev_result_cat)       # a combined option matches any of its members
+        keep &= prev_cat.isin(members) if members else (prev_cat == prev_result_cat)
 
     if leverage_bucket is not None and "_leverage" in d.columns:
         keep &= (d["_leverage"] < leverage_threshold) if leverage_bucket == "low" \
@@ -1625,6 +1626,11 @@ _SEQ_RESULT_ORDER = list(_RESULT_ZONE_COLORS.keys())
 _SEQ_K_OR_WORSE = set(_SEQ_RESULT_ORDER[_SEQ_RESULT_ORDER.index("K"):]) | {"KCS", "BDP"}
 # Fixed display / axis order for the prior-result signals.
 SEQ_RESULT_CATEGORIES = ["XBH", "BB-1B", "Out", "K+"]
+# Combined "previous result" choices for the radial context filters: the filter matches either member. They are extra,
+# manual-only options - every automatic selection (the default from the pitcher's actual last result, the model's own
+# conditioning) stays on the granular category.
+SEQ_RESULT_GROUPS = {"XBH + BB-1B": ("XBH", "BB-1B"), "Out + K+": ("Out", "K+")}
+SEQ_RESULT_FILTER_OPTIONS = SEQ_RESULT_CATEGORIES + list(SEQ_RESULT_GROUPS)   # granular first, so default indexes are unchanged
 # Prior-result categories for the Catcher tab's Context Filters - steal
 # attempts are binary (Safe/Caught), unlike the four-way batting buckets above.
 STEAL_RESULT_CATEGORIES = ["Safe", "Out"]

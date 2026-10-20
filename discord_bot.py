@@ -267,7 +267,7 @@ def _radial_context_kwargs(prev_value, value_width, default_width, result_cat, l
 _value_bucket_choices = [app_commands.Choice(name=str(v), value=v) for v in bot_charts.VALUE_BUCKET_CHOICES]
 _delta_bucket_choices = [app_commands.Choice(name=str(v), value=v) for v in bot_charts.DELTA_BUCKET_CHOICES]
 _hot_zone_choices = [app_commands.Choice(name=str(v), value=v) for v in bot_charts.HOT_ZONE_BUCKET_CHOICES]
-_seq_result_choices = [app_commands.Choice(name=c, value=c) for c in utils.SEQ_RESULT_CATEGORIES]
+_seq_result_choices = [app_commands.Choice(name=c, value=c) for c in utils.SEQ_RESULT_FILTER_OPTIONS]
 _steal_result_choices = [app_commands.Choice(name=c, value=c) for c in utils.STEAL_RESULT_CATEGORIES]
 _leverage_choices = [app_commands.Choice(name="Low (< threshold)", value="low"),
                       app_commands.Choice(name="High (>= threshold)", value="high")]

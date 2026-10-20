@@ -2289,8 +2289,10 @@ with tab_p:
                 _cf_result_lag_p = 1
                 if _cf_result_on_p:
                     _cf_result_cat_p = st.selectbox(
-                        "Previous result category", utils.SEQ_RESULT_CATEGORIES,
-                        index=utils.SEQ_RESULT_CATEGORIES.index(_cf_result_def_p), key="ctx_result_v_p",
+                        "Previous result category", utils.SEQ_RESULT_FILTER_OPTIONS,
+                        index=utils.SEQ_RESULT_FILTER_OPTIONS.index(_cf_result_def_p), key="ctx_result_v_p",
+                        help="Defaults to the pitcher's actual last result's own category. The two combined "
+                             "options (XBH + BB-1B, Out + K+) match either category.",
                     )
                     _cf_result_lag_p = st.selectbox(
                         "Pitches after result", [1, 2, 3, 4, 5], index=0, key="ctx_result_lag_p",
