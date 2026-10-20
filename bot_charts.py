@@ -91,7 +91,54 @@ def apply_dark_theme(fig: go.Figure) -> go.Figure:
     # handles this for the app, but kaleido's static PNG export (what the bot
     # sends to Discord) never passes through that, so it needs doing here.
     fig.update_polars(bgcolor=DARK_SECONDARY_BG)
+    _match_app_slice_backdrop(fig)
     return fig
+
+
+# The Streamlit app draws the radials' per-slice frequency backdrop as 22%-alpha blue/white/red wedges over a WHITE
+# polar disc, which reads as light pastel wedges. Left as translucent fills in the bot they blend with whatever polar
+# background happens to be underneath (the dark one above), so they came out dark - and moving that background around
+# is what "fixed" it (and re-broke it) each time. Instead: the wedges are flattened to the solid colour they have in
+# the app (alpha blended over white once, here), and the disc under them is white, so the bot's look no longer
+# depends on the polar background or on the plotly / kaleido version. Only figures that contain these wedges are
+# touched (utils._slice_background_trace tags them); every other chart keeps the dark polar background.
+APP_DISC = (255, 255, 255)
+
+
+def _flatten_over(color: str, bg: tuple[int, int, int]) -> str:
+    import re
+    m = re.match(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)", str(color))
+    if not m:
+        return color
+    r, g, b = (int(m.group(i)) for i in (1, 2, 3))
+    a = float(m.group(4)) if m.group(4) is not None else 1.0
+    return "rgb({},{},{})".format(*(round(a * c + (1 - a) * k) for c, k in zip((r, g, b), bg)))
+
+
+def _match_app_slice_backdrop(fig: go.Figure) -> None:
+    wedges = [t for t in fig.data if t.type == "barpolar" and getattr(t, "meta", None) == "slice_backdrop"]
+    if not wedges:
+        return
+    for t in wedges:
+        t.marker.color = [_flatten_over(c, APP_DISC) for c in t.marker.color]
+    fig.update_polars(bgcolor="rgb({},{},{})".format(*APP_DISC))
+    # Plotly always draws polar grid lines BENEATH the traces. In the app the translucent wedges let the faint rings and
+    # spokes show through; opaque wedges hide them. So draw them as thin line traces just above the wedges (below the
+    # dots), at the radii/angles the axes would have used.
+    rng = fig.layout.polar.radialaxis.range
+    r_max = float(rng[1]) if rng else float(max(max(t.r) for t in wedges))
+    ring_r = [r for r in np.arange(10.0, r_max, 10.0)] or [r_max / 2]
+    sweep = np.linspace(0, 360, 181)
+    spokes = list(fig.layout.polar.angularaxis.tickvals or [])
+    grid = dict(color="rgba(100,100,100,0.30)", width=1)
+    lines = [go.Scatterpolar(r=[r] * len(sweep), theta=sweep, mode="lines", line=grid, hoverinfo="skip", showlegend=False)
+             for r in ring_r]
+    lines += [go.Scatterpolar(r=[0, r_max], theta=[a, a], mode="lines", line=grid, hoverinfo="skip", showlegend=False)
+              for a in spokes]
+    rest = [t for t in fig.data if all(t is not w for w in wedges)]
+    fig.add_traces(lines)
+    added = list(fig.data[-len(lines):])
+    fig.data = tuple(wedges) + tuple(added) + tuple(rest)      # draw order: wedges, rings/spokes, then the original traces
 
 
 def _last_value(df: pd.DataFrame, col: str) -> int | None:

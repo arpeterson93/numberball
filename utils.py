@@ -4346,6 +4346,10 @@ def _slice_background_trace(all_theta: list[float], r_max: float) -> go.Barpolar
         r=[r_max] * 10, theta=thetas, width=[36.0] * 10,
         marker=dict(color=colors, line=dict(width=0)),
         base=0, hoverinfo="skip", showlegend=False,
+        # Not drawn: lets bot_charts.apply_dark_theme find these wedges. They are low-alpha fills, so their
+        # on-screen colour depends on whatever polar background sits under them - the bot flattens them to
+        # solid colours (over the app's light disc) so the look can't drift with the background or the renderer.
+        meta="slice_backdrop",
     )
 
 
