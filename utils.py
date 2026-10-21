@@ -3423,7 +3423,7 @@ def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10
 
     For each of ZONE_RETURN_GRID positions around the 1-1000 wheel and each lag k = 1..max_lag: take the pitches he threw
     near that position (a triangular kernel, full weight at the position fading to zero at +/- zone_width/2, circular)
-    and ask, of those, how often was the pitch k pitches later (same game) back within +/- zone_width/2 of THAT pitch.
+    and ask, of those, how often was the pitch k pitches later back within +/- zone_width/2 of THAT pitch.
     The return test is a plain hard window; only the "which pitches feed this wedge" side is smoothed, so there are no
     zone edges anywhere. Raw rates, no baseline against his habit. Each wedge also carries its effective sample size
     (sum of weights squared over sum of squared weights) so thin wedges can be grayed, and the share of his pitches that
@@ -3445,7 +3445,6 @@ def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10
     n = len(vals)
     if n < 30:
         return {}
-    games = pd.factorize(d["game_id"])[0] if "game_id" in d.columns else np.zeros(n, dtype=int)
     G = ZONE_RETURN_GRID
     half = zone_width / 2.0
     centers = (np.arange(G) + 0.5) * (1000.0 / G)
@@ -3455,9 +3454,9 @@ def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10
     for k in range(1, max_lag + 1):
         if k >= n:
             break
-        ok = games[k:] == games[:n - k]
-        Wk = W[:n - k][ok]
-        back = (_circ_abs_diff(vals[k:][ok], vals[:n - k][ok]) <= half).astype(float)
+        # follow-ups run straight through his pitch history in order, across game boundaries
+        Wk = W[:n - k]
+        back = (_circ_abs_diff(vals[k:], vals[:n - k]) <= half).astype(float)
         num = (Wk * back[:, None]).sum(axis=0)
         den = Wk.sum(axis=0)
         den2 = (Wk ** 2).sum(axis=0)
@@ -3481,7 +3480,7 @@ def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10
         return {}
     return {"meta": {"n": n, "G": G, "zone_width": zone_width, "last_pitch": int(vals[-1]),
                       "share": (dist <= half).mean(axis=0), "centers": centers,
-                      # recent[k-1] = the pitch thrown k-1 pitches ago (last pitch first), across games: the live
+                      # recent[k-1] = the pitch thrown k-1 pitches ago (last pitch first), across games, like the follow-ups: the live
                       # pitch sitting at ring k, i.e. the one the NEXT pitch is k pitches after
                       "recent": [int(vals[n - k]) for k in range(1, len(lags) + 1)]},
             "lags": lags}

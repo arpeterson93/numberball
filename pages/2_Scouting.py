@@ -141,7 +141,7 @@ def _render_zone_return_map(df: pd.DataFrame, is_mobile: bool, dark_mode: bool) 
     st.caption(
         "Angle = position on the 1-1000 wheel; each ring is a lag - outermost = the very next pitch, stepping inward "
         "to 10 pitches later. Color = of the pitches he threw near that position, the % where the pitch that many "
-        "pitches later (same game) came back within +/- half the zone width of that pitch. 'Near' is smoothed: a "
+        "pitches later (it can be in a later game) came back within +/- half the zone width of that pitch. 'Near' is smoothed: a "
         "pitch counts fully at the position and fades out to half the zone width away, so there are no hard zone "
         "edges. Darker = comes back more often. Raw rates: a spot he throws a lot will naturally come back more "
         "(hover shows how often he throws there). Neighboring positions share pitches, so they move together. Gray = "
@@ -149,7 +149,7 @@ def _render_zone_return_map(df: pd.DataFrame, is_mobile: bool, dark_mode: bool) 
         "'back' for it. Numbered markers = where he is right now: marker k is the pitch thrown k-1 pitches ago "
         "(1 = his last pitch), so the next pitch is lag k after it - read its ring color at the marker (hover for the "
         "numbers). With 'Smooth across lags' on, each ring is blended with its neighbors, so ring k also reflects "
-        "a little of lags k-1 and k+1. Markers can reach back across games; the colors themselves come from within-game follow-ups. "
+        "a little of lags k-1 and k+1. Pitches are taken in order across games, so a follow-up (and a marker) can fall in a different game. "
         "Pitches recorded as 0 (autos / no pitch submitted) are left out.")
     width = st.select_slider("Zone width", options=[50, 100, 125, 200, 250], value=100, key="p_zone_return_width",
                              help="Both how far around each position the smoothing reaches (+/- half this) and how "
