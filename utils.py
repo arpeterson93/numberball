@@ -3413,6 +3413,165 @@ def cooldown_lag_profile(
     return out
 
 
+ZONE_RETURN_MIN_N = 10   # a wedge whose effective sample is below this is drawn gray (too thin to read)
+ZONE_RETURN_GRID = 100   # wedges around the wheel (each 10 pitch-values wide)
+
+
+def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10, value_col: str = "pitch",
+                      lag_smooth: bool = False) -> dict:
+    """How often does he come back to where he just threw, by lag - smoothed around the wheel.
+
+    For each of ZONE_RETURN_GRID positions around the 1-1000 wheel and each lag k = 1..max_lag: take the pitches he threw
+    near that position (a triangular kernel, full weight at the position fading to zero at +/- zone_width/2, circular)
+    and ask, of those, how often was the pitch k pitches later (same game) back within +/- zone_width/2 of THAT pitch.
+    The return test is a plain hard window; only the "which pitches feed this wedge" side is smoothed, so there are no
+    zone edges anywhere. Raw rates, no baseline against his habit. Each wedge also carries its effective sample size
+    (sum of weights squared over sum of squared weights) so thin wedges can be grayed, and the share of his pitches that
+    fall within +/- zone_width/2 of its position, for context.
+
+    lag_smooth=True additionally blends each ring with its neighbors (weights 1/4, 1/2, 1/4; the first and last ring
+    re-weight over the neighbors they have) by pooling the weighted "back" counts and the weights, not by averaging the
+    finished rates. Adjacent lags are nearly uncorrelated, so unsmoothed rings read as static; this trades a little lag
+    resolution for a much calmer picture. The reported effective n is the same weighted blend of the per-lag values
+    (no extra independence is claimed).
+
+    Pitches recorded as 0 are autos / unsubmitted pitches (or intentional walks), not thrown pitches: they are left
+    out so they neither feed a wedge nor count as a return, and do not take up a lag slot.
+
+    Returns {"meta": {...}, "lags": [{"lag", "rate", "eff"}, ...]} (rate / eff are per-position arrays);
+    {} when there is too little data."""
+    d = df[df[value_col].notna() & (df[value_col] >= 1) & (df[value_col] <= 1000)].sort_values("id")
+    vals = d[value_col].astype(int).to_numpy()
+    n = len(vals)
+    if n < 30:
+        return {}
+    games = pd.factorize(d["game_id"])[0] if "game_id" in d.columns else np.zeros(n, dtype=int)
+    G = ZONE_RETURN_GRID
+    half = zone_width / 2.0
+    centers = (np.arange(G) + 0.5) * (1000.0 / G)
+    dist = _circ_abs_diff(vals[:, None], centers[None, :])            # (n, G) circular distance pitch -> position
+    W = np.clip(1.0 - dist / half, 0.0, None)                          # triangular kernel weights
+    lags = []
+    for k in range(1, max_lag + 1):
+        if k >= n:
+            break
+        ok = games[k:] == games[:n - k]
+        Wk = W[:n - k][ok]
+        back = (_circ_abs_diff(vals[k:][ok], vals[:n - k][ok]) <= half).astype(float)
+        num = (Wk * back[:, None]).sum(axis=0)
+        den = Wk.sum(axis=0)
+        den2 = (Wk ** 2).sum(axis=0)
+        with np.errstate(all="ignore"):
+            eff = np.where(den2 > 0, den ** 2 / den2, 0.0)
+        lags.append({"lag": k, "num": num, "den": den, "eff": eff})
+    if lag_smooth and len(lags) > 1:
+        sm = []
+        for i, lg in enumerate(lags):
+            use = [(j, a) for j, a in ((i - 1, 0.25), (i, 0.5), (i + 1, 0.25)) if 0 <= j < len(lags)]
+            tot_a = sum(a for _, a in use)
+            sm.append({"lag": lg["lag"],
+                       "num": sum(a * lags[j]["num"] for j, a in use) / tot_a,
+                       "den": sum(a * lags[j]["den"] for j, a in use) / tot_a,
+                       "eff": sum(a * lags[j]["eff"] for j, a in use) / tot_a})
+        lags = sm
+    for lg in lags:
+        with np.errstate(all="ignore"):
+            lg["rate"] = np.where(lg["den"] > 0, lg["num"] / lg["den"], np.nan)
+    if not lags:
+        return {}
+    return {"meta": {"n": n, "G": G, "zone_width": zone_width, "last_pitch": int(vals[-1]),
+                      "share": (dist <= half).mean(axis=0), "centers": centers,
+                      # recent[k-1] = the pitch thrown k-1 pitches ago (last pitch first), across games: the live
+                      # pitch sitting at ring k, i.e. the one the NEXT pitch is k pitches after
+                      "recent": [int(vals[n - k]) for k in range(1, len(lags) + 1)]},
+            "lags": lags}
+
+
+def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 520) -> go.Figure:
+    """One radial: angle = position on the 1-1000 wheel, each ring a lag (lag 1 outermost, stepping inward). Color =
+    the raw smoothed share of pitches thrown near that position that were followed, that many pitches later, by a
+    pitch back within +/- half the zone width of that pitch (one color scale shared by every ring). Positions with too
+    small an effective sample are gray. The black arc on the rim spans his most recent pitch +/- half the zone width -
+    exactly what would count as "back". The numbered markers are the live pitches: marker k sits at the pitch thrown k-1
+    pitches ago (so the next pitch is lag k after it), on ring k."""
+    m, lags = res["meta"], res["lags"]
+    G, w, K = m["G"], m["zone_width"], len(lags)
+    step = 360.0 / G
+    hole = 1.2                                  # inner empty radius, in ring-thickness units
+    centers = m["centers"]
+    theta, base, rates, hover = [], [], [], []
+    g_theta, g_base = [], []
+    for j, lg in enumerate(lags):
+        ring_base = hole + (K - 1 - j)          # lag 1 (j=0) outermost
+        for i in range(G):
+            theta.append(centers[i] / 1000 * 360)
+            base.append(ring_base)
+            thin = lg["eff"][i] < ZONE_RETURN_MIN_N
+            rate = 0.0 if not np.isfinite(lg["rate"][i]) else lg["rate"][i] * 100
+            rates.append(rate)
+            if thin:
+                g_theta.append(centers[i] / 1000 * 360)
+                g_base.append(ring_base)
+            if np.isfinite(lg["rate"][i]):
+                hover.append(
+                    f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>"
+                    f"Back within +/-{w // 2}: {lg['rate'][i] * 100:.1f}%<br>"
+                    f"Eff. n: {lg['eff'][i]:.0f}{' (thin)' if thin else ''}<br>"
+                    f"Habit: {m['share'][i] * 100:.1f}%")
+            else:
+                hover.append(f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>No pitches here")
+    vmax = max(max(rates), 1e-9)
+    ink = "#ffffff" if dark_mode else "#0b0b0b"
+    fig = go.Figure(go.Barpolar(
+        theta=theta, r=[1] * len(theta), base=base, width=[step] * len(theta),
+        marker=dict(color=rates, colorscale="Blues", cmin=0, cmax=vmax, line=dict(width=0),
+                    colorbar=dict(title=dict(text="% back within<br>+/- half a zone", side="top"), thickness=12,
+                                  len=0.55, ticksuffix="%")),
+        hovertext=hover, hoverinfo="text"))
+    if g_theta:
+        fig.add_trace(go.Barpolar(
+            theta=g_theta, r=[1] * len(g_theta), base=g_base, width=[step] * len(g_theta),
+            marker=dict(color="rgba(150,150,150,0.30)", line=dict(width=0)), hoverinfo="skip"))
+    # Live markers: ring k holds the pitch thrown k-1 pitches ago (any game) - the pitch the NEXT pitch is k after -
+    # drawn at that pitch's angle with the lag number in it, so the markers double as the ring labels.
+    rec = m["recent"]
+    mk_hover = []
+    for j, v in enumerate(rec):
+        gi = min(G - 1, (v - 1) * G // 1000)
+        lg = lags[j]
+        when = "last pitch" if j == 0 else f"{j} pitch{'es' if j != 1 else ''} ago"
+        head = f"<b>Lag {j + 1}: pitch {v}</b> ({when})<br>"
+        if np.isfinite(lg["rate"][gi]):
+            mk_hover.append(head + f"Back within +/-{w // 2}: {lg['rate'][gi] * 100:.1f}%<br>"
+                            f"Eff. n: {lg['eff'][gi]:.0f}<br>Habit: {m['share'][gi] * 100:.1f}%")
+        else:
+            mk_hover.append(head + "No pitches near here")
+    fig.add_trace(go.Scatterpolar(
+        theta=[v / 1000 * 360 for v in rec], r=[hole + (K - 1 - j) + 0.5 for j in range(len(rec))],
+        mode="markers+text",
+        marker=dict(size=14, color="rgba(26,26,25,0.95)" if dark_mode else "rgba(255,255,255,0.95)",
+                    line=dict(color=ink, width=1.3)),
+        text=[str(j + 1) for j in range(len(rec))], textfont=dict(size=8, color=ink),
+        hovertext=mk_hover, hoverinfo="text", showlegend=False))
+    lp = m["last_pitch"]
+    arc = np.linspace((lp - w / 2) / 1000 * 360, (lp + w / 2) / 1000 * 360, 24)
+    rim = hole + K + 0.35
+    fig.add_trace(go.Scatterpolar(theta=arc, r=[rim] * len(arc), mode="lines", line=dict(color=ink, width=5),
+                                  hoverinfo="skip", showlegend=False))
+    fig.update_layout(
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(range=[0, rim + 0.2], visible=False),
+            angularaxis=dict(direction="clockwise", rotation=90, tickmode="array",
+                             tickvals=[i * 36 for i in range(10)], ticktext=[str(i * 100) for i in range(10)],
+                             tickfont=dict(size=10), gridcolor="rgba(128,128,128,0.25)"),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)", showlegend=False, height=height, dragmode=False,
+        margin=dict(l=30, r=30, t=20, b=20),
+    )
+    return fig
+
+
 def cooldown_league_lag_profile(domain: str) -> dict[str, dict] | None:
     """League-wide per-category {"mean": [...], "median": [...], "null": x}
     for cooldown_lag_distance_chart's overlay, from the same tools/
