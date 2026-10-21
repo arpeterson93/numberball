@@ -3487,31 +3487,47 @@ def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10
             "lags": lags}
 
 
-def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 520) -> go.Figure:
-    """One radial: angle = position on the 1-1000 wheel, each ring a lag (lag 1 outermost, stepping inward). Color =
-    the raw smoothed share of pitches thrown near that position that were followed, that many pitches later, by a
-    pitch back within +/- half the zone width of that pitch (one color scale shared by every ring). Positions with too
-    small an effective sample are gray. The black arc on the rim spans his most recent pitch +/- half the zone width -
-    exactly what would count as "back". The numbered markers are the live pitches: marker k sits at the pitch thrown k-1
-    pitches ago (so the next pitch is lag k after it), on ring k."""
+ZONE_RETURN_HOLE = 1.2          # inner empty radius, in ring-thickness units
+ZONE_RETURN_RING_BLEND = 0.8    # smooth look: share of each ring's thickness over which it blends into the next ring
+
+
+def _zone_return_marker_info(res: dict, vmax: float) -> dict:
+    """Shared by both looks: where each live marker sits (angle in degrees, ring radius), its hover text, and an ink
+    color (black / white) that contrasts with the heat color under it (the scale runs near-white to navy). Marker k is
+    the pitch thrown k-1 pitches ago (any game); ring k is lag k."""
+    from plotly.colors import sample_colorscale
     m, lags = res["meta"], res["lags"]
     G, w, K = m["G"], m["zone_width"], len(lags)
-    step = 360.0 / G
-    hole = 1.2                                  # inner empty radius, in ring-thickness units
+    rec = m["recent"]
+    hover, ink = [], []
+    for j, v in enumerate(rec):
+        gi = min(G - 1, (v - 1) * G // 1000)
+        lg = lags[j]
+        t = min(1.0, lg["rate"][gi] * 100 / vmax) if np.isfinite(lg["rate"][gi]) else 0.0
+        r_, g_, b_ = (int(x) for x in sample_colorscale("Blues", [t])[0][4:-1].split(","))
+        ink.append("#0b0b0b" if (0.299 * r_ + 0.587 * g_ + 0.114 * b_) / 255 > 0.5 else "#ffffff")
+        when = "last pitch" if j == 0 else f"{j} pitch{'es' if j != 1 else ''} ago"
+        head = f"<b>Lag {j + 1}: pitch {v}</b> ({when})<br>"
+        if np.isfinite(lg["rate"][gi]):
+            hover.append(head + f"Back within +/-{w // 2}: {lg['rate'][gi] * 100:.1f}%<br>"
+                         f"Eff. n: {lg['eff'][gi]:.0f}<br>Habit: {m['share'][gi] * 100:.1f}%")
+        else:
+            hover.append(head + "No pitches near here")
+    return {"theta": [v / 1000 * 360 for v in rec],
+            "r": [ZONE_RETURN_HOLE + (K - 1 - j) + 0.5 for j in range(len(rec))],
+            "hover": hover, "ink": ink, "n": len(rec)}
+
+
+def _zone_return_cell_hover(res: dict) -> tuple[list[str], np.ndarray]:
+    """Per-cell hover text (ring-major: lag 1's positions first) and the cell rates in percent."""
+    m, lags = res["meta"], res["lags"]
+    G, w = m["G"], m["zone_width"]
     centers = m["centers"]
-    theta, base, rates, hover = [], [], [], []
-    g_theta, g_base = [], []
-    for j, lg in enumerate(lags):
-        ring_base = hole + (K - 1 - j)          # lag 1 (j=0) outermost
+    hover, rates = [], []
+    for lg in lags:
         for i in range(G):
-            theta.append(centers[i] / 1000 * 360)
-            base.append(ring_base)
             thin = lg["eff"][i] < ZONE_RETURN_MIN_N
-            rate = 0.0 if not np.isfinite(lg["rate"][i]) else lg["rate"][i] * 100
-            rates.append(rate)
-            if thin:
-                g_theta.append(centers[i] / 1000 * 360)
-                g_base.append(ring_base)
+            rates.append(0.0 if not np.isfinite(lg["rate"][i]) else lg["rate"][i] * 100)
             if np.isfinite(lg["rate"][i]):
                 hover.append(
                     f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>"
@@ -3520,6 +3536,45 @@ def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 52
                     f"Habit: {m['share'][i] * 100:.1f}%")
             else:
                 hover.append(f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>No pitches here")
+    return hover, np.array(rates)
+
+
+def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 520,
+                            touch: bool = False, smooth: bool = False) -> go.Figure:
+    """The Zone return map. Angle = position on the 1-1000 wheel, each ring a lag (lag 1 outermost, stepping inward).
+    Color = the raw smoothed share of pitches thrown near that position that were followed, that many pitches later,
+    by a pitch back within +/- half the zone width of that pitch (one color scale shared by every ring). Positions
+    with too small an effective sample are gray. The black arc on the rim spans his most recent pitch +/- half the zone
+    width - exactly what would count as "back". The numbered markers are the live pitches: marker k sits at the pitch
+    thrown k-1 pitches ago (so the next pitch is lag k after it), on ring k. They are see-through, with the outline and
+    number black or white depending on the color underneath.
+
+    smooth=False draws one block per position and ring. smooth=True draws a continuous image instead: every pixel
+    blends the surrounding cells (circularly around the wheel, and between neighboring rings over
+    ZONE_RETURN_RING_BLEND of a ring's thickness), so there are no cell edges. It is display interpolation only -
+    the numbers in the hover are still each cell's own.
+
+    touch=True (phones): a finger tap lands inside the heat under a marker far more often than on the 14px marker
+    itself, and the heat's hover wins - so the heat is made non-hoverable and each marker gets an invisible, larger
+    tap target that carries the hover."""
+    if smooth:
+        return _zone_return_rings_chart_smooth(res, dark_mode, height, touch)
+    m, lags = res["meta"], res["lags"]
+    G, w, K = m["G"], m["zone_width"], len(lags)
+    step = 360.0 / G
+    hole = ZONE_RETURN_HOLE
+    centers = m["centers"]
+    cell_hover, rates_arr = _zone_return_cell_hover(res)
+    rates = rates_arr.tolist()
+    theta, base, g_theta, g_base = [], [], [], []
+    for j, lg in enumerate(lags):
+        ring_base = hole + (K - 1 - j)          # lag 1 (j=0) outermost
+        for i in range(G):
+            theta.append(centers[i] / 1000 * 360)
+            base.append(ring_base)
+            if lg["eff"][i] < ZONE_RETURN_MIN_N:
+                g_theta.append(centers[i] / 1000 * 360)
+                g_base.append(ring_base)
     vmax = max(max(rates), 1e-9)
     ink = "#ffffff" if dark_mode else "#0b0b0b"
     fig = go.Figure(go.Barpolar(
@@ -3527,32 +3582,22 @@ def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 52
         marker=dict(color=rates, colorscale="Blues", cmin=0, cmax=vmax, line=dict(width=0),
                     colorbar=dict(title=dict(text="% back within<br>+/- half a zone", side="top"), thickness=12,
                                   len=0.55, ticksuffix="%")),
-        hovertext=hover, hoverinfo="text"))
+        **(dict(hoverinfo="skip") if touch else dict(hovertext=cell_hover, hoverinfo="text"))))
     if g_theta:
         fig.add_trace(go.Barpolar(
             theta=g_theta, r=[1] * len(g_theta), base=g_base, width=[step] * len(g_theta),
             marker=dict(color="rgba(150,150,150,0.30)", line=dict(width=0)), hoverinfo="skip"))
-    # Live markers: ring k holds the pitch thrown k-1 pitches ago (any game) - the pitch the NEXT pitch is k after -
-    # drawn at that pitch's angle with the lag number in it, so the markers double as the ring labels.
-    rec = m["recent"]
-    mk_hover = []
-    for j, v in enumerate(rec):
-        gi = min(G - 1, (v - 1) * G // 1000)
-        lg = lags[j]
-        when = "last pitch" if j == 0 else f"{j} pitch{'es' if j != 1 else ''} ago"
-        head = f"<b>Lag {j + 1}: pitch {v}</b> ({when})<br>"
-        if np.isfinite(lg["rate"][gi]):
-            mk_hover.append(head + f"Back within +/-{w // 2}: {lg['rate'][gi] * 100:.1f}%<br>"
-                            f"Eff. n: {lg['eff'][gi]:.0f}<br>Habit: {m['share'][gi] * 100:.1f}%")
-        else:
-            mk_hover.append(head + "No pitches near here")
+    mk = _zone_return_marker_info(res, vmax)
     fig.add_trace(go.Scatterpolar(
-        theta=[v / 1000 * 360 for v in rec], r=[hole + (K - 1 - j) + 0.5 for j in range(len(rec))],
-        mode="markers+text",
-        marker=dict(size=14, color="rgba(26,26,25,0.95)" if dark_mode else "rgba(255,255,255,0.95)",
-                    line=dict(color=ink, width=1.3)),
-        text=[str(j + 1) for j in range(len(rec))], textfont=dict(size=8, color=ink),
-        hovertext=mk_hover, hoverinfo="text", showlegend=False))
+        theta=mk["theta"], r=mk["r"], mode="markers+text",
+        marker=dict(size=14, color="rgba(255,255,255,0.0)",   # see-through: the heat map shows inside the marker
+                    line=dict(color=mk["ink"], width=1.3)),
+        text=[f"<b>{j + 1}</b>" for j in range(mk["n"])], textfont=dict(size=8, color=mk["ink"]),
+        **(dict(hoverinfo="skip") if touch else dict(hovertext=mk["hover"], hoverinfo="text")), showlegend=False))
+    if touch:
+        fig.add_trace(go.Scatterpolar(
+            theta=mk["theta"], r=mk["r"], mode="markers", marker=dict(size=34, color="rgba(0,0,0,0)"),
+            hovertext=mk["hover"], hoverinfo="text", showlegend=False))
     lp = m["last_pitch"]
     arc = np.linspace((lp - w / 2) / 1000 * 360, (lp + w / 2) / 1000 * 360, 24)
     rim = hole + K + 0.35
@@ -3568,6 +3613,107 @@ def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 52
         ),
         paper_bgcolor="rgba(0,0,0,0)", showlegend=False, height=height, dragmode=False,
         margin=dict(l=30, r=30, t=20, b=20),
+    )
+    return fig
+
+
+def _zone_return_rings_chart_smooth(res: dict, dark_mode: bool, height: int, touch: bool) -> go.Figure:
+    """zone_return_rings_chart(smooth=True): a cartesian heatmap image of the ring, computed pixel by pixel."""
+    m, lags = res["meta"], res["lags"]
+    G, w, K = m["G"], m["zone_width"], len(lags)
+    hole = ZONE_RETURN_HOLE
+    outer = hole + K
+    rim = outer + 0.35
+    lim = rim + 0.95                                  # room for the 0-900 labels
+    centers = m["centers"]
+    cell_hover, rates_arr = _zone_return_cell_hover(res)
+    R = np.array([np.nan_to_num(lg["rate"], nan=0.0) for lg in lags]) * 100        # (K, G) percent
+    E = np.array([lg["eff"] for lg in lags])                                       # (K, G) effective n
+    vmax = max(float(R.max()), 1e-9)
+    ink = "#ffffff" if dark_mode else "#0b0b0b"
+    muted = "rgba(255,255,255,0.55)" if dark_mode else "rgba(11,11,11,0.55)"
+
+    N = 440                                           # ~1 data pixel per screen pixel at the usual chart height
+    xs = np.linspace(-lim, lim, N)
+    X, Y = np.meshgrid(xs, xs)
+    rad = np.hypot(X, Y)
+    pos = (np.degrees(np.arctan2(X, Y)) % 360.0) / 360.0 * 1000.0                  # wheel position, clockwise from top
+    # around the wheel: linear between neighboring cell centers (circular)
+    u = pos / (1000.0 / G) - 0.5
+    i0 = np.floor(u).astype(int)
+    fa = u - i0
+    i0m, i1m = i0 % G, (i0 + 1) % G
+    # between rings: ring j (lag j+1) is centered at radius outer - 0.5 - j; blend only over the middle
+    # ZONE_RETURN_RING_BLEND of the gap between two centers, flat near each center
+    jf = np.clip(outer - 0.5 - rad, 0.0, K - 1.0)
+    j0 = np.minimum(np.floor(jf).astype(int), max(K - 2, 0))
+    fr = jf - j0
+    fr = np.clip((fr - 0.5) / ZONE_RETURN_RING_BLEND + 0.5, 0.0, 1.0)
+    j1 = np.minimum(j0 + 1, K - 1)
+
+    def lerp(A):
+        top = A[j0, i0m] * (1 - fa) + A[j0, i1m] * fa
+        bot = A[j1, i0m] * (1 - fa) + A[j1, i1m] * fa
+        return top * (1 - fr) + bot * fr
+
+    Z = lerp(R)
+    thin = lerp(E) < ZONE_RETURN_MIN_N
+    inside = (rad >= hole) & (rad <= outer)
+    Zm = np.where(inside, Z, np.nan).astype(np.float32)   # float32: half the payload, plenty for a color
+    Tm = np.where(inside & thin, 1.0, np.nan).astype(np.float32)
+
+    fig = go.Figure(go.Heatmap(
+        x=xs, y=xs, z=Zm, colorscale="Blues", zmin=0, zmax=vmax, zsmooth="best", hoverinfo="skip",
+        colorbar=dict(title=dict(text="% back within<br>+/- half a zone", side="top"), thickness=12, len=0.55,
+                      ticksuffix="%")))
+    if np.isfinite(Tm).any():
+        fig.add_trace(go.Heatmap(
+            x=xs, y=xs, z=Tm, zmin=0, zmax=1, showscale=False, hoverinfo="skip", zsmooth="best",
+            colorscale=[[0, "rgba(150,150,150,0.30)"], [1, "rgba(150,150,150,0.30)"]]))
+
+    def xy(r, deg):
+        a = np.radians(deg)
+        return np.asarray(r) * np.sin(a), np.asarray(r) * np.cos(a)
+
+    # hover: invisible points at every cell center (nearest one answers); off on touch
+    if not touch:
+        ring_r = np.repeat([outer - 0.5 - j for j in range(K)], G)
+        cell_deg = np.tile(centers / 1000 * 360, K)
+        cx, cy = xy(ring_r, cell_deg)
+        fig.add_trace(go.Scatter(x=cx, y=cy, mode="markers", marker=dict(size=16, color="rgba(0,0,0,0)"),
+                                 hovertext=cell_hover, hoverinfo="text", showlegend=False))
+    # faint outline of the annulus
+    ring_deg = np.linspace(0, 360, 181)
+    for rr in (hole, outer):
+        ox, oy = xy([rr] * len(ring_deg), ring_deg)
+        fig.add_trace(go.Scatter(x=ox, y=oy, mode="lines", line=dict(color="rgba(128,128,128,0.5)", width=1.5),
+                                 hoverinfo="skip", showlegend=False))
+    # live markers (see-through, contrast ink) + invisible larger tap target on touch
+    mk = _zone_return_marker_info(res, vmax)
+    mx, my = xy(mk["r"], mk["theta"])
+    fig.add_trace(go.Scatter(
+        x=mx, y=my, mode="markers+text", marker=dict(size=14, color="rgba(255,255,255,0.0)",
+                                                      line=dict(color=mk["ink"], width=1.3)),
+        text=[f"<b>{j + 1}</b>" for j in range(mk["n"])], textfont=dict(size=8, color=mk["ink"]),
+        textposition="middle center",
+        **(dict(hoverinfo="skip") if touch else dict(hovertext=mk["hover"], hoverinfo="text")), showlegend=False))
+    if touch:
+        fig.add_trace(go.Scatter(x=mx, y=my, mode="markers", marker=dict(size=34, color="rgba(0,0,0,0)"),
+                                 hovertext=mk["hover"], hoverinfo="text", showlegend=False))
+    # arc: his last pitch +/- half the zone width, on the rim
+    lp = m["last_pitch"]
+    ax_, ay_ = xy([rim] * 24, np.linspace((lp - w / 2) / 1000 * 360, (lp + w / 2) / 1000 * 360, 24))
+    fig.add_trace(go.Scatter(x=ax_, y=ay_, mode="lines", line=dict(color=ink, width=5), hoverinfo="skip",
+                             showlegend=False))
+    # wheel labels 0-900 around the outside
+    lx, ly = xy([rim + 0.6] * 10, [i * 36 for i in range(10)])
+    fig.add_trace(go.Scatter(x=lx, y=ly, mode="text", text=[str(i * 100) for i in range(10)],
+                             textfont=dict(size=10, color=muted), hoverinfo="skip", showlegend=False))
+    fig.update_layout(
+        xaxis=dict(range=[-lim, lim], visible=False, fixedrange=True),
+        yaxis=dict(range=[-lim, lim], visible=False, scaleanchor="x", scaleratio=1, fixedrange=True),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False, height=height,
+        dragmode=False, margin=dict(l=10, r=10, t=10, b=10),
     )
     return fig
 

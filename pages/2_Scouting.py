@@ -158,12 +158,19 @@ def _render_zone_return_map(df: pd.DataFrame, is_mobile: bool, dark_mode: bool) 
                        help="Blends each ring with the rings on either side (1/4, 1/2, 1/4). Neighboring lags are "
                             "nearly uncorrelated, so unsmoothed rings look like static; this calms the picture at the "
                             "cost of some lag resolution (lag 3 now includes a little of lags 2 and 4).")
+    smooth_look = st.toggle("Smooth look", value=True, key="p_zone_return_smooth_look",
+                            help="Draws the ring as a continuous image instead of one block per position and lag: "
+                                 "each point blends the cells around it (and, a little, the neighboring rings). Display "
+                                 "only - the hover numbers are still each cell's own. Turn off for the exact blocks.")
     res = utils.zone_return_rings(df, int(width), 10, lag_smooth=smooth)
     if not res:
         st.caption("Not enough pitch history for this view.")
         return
-    st.plotly_chart(utils.zone_return_rings_chart(res, dark_mode, height=420 if is_mobile else 520),
+    st.plotly_chart(utils.zone_return_rings_chart(res, dark_mode, height=420 if is_mobile else 520, touch=is_mobile,
+                                                 smooth=smooth_look),
                     width="stretch", config={"displayModeBar": False}, key="p_zone_return_rings")
+    if is_mobile:
+        st.caption("Tap a numbered marker to see its numbers.")
 
 
 def _render_cooldown_lag_view(df: pd.DataFrame, value_col: str, domain: str, key_prefix: str,
