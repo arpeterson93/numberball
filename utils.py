@@ -2685,11 +2685,14 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
         if lineup:
             slot = lineup.get(b.lower())
             tag = f"#{slot[0]} {slot[1]} - " if slot else "Bench - "
+        # The swing count lives in the Confidence column when the plan is shown.
+        sub_txt = tag.rstrip(" -") if plan else f"{tag}{int(pa[b])} swings"
+        sub_html = f"<div class='tsc-name-sub'>{sub_txt}</div>" if sub_txt else ""
         row_cls = " class='tsc-bench'" if lineup and row_i == n_lineup and n_lineup else ""
         body_rows.append(
             f"<tr{row_cls}><td class='tsc-name'><div class='tsc-name-flex'><div>"
             f"<div class='tsc-name-main'>{b}</div>"
-            f"<div class='tsc-name-sub'>{tag}{int(pa[b])} swings</div></div>{ring}</div></td>"
+            f"{sub_html}</div>{ring}</div></td>"
             f"{plan_cells}{''.join(cells)}</tr>"
         )
 
