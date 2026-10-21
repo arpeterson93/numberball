@@ -5107,7 +5107,24 @@ with tab_team:
         })
         # The roster only decides WHO is shown - the cheat sheet itself runs on each of those hitters' full
         # career plays (every season, any team), so a player who just arrived isn't judged on a tiny sample.
-        _tt_dfs = [_load_batter_plays(name, _leagues_tuple, st.session_state.get("_data_v", 0)) for name in _tt_roster]
+        # Plays are loaded by shared player_id but keep the name the player had at the time, so a renamed
+        # hitter's old seasons would show up as a separate "player". Label every play from its batter_id with
+        # that human's most recent name instead, so the table effectively groups by player_id.
+        def _tt_relabel(d: pd.DataFrame, fallback: str) -> pd.DataFrame:
+            if d.empty:
+                return d
+            recent = d["batter_id"].map(
+                lambda x: _pid_recent_name.get(x) or _pid_recent_name.get(str(x)) or _pid_recent_name.get(_to_int(x)))
+            return d.assign(batter_name=recent.fillna(fallback))
+
+        def _to_int(x):
+            try:
+                return int(float(x))
+            except (TypeError, ValueError):
+                return None
+
+        _tt_dfs = [_tt_relabel(_load_batter_plays(name, _leagues_tuple, st.session_state.get("_data_v", 0)), name)
+                   for name in _tt_roster]
         _tt_dfs = [d for d in _tt_dfs if not d.empty]
         df_team = pd.concat(_tt_dfs, ignore_index=True) if _tt_dfs else pd.DataFrame()
 
