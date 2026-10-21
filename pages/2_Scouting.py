@@ -5131,11 +5131,13 @@ with tab_team:
                      "K and DP are all different), scaled so a neutral matchup's wOBA equals its OBP.")
         with _pp3:
             _tp_mode = st.selectbox(
-                "Hundreds digit", ["Unknown (averaged)", "Same as swing"], key="tab_team_pp_mode",
-                help="Same as swing: pitch and swing share their first digit, so only the last two digits "
-                     "set the diff (x00 vs x50 = diff 50). Unknown: the first digit is treated as random, "
-                     "so each last-2 pair is averaged over all ten hundreds offsets - a more cautious read. Same-as-swing "
-                     "caps every diff under 100 (no outs possible), so its gains are an upper bound.")
+                "Hundreds digit", ["Unknown (averaged)", "Within 100 (wraps)"], key="tab_team_pp_mode",
+                help="Within 100: the pitch lands within 100 of the swing on the wheel, so only the last two digits "
+                     "set the diff, circularly (99 and 00 are adjacent; x00 vs x50 = diff 50, max 50). Unknown: the "
+                     "first digit is treated as random, so each last-2 pair is averaged over all ten hundreds "
+                     "offsets - a more cautious read. Within 100 assumes the hundreds digit is already settled and you only "
+                     "choose the last two, so you can only get so far away (max diff 50, no outs); it shows which "
+                     "hitters are most exploitable from fine aiming alone.")
         with _pp4:
             _tp_prior = st.slider(
                 "Prior swings", 0, 200, 50, 10, key="tab_team_pp_prior",
@@ -5171,7 +5173,7 @@ with tab_team:
         )
         _tp_plan = utils.pitch_plan_rows(
             df_team, _tp_by_batter[_tp_batters[0]], batter_ranges=_tp_by_batter,
-            metric=_tp_metric.lower(), same_hundreds=_tp_mode == "Same as swing", prior_n=float(_tp_prior),
+            metric=_tp_metric.lower(), same_hundreds=_tp_mode == "Within 100 (wraps)", prior_n=float(_tp_prior),
         )
         st.markdown(
             utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,

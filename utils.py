@@ -2715,10 +2715,11 @@ def _pitch_plan_matrices(ranges_key: tuple, same_hundreds: bool):
     """(TB, AB, OB), each [pitch_last2, swing_last2] -> value of the result the
     pitch/swing pair resolves to. ranges_key is a tuple of (result, lo, hi).
 
-    same_hundreds=True assumes pitch and swing share their hundreds digit, so the
-    diff is just |pitch_last2 - swing_last2| (0-99). False assumes the hundreds
-    digit tells us nothing: each pair is averaged over all ten possible hundreds
-    offsets on the 1000-wheel."""
+    same_hundreds=True assumes the pitch lands within 100 of the swing (circularly
+    on the 100-wheel of last-2 digits, so 99 and 00 are adjacent): the diff is
+    min(|p - s|, 100 - |p - s|), 0-50. False assumes the hundreds digit tells us
+    nothing: each pair is averaged over all ten possible hundreds offsets on the
+    1000-wheel."""
     key = (ranges_key, same_hundreds)
     if key in _pitch_plan_cache:
         return _pitch_plan_cache[key]
@@ -2732,7 +2733,8 @@ def _pitch_plan_matrices(ranges_key: tuple, same_hundreds: bool):
     p = np.arange(100)[:, None]
     s = np.arange(100)[None, :]
     if same_hundreds:
-        idx = [np.abs(p - s)]
+        d100 = np.abs(p - s)
+        idx = [np.minimum(d100, 100 - d100)]
     else:
         idx = []
         for dh in range(10):
