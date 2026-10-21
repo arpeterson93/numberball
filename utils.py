@@ -2552,6 +2552,37 @@ def _top_swing_windows(pct_arr: np.ndarray, width: int, top_n: int) -> list[tupl
     return picked
 
 
+def _pitch_radial_svg(near: set[int], best: int, peak: int, scores, dark_mode: bool, size: int = 44) -> str:
+    """Tiny 0-99 ring (00 at top, clockwise) for one hitter: pitch last-2 values within the
+    tolerance of the best are green (the best one outlined), everything else is faint, and a
+    red radial line marks his most common swing. Each wedge has a hover tooltip with its value."""
+    import math
+    c = size / 2.0
+    R, r = c - 2.5, c * 0.45
+    on = "#4cc38a" if dark_mode else "#2a9d6a"
+    off = "rgba(255,255,255,0.14)" if dark_mode else "rgba(11,11,11,0.10)"
+    ink = "#ffffff" if dark_mode else "#0b0b0b"
+
+    def pt(rad: float, deg: float) -> str:
+        a = math.radians(deg)
+        return f"{c + rad * math.sin(a):.2f},{c - rad * math.cos(a):.2f}"
+
+    parts = []
+    for i in range(100):
+        a0, a1 = i * 3.6, (i + 1) * 3.6
+        fill = on if i in near else off
+        stroke = f" stroke='{ink}' stroke-width='1.1'" if i == best else ""
+        parts.append(
+            f"<path d='M{pt(r, a0)} L{pt(R, a0)} A{R:.2f},{R:.2f} 0 0 1 {pt(R, a1)} "
+            f"L{pt(r, a1)} A{r:.2f},{r:.2f} 0 0 0 {pt(r, a0)}Z' fill='{fill}'{stroke}>"
+            f"<title>x{i:02d}: {scores[i]:.3f}</title></path>")
+    mid = (peak + 0.5) * 3.6
+    parts.append(f"<line x1='{pt(r - 2, mid).split(',')[0]}' y1='{pt(r - 2, mid).split(',')[1]}' "
+                 f"x2='{pt(R + 2, mid).split(',')[0]}' y2='{pt(R + 2, mid).split(',')[1]}' "
+                 f"stroke='#e34948' stroke-width='1.5' stroke-linecap='round'/>")
+    return f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}' style='flex:none'>{''.join(parts)}</svg>"
+
+
 def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: int = 1,
                                 dark_mode: bool = False, plan: dict[str, dict] | None = None,
                                 plan_label: str = "SLG",
@@ -2646,14 +2677,20 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
                 f"<td class='tsc-cell'><div class='tsc-digit'>{r['conf'] * 100:.0f}%</div>"
                 f"<div class='tsc-pct'>{r['n']} swings</div></td>"
             )
+        ring = ""
+        if plan:
+            r = plan[b]
+            ring = _pitch_radial_svg(r["near"], r["picks"][0], r["peak"], r["scores"], dark_mode)
         tag = ""
         if lineup:
             slot = lineup.get(b.lower())
             tag = f"#{slot[0]} {slot[1]} - " if slot else "Bench - "
         row_cls = " class='tsc-bench'" if lineup and row_i == n_lineup and n_lineup else ""
         body_rows.append(
-            f"<tr{row_cls}><td class='tsc-name'><div class='tsc-name-main'>{b}</div>"
-            f"<div class='tsc-name-sub'>{tag}{int(pa[b])} swings</div></td>{plan_cells}{''.join(cells)}</tr>"
+            f"<tr{row_cls}><td class='tsc-name'><div class='tsc-name-flex'><div>"
+            f"<div class='tsc-name-main'>{b}</div>"
+            f"<div class='tsc-name-sub'>{tag}{int(pa[b])} swings</div></div>{ring}</div></td>"
+            f"{plan_cells}{''.join(cells)}</tr>"
         )
 
     return f"""
@@ -2663,6 +2700,7 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
 .tsc-table th {{ color: {text_ink}; font-weight: 600; font-size: 0.85rem; }}
 .tsc-name {{ text-align: left; color: {text_ink}; background: {name_bg}; white-space: nowrap; }}
 .tsc-name-main {{ font-weight: 600; }}
+.tsc-name-flex {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
 .tsc-name-sub {{ font-size: 0.75rem; opacity: 0.6; font-weight: 400; }}
 .tsc-cell {{ font-variant-numeric: tabular-nums; }}
 .tsc-digit {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
@@ -2685,14 +2723,14 @@ _pitch_plan_cache: dict = {}
 
 
 def _woba_raw_weight(result: str) -> float:
-    """Runs above an average out for one hit/walk result, from swing_game's
-    pooled S1-S12 run values (the same table the model-swing run-value metric
-    uses). Every out (K, FO, GO, DP, ...) is 0, as in standard wOBA - no
-    negative weights. Imported lazily because swing_game imports utils."""
+    """Run value of one hit/walk result, straight from swing_game's pooled S1-S12
+    run values (the same table the model-swing run-value metric uses). Every out
+    (K, FO, GO, DP, ...) is 0 - no negative weights. Imported lazily because
+    swing_game imports utils."""
     if result not in _PITCH_PLAN_OB:
         return 0.0
     import swing_game
-    return swing_game.run_value(result) - swing_game.RV_OUT_IN_PLAY
+    return swing_game.run_value(result)
 
 
 _woba_scale_cache: float | None = None
@@ -2757,7 +2795,8 @@ def pitch_plan_scores(swing_pct: np.ndarray, ranges: list, same_hundreds: bool =
 
 
 def pitch_plan_rows(df: pd.DataFrame, ranges: list, batter_ranges: dict[str, list] | None = None,
-                    metric: str = "woba", same_hundreds: bool = True, prior_n: float = 50.0) -> dict[str, dict]:
+                    metric: str = "woba", same_hundreds: bool = True, prior_n: float = 50.0,
+                    tol: float = 0.01) -> dict[str, dict]:
     """Per-batter pitch recommendation: the pitch last-2 digits that minimise
     `metric` (woba/slg/obp/ops) against that hitter's own last-2 swing distribution,
     through the result ranges (batter_ranges[name] overrides `ranges` for a
@@ -2768,7 +2807,10 @@ def pitch_plan_rows(df: pd.DataFrame, ranges: list, batter_ranges: dict[str, lis
     Sample size: each hitter's swing distribution is blended with a uniform
     prior worth `prior_n` swings (Bayesian shrinkage), so confidence = n/(n+prior_n)
     is also the weight on his own data. A thin sample shrinks toward "no
-    exploitable spot" instead of reporting a noisy big gain."""
+    exploitable spot" instead of reporting a noisy big gain.
+
+    'near' is every pitch last-2 whose metric is within `tol` of the best (the
+    plateau of effectively-tied pitches); 'peak' is the hitter's most common swing."""
     work = df[df["swing"].notna() & df["batter_name"].notna()].copy()
     out: dict[str, dict] = {}
     if work.empty:
@@ -2787,7 +2829,9 @@ def pitch_plan_rows(df: pd.DataFrame, ranges: list, batter_ranges: dict[str, lis
                 picks.append(int(i))
             if len(picks) == 3:
                 break
-        out[b] = {"n": n, "conf": conf, "picks": picks, "best_val": float(arr[picks[0]]),
+        raw_peak = int(np.argmax(np.bincount(g["swing_last2"].to_numpy(), minlength=100)))
+        near = {int(i) for i in np.nonzero(arr <= arr.min() + tol)[0]}
+        out[b] = {"n": n, "conf": conf, "picks": picks, "near": near, "scores": arr, "peak": raw_peak, "best_val": float(arr[picks[0]]),
                   "base": base, "gain": base - float(arr[picks[0]])}
     return out
 
