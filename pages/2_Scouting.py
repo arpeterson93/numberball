@@ -5089,6 +5089,61 @@ with tab_team:
             unsafe_allow_html=True,
         )
 
+        # ── Pitch plan: which last-2 digits minimise the hitter's SLG ────────
+        st.subheader("Pitch plan")
+        # Pitcher seeds once from the fetched/active matchup's pitcher (same signal
+        # as the Team select above); "-- Manual --" falls back to the calculator's
+        # own manual pitcher ratings.
+        if "tab_team_pitcher" not in st.session_state:
+            _tp_fetched = st.session_state.get("pred_calc_p_name")
+            st.session_state["tab_team_pitcher"] = _tp_fetched if _tp_fetched in _pbyn else "-- Manual --"
+        _pp1, _pp2, _pp3 = st.columns(3)
+        with _pp1:
+            _tp_name = st.selectbox("Pitcher", ["-- Manual --"] + list(_all_player_names), key="tab_team_pitcher")
+        with _pp2:
+            _tp_metric = st.selectbox("Minimise", ["SLG", "OBP", "OPS"], key="tab_team_pp_metric")
+        with _pp3:
+            _tp_mode = st.selectbox(
+                "Hundreds digit", ["Unknown (averaged)", "Same as swing"], key="tab_team_pp_mode",
+                help="Same as swing: pitch and swing share their first digit, so only the last two digits "
+                     "set the diff (x00 vs x50 = diff 50). Unknown: the first digit is treated as random, "
+                     "so each last-2 pair is averaged over all ten hundreds offsets - a more cautious read. Same-as-swing "
+                     "caps every diff under 100 (no outs possible), so its gains are an upper bound.")
+        _tp_p = _pbyn.get(_tp_name) if _tp_name != "-- Manual --" else None
+        if _tp_p:
+            _tp_stats = dict(hand=_hand(_tp_p), mov=_stat(_tp_p, "mov"), cmd=_stat(_tp_p, "cmd"),
+                             vel=_stat(_tp_p, "vel"), awr=_stat(_tp_p, "awr"))
+        else:
+            _tp_stats = dict(hand=st.session_state.get("pred_calc_p_hand", "R"),
+                             mov=int(st.session_state.get("pred_calc_p_mov", 3)),
+                             cmd=int(st.session_state.get("pred_calc_p_cmd", 3)),
+                             vel=int(st.session_state.get("pred_calc_p_vel", 3)),
+                             awr=int(st.session_state.get("pred_calc_p_awr", 3)))
+
+        def _tp_ranges(batter: str) -> list:
+            bp = _pbyn.get(batter, {})
+            return utils.compute_at_bat_ranges(
+                pitcher_hand=_tp_stats["hand"], pitcher_mov=_tp_stats["mov"], pitcher_cmd=_tp_stats["cmd"],
+                pitcher_vel=_tp_stats["vel"], pitcher_awr=_tp_stats["awr"],
+                batter_hand=_hand(bp), batter_con=_stat(bp, "con"), batter_eye=_stat(bp, "eye"),
+                batter_pow=_stat(bp, "pow"), batter_spd=_stat(bp, "spd"),
+            )
+
+        _tp_batters = sorted(df_team["batter_name"].dropna().unique())
+        _tp_by_batter = {b: _tp_ranges(b) for b in _tp_batters}
+        st.caption(
+            "Bases empty, no outs, swing ranges from each hitter's own ratings against this pitcher. "
+            "Gain = how much lower the hitter's expected number is at the best pitch vs a random last-2 "
+            "(a hitter who piles swings onto one spot shows a big gain; a spread-out hitter shows ~0)."
+        )
+        st.markdown(
+            utils.team_pitch_plan_html(
+                df_team, _tp_by_batter[_tp_batters[0]], batter_ranges=_tp_by_batter,
+                metric=_tp_metric.lower(), same_hundreds=_tp_mode == "Same as swing", dark_mode=_dark_mode,
+            ),
+            unsafe_allow_html=True,
+        )
+
 # ══════════════════════════════════════════════════════════════════════════════
 # GAME TAB
 # ══════════════════════════════════════════════════════════════════════════════
