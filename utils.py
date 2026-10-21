@@ -2668,12 +2668,14 @@ _pitch_plan_cache: dict = {}
 
 
 def _woba_raw_weight(result: str) -> float:
-    """Runs above an average out for one result, from swing_game's pooled S1-S12
-    run values (the same table the model-swing run-value metric uses). Imported
-    lazily because swing_game imports utils."""
+    """Runs above an average out for one hit/walk result, from swing_game's
+    pooled S1-S12 run values (the same table the model-swing run-value metric
+    uses). Every out (K, FO, GO, DP, ...) is 0, as in standard wOBA - no
+    negative weights. Imported lazily because swing_game imports utils."""
+    if result not in _PITCH_PLAN_OB:
+        return 0.0
     import swing_game
-    rv = swing_game.run_value(result)
-    return 0.0 if rv is None else rv - swing_game.RV_OUT_IN_PLAY
+    return swing_game.run_value(result) - swing_game.RV_OUT_IN_PLAY
 
 
 _woba_scale_cache: float | None = None
