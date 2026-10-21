@@ -2554,7 +2554,8 @@ def _top_swing_windows(pct_arr: np.ndarray, width: int, top_n: int) -> list[tupl
 
 def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: int = 1,
                                 dark_mode: bool = False, plan: dict[str, dict] | None = None,
-                                plan_label: str = "SLG") -> str:
+                                plan_label: str = "SLG",
+                                lineup: dict[str, tuple[int, str]] | None = None) -> str:
     """Per-batter table of each hitter's top_n most common last-2-digit swing
     values or ranges (rank 1 = most concentrated, see _top_swing_windows),
     one column per rank left-to-right. bucket_size=1 shows single digits
@@ -2572,6 +2573,10 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
     plan (from pitch_plan_rows) appends the pitch-plan columns to the same rows
     - best pitch last-2, expected plan_label there, gain, confidence - and
     re-sorts the table by gain instead (the most exploitable hitter first).
+
+    lineup ({lowercased name: (batting slot, position)}, from the pulled-in game)
+    puts the current lineup first in batting order, tagged "#slot POS"; everyone
+    else (bench / subbed out) follows below a divider in the default sort.
     """
     work = df[df["swing"].notna() & df["batter_name"].notna()].copy()
     if work.empty:
@@ -2593,6 +2598,12 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
         gmax = max((plan[b]["gain"] for b in batters), default=0.0)
     else:
         batters = sorted((b for b in windows if windows[b]), key=lambda b: -windows[b][0][1])
+    n_lineup = 0
+    if lineup:
+        in_lu = [b for b in batters if b.lower() in lineup]
+        in_lu.sort(key=lambda b: lineup[b.lower()][0])
+        batters = in_lu + [b for b in batters if b.lower() not in lineup]
+        n_lineup = len(in_lu)
     vmax = max((pct for w in windows.values() for _, pct in w), default=0.0)
 
     text_ink = "#ffffff" if dark_mode else "#0b0b0b"
@@ -2605,7 +2616,7 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
         header = (f"<th>Pitch to</th><th>Expected {plan_label}</th><th>{plan_label} gain</th>"
                   f"<th>Confidence</th>") + header
     body_rows = []
-    for b in batters:
+    for row_i, b in enumerate(batters):
         cells = []
         for k in range(top_n):
             if k >= len(windows[b]):
@@ -2635,9 +2646,14 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
                 f"<td class='tsc-cell'><div class='tsc-digit'>{r['conf'] * 100:.0f}%</div>"
                 f"<div class='tsc-pct'>{r['n']} swings</div></td>"
             )
+        tag = ""
+        if lineup:
+            slot = lineup.get(b.lower())
+            tag = f"#{slot[0]} {slot[1]} - " if slot else "Bench - "
+        row_cls = " class='tsc-bench'" if lineup and row_i == n_lineup and n_lineup else ""
         body_rows.append(
-            f"<tr><td class='tsc-name'><div class='tsc-name-main'>{b}</div>"
-            f"<div class='tsc-name-sub'>{int(pa[b])} swings</div></td>{plan_cells}{''.join(cells)}</tr>"
+            f"<tr{row_cls}><td class='tsc-name'><div class='tsc-name-main'>{b}</div>"
+            f"<div class='tsc-name-sub'>{tag}{int(pa[b])} swings</div></td>{plan_cells}{''.join(cells)}</tr>"
         )
 
     return f"""
@@ -2652,6 +2668,7 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
 .tsc-digit {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
 .tsc-pct {{ font-size: 0.78rem; opacity: 0.85; line-height: 1.2; }}
 .tsc-empty {{ color: {text_ink}; opacity: 0.35; }}
+.tsc-table tr.tsc-bench td {{ border-top: 3px solid {border}; }}
 .tsc-table th.tsc-sw, .tsc-table td.tsc-sw {{ border-left: 3px solid {border}; }}
 </style>
 <table class="tsc-table">

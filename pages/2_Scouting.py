@@ -567,6 +567,11 @@ def _load_team_offense_plays(team_name: str, leagues: tuple[str, ...], data_v: i
     raw = db.get_plays_for_team_offense(team_name, list(leagues) if leagues else None)
     return utils.enrich_df(utils.flatten_games(raw)) if raw else pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def _load_sheet_lineups(sheet_url: str) -> dict:
+    """Current lineups ({team: [{order, name, pos}]}) off the pulled-in game sheet; short TTL since subs change them."""
+    return substitutions.fetch_sheet_context(sheet_url)["lineups"]
+
 @st.cache_data(ttl=3600)
 def _load_all_games(data_v: int = 0) -> list:
     return db.get_games()
@@ -5055,7 +5060,7 @@ with tab_team:
         _tt_fetched_team = st.session_state.get("pred_calc_b_team")
         if _tt_fetched_team in _tt_team_options:
             st.session_state["tab_team_team"] = _tt_fetched_team
-    _tt1, _tt2, _tt3 = st.columns(3)
+    _tt1, _tt2, _tt3, _tt4 = st.columns(4)
     with _tt1:
         tab_team_team = st.selectbox("Team", _tt_team_options, key="tab_team_team") if _tt_team_options else None
     with _tt2:
@@ -5065,6 +5070,30 @@ with tab_team:
                                      help="1 = exact swing values. Wider buckets group each hitter's top swings "
                                           "into ranges instead (e.g. 05-14), rolling through every possible "
                                           "10-wide start point rather than a fixed 00-09/10-19/... grid.")
+
+    with _tt4:
+        tab_team_sort = st.selectbox(
+            "Sort hitters", ["Default", "Batting order (current game)"], key="tab_team_sort",
+            help="Default: by pitch-plan gain. Batting order: the lineup of the game pulled in on the sheet, "
+                 "slots 1-9 on top, bench and subbed-out players below it.")
+
+    # Lineup of the pulled-in game for the selected team (slot + position), keyed by lowercased name.
+    _tt_lineup: dict[str, tuple[int, str]] = {}
+    if tab_team_sort != "Default":
+        _tt_sheet = st.session_state.get("pred_sheet_sel")
+        if not _tt_sheet:
+            st.caption("No game pulled in - showing the default sort.")
+        else:
+            try:
+                _tt_lus = _load_sheet_lineups(_tt_sheet)
+                _tt_ab = _team_name_to_abbrev.get(tab_team_team, tab_team_team)
+                _tt_key = next((k for k in _tt_lus if str(k).lower() in (str(tab_team_team).lower(), str(_tt_ab).lower())), None)
+                if _tt_key is None:
+                    st.caption("The selected team isn't in the pulled-in game - showing the default sort.")
+                else:
+                    _tt_lineup = {x["name"].lower(): (x["order"], x["pos"]) for x in _tt_lus[_tt_key]}
+            except Exception as _tt_err:
+                st.caption(f"Couldn't read the game lineup ({type(_tt_err).__name__}) - showing the default sort.")
 
     df_team = pd.DataFrame()
     if tab_team_team and _tt_current_season and _leagues_tuple:
@@ -5076,6 +5105,10 @@ with tab_team:
         # now) - the cheat sheet itself runs on each of those hitters' full career
         # plays (every season, any team), not just this season's, so a player who
         # just arrived doesn't get judged on a tiny, noisy sample.
+        # Lineup hitters with no plays for this team yet this season (just called up) still belong in the table.
+        _tt_have = {n.lower() for n in _tt_roster}
+        _tt_roster = _tt_roster + sorted(
+            {n for n in _all_player_names if n.lower() in _tt_lineup and n.lower() not in _tt_have})
         _tt_dfs = [_load_batter_plays(name, _leagues_tuple, st.session_state.get("_data_v", 0)) for name in _tt_roster]
         _tt_dfs = [d for d in _tt_dfs if not d.empty]
         df_team = pd.concat(_tt_dfs, ignore_index=True) if _tt_dfs else pd.DataFrame()
@@ -5144,7 +5177,8 @@ with tab_team:
         )
         st.markdown(
             utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,
-                                              dark_mode=_dark_mode, plan=_tp_plan, plan_label=_tp_metric),
+                                              dark_mode=_dark_mode, plan=_tp_plan, plan_label=_tp_metric,
+                                              lineup=_tt_lineup or None),
             unsafe_allow_html=True,
         )
 
