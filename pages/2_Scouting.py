@@ -5094,7 +5094,10 @@ with tab_team:
         with _pp1:
             _tp_name = st.selectbox("Pitcher", ["-- Manual --"] + list(_all_player_names), key="tab_team_pitcher")
         with _pp2:
-            _tp_metric = st.selectbox("Minimise", ["SLG", "OBP", "OPS"], key="tab_team_pp_metric")
+            _tp_metric = st.selectbox(
+                "Minimise", ["wOBA", "SLG", "OBP", "OPS"], key="tab_team_pp_metric",
+                help="wOBA weights each result by its pooled run value above an average out (HR, 3B, 2B, 1B, BB, "
+                     "K and DP are all different), scaled so a neutral matchup's wOBA equals its OBP.")
         with _pp3:
             _tp_mode = st.selectbox(
                 "Hundreds digit", ["Unknown (averaged)", "Same as swing"], key="tab_team_pp_mode",
