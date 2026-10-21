@@ -5097,18 +5097,16 @@ with tab_team:
 
     df_team = pd.DataFrame()
     if tab_team_team and _tt_current_season and _leagues_tuple:
-        _tt_roster_plays = _load_team_offense_plays(tab_team_team, _leagues_tuple, st.session_state.get("_data_v", 0))
-        _tt_roster = sorted(
-            _tt_roster_plays.loc[_tt_roster_plays["season"] == _tt_current_season, "batter_name"].dropna().unique()
-        ) if not _tt_roster_plays.empty else []
-        # The current season only narrows the ROSTER (who's actually on this team
-        # now) - the cheat sheet itself runs on each of those hitters' full career
-        # plays (every season, any team), not just this season's, so a player who
-        # just arrived doesn't get judged on a tiny, noisy sample.
-        # Lineup hitters with no plays for this team yet this season (just called up) still belong in the table.
-        _tt_have = {n.lower() for n in _tt_roster}
-        _tt_roster = _tt_roster + sorted(
-            {n for n in _all_player_names if n.lower() in _tt_lineup and n.lower() not in _tt_have})
+        # Roster = the current season's Active/Captain players on this team in the players table
+        # (not just whoever has batted for them, so departed or minor-use players drop out).
+        _tt_abbrev = _team_name_to_abbrev.get(tab_team_team, tab_team_team)
+        _tt_roster = sorted({
+            p["name"] for p in _all_players
+            if p.get("name") and p.get("season") == _tt_current_season and p.get("team") == _tt_abbrev
+            and p.get("status") in ("Active", "Captain")
+        })
+        # The roster only decides WHO is shown - the cheat sheet itself runs on each of those hitters' full
+        # career plays (every season, any team), so a player who just arrived isn't judged on a tiny sample.
         _tt_dfs = [_load_batter_plays(name, _leagues_tuple, st.session_state.get("_data_v", 0)) for name in _tt_roster]
         _tt_dfs = [d for d in _tt_dfs if not d.empty]
         df_team = pd.concat(_tt_dfs, ignore_index=True) if _tt_dfs else pd.DataFrame()
