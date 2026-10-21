@@ -5083,21 +5083,14 @@ with tab_team:
     if df_team.empty:
         st.info("No batting data for this team/league selection.")
     else:
-        st.markdown(
-            utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,
-                                              dark_mode=_dark_mode),
-            unsafe_allow_html=True,
-        )
-
-        # ── Pitch plan: which last-2 digits minimise the hitter's SLG ────────
-        st.subheader("Pitch plan")
+        # ── Pitch plan inputs: which last-2 digits minimise the hitter's SLG ──
         # Pitcher seeds once from the fetched/active matchup's pitcher (same signal
         # as the Team select above); "-- Manual --" falls back to the calculator's
         # own manual pitcher ratings.
         if "tab_team_pitcher" not in st.session_state:
             _tp_fetched = st.session_state.get("pred_calc_p_name")
             st.session_state["tab_team_pitcher"] = _tp_fetched if _tp_fetched in _pbyn else "-- Manual --"
-        _pp1, _pp2, _pp3 = st.columns(3)
+        _pp1, _pp2, _pp3, _pp4 = st.columns(4)
         with _pp1:
             _tp_name = st.selectbox("Pitcher", ["-- Manual --"] + list(_all_player_names), key="tab_team_pitcher")
         with _pp2:
@@ -5109,6 +5102,11 @@ with tab_team:
                      "set the diff (x00 vs x50 = diff 50). Unknown: the first digit is treated as random, "
                      "so each last-2 pair is averaged over all ten hundreds offsets - a more cautious read. Same-as-swing "
                      "caps every diff under 100 (no outs possible), so its gains are an upper bound.")
+        with _pp4:
+            _tp_prior = st.slider(
+                "Prior swings", 0, 200, 50, 10, key="tab_team_pp_prior",
+                help="Shrinks each hitter toward 'no favorite spot' as if he had this many extra evenly spread "
+                     "swings. Confidence = n / (n + this). 0 = trust the raw counts.")
         _tp_p = _pbyn.get(_tp_name) if _tp_name != "-- Manual --" else None
         if _tp_p:
             _tp_stats = dict(hand=_hand(_tp_p), mov=_stat(_tp_p, "mov"), cmd=_stat(_tp_p, "cmd"),
@@ -5132,15 +5130,18 @@ with tab_team:
         _tp_batters = sorted(df_team["batter_name"].dropna().unique())
         _tp_by_batter = {b: _tp_ranges(b) for b in _tp_batters}
         st.caption(
-            "Bases empty, no outs, swing ranges from each hitter's own ratings against this pitcher. "
+            "Rows sort by gain. Bases empty, no outs, swing ranges from each hitter's own ratings against this pitcher. "
             "Gain = how much lower the hitter's expected number is at the best pitch vs a random last-2 "
-            "(a hitter who piles swings onto one spot shows a big gain; a spread-out hitter shows ~0)."
+            "(a hitter who piles swings onto one spot shows a big gain; a spread-out hitter shows ~0). "
+            "Gain is already shrunk for sample size; Confidence = n / (n + prior swings)."
+        )
+        _tp_plan = utils.pitch_plan_rows(
+            df_team, _tp_by_batter[_tp_batters[0]], batter_ranges=_tp_by_batter,
+            metric=_tp_metric.lower(), same_hundreds=_tp_mode == "Same as swing", prior_n=float(_tp_prior),
         )
         st.markdown(
-            utils.team_pitch_plan_html(
-                df_team, _tp_by_batter[_tp_batters[0]], batter_ranges=_tp_by_batter,
-                metric=_tp_metric.lower(), same_hundreds=_tp_mode == "Same as swing", dark_mode=_dark_mode,
-            ),
+            utils.team_swing_cheatsheet_html(df_team, top_n=tab_team_topn, bucket_size=tab_team_bucket,
+                                              dark_mode=_dark_mode, plan=_tp_plan, plan_label=_tp_metric),
             unsafe_allow_html=True,
         )
 

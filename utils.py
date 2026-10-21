@@ -2553,7 +2553,8 @@ def _top_swing_windows(pct_arr: np.ndarray, width: int, top_n: int) -> list[tupl
 
 
 def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: int = 1,
-                                dark_mode: bool = False) -> str:
+                                dark_mode: bool = False, plan: dict[str, dict] | None = None,
+                                plan_label: str = "SLG") -> str:
     """Per-batter table of each hitter's top_n most common last-2-digit swing
     values or ranges (rank 1 = most concentrated, see _top_swing_windows),
     one column per rank left-to-right. bucket_size=1 shows single digits
@@ -2567,6 +2568,10 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
     from _swing_heat_color, scaled to this table's own max % across every
     cell shown (not a fixed 0-100% scale) - "reddest" always means "this
     team's single most over-used swing value/range," wherever that falls.
+
+    plan (from pitch_plan_rows) appends the pitch-plan columns to the same rows
+    - best pitch last-2, expected plan_label there, gain, confidence - and
+    re-sorts the table by gain instead (the most exploitable hitter first).
     """
     work = df[df["swing"].notna() & df["batter_name"].notna()].copy()
     if work.empty:
@@ -2583,14 +2588,22 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
             arr[digit] = c / n * 100
         windows[b] = _top_swing_windows(arr, bucket_size, top_n)
 
-    batters = sorted((b for b in windows if windows[b]), key=lambda b: -windows[b][0][1])
+    if plan:
+        batters = sorted((b for b in windows if windows[b] and b in plan), key=lambda b: -plan[b]["gain"])
+        gmax = max((plan[b]["gain"] for b in batters), default=0.0)
+    else:
+        batters = sorted((b for b in windows if windows[b]), key=lambda b: -windows[b][0][1])
     vmax = max((pct for w in windows.values() for _, pct in w), default=0.0)
 
     text_ink = "#ffffff" if dark_mode else "#0b0b0b"
     border = "rgba(255,255,255,0.10)" if dark_mode else "rgba(11,11,11,0.10)"
     name_bg = "#1a1a19" if dark_mode else "#fcfcfb"
 
-    header = "".join(f"<th>{k}</th>" for k in range(1, top_n + 1))
+    sw_cls = " class='tsc-sw'" if plan else ""
+    header = "".join(f"<th{sw_cls if k == 1 else ''}>{k}</th>" for k in range(1, top_n + 1))
+    if plan:
+        header = (f"<th>Pitch to</th><th>Expected {plan_label}</th><th>{plan_label} gain</th>"
+                  f"<th>Confidence</th>") + header
     body_rows = []
     for b in batters:
         cells = []
@@ -2602,13 +2615,29 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
             label = f"{start:02d}" if bucket_size == 1 else f"{start:02d}-{(start + bucket_size - 1) % 100:02d}"
             bg, txt = _swing_heat_color(pct, vmax, dark_mode)
             cells.append(
-                f"<td class='tsc-cell' style='background:{bg};color:{txt}'>"
+                f"<td class='tsc-cell{' tsc-sw' if k == 0 and plan else ''}' style='background:{bg};color:{txt}'>"
                 f"<div class='tsc-digit'>{label}</div>"
                 f"<div class='tsc-pct'>{pct:.1f}%</div></td>"
             )
+        plan_cells = ""
+        if plan:
+            r = plan[b]
+            gbg, gtxt = _swing_heat_color(r["gain"], gmax, dark_mode)
+            rel = (r["gain"] / r["base"] * 100) if r["base"] > 0 else 0.0
+            alts = ", ".join(f"x{p:02d}" for p in r["picks"][1:])
+            plan_cells = (
+                f"<td class='tsc-cell'><div class='tsc-digit'>x{r['picks'][0]:02d}</div>"
+                f"<div class='tsc-pct'>then {alts}</div></td>"
+                f"<td class='tsc-cell'><div class='tsc-digit'>{r['best_val']:.3f}</div>"
+                f"<div class='tsc-pct'>vs {r['base']:.3f} random</div></td>"
+                f"<td class='tsc-cell' style='background:{gbg};color:{gtxt}'>"
+                f"<div class='tsc-digit'>-{r['gain']:.3f}</div><div class='tsc-pct'>{rel:.0f}% lower</div></td>"
+                f"<td class='tsc-cell'><div class='tsc-digit'>{r['conf'] * 100:.0f}%</div>"
+                f"<div class='tsc-pct'>{r['n']} swings</div></td>"
+            )
         body_rows.append(
             f"<tr><td class='tsc-name'><div class='tsc-name-main'>{b}</div>"
-            f"<div class='tsc-name-sub'>{int(pa[b])} swings</div></td>{''.join(cells)}</tr>"
+            f"<div class='tsc-name-sub'>{int(pa[b])} swings</div></td>{plan_cells}{''.join(cells)}</tr>"
         )
 
     return f"""
@@ -2623,6 +2652,7 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
 .tsc-digit {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
 .tsc-pct {{ font-size: 0.78rem; opacity: 0.85; line-height: 1.2; }}
 .tsc-empty {{ color: {text_ink}; opacity: 0.35; }}
+.tsc-table th.tsc-sw, .tsc-table td.tsc-sw {{ border-left: 3px solid {border}; }}
 </style>
 <table class="tsc-table">
 <tr><th class="tsc-name">Batter</th>{header}</tr>
@@ -2679,79 +2709,40 @@ def pitch_plan_scores(swing_pct: np.ndarray, ranges: list, same_hundreds: bool =
     return {"slg": slg, "obp": ob, "ops": slg + ob}
 
 
-def team_pitch_plan_html(df: pd.DataFrame, ranges: list, batter_ranges: dict[str, list] | None = None,
-                         metric: str = "slg", same_hundreds: bool = True,
-                         dark_mode: bool = False) -> str:
+def pitch_plan_rows(df: pd.DataFrame, ranges: list, batter_ranges: dict[str, list] | None = None,
+                    metric: str = "slg", same_hundreds: bool = True, prior_n: float = 50.0) -> dict[str, dict]:
     """Per-batter pitch recommendation: the pitch last-2 digits that minimise
     `metric` (slg/obp/ops) against that hitter's own last-2 swing distribution,
     through the result ranges (batter_ranges[name] overrides `ranges` for a
-    batter with their own ratings). 'Gain' is the drop vs throwing a random
+    batter with their own ratings). 'gain' is the drop vs throwing a random
     last-2 (the same batter's average over all 100), so a hitter who piles swings
-    onto one spot shows a big gain and a spread-out hitter shows ~0."""
+    onto one spot shows a big gain and a spread-out hitter shows ~0.
+
+    Sample size: each hitter's swing distribution is blended with a uniform
+    prior worth `prior_n` swings (Bayesian shrinkage), so confidence = n/(n+prior_n)
+    is also the weight on his own data. A thin sample shrinks toward "no
+    exploitable spot" instead of reporting a noisy big gain."""
     work = df[df["swing"].notna() & df["batter_name"].notna()].copy()
+    out: dict[str, dict] = {}
     if work.empty:
-        return "<p>No swing data for this team/season.</p>"
+        return out
     work["swing_last2"] = work["swing"].astype(int).apply(lambda s: int(str(s).zfill(2)[-2:]))
-    rows = []
     for b, g in work.groupby("batter_name"):
         w = np.bincount(g["swing_last2"].to_numpy(), minlength=100).astype(float)
         n = int(w.sum())
-        w /= n
-        sc = pitch_plan_scores(w, (batter_ranges or {}).get(b) or ranges, same_hundreds)
-        arr = sc[metric]
+        conf = n / (n + prior_n) if prior_n > 0 else 1.0
+        w = conf * (w / n) + (1 - conf) / 100.0
+        arr = pitch_plan_scores(w, (batter_ranges or {}).get(b) or ranges, same_hundreds)[metric]
         base = float(arr.mean())
-        order = np.argsort(arr, kind="stable")
         picks: list[int] = []
-        for i in order:
+        for i in np.argsort(arr, kind="stable"):
             if all(min(abs(int(i) - q), 100 - abs(int(i) - q)) >= 10 for q in picks):
                 picks.append(int(i))
             if len(picks) == 3:
                 break
-        best = picks[0]
-        rows.append({
-            "name": b, "n": n, "picks": picks, "best_val": float(arr[best]), "base": base,
-            "gain": base - float(arr[best]), "top_pct": float(w.max() * 100),
-            "slg_best": float(sc["slg"][best]), "slg_base": float(sc["slg"].mean()),
-        })
-    rows.sort(key=lambda r: -r["gain"])
-    gmax = max((r["gain"] for r in rows), default=0.0)
-
-    label = {"slg": "SLG", "obp": "OBP", "ops": "OPS"}[metric]
-    text_ink = "#ffffff" if dark_mode else "#0b0b0b"
-    border = "rgba(255,255,255,0.10)" if dark_mode else "rgba(11,11,11,0.10)"
-    name_bg = "#1a1a19" if dark_mode else "#fcfcfb"
-    body = []
-    for r in rows:
-        bg, txt = _swing_heat_color(r["gain"], gmax, dark_mode)
-        alts = ", ".join(f"x{p:02d}" for p in r["picks"][1:])
-        rel = (r["gain"] / r["base"] * 100) if r["base"] > 0 else 0.0
-        body.append(
-            f"<tr><td class='tpp-name'><div class='tpp-main'>{r['name']}</div>"
-            f"<div class='tpp-sub'>{r['n']} swings, top spot {r['top_pct']:.1f}%</div></td>"
-            f"<td class='tpp-cell'><div class='tpp-big'>x{r['picks'][0]:02d}</div>"
-            f"<div class='tpp-sub'>then {alts}</div></td>"
-            f"<td class='tpp-cell'><div class='tpp-big'>{r['best_val']:.3f}</div>"
-            f"<div class='tpp-sub'>vs {r['base']:.3f} random</div></td>"
-            f"<td class='tpp-cell' style='background:{bg};color:{txt}'>"
-            f"<div class='tpp-big'>-{r['gain']:.3f}</div>"
-            f"<div class='tpp-sub' style='color:{txt}'>{rel:.0f}% lower</div></td></tr>"
-        )
-    return f"""
-<style>
-.tpp-table {{ border-collapse: collapse; width: 100%; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }}
-.tpp-table th, .tpp-table td {{ border: 1px solid {border}; padding: 6px 10px; text-align: center; color: {text_ink}; }}
-.tpp-table th {{ font-weight: 600; font-size: 0.85rem; }}
-.tpp-name {{ text-align: left !important; background: {name_bg}; white-space: nowrap; }}
-.tpp-main {{ font-weight: 600; }}
-.tpp-sub {{ font-size: 0.75rem; opacity: 0.7; }}
-.tpp-cell {{ font-variant-numeric: tabular-nums; }}
-.tpp-big {{ font-weight: 700; font-size: 1rem; line-height: 1.3; }}
-</style>
-<table class="tpp-table">
-<tr><th class="tpp-name">Batter</th><th>Pitch last-2</th><th>Expected {label}</th><th>{label} gain</th></tr>
-{''.join(body)}
-</table>
-"""
+        out[b] = {"n": n, "conf": conf, "picks": picks, "best_val": float(arr[picks[0]]),
+                  "base": base, "gain": base - float(arr[picks[0]])}
+    return out
 
 
 def _freq_bwr_color(count: float, min_c: float, max_c: float, alpha: float = 1.0) -> str:
