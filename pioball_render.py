@@ -231,7 +231,6 @@ def render_guesses_table(c: dict, highlight_user_id: str | None = None) -> io.By
     """c is swing_game.current_pa(): the open pitch's guesses, lowest swing first.
     highlight_user_id marks the row that was just added."""
     p = c["pitch_row"]
-    n = len(c["guesses"])
     cols = [{"label": "#", "w": 36, "kind": "rank"},
             {"label": "PLAYER", "w": 260},
             {"label": "SWING", "w": 100, "align": "r", "bold": True}]
@@ -239,9 +238,8 @@ def render_guesses_table(c: dict, highlight_user_id: str | None = None) -> io.By
     for i, g in enumerate(c["guesses"], 1):
         hl = highlight_user_id is not None and str(g["user_id"]) == str(highlight_user_id)
         rows.append({"cells": [str(i), g["user_name"], str(g["guess"])], "bg": _ROW_HL if hl else None, "bold": hl})
-    sub = ("Pitch is in - guessing closed" if c.get("closed") else "Active guesses") + \
-        f"  -  {n} guess" + ("" if n == 1 else "es")
-    return _table(_matchup(p) if p.get("batter") else "Our next plate appearance", sub, p if p.get("batter") else None,
+    sub = "Pitch is in - guessing closed" if c.get("closed") else "Active guesses"
+    return _table(_matchup_short(p) if p.get("batter") else "Our next plate appearance", sub, p if p.get("batter") else None,
                   cols, rows)
 
 
