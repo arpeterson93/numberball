@@ -14,7 +14,9 @@ Candidates (each is "the next pitch equals ..."; a reference only counts within 
   prev_pitch_rev    previous pitch with its 3 digits reversed
 Change is vs the deployed model; NEGATIVE = adding the spike helps.
 
-Usage: python -I tools/pitch_model_spike_screen.py [steps_per_pitcher]     (default 400; ~16k steps from the 51 held-out pitchers)
+Usage: python -I tools/pitch_model_spike_screen.py [screen] [steps_per_pitcher]   (default 400; ~16k steps from the 51 held-out pitchers)
+       python -I tools/pitch_model_spike_screen.py refit [steps_per_pitcher]     (default 150; do the pool weights / mixture strength
+                                                                                  move when refit jointly under the mixtures + new spikes?)
 
 Result (2026-10-22; deployed model log-loss 6.6547; change when ADDED, 95% pitcher-bootstrap CI):
   + prev_pitch2                      -0.0008 [-0.0022, +0.0006]   (confirms dropping it was right)
@@ -24,6 +26,11 @@ Result (2026-10-22; deployed model log-loss 6.6547; change when ADDED, 95% pitch
   + prev_pitch_rev                   -0.0005 [-0.0021, +0.0008]
   + prev_diff + prev_pitch_p500      -0.0106 [-0.0177, -0.0051]   (55% of pitchers improve)
 Not yet added to the deployed model (tools/pitch_likelihood_backtest.apply_mixtures).
+
+Joint refit (`refit` mode; 4,500 train / 7,650 held-out steps; deployed log-loss 6.6435 on that sample): refitting the nine pool weights
+jointly UNDER the mixtures moves them by at most 0.006 and gains nothing - deployed spikes -0.0000 [-0.0001, +0.0000]; with the two new spikes
+-0.0094 [-0.0172, -0.0035], identical to leaving the weights alone (-0.0094 [-0.0166, -0.0036]). Shared spike strength m (all spikes use one m):
+m=50 -0.0107, m=150 -0.0108, m=400 (deployed) -0.0094, m=800 -0.0080, so the new spikes prefer a somewhat more per-pitcher rate.
 """
 from __future__ import annotations
 
@@ -42,7 +49,9 @@ import pitch_model_ablation as ab  # noqa: E402
 
 EPS = 1e-12
 GRID = 1000
-STEPS_PER_PITCHER = int(sys.argv[1]) if len(sys.argv) > 1 else 400
+MODE = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ("screen", "refit") else "screen"
+_nums = [a for a in sys.argv[1:] if a.isdigit()]
+STEPS_PER_PITCHER = int(_nums[0]) if _nums else (150 if MODE == "refit" else 400)
 
 
 def _circ(a, b):
@@ -197,5 +206,147 @@ def main():
         print(f"{lab:48s} {per.mean():+.4f}  CI [{lo:+.4f}, {hi:+.4f}]  pitchers improved {(per < 0).mean() * 100:.0f}%")
 
 
+def _light(name):
+    """A saved walk's pitch / swing / game / steps only. np.load is lazy, so the big B / R arrays are never read here."""
+    z = np.load(pf.OUT / f"{pf._safe(name)}.npz", allow_pickle=True)
+    return z["pitch"], z["swing"], z["game"], z["steps"]
+
+
+def _step_table(pitchers, rows_all, refs_use, league, per_walk, rng):
+    """Per-step arrays for a vectorised loss: pool inputs (B, and R over the 9 pooled signals, float16), the target index,
+    his own exact-value share of the target, and each spike's (value, hits so far, defined so far). Walks are loaded ONE
+    AT A TIME and only the sampled steps are kept, so memory stays at a single pitcher's walk plus the sample."""
+    Bs, Rs, K, OWN, who = [], [], [], [], []
+    V = {r: [] for r in refs_use}
+    H = {r: [] for r in refs_use}
+    D = {r: [] for r in refs_use}
+    for name in pitchers:
+        path = pf.OUT / f"{pf._safe(name)}.npz"
+        if not path.exists():
+            continue
+        z = np.load(path, allow_pickle=True)
+        pitch, swing, game, steps = z["pitch"], z["swing"].astype(float), z["game"], z["steps"]
+        pick = np.array(sorted(rng.choice(len(steps), min(per_walk, len(steps)), replace=False)))
+        Bfull = z["B"]
+        Bs.append(Bfull[pick].astype(np.float32))
+        del Bfull
+        Rfull = z["R"]
+        Rs.append(Rfull[pick][:, rows_all, :].astype(np.float16))
+        del Rfull
+        rf = Refs(pitch.astype(int), swing, game)
+        for si in pick:
+            t = int(steps[si])
+            kk = int(pitch[t]) - 1
+            K.append(kk)
+            hist = pitch[:t].astype(int)
+            OWN.append(float(np.sum(((hist - 1) % GRID) == kk % GRID)) / len(hist))
+            tgt = float(game[t])
+            for r in refs_use:
+                val, h, dd = rf.at(r, t, tgt)
+                V[r].append(val)
+                H[r].append(h)
+                D[r].append(dd)
+            who.append(name)
+    return {"B": np.concatenate(Bs), "R": np.concatenate(Rs), "k": np.array(K), "own": np.array(OWN),
+            "who": np.array(who), "val": {r: np.array(V[r], float) for r in refs_use},
+            "h": {r: np.array(H[r]) for r in refs_use}, "d": {r: np.array(D[r]) for r in refs_use}}
+
+
+def _pool_target_prob(T, w, chunk=400):
+    """Pooled density at each step's target value, in float32 chunks (no giant float64 copy of the signal arrays)."""
+    n = len(T["k"])
+    w32 = np.asarray(w, dtype=np.float32)
+    out = np.empty(n)
+    for a in range(0, n, chunk):
+        b = min(a + chunk, n)
+        lg = np.log(T["B"][a:b] + np.float32(EPS)) + np.tensordot(T["R"][a:b].astype(np.float32), w32, axes=([1], [0]))
+        lg -= lg.max(axis=1, keepdims=True)
+        lse = np.log(np.exp(lg).sum(axis=1))
+        out[a:b] = np.exp(lg[np.arange(b - a), T["k"][a:b]] - lse)
+    return out
+
+
+def _per_step_loss(T, w, use, e, m, league):
+    ck = _pool_target_prob(T, w)
+    q = (1 - e) * ck + e * T["own"]
+    total = np.zeros(len(ck))
+    extra = np.zeros(len(ck))
+    for r in use:
+        val = T["val"][r]
+        ok = val == val
+        rate = np.where(ok, (T["h"][r] + m * league[r]) / (T["d"][r] + m), 0.0)
+        total += rate
+        extra += np.where(ok & (np.nan_to_num(val) - 1 == T["k"]), rate, 0.0)
+    return -np.log((1 - total) * q + extra + EPS)
+
+
+def refit():
+    from scipy.optimize import minimize
+    sp = json.loads((pf.OUT / "split.json").read_text())
+    fr = json.loads((pf.OUT / "fit_result.json").read_text())
+    tables = pf._train_tables(sp["train"])
+    allnames = pf.NAMES + pf.LEGACY
+    names = pf.NEW9
+    rows_all = [allnames.index(n) for n in names]
+    w_dep = np.array([fr["weights"][n] for n in names])
+    e, m0 = fr["habit"]["e_exact"], fr["habit"]["m_spike"]
+    league = dict(tables["spike_rates"])
+    REFS = ["prev_pitch", "prev_swing", "prev_diff", "prev_pitch_p500"]
+    tot_h, tot_d = {r: 0.0 for r in REFS}, {r: 0.0 for r in REFS}
+    for name in sp["train"]:
+        if not (pf.OUT / f"{pf._safe(name)}.npz").exists():
+            continue
+        pitch, swing, game, _ = _light(name)
+        rf = Refs(pitch.astype(int), swing.astype(float), game)
+        for r in REFS:
+            tot_h[r] += rf.cum_hit[r][-1]
+            tot_d[r] += rf.cum_def[r][-1]
+    for r in ("prev_diff", "prev_pitch_p500"):
+        league[r] = tot_h[r] / max(tot_d[r], 1)
+    Ttr = _step_table(sp["train"], rows_all, REFS, league, 90, np.random.default_rng(1))
+    Tte = _step_table(sp["test"], rows_all, REFS, league, STEPS_PER_PITCHER, np.random.default_rng(9))
+    print(f"train steps {len(Ttr['k'])}, test steps {len(Tte['k'])} ({len(np.unique(Tte['who']))} pitchers); "
+          f"deployed e={e}, m={m0}", flush=True)
+    OLD, NEW = ["prev_pitch", "prev_swing"], REFS
+
+    def fit(use, m):
+        f = lambda w: _per_step_loss(Ttr, w, use, e, m, league).mean()
+        res = minimize(f, w_dep, method="L-BFGS-B", bounds=[(0.0, 3.0)] * len(names), options={"maxiter": 60})
+        return res.x
+
+    def test_loss(w, use, m):
+        return _per_step_loss(Tte, w, use, e, m, league)
+
+    base = test_loss(w_dep, OLD, m0)
+    print("")
+    print(f"deployed weights + deployed spikes: test log-loss {base.mean():.4f}", flush=True)
+    variants = {"A deployed weights + new spikes": (w_dep, NEW, m0)}
+    variants["B refit weights, deployed spikes"] = (fit(OLD, m0), OLD, m0)
+    print("fit B done", flush=True)
+    variants["C refit weights, + new spikes"] = (fit(NEW, m0), NEW, m0)
+    print("fit C done", flush=True)
+    for m in (50.0, 150.0, 800.0):
+        variants[f"D deployed weights + new spikes, m={m:.0f}"] = (w_dep, NEW, m)
+    who = Tte["who"]
+    boot = np.random.default_rng(4)
+
+    def summarise(d):
+        per = np.array([d[who == x].mean() for x in np.unique(who)])
+        bs = np.array([boot.choice(per, len(per)).mean() for _ in range(2000)])
+        return per.mean(), np.percentile(bs, [2.5, 97.5])
+    print("")
+    print("change in held-out log-loss vs the deployed model (negative = better), 95% pitcher-bootstrap CI:")
+    for lab, (w, use, m) in variants.items():
+        d = test_loss(w, use, m) - base
+        mean, (lo, hi) = summarise(d)
+        print(f"  {lab:44s} {mean:+.4f}  CI [{lo:+.4f}, {hi:+.4f}]")
+    print("")
+    print("pooled signal weights:")
+    print(f"  {'signal':28s} {'deployed':>9s} {'B (refit)':>10s} {'C (refit+new)':>14s}")
+    wB, wC = variants["B refit weights, deployed spikes"][0], variants["C refit weights, + new spikes"][0]
+    for i, nm in enumerate(names):
+        print(f"  {nm:28s} {w_dep[i]:9.3f} {wB[i]:10.3f} {wC[i]:14.3f}")
+
+
 if __name__ == "__main__":
-    main()
+    refit() if MODE == "refit" else main()
