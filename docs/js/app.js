@@ -916,7 +916,7 @@
   function renderScoreboard() {
     var el = $("scoreboard");
     var label = $("scoreboard-label");
-    var games = filters.session === null
+    var games = (allTime || filters.session === null)
       ? []
       : ((data.meta.games || {})[String(filters.session)] || []);
     if (!games.length) {
@@ -1008,6 +1008,30 @@
   // selectScoreboardTile/deselectScoreboardTile.
   var statsFilters = { team: "", player: "", playerId: null, gameTeams: null, rookiesOnly: false, favoritesOnly: false };
   var statsFiltersExpanded = false;
+  // Stats scope: "session" = the picker's session (or the whole season split
+  // by session, the picker's "All"), "season" = one row per player summing the
+  // picked season, "career" = one row per player summing seasons from..to.
+  // The last two read data/career/totals.json (career.js).
+  // "All-Time" picked in the season/session dropdown: the Plays tab swaps its
+  // feed for the all-seasons search panel (career.js), and the Stats tab shows
+  // career totals. Leaving it (any season/session pick, or jumping to a play)
+  // puts the normal feed back.
+  var allTime = false;
+  // Stats granularity: "player" (the table below) or team / game / league lines (career.js builds those).
+  var statsGran = "player";
+  // All-Time player rows are paged (every player-session ever is too many to draw at once).
+  var STATS_PAGE = 200;
+  var statsShown = STATS_PAGE;
+  var statsSig = "";
+  // "all" | "reg" | "post" - regular season vs postseason. Applies to Season/
+  // Career totals and to the picker's whole-season ("All") session rows; a
+  // single picked session is one or the other already.
+  var statsGameType = "all";
+  function postSessionsOfActive() {
+    var ps = (data.meta.post_sessions || []).map(Number);
+    if (ps.length) return ps;
+    return (data.meta.sessions || []).filter(function (n) { return n >= 15; }).map(Number);
+  }
 
   // decimals (optional, from a column tuple's own 3rd element - e.g. GSc's
   // batting entry, which rounds to 1 decimal server-side) forces that
@@ -1017,7 +1041,10 @@
   function statsCellText(row, key, decimals) {
     var v = row[key];
     if (v == null) return "-";
-    return decimals != null ? v.toFixed(decimals) : String(v);
+    if (key === "season") return "S" + v;
+    if (decimals == null) return String(v);
+    var txt = v.toFixed(decimals);
+    return (key === "avg" || key === "obp" || key === "slg" || key === "ops") ? txt.replace(/^0\./, ".") : txt;
   }
 
   // "6.2" (6 and two-thirds innings) -> 6.667, so IP sorts by real innings
@@ -1043,11 +1070,19 @@
         if (av == null && bv == null) return 0;
         if (av == null) return 1;
         if (bv == null) return -1;
-        cmp = key === "ip" ? ipToInnings(av) - ipToInnings(bv) : av - bv;
+        cmp = key === "ip" ? ipToInnings(av) - ipToInnings(bv)
+          : (typeof av === "string" ? av.localeCompare(bv) : av - bv);
       }
       return sort.dir === "asc" ? cmp : -cmp;
     });
     return copy;
+  }
+
+  // Columns that stay put beside Player when the table scrolls sideways: SN in Full Season (none extra All-Time).
+  function statsStickyCls(key) {
+    // All-Time freezes only RK and Player - Season and SN scroll, so a phone still has room to see the stats.
+    if (allTime) return "";
+    return key === "session" ? " stats-col-session" : "";
   }
 
   function statsColHeaderHtml(label, key, sort) {
@@ -1057,7 +1092,7 @@
     // alongside Player) needs its own class since it isn't always
     // :nth-child(2) the way Player is always :first-child - see style.css's
     // matching rule and updateStickyOffsets' own --stats-col1-w.
-    var colCls = key === "session" ? " stats-col-session" : "";
+    var colCls = statsStickyCls(key);
     return '<th class="stats-th' + colCls + (active ? " active" : "") + '" data-sort-key="' + key + '">' +
       escapeHtml(label) + arrow + "</th>";
   }
@@ -1094,22 +1129,33 @@
   }
 
   function statsRowVisible(row) {
-    if (statsFilters.team && teamForPlayerId(row.player_id) !== statsFilters.team) return false;
-    if (statsFilters.gameTeams && statsFilters.gameTeams.indexOf(teamForPlayerId(row.player_id)) === -1) return false;
+    var rowTeam = row.team != null ? row.team : teamForPlayerId(row.player_id);
+    // All-Time rows carry that season's abbreviation, so the Team filter there is per franchise
+    // (CIN and ASS are the same team); a selected scoreboard game only means anything inside one season.
+    if (allTime) {
+      if (statsFilters.team && window.MLNExtras.franchiseAbbr(rowTeam) !== statsFilters.team) return false;
+    } else {
+      if (statsFilters.team && rowTeam !== statsFilters.team) return false;
+      if (statsFilters.gameTeams && statsFilters.gameTeams.indexOf(rowTeam) === -1) return false;
+    }
     if (statsFilters.playerId) {
       if (row.player_id !== statsFilters.playerId) return false;
     } else if (statsFilters.player) {
       var needle = statsFilters.player.toLowerCase();
       if (!row.name || row.name.toLowerCase().indexOf(needle) === -1) return false;
     }
-    if (statsFilters.rookiesOnly && !isRookieId(row.player_id)) return false;
+    if (statsFilters.rookiesOnly && !(allTime ? row.rookie : isRookieId(row.player_id))) return false;
     if (statsFilters.favoritesOnly && !isFavoritedId(row.player_id)) return false;
     return true;
   }
 
+  // Game type only means something over more than one session (Full Season, All-Time).
+  function statsGameTypeApplies() { return allTime || filters.session == null; }
+
   function statsActiveFilterCount() {
     return (statsFilters.team ? 1 : 0) + (statsFilters.player || statsFilters.playerId ? 1 : 0) +
-      (statsFilters.rookiesOnly ? 1 : 0) + (statsFilters.favoritesOnly ? 1 : 0);
+      (statsFilters.rookiesOnly ? 1 : 0) + (statsFilters.favoritesOnly ? 1 : 0) +
+      (statsGameTypeApplies() && statsGameType !== "all" ? 1 : 0);
   }
 
   function statsFiltersHtml() {
@@ -1117,10 +1163,19 @@
     var abbrs = Object.keys(teams).sort(function (a, b) {
       return (teams[a].name || a).localeCompare(teams[b].name || b);
     });
-    var teamOptionsHtml = '<option value="">All teams</option>' + abbrs.map(function (a) {
-      return '<option value="' + escapeHtml(a) + '"' + (statsFilters.team === a ? " selected" : "") + ">" +
-        escapeHtml(teams[a].name || a) + "</option>";
+    var teamList = allTime
+      ? ((window.MLNExtras && window.MLNExtras.franchises()) || [])
+      : abbrs.map(function (a) { return { abbr: a, name: teams[a].name || a }; });
+    var teamOptionsHtml = '<option value="">All teams</option>' + teamList.map(function (t) {
+      return '<option value="' + escapeHtml(t.abbr) + '"' + (statsFilters.team === t.abbr ? " selected" : "") + ">" +
+        escapeHtml(t.name) + "</option>";
     }).join("");
+    var gameTypeHtml = statsGameTypeApplies()
+      ? '<div class="filter-group"><label class="group-label">Game type</label><div class="chip-row" id="stats-gametype">' +
+        [["all", "All Games"], ["reg", "Regular"], ["post", "Postseason"]].map(function (g) {
+          return '<button type="button" class="chip' + (statsGameType === g[0] ? " active" : "") + '" data-gametype="' + g[0] + '">' + g[1] + "</button>";
+        }).join("") + "</div></div>"
+      : "";
     var n = statsActiveFilterCount();
     var label = n ? "Filters · " + n + " active" : "Filters";
     // Literally the Plays panel's own filters-card/filters-toggle/
@@ -1150,6 +1205,7 @@
           "</div>" +
           '<div id="stats-player-suggest" class="player-suggest" hidden></div>' +
         "</div>" +
+        gameTypeHtml +
         '<div class="filter-group">' +
           '<label class="group-label">Show</label>' +
           '<div class="chip-row" id="stats-toggle-chips">' +
@@ -1299,33 +1355,82 @@
       "</button>";
   }
 
-  function statsTableHtml(rows, cols, emptyNoun, sort, nameSuffixFn) {
+  // Rank of each row in the order shown: ties share a rank, and only the first row of a tie shows it (the rest
+  // are blank); the next rank after a tie skips ahead (1, 1, 3). key is the column the table is sorted on.
+  function statsRankLabels(sorted, valueOf) {
+    var out = [], prev, first = 0;
+    sorted.forEach(function (row, i) {
+      var v = valueOf(row);
+      if (i === 0 || v !== prev) { out.push(String(i + 1)); prev = v; first = i; } else out.push("");
+    });
+    return out;
+  }
+
+  function statsTableHtml(rows, cols, emptyNoun, sort, nameSuffixFn, isBattingTable, limit) {
     if (!rows.length) return '<div class="stats-empty">No ' + emptyNoun + ' match.</div>';
     var sorted = sortStatsRows(rows, sort);
-    var head = statsColHeaderHtml("Player", "name", sort) +
+    var total = sorted.length;
+    var rankOf = function (row) {
+      var v = sort.key === "name" ? String(row.name || "") : row[sort.key];
+      return sort.key === "ip" && v != null ? ipToInnings(v) : v;
+    };
+    var ranks = statsRankLabels(sorted, rankOf);
+    if (limit && sorted.length > limit) sorted = sorted.slice(0, limit);
+    var head = '<th class="stats-th stats-rk">RK</th>' + statsColHeaderHtml("Player", "name", sort).replace('class="stats-th', 'class="stats-th stats-col-player') +
       cols.map(function (c) { return statsColHeaderHtml(c[1], c[0], sort); }).join("");
-    var body = sorted.map(function (row) {
+    var body = sorted.map(function (row, ri) {
       var rowKey = statsRowKey(row);
       var expanded = rowKey === statsExpandedKey;
       var awardCls = row.award ? " award-" + row.award : "";
       var main = '<tr class="stats-player-row' + awardCls + (expanded ? " expanded" : "") +
           '" data-player-id="' + row.player_id + '" data-session="' + row.session + '">' +
-        '<td title="' + escapeHtml(row.name) + '">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
+        '<td class="stats-rk">' + ranks[ri] + "</td>" +
+        '<td class="stats-col-player" title="' + escapeHtml(row.name) + '">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
           (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
           statsGameAwardBadgeHtml(row.game_award) +
           (expanded ? statsPlayAllBtnHtml(row.player_id, row.session) : "") + "</td>" +
         cols.map(function (c) {
-          var cls = c[0] === "session" ? ' class="stats-col-session"' : "";
+          var cls = statsStickyCls(c[0]) ? ' class="' + statsStickyCls(c[0]).trim() + '"' : "";
           return "<td" + cls + ">" + statsCellText(row, c[0], c[2]) + "</td>";
         }).join("") +
         "</tr>";
       if (!expanded) return main;
-      return main + '<tr class="stats-expand-row"><td colspan="' + (cols.length + 1) + '">' +
+      return main + '<tr class="stats-expand-row"><td colspan="' + (cols.length + 2) + '">' +
         '<div class="stats-expand-content">' +
+          '<div class="stats-expand-actions"><button type="button" class="chip" data-career-id="' + row.player_id +
+            '" data-career-name="' + escapeHtml(row.name) + '">Career game log</button></div>' +
           '<div class="stats-expand-plays">' + statsExpandPlaysHtml(row.player_id, row.session) + "</div>" +
         "</div></td></tr>";
     }).join("");
-    return '<div class="stats-table-wrap"><table class="stats-table"><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+    var more = total > sorted.length
+      ? '<div class="xt-bar"><button type="button" class="chip" id="stats-more">Show ' + Math.min(STATS_PAGE, total - sorted.length) +
+        " more (" + sorted.length.toLocaleString() + " of " + total.toLocaleString() + ")</button></div>"
+      : "";
+    return '<div class="stats-table-wrap' + (allTime ? " stats-agg" : "") + '"><table class="stats-table"><thead><tr>' + head + "</tr></thead><tbody>" + body +
+      "</tbody>" + statsTotalRowHtml(rows, cols, isBattingTable) + "</table></div>" + more;
+  }
+
+  // Total row for whatever is currently showing (Alex's ask): counting stats
+  // are plain sums, rates are recomputed from those sums (never an average of
+  // averages), GSc has no meaningful total so it stays blank. Game-by-game
+  // sums of a player's rows can repeat a player (Full Season shows one row per
+  // session), so the label counts rows, not people, when they differ.
+  function statsTotalRowHtml(rows, cols, isBattingTable) {
+    if (!rows.length || !window.MLNExtras) return "";
+    var tot = window.MLNExtras.totalLine(rows, isBattingTable);
+    var ids = {};
+    rows.forEach(function (r) { ids[r.player_id] = 1; });
+    var people = Object.keys(ids).length;
+    var label = "Total · " + people + (people === 1 ? " player" : " players") + (people !== rows.length ? " (" + rows.length + " rows)" : "");
+    var cells = cols.map(function (c) {
+      var key = c[0], txt = "";
+      if (key === "session" || key === "season" || key === "team" || key === "gsc" || key === "g") txt = "";
+      else if (key === "wpa") txt = tot.wpa == null ? "0.0" : tot.wpa.toFixed(1);
+      else if (key === "ip") txt = tot.ip;
+      else txt = tot[key] == null ? (c[2] != null ? "-" : "0") : statsCellText(tot, key, c[2]);
+      return "<td" + (statsStickyCls(key) ? ' class="' + statsStickyCls(key).trim() + '"' : "") + ">" + txt + "</td>";
+    }).join("");
+    return '<tfoot><tr class="stats-total-row"><td class="stats-rk"></td><td class="stats-col-player">' + escapeHtml(label) + "</td>" + cells + "</tr></tfoot>";
   }
 
   function statsSubtabsHtml() {
@@ -1337,8 +1442,15 @@
       "</div>";
   }
 
+  // Player / Team / Game / League lines (the last three are drawn by career.js from the records data).
+  function statsGranHtml() {
+    return '<div class="stats-subtabs" id="stats-gran-tabs">' + [["player", "Player"], ["team", "Team"], ["game", "Game"], ["league", "League"]].map(function (g) {
+      return '<button type="button" class="stats-subtab' + (statsGran === g[0] ? " active" : "") + '" data-gran="' + g[0] + '">' + g[1] + "</button>";
+    }).join("") + "</div>";
+  }
+
   function statsToolbarHtml() {
-    return '<div class="stats-toolbar">' + statsFiltersHtml() + statsSubtabsHtml() + "</div>";
+    return '<div class="stats-toolbar">' + statsFiltersHtml() + statsSubtabsHtml() + statsGranHtml() + "</div>";
   }
 
   // The Stats toolbar (sub-tabs + Filters) and table header stick just
@@ -1360,9 +1472,14 @@
     // reasoning as title-row-h/stats-toolbar-h above. 0 when there's no
     // table at all (e.g. the "No X match" empty state) - harmless, since
     // stats-col-session doesn't exist to read it in that case either.
-    var firstCol = document.querySelector(".stats-table th:first-child");
-    document.documentElement.style.setProperty(
-      "--stats-col1-w", (firstCol ? firstCol.getBoundingClientRect().width : 0) + "px");
+    var rkCol = document.querySelector(".stats-table th:first-child");
+    var playerCol = document.querySelector(".stats-table th:nth-child(2)");
+    var thirdCol = document.querySelector(".stats-table th:nth-child(3)");
+    var rkW = rkCol ? rkCol.getBoundingClientRect().width : 0;
+    var playerW = playerCol ? playerCol.getBoundingClientRect().width : 0;
+    document.documentElement.style.setProperty("--stats-rk-w", rkW + "px");
+    document.documentElement.style.setProperty("--stats-col1-w", (rkW + playerW) + "px");
+    document.documentElement.style.setProperty("--stats-col2-w", (thirdCol ? thirdCol.getBoundingClientRect().width : 0) + "px");
   }
 
   var stickyOffsetsResizeTimer;
@@ -1418,18 +1535,50 @@
     var wasSuggestOpen = focusId === "stats-player-input" && suggestBox && !suggestBox.hidden;
 
     var isBatting = statsSubView === "batting";
-    var rows = statsRowsForActiveSession(isBatting).filter(statsRowVisible);
-    var cols = isBatting ? STATS_BATTING_COLS : STATS_PITCHING_COLS;
-    if (filters.session == null) cols = [["session", "SN"]].concat(cols);
+    var rows = [], cols = [], loadingAgg = false;
+    // Back to the first page whenever what is being listed changes.
+    var sig = [statsGran, statsSubView, statsSort[statsSubView].key, statsSort[statsSubView].dir, statsGameType, allTime, season.active,
+      filters.session, statsFilters.team, statsFilters.player, statsFilters.playerId, statsFilters.rookiesOnly, statsFilters.favoritesOnly].join("|");
+    if (sig !== statsSig) { statsSig = sig; statsShown = STATS_PAGE; }
+    if (statsGran !== "player") {
+      // team / game / league lines: career.js draws the table into #stats-gran below
+    } else if (allTime) {
+      var all = window.MLNExtras ? window.MLNExtras.statsAllTime(isBatting, statsGameType) : null;
+      if (all) {
+        rows = all.filter(statsRowVisible);
+        cols = [["season", "Season"], ["session", "SN"]].concat(isBatting ? STATS_BATTING_COLS : STATS_PITCHING_COLS);
+      } else {
+        loadingAgg = true;
+        if (window.MLNExtras) window.MLNExtras.loadStatsAllTime().then(renderActiveView);
+      }
+    } else {
+      rows = statsRowsForActiveSession(isBatting).filter(statsRowVisible);
+      if (filters.session == null && statsGameType !== "all") {
+        var postSet = postSessionsOfActive();
+        rows = rows.filter(function (r) { return (postSet.indexOf(Number(r.session)) !== -1) === (statsGameType === "post"); });
+      }
+      cols = isBatting ? STATS_BATTING_COLS : STATS_PITCHING_COLS;
+      if (filters.session == null) cols = [["session", "SN"]].concat(cols);
+    }
     // Suppressed only across this one synchronous swap - genuinely focused
     // and unfocused elements outside of it still make focusout do its
     // normal job.
     statsSuppressFocusout = true;
-    el.innerHTML = statsToolbarHtml() + '<div class="stats-section">' +
-      statsTableHtml(rows, cols, isBatting ? "batting lines" : "pitching lines", statsSort[statsSubView],
-        isBatting ? null : statsPitcherDecisionsHtml) +
+    var granMode = statsGran !== "player";
+    el.innerHTML = statsToolbarHtml() +
+      '<div class="stats-section"' + (granMode ? ' id="stats-gran"' : "") + ">" +
+      (granMode ? '<div class="stats-empty">Loading...</div>'
+        : loadingAgg ? '<div class="stats-empty">Loading...</div>'
+        : statsTableHtml(rows, cols, isBatting ? "batting lines" : "pitching lines", statsSort[statsSubView],
+          isBatting ? null : statsPitcherDecisionsHtml, isBatting, allTime ? statsShown : 0)) +
       "</div>";
     statsSuppressFocusout = false;
+    if (granMode && window.MLNExtras) {
+      window.MLNExtras.renderGran($("stats-gran"), {
+        gran: statsGran, side: isBatting ? "bat" : "pit", allTime: allTime, season: season.active,
+        session: filters.session, gt: statsGameType, team: statsFilters.team,
+      });
+    }
     if (focusId) {
       var restored = $(focusId);
       if (restored) {
@@ -1445,7 +1594,7 @@
     // "Loading plays..." above - fill it in for real once they land. Reads
     // the expanded row's own session (from the key), not filters.session -
     // in Full Season mode those aren't the same thing.
-    if (statsExpandedKey != null) {
+    if (statsExpandedKey != null && statsGran === "player" && !allTime) {
       var expandedSession = Number(statsExpandedKey.split("|")[1]);
       if (!data.playsBySession[expandedSession]) {
         ensurePlaysLoaded().then(function () {
@@ -1532,6 +1681,7 @@
     statsFilters.playerId = null;
     statsFilters.rookiesOnly = false;
     statsFilters.favoritesOnly = false;
+    statsGameType = "all";
     deselectScoreboardTile();
   }
 
@@ -1584,6 +1734,17 @@
     $("plays-view").hidden = view !== "plays";
     $("stats-view").hidden = view !== "stats";
     if (view === "stats") renderStats();
+    else if (view === "plays") applyAllTimeMode();
+  }
+
+  // Plays tab, "All-Time" vs. the normal feed: the filter card, sort bar and
+  // moment cards give way to career.js's panel (it fetches nothing until Apply).
+  function applyAllTimeMode() {
+    $("plays-view").classList.toggle("alltime", allTime);
+    if (allTime) $("empty-state").hidden = true;
+    $("alltime-view").hidden = !allTime;
+    if (allTime && window.MLNExtras) window.MLNExtras.render("alltime", $("alltime-view"));
+    renderScoreboard();
   }
 
   /* Drives the phone-only "Filters (N active)" bar. Every chip and field
@@ -1632,6 +1793,7 @@
   }
 
   function render() {
+    if (allTime) { $("empty-state").hidden = true; return; }
     updateFilterSummary();
     updateSideAvailability();
     $("page-title").textContent = "MLN GAMEDAY";
@@ -13512,6 +13674,80 @@
     });
   }
 
+  /* A slideshow of plays picked from the All-Time search: refs are
+     {s: season, n: session, g: game code, pn: play number}, in the order to
+     play. Each play can be from a different season, so the session files are
+     fetched directly (not through the active season's cache) and each slide
+     gets its own game's plays as ribbon context, like buildFilteredPlaysSlides. */
+  function fetchSessionPlays(s, n) {
+    var live = s === season.current;
+    var url = (live ? "data/" : "data/s" + pad2(s) + "/") + "plays_" + pad2(n) + ".json";
+    return live ? getJSON(url) : getJSONCached(url);
+  }
+
+  /* One play from the All-Time table, opened as its game's replay right where
+     the table is - no season switch, so the All-Time view is still there
+     (and still sorted) when the replay closes. */
+  function openCrossSeasonPlay(ref) {
+    return fetchSessionPlays(ref.s, ref.n).then(function (rows) {
+      var plays = rows.filter(function (p) { return p.game_code === ref.g; })
+        .sort(function (a, b) { return a.play_num - b.play_num; });
+      if (!plays.length) { toast("No plays recorded for that game yet."); return; }
+      replay.slides = buildGameReplaySlides(plays);
+      var target = 0;
+      replay.slides.forEach(function (sl, i) { if (sl.kind === "play" && sl.play.play_num === ref.pn) target = i; });
+      replay.index = -1;
+      replay.paused = false;
+      replay.remaining = 0;
+      replay.returnTo = null;
+      $("replay-pause-hint").hidden = true;
+      $("replay-card").classList.remove("paused");
+      $("replay-back").hidden = true;
+      $("replay-modal").hidden = false;
+      window.setTimeout(function () { showReplaySlide(target); }, REPLAY_JUMP_OPEN_DELAY_MS);
+    }).catch(function (err) {
+      console.error("openCrossSeasonPlay failed:", err);
+      toast("Could not load that game's plays.");
+    });
+  }
+
+  function openCrossSeasonSlideshow(refs) {
+    if (!refs.length) { toast("No plays to show."); return Promise.resolve(); }
+    var need = {};
+    refs.forEach(function (r) { need[r.s + "|" + r.n] = [r.s, r.n]; });
+    return Promise.all(Object.keys(need).map(function (k) {
+      return fetchSessionPlays(need[k][0], need[k][1]).then(function (rows) { return [k, rows]; });
+    })).then(function (pairs) {
+      var by = {};
+      pairs.forEach(function (p) { by[p[0]] = p[1]; });
+      var slides = [];
+      refs.forEach(function (r) {
+        var gp = (by[r.s + "|" + r.n] || []).filter(function (p) { return p.game_code === r.g; })
+          .sort(function (a, b) { return a.play_num - b.play_num; });
+        var idx = -1;
+        gp.forEach(function (p, i) { if (p.play_num === r.pn) idx = i; });
+        if (idx < 0) return;
+        var p = gp[idx];
+        slides.push({
+          kind: "play", play: p, playNo: slides.length + 1, total: 0, gamePlays: gp, gameIdx: idx,
+          ribbonFrom: 0, homeAbbr: p.home_team_abbr, awayAbbr: p.away_team_abbr,
+        });
+      });
+      if (!slides.length) { toast("Could not load those plays."); return; }
+      slides.forEach(function (sl) { sl.total = slides.length; });
+      replay.slides = slides;
+      replay.index = -1;
+      replay.paused = false;
+      $("replay-pause-hint").hidden = true;
+      $("replay-card").classList.remove("paused");
+      $("replay-modal").hidden = false;
+      showReplaySlide(0);
+    }).catch(function (err) {
+      console.error("openCrossSeasonSlideshow failed:", err);
+      toast("Could not load those plays.");
+    });
+  }
+
   /* Stats tab's play-all button (statsPlayAllBtnHtml) - same replay modal
      and buildFilteredPlaysSlides shape as openFilteredPlaysSlideshow above,
      just fed the one player's plays for this session (statsPlayerSessionPlays,
@@ -16445,6 +16681,7 @@
       }).join("");
     }
 
+    sel.insertAdjacentHTML("afterbegin", '<option value="alltime" style="font-weight:800">All-Time</option>');
     var activeGroup = groups.filter(function (g) { return g.season === season.active; })[0];
     var activeSessions = (activeGroup && activeGroup.sessions) || [];
 
@@ -16457,7 +16694,7 @@
       target = activeSessions.length ? activeSessions[0] : null;
     }
     filters.session = target;
-    sel.value = season.active + "|" + (target === null ? "" : target);
+    sel.value = allTime ? "alltime" : season.active + "|" + (target === null ? "" : target);
   }
 
   // Everything boot() already re-renders after a fresh data load, replayed
@@ -16756,7 +16993,17 @@
         );
         return;
       }
-      var subtab = e.target.closest(".stats-subtab");
+      var careerBtn = e.target.closest("[data-career-id]");
+      if (careerBtn && window.MLNExtras) {
+        window.MLNExtras.openPlayer(Number(careerBtn.getAttribute("data-career-id")), careerBtn.getAttribute("data-career-name"));
+        return;
+      }
+      var gtBtn = e.target.closest("[data-gametype]");
+      if (gtBtn) { statsGameType = gtBtn.getAttribute("data-gametype"); statsExpandedKey = null; renderStats(); return; }
+      var granBtn = e.target.closest("[data-gran]");
+      if (granBtn) { statsGran = granBtn.getAttribute("data-gran"); statsExpandedKey = null; renderStats(); return; }
+      if (e.target.closest("#stats-more")) { statsShown += STATS_PAGE; renderStats(); return; }
+      var subtab = e.target.closest("[data-subview]");
       if (subtab) { setStatsSubView(subtab.getAttribute("data-subview")); return; }
       if (e.target.closest("#stats-filters-toggle")) { toggleStatsFiltersExpanded(); return; }
       if (e.target.closest("#stats-reset-btn")) { resetStatsFilters(); return; }
@@ -16766,6 +17013,13 @@
       if (th) { toggleStatsSort(th.getAttribute("data-sort-key")); return; }
       var row = e.target.closest(".stats-player-row");
       if (!row) return;
+      if (allTime) {
+        // All-Time rows are spread over many seasons, so a click opens the player's career panel.
+        if (window.MLNExtras) {
+          window.MLNExtras.openPlayer(Number(row.getAttribute("data-player-id")), row.children[0].getAttribute("title"));
+        }
+        return;
+      }
       toggleStatsExpand(row.getAttribute("data-player-id") + "|" + row.getAttribute("data-session"));
     });
     $("stats-view").addEventListener("change", function (e) {
@@ -16830,6 +17084,16 @@
     // defaulting to the season's latest and re-rendering twice.
     $("session-select").addEventListener("change", function (e) {
       var sessSel = e.target;
+      if (sessSel.value === "alltime") {
+        allTime = true;
+        statsExpandedKey = null;
+        applyAllTimeMode();
+        if (activeView === "stats") renderStats();
+        return;
+      }
+      var wasAllTime = allTime;
+      allTime = false;
+      if (wasAllTime) applyAllTimeMode();
       var parts = sessSel.value.split("|");
       var n = Number(parts[0]);
       var sess = parts[1] === "" ? null : Number(parts[1]);
@@ -17332,6 +17596,65 @@
     }
   }
 
+  // ── bridge to career.js (player career panel, Records and Search tabs) ──────
+
+  // Jump to a season + session, then do one thing there: open the Stats tab,
+  // the game's scorecard, or the replay at a specific play. A season switch is
+  // the same setActiveSeason the picker uses (cached after the first visit).
+  function goToSession(n, sess, opts) {
+    opts = opts || {};
+    var ready;
+    allTime = false;
+    applyAllTimeMode();
+    if (n === season.active) {
+      filters.session = sess;
+      populateSessionSelect(true, sess);
+      deselectScoreboardTile();
+      renderScoreboard();
+      statsExpandedKey = null;
+      ready = Promise.resolve();
+    } else {
+      ready = setActiveSeason(n, sess);
+    }
+    return ready.then(function () {
+      if (opts.view) switchView(opts.view);
+      else renderActiveView();
+      if (opts.gameCode) {
+        var code = String(opts.gameCode);
+        if (opts.playNum) openReplayAtPlay(code, sess, opts.playNum, null, true);
+        else openScorecard(code, sess, "batting");
+      }
+    }).catch(function (err) {
+      console.error("goToSession failed:", err);
+      toast("Could not open that game.");
+    });
+  }
+
+  function initExtras() {
+    if (!window.MLNExtras) return;
+    window.MLNExtras.init({
+      version: function () { return data.meta && data.meta.built_at ? data.meta.built_at : ""; },
+      currentSeason: function () { return season.current; },
+      goTo: goToSession,
+      basesSvg: function () { return (data.meta && data.meta.bases_svg) || {}; },
+      tagLabels: function () { return (data.meta && data.meta.tag_labels) || {}; },
+      isFavorite: function (id) { return isFavoritedId(id); },
+      playSlideshow: openCrossSeasonSlideshow,
+      awardBadges: function (award, gameAward) { return statsAwardBadgeHtml(award) + statsGameAwardBadgeHtml(gameAward); },
+      openPlay: openCrossSeasonPlay,
+      rerenderStats: function () { if (activeView === "stats") renderStats(); },
+      resultLabels: function () { return data.meta.result_labels || {}; },
+      seasonList: function () {
+        return seasonSessionGroups().map(function (g) { return g.season; }).sort(function (a, b) { return b - a; });
+      },
+      teamAbbrs: function () {
+        var seen = {};
+        Object.keys(data.meta.teams || {}).forEach(function (a) { seen[a] = 1; });
+        return Object.keys(seen).sort();
+      },
+    });
+  }
+
   function boot() {
     wireControls();
     Promise.all([
@@ -17348,6 +17671,7 @@
       liveSeasonSessions = (data.meta.sessions || []).slice();
       $("built-at").textContent = formatBuiltAt(data.meta.built_at);
       populateSessionSelect(false);
+      initExtras();
       renderScoreboard();
       populateTeamSelect();
       populateTagChips();

@@ -226,7 +226,7 @@ button{font-family:inherit;cursor:pointer;}
    everything else (border, radius, colors, padding, the toggle's own
    label+caret layout, every filter control's own look) comes straight from
    the shared classes, unmodified. */
-.filters-card.stats-filters{max-width:280px;margin-bottom:0;}
+.filters-card.stats-filters{max-width:360px;margin-bottom:0;}
 .stats-filters .filters-toggle{display:flex;}
 .stats-filters.collapsed .filters-body{display:none;}
 .stats-filters:not(.collapsed) .filters-body{margin-top:14px;}
@@ -243,8 +243,8 @@ button{font-family:inherit;cursor:pointer;}
    the pills to stay on the same line on a narrow phone. min-width is sized
    to comfortably fit the toggle's longest real label ("Filters · 3 active"
    + caret). */
-#stats-filters-card{flex:0 0 280px;}
-#stats-filters-card.collapsed{flex:1 1 280px;min-width:140px;}
+#stats-filters-card{flex:0 0 360px;max-width:100%;}
+#stats-filters-card.collapsed{flex:0 0 360px;max-width:100%;}
 /* Stacked rather than .filter-row's own side-by-side flex (that rule leans
    on .fields-row's width rules for its <select>/input children, which this
    narrower card doesn't opt into) - simplest way to avoid a width fight in
@@ -3181,3 +3181,151 @@ html[data-km-debug="1"] .km-tuning-panel{
   .ls-logo{width:14px;height:14px;}
 }
 
+
+/* ── Career / Records / Search extras (career.js, Stats scope + total row) ── */
+.stats-scope-note{font-size:12px;color:var(--muted);margin:-6px 0 12px;}
+.stats-range{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+.stats-range select{padding:5px 8px;}
+.stats-expand-actions{margin:0 0 10px;}
+.stats-table tfoot td{
+  font-weight:800;border-top:2px solid var(--border);border-bottom:none;background:var(--card);
+  position:sticky;bottom:0;z-index:3;
+}
+.stats-table tfoot td:first-child{z-index:4;}
+.modal-card.wide{max-width:none;}
+.xt-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:0 0 12px;}
+.xt-lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:700;}
+.xt-hint{font-size:12px;color:var(--muted);font-weight:500;}
+.xt-foot{margin:10px 0 24px;}
+.xt-sub{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.xt-table{margin-bottom:14px;overflow-x:auto;flex-shrink:0;}
+.xt-scroll{max-height:46vh;overflow:auto;}
+.xt-plain th{cursor:default;position:static;}
+.xt-plain thead th{position:sticky;top:0;z-index:5;}
+.stats-table.xt-plain thead th{top:0;}
+.xt-plain td:first-child,.xt-plain th:first-child{position:static;}
+.xt-plain tfoot td{position:sticky;bottom:0;}
+#career-body > *{flex-shrink:0;}
+.xt-click{cursor:pointer;}
+.xt-click:hover td{background:var(--tint);}
+.xt-on td{background:var(--tint);font-weight:800;}
+.stats-table tbody tr.xt-click:hover td,.stats-table tbody tr.xt-on td{background:var(--tint);}
+.xt-link{background:none;border:none;padding:0;color:var(--blue);font:inherit;font-weight:700;cursor:pointer;}
+.xt-link:hover{text-decoration:underline;}
+.xt-tm{font-size:10.5px;color:var(--muted);}
+.xt-form{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;}
+.xt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 14px;margin-bottom:12px;}
+.xt-field{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.xt-field select,.xt-field input{width:100%;min-width:0;}
+.xt-chk{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;}
+.xt-suggest{position:absolute;left:0;right:0;top:100%;z-index:30;}
+#records-view,#search-view{margin-bottom:26px;}
+.xt-plain th.xt-sortable{cursor:pointer;user-select:none;}
+.xt-plain th.xt-sortable:hover,.xt-plain th.xt-sortable.active{color:var(--text);}
+
+/* Season/Career Stats scopes have ~22 columns: tighter cells, and the wrapper
+   is a bounded scroll pane at every width (same pattern as below 700px) so any
+   remaining overflow scrolls inside the card instead of spilling out of it. */
+.stats-table-wrap.stats-agg{overflow:auto;-webkit-overflow-scrolling:touch;max-height:75vh;}
+.stats-agg .stats-table thead th{top:0;}
+.stats-agg .stats-table th,.stats-agg .stats-table td{padding:7px 6px;}
+.stats-agg .stats-table th:first-child,.stats-agg .stats-table td:first-child{padding-left:10px;padding-right:10px;}
+
+/* Player panel: the card is a fixed-height column so the by-season table and
+   the game log each scroll inside their own pane, with header and total row
+   pinned (the log takes whatever height is left). */
+#career-modal{padding:12px;}
+.modal-card.wide{height:100%;max-height:none;}
+.modal-card.wide .modal-body{overflow:hidden;min-height:0;flex:1 1 auto;}
+#career-body .xt-season{max-height:30vh;overflow:auto;}
+#career-body .xt-scroll{flex:1 1 0;min-height:150px;max-height:none;overflow:auto;}
+.xt-plain tfoot td{background:var(--card);}
+.xt-q{padding:6px 10px;min-width:150px;}
+.xt-min{width:70px;padding:5px 8px;}
+.xt-plain thead th:first-child{position:sticky;}
+.xt-plain tfoot td:first-child{position:sticky;}
+
+/* Phones: the player panel nearly fills the screen, controls and tables shrink,
+   hints drop out, and the first column (Season / Date / Player) stays pinned
+   while the stat columns scroll sideways. */
+@media (max-width:700px){
+  #career-modal{padding:8px;}
+  .modal-card.wide{height:100%;max-height:none;}
+  #career-body{padding:10px;gap:8px;}
+  #career-body .xt-hint{display:none;}
+  #career-body .stats-subtab{padding:5px 11px;font-size:12px;white-space:nowrap;}
+  #career-body .stats-subtabs{flex-wrap:wrap;gap:6px;}
+  .stats-table.xt-plain{font-size:11.5px;}
+  .stats-table.xt-plain th,.stats-table.xt-plain td{padding:6px 5px;}
+  .xt-plain th:first-child,.xt-plain td:first-child{position:sticky;left:0;background:var(--card);z-index:3;}
+  .xt-plain thead th:first-child{z-index:7;}
+  .xt-plain tfoot td:first-child{z-index:6;}
+  .stats-table tbody tr.xt-click:hover td:first-child,.stats-table tbody tr.xt-on td:first-child{background:var(--tint);}
+  .xt-bar{gap:8px;}
+}
+
+/* Player panel, Diffs view (palette follows the Diff Distribution Lab) */
+:root{--dx0:#104281;--dx1:#256abf;--dx2:#3987e5;--dx3:#9ec5f4;--dx4:#1baf7a;--dx5:#c9c8c1;--dx-ink:#161715;}
+:root[data-theme="dark"]{--dx0:#cde2fb;--dx1:#86b6ef;--dx2:#3987e5;--dx3:#1c5cab;--dx4:#199e70;--dx5:#55554f;--dx-ink:#efeee9;}
+.xt-diffs{flex:1 1 0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;}
+.xt-diffs > *{flex-shrink:0;}
+.dx-chart svg{display:block;width:100%;max-width:1000px;height:auto;}
+.dx-chart text{fill:var(--muted);font-size:12.5px;font-family:inherit;}
+.dx-grid{stroke:var(--border);stroke-width:1;}
+.dx-lg{fill:none;stroke:var(--dx-ink);stroke-width:2;stroke-linejoin:round;}
+.dx-mk{stroke:#4c6ef5;stroke-width:2.5;stroke-dasharray:5 3;}
+.dx-mk-lg{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:2 3;}
+.dx-chart text.dx-mk-t{fill:#4c6ef5;font-weight:800;}
+.dx-chart text.dx-mk-lg-t{fill:var(--muted);font-weight:700;}
+.dx-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);font-weight:600;}
+.dx-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+.dx-legend i.dx-key-lg{height:0;border-top:2px solid var(--dx-ink);border-radius:0;width:14px;vertical-align:3px;}
+.dx-legend i.dx-key-mk{height:0;border-top:2px dashed #4c6ef5;border-radius:0;width:14px;vertical-align:3px;}
+.dx-note{line-height:1.45;margin-bottom:8px;}
+@media (max-width:700px){#career-body .xt-hint.dx-note{display:block;}}
+
+/* ── All-Time panel (Plays tab, career.js): the Plays filter card plus range sliders ── */
+.alltime-card{margin-bottom:14px;}
+.alltime-card .filter-row{align-items:flex-start;}
+.dr-row{gap:18px 22px;}
+.dr-group{flex:1 1 140px;min-width:130px;}
+.dr-val{font-weight:700;color:var(--text);letter-spacing:0;text-transform:none;margin-left:8px;}
+.dr{position:relative;height:24px;}
+.dr-track{position:absolute;left:0;right:0;top:10px;height:4px;border-radius:2px;background:var(--border);}
+.dr-fill{position:absolute;top:0;bottom:0;background:var(--red);border-radius:2px;}
+.dr input[type=range]{position:absolute;left:0;top:0;width:100%;height:24px;margin:0;padding:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none;}
+.dr input[type=range]::-webkit-slider-runnable-track{background:none;height:24px;}
+.dr input[type=range]::-moz-range-track{background:none;}
+.dr input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:16px;height:16px;margin-top:4px;border-radius:50%;background:var(--red);border:2px solid var(--card);cursor:pointer;}
+.dr input[type=range]::-moz-range-thumb{pointer-events:auto;width:12px;height:12px;border-radius:50%;background:var(--red);border:2px solid var(--card);cursor:pointer;}
+#alltime-view .xt-bar .play-filtered-btn{flex-shrink:0;}
+#plays-view.alltime .controls,#plays-view.alltime #moments{display:none;}
+.xt-obc svg{width:22px;height:22px;display:block;margin:0 auto;}
+.xt-obc{line-height:0;}
+
+/* All-Time Stats: Season, then SN, stay beside Player while the table scrolls sideways. */
+.stats-table th.stats-col-sn,.stats-table td.stats-col-sn{position:sticky;left:calc(var(--stats-col1-w) + var(--stats-col2-w,0px));background:var(--card);z-index:2;}
+.stats-table thead th.stats-col-sn{z-index:12;}
+.stats-filters .chip-row{flex-wrap:wrap;}
+/* A game opened from the player panel plays on top of it. */
+#replay-modal{z-index:25;}
+.xt-ptop{margin:0 0 4px;}
+
+/* RK: a narrow rank column at the far left of every Stats table; Player (when there is one) sticks right after it. */
+.stats-table th.stats-rk,.stats-table td.stats-rk{width:34px;min-width:34px;padding-left:8px;padding-right:4px;text-align:center;color:var(--muted);font-weight:700;}
+.stats-table th.stats-col-player,.stats-table td.stats-col-player{text-align:left;position:sticky;left:var(--stats-rk-w,0px);background:var(--card);z-index:2;}
+.stats-table thead th.stats-col-player{z-index:12;}
+.stats-table tfoot td.stats-col-player{z-index:4;}
+.stats-table tbody tr.stats-player-row.expanded td.stats-col-player{font-weight:800;}
+.stats-table tbody tr.stats-player-row:hover td.stats-col-player{background:var(--tint);}
+.stats-table tbody tr.stats-player-row.award-player td.stats-col-player,
+.stats-table tbody tr.stats-player-row.award-hitter td.stats-col-player,
+.stats-table tbody tr.stats-player-row.award-pitcher td.stats-col-player{border-left:0;padding-left:10px;}
+.stats-table tbody tr.stats-player-row.award-player td.stats-rk,
+.stats-table tbody tr.stats-player-row.award-hitter td.stats-rk,
+.stats-table tbody tr.stats-player-row.award-pitcher td.stats-rk{border-left:3px solid var(--gold);padding-left:5px;}
+.xt-plain th.stats-rk,.xt-plain td.stats-rk{position:static;}
+@media (max-width:700px){
+  .xt-plain th.stats-col-name,.xt-plain td.stats-col-name{position:sticky;left:var(--stats-rk-w,0px);background:var(--card);z-index:3;}
+  .xt-plain thead th.stats-col-name{z-index:7;}
+}

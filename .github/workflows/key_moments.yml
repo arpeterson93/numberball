@@ -20,6 +20,7 @@ on:
     paths:
       - 'docs/**'
       - 'key_moments_build.py'
+      - 'career_build.py'
       - 'requirements.txt'
       - '.github/workflows/key_moments.yml'
   schedule:
@@ -57,6 +58,13 @@ jobs:
       # Output lands in docs/data/ in this workspace only - never committed.
       - name: Build key moments JSON
         run: python -u key_moments_build.py
+
+      # Career game logs, season totals, session records and the play-search
+      # index, derived from the JSON the step above (and the committed
+      # archive seasons) already wrote - no network needed. Output is
+      # generated here only, like the rest of docs/data.
+      - name: Build career, records and search data
+        run: python -u career_build.py
 
       - name: Configure Pages
         uses: actions/configure-pages@v6

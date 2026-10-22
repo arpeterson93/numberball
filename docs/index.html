@@ -254,6 +254,10 @@
 
   <div id="moments"></div>
   <div id="empty-state" class="empty-state" hidden>No plays match these filters.</div>
+  <!-- "All-Time" (season/session dropdown): career.js renders its own filter
+       panel and results table here instead of the feed above; nothing is
+       fetched until Apply. -->
+  <div id="alltime-view" hidden></div>
   </div>
 
   <!-- Stats view: session-wide batting/pitching lines, filled by app.js's
@@ -261,6 +265,7 @@
        expands that player's plays this session beneath it (reuses the same
        lazily-loaded data.playsBySession the Plays tab already fetches). -->
   <div id="stats-view" hidden></div>
+
 
 </div>
 
@@ -529,6 +534,7 @@
 <script src="js/config.js"></script>
 <script src="js/favorites.js"></script>
 <script src="js/trajectory.js"></script>
+<script src="js/career.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
