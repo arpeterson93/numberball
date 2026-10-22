@@ -12308,9 +12308,11 @@
   function statSwapHtml(slide, kind, name, swapAtMs) {
     if (!slide || !name || slide.gameIdx == null || slide.gameIdx < 0 || !slide.gamePlays) return "";
     var play = slide.gamePlays[slide.gameIdx];
-    if (!play || play.is_on_deck) return "";
-    var bt = statTokens(kind, gameStatTotals(slide.gamePlays, slide.gameIdx - 1, kind, name));
+    if (!play) return "";
+    // Now Batting (on-deck) has no play to resolve: show the line as it
+    // stands, with nothing to animate.
     var at = statTokens(kind, gameStatTotals(slide.gamePlays, slide.gameIdx, kind, name));
+    var bt = play.is_on_deck ? at : statTokens(kind, gameStatTotals(slide.gamePlays, slide.gameIdx - 1, kind, name));
     var at_ms = ' style="--at:' + swapAtMs + 'ms"';
     var html = at.map(function (tok, i) {
       if (!tok.show) return "";
