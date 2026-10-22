@@ -211,6 +211,25 @@ async def player(interaction: discord.Interaction, player: str | None = None,
         await interaction.followup.send(f"Couldn't render {name}'s card.")
 
 
+@bot.tree.command(name="results", description="Show the results table for the latest graded pitch (or an earlier one)")
+@app_commands.describe(pitch="Which pitch of the game, as numbered in /status (default: the latest graded one)")
+async def results(interaction: discord.Interaction, pitch: app_commands.Range[int, 1, 500] | None = None) -> None:
+    await interaction.response.defer()
+    game = await _live_game()
+    if not game:
+        await interaction.followup.send("No live Pioneers game right now.")
+        return
+    g = await asyncio.to_thread(swing_game.graded_payload, game["game_code"], pitch)
+    if not g:
+        await interaction.followup.send("No graded pitch to show yet." if not pitch
+                                        else f"Pitch {pitch} hasn't been graded (or doesn't exist).")
+        return
+    if not g["guesses"]:
+        await interaction.followup.send("Nobody guessed on that pitch.")
+        return
+    await _post_graded(interaction.followup, g)
+
+
 _metric_choices = [app_commands.Choice(name="OBP", value="obp"), app_commands.Choice(name="SLG", value="slg"),
                   app_commands.Choice(name="Run value", value="rv")]
 
@@ -273,17 +292,35 @@ async def _post_graded(channel, g: dict) -> None:
         await channel.send(file=discord.File(buf, filename="pioball_results.png"))
     except Exception as e:
         print(f"results image failed, sending text: {e!r}")
-        await channel.send(swing_game.format_graded(g))
+        try:
+            await channel.send(swing_game.format_graded(g))
+        except Exception as e2:  # e.g. the bot can't send in that channel - say so rather than lose it silently
+            print(f"results NOT posted to channel {channel.id} (pitch {g['pitch_row'].get('id')}): {e2!r}")
+
+
+async def _results_channel(pitch_row: dict):
+    """Where a graded pitch's results go: the channel of its first guess. get_channel only
+    knows what's cached, so fall back to asking Discord; log when it truly can't be found
+    (the pitch is already graded by then, so a silent skip would lose the post)."""
+    cid = int(pitch_row.get("channel_id") or _post_channel or 0)
+    if not cid:
+        print(f"results NOT posted for pitch {pitch_row.get('id')}: no channel on file")
+        return None
+    channel = bot.get_channel(cid)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(cid)
+        except Exception as e:
+            print(f"results NOT posted for pitch {pitch_row.get('id')}: can't reach channel {cid}: {e!r}")
+    return channel
 
 
 async def _grade_and_post() -> None:
     results = await asyncio.to_thread(swing_game.grade_ready)
     for g in results:
-        cid = int(g["pitch_row"].get("channel_id") or _post_channel or 0)
-        channel = bot.get_channel(cid) if cid else None
-        if channel is None:
-            continue
-        await _post_graded(channel, g)
+        channel = await _results_channel(g["pitch_row"])
+        if channel is not None:
+            await _post_graded(channel, g)
 
 
 @tasks.loop(seconds=60)
@@ -336,12 +373,19 @@ def _guess_count(n: int) -> str:
 
 def _message_text(message: discord.Message) -> str:
     """Message body plus every embed's title/description/fields - the ump bot
-    posts its plays as "Play Overview" embeds."""
+    posts its plays as "Play Overview" embeds. A forwarded message (how the feed
+    reaches the Pioneers server) has no content of its own: the original's text and
+    embeds live in message.message_snapshots."""
     parts = [message.content or ""]
-    for e in message.embeds:
-        parts += [e.title or "", e.description or ""]
-        for f in e.fields:
-            parts += [f.name or "", f.value or ""]
+    sources = [message.embeds]
+    for snap in getattr(message, "message_snapshots", None) or []:
+        parts.append(snap.content or "")
+        sources.append(snap.embeds)
+    for embeds in sources:
+        for e in embeds:
+            parts += [e.title or "", e.description or ""]
+            for f in e.fields:
+                parts += [f.name or "", f.value or ""]
     return "\n".join(p for p in parts if p)
 
 
@@ -353,7 +397,12 @@ async def on_message(message: discord.Message) -> None:
         return
     if RESULTS_CHANNEL_ID not in (message.channel.id, getattr(message.channel, "parent_id", 0)):
         return
-    parsed = swing_game.parse_feed(_message_text(message))
+    text = _message_text(message)
+    if not text:  # nothing readable: say what the message was made of, so the format can be worked out
+        print(f"feed message with no readable text: type={message.type} embeds={len(message.embeds)} "
+              f"snapshots={len(getattr(message, 'message_snapshots', None) or [])} "
+              f"components={len(message.components)} attachments={len(message.attachments)}")
+    parsed = swing_game.parse_feed(text)
     if not parsed:
         return
     global _batting_team, _last_feed_result
@@ -379,7 +428,7 @@ async def on_message(message: discord.Message) -> None:
         return
     g = await asyncio.to_thread(swing_game.grade_from_feed, live["game_code"], parsed)
     if g:
-        channel = bot.get_channel(int(g["pitch_row"].get("channel_id") or _post_channel or 0))
+        channel = await _results_channel(g["pitch_row"])
         if channel is not None:
             await _post_graded(channel, g)
 

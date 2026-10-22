@@ -378,6 +378,35 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
     return {"pitch_row": p, "pitch": pitch, "actual": actual, "model": model, "guesses": graded}
 
 
+def graded_payload(game_code, seq: int | None = None) -> dict | None:
+    """The results payload (same shape _grade_row returns) rebuilt from saved data for a
+    graded pitch of this game: pitch number `seq`, or the latest graded one. None if the
+    game has no graded pitch (or that seq isn't graded yet)."""
+    q = (_t("swing_pitches").select("*").eq("game_code", str(game_code)).not_.is_("graded_at", "null"))
+    q = q.eq("seq", seq) if seq else q.order("seq", desc=True).limit(1)
+    rows = q.execute().data
+    if not rows:
+        return None
+    p = rows[0]
+    pitch = int(p["pitch"])
+    ranges = [tuple(r) for r in (p.get("ranges") or utils.RESULT_RANGES)]
+    graded = []
+    for g in _t("swing_guesses").select("user_id,user_name,guess,diff,result").eq("pitch_id", p["id"]).execute().data:
+        if g["user_id"] in (ACTUAL_ID, MODEL_ID) or g.get("diff") is None:
+            continue
+        graded.append({"user_name": display_name(g["user_id"], g["user_name"]), "guess": g["guess"],
+                       "diff": g["diff"], "result": g["result"]})
+    graded.sort(key=lambda r: r["diff"])
+    swing = p.get("swing")
+    actual = {"swing": swing, "result": p.get("actual_result"),
+              "diff": utils.circular_diff(pitch, int(swing)) if swing is not None and 1 <= int(swing) <= 1000 else None}
+    model = None
+    if p.get("model_swing") is not None:
+        md = utils.circular_diff(pitch, int(p["model_swing"]))
+        model = {"swing": int(p["model_swing"]), "diff": md, "result": utils._diff_to_result(md, ranges)}
+    return {"pitch_row": p, "pitch": pitch, "actual": actual, "model": model, "guesses": graded}
+
+
 def grade_ready() -> list[dict]:
     """Grade every open pitch whose real pitch has landed in the synced plays
     table (the fallback for games the results feed doesn't cover). One payload
