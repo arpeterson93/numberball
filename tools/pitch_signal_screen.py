@@ -16,6 +16,14 @@ pitches). Candidates:
 
 Usage:  python -I tools/pitch_signal_screen.py collect [--workers 6] [--min-pitches 250]
         python -I tools/pitch_signal_screen.py screen
+        python -I tools/pitch_signal_screen.py incremental   # just section 1 + 1b (fast): each candidate spike added on top of
+                                                             # the deployed spikes, with pitcher-bootstrap CIs
+
+Spike references (REF_NAMES): previous pitch / swing / pitch-before-last, the opposing half-inning's last pitch / swing, and
+(2026-10-22) the previous PA's diff, diff + 500, and the digit reversal / opposite side (+500) of the previous pitch, swing and
+diff. CAUTION: the stored walks hold the older seven-signal model (no number-habit signals, no exact-value mixture), so gains
+here can be overstated - pitch-before-last looks helpful in this screen but is ~0 in the deployed model. Confirm anything
+promising with tools/pitch_model_spike_screen.py, which adds the candidate to the deployed model itself.
 """
 from __future__ import annotations
 
@@ -121,6 +129,16 @@ def _softmax_log(lg: np.ndarray) -> np.ndarray:
     return p / p.sum()
 
 
+def _rev3(v: float) -> float:
+    """Digit reversal of a wheel value zero-padded to three digits (045 -> 540; 1000 -> 1)."""
+    return float(int(str(int(v)).zfill(3)[::-1]))
+
+
+def _p500(v: float) -> float:
+    """The opposite side of the 1-1000 wheel."""
+    return float((int(v) + 500 - 1) % 1000 + 1)
+
+
 class Pitcher:
     """One pitcher's stored walk."""
 
@@ -137,15 +155,33 @@ class Pitcher:
         """Reference values for the pitch at index i (NaN where not applicable / different game)."""
         same1 = i >= 1 and self.game[i - 1] == self.game[i]
         same2 = i >= 2 and self.game[i - 2] == self.game[i]
-        return {
+        # previous plate appearance's diff (circular |pitch - swing|, 0-500) as a wheel value: 0 is the same spot as
+        # 1000; "+500" is the opposite side of the wheel
+        d_prev = np.nan
+        if same1 and self.swing[i - 1] == self.swing[i - 1]:
+            dd = abs(self.pitch[i - 1] - self.swing[i - 1]) % 1000
+            d_prev = min(dd, 1000 - dd)
+        out = {
             "prev_pitch": self.pitch[i - 1] if same1 else np.nan,
             "prev_swing": self.swing[i - 1] if same1 else np.nan,
             "prev_pitch2": self.pitch[i - 2] if same2 else np.nan,
             "opp_pitch": self.opp_pitch[i], "opp_swing": self.opp_swing[i],
+            "prev_diff": (d_prev if d_prev > 0 else 1000.0) if d_prev == d_prev else np.nan,
+            "prev_diff_p500": d_prev + 500 if d_prev == d_prev else np.nan,
         }
+        # transforms of the previous PA's pitch / swing / diff: digit reversal and the opposite side of the wheel
+        for base in ("prev_pitch", "prev_swing", "prev_diff"):
+            v = out[base]
+            ok = v == v and 1 <= v <= 1000
+            out[f"{base}_rev"] = _rev3(v) if ok else np.nan
+            if base != "prev_diff":
+                out[f"{base}_p500"] = _p500(v) if ok else np.nan
+        return out
 
 
-REF_NAMES = ["prev_pitch", "prev_swing", "prev_pitch2", "opp_pitch", "opp_swing"]
+REF_NAMES = ["prev_pitch", "prev_swing", "prev_pitch2", "opp_pitch", "opp_swing", "prev_diff", "prev_diff_p500",
+             "prev_pitch_rev", "prev_pitch_p500", "prev_swing_rev", "prev_swing_p500", "prev_diff_rev"]
+SHIPPED_SPIKES = ["prev_pitch", "prev_swing"]   # the spikes in the deployed model (prev_pitch2 was dropped, 89dfc76)
 
 
 def current_density(p: Pitcher, k: int, w: np.ndarray) -> np.ndarray:
@@ -165,7 +201,7 @@ def _hit_counts(p: Pitcher, ref: str, upto: int) -> tuple[np.ndarray, np.ndarray
     return defined, hit
 
 
-def screen() -> None:
+def screen(only_incremental: bool = False) -> None:
     files = sorted(OUT.glob("*.npz"))
     P = [Pitcher(f) for f in files]
     w0 = _weights()
@@ -227,6 +263,66 @@ def screen() -> None:
     print(pd.DataFrame(rows, columns=["reference", "fitted rate", "test steps with ref", "test d log-loss (all steps)"]).to_string(index=False))
     both = {r: e for r, e in fitted.items() if e > 0}
     print(f"all together {both}: test log-loss {mix_ll(both, ~train):.4f} (change {mix_ll(both, ~train) - ll_cur[~train].mean():+.4f})")
+
+    # ---------------- 1b. incremental: each candidate added on top of the spikes the deployed model already has
+    print(f"\n=== 1b. incremental on top of the shipped spike set {SHIPPED_SPIKES} (test pitchers) ===")
+    base_rates = {r: fitted[r] for r in SHIPPED_SPIKES if fitted.get(r, 0) > 0}
+    ll_shipped = mix_ll(base_rates, ~train)
+    print(f"shipped set alone: test log-loss {ll_shipped:.4f} (change vs no spikes {ll_shipped - ll_cur[~train].mean():+.4f})")
+    inc_rows = []
+    for r in REF_NAMES:
+        if r in SHIPPED_SPIKES:
+            continue
+        best = min(grid, key=lambda e: mix_ll({**base_rates, r: e}, train))
+        defined_test = sum(steps[j]["refs"][r] == steps[j]["refs"][r] for j in np.where(~train)[0])
+        inc_rows.append((r, best, defined_test, mix_ll({**base_rates, r: best}, ~train) - ll_shipped))
+    print(pd.DataFrame(inc_rows, columns=["candidate", "fitted rate", "test steps with ref",
+                                          "d log-loss on top of shipped"]).to_string(index=False))
+
+    # pitcher-level bootstrap CI on each candidate's change (resample TEST PITCHERS; negative = helps)
+    def step_ll(rates: dict[str, float], mask):
+        out, pis = [], []
+        for s, keep in zip(steps, mask):
+            if not keep:
+                continue
+            e = extra = 0.0
+            for r, rate in rates.items():
+                v = s["refs"][r]
+                if v == v and rate > 0:
+                    e += rate
+                    if int(v) - 1 == s["k"]:
+                        extra += rate
+            out.append(-math.log((1 - e) * s["c"][s["k"]] + extra + EPS))
+            pis.append(s["pi"])
+        return np.array(out), np.array(pis)
+
+    def boot_ci(d: np.ndarray, pis: np.ndarray, n_boot: int = 2000):
+        ids = np.unique(pis)
+        sums = np.array([d[pis == i].sum() for i in ids])
+        cnts = np.array([(pis == i).sum() for i in ids])
+        rb = np.random.default_rng(1)
+        vals = np.empty(n_boot)
+        for b in range(n_boot):
+            pick = rb.integers(0, len(ids), len(ids))
+            vals[b] = sums[pick].sum() / cnts[pick].sum()
+        per_pitcher = sums / cnts
+        return np.percentile(vals, [2.5, 97.5]), float((per_pitcher < 0).mean())
+
+    print("\n--- 1b CIs: change in test log-loss vs the shipped spikes, 95% bootstrap over test pitchers ---")
+    base_ll, base_pis = step_ll(base_rates, ~train)
+    fit_new = {r: b for r, b, _, _ in inc_rows if b > 0}
+    combos = {r: {**base_rates, r: b} for r, b in fit_new.items()}
+    if "prev_diff" in fit_new and "prev_pitch_p500" in fit_new:
+        combos["prev_diff + prev_pitch_p500"] = {**base_rates, "prev_diff": fit_new["prev_diff"],
+                                                 "prev_pitch_p500": fit_new["prev_pitch_p500"]}
+    combos["all new with a fitted rate"] = {**base_rates, **fit_new}
+    for name, rates in combos.items():
+        ll_c, _ = step_ll(rates, ~train)
+        d = ll_c - base_ll
+        (lo, hi), frac = boot_ci(d, base_pis)
+        print(f"{name:32s} change {d.mean():+.4f}  CI [{lo:+.4f}, {hi:+.4f}]  pitchers improved {frac * 100:.0f}%")
+    if only_incremental:
+        return
 
     # ---------------- 2a. per-pitcher online spike rates (shrunk to league, recency discounted)
     print("\n=== 2a. per-pitcher ONLINE spike rates (rate = (hits + m*league) / (n + m), recency-discounted) ===")
@@ -321,11 +417,13 @@ def screen() -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["collect", "screen"])
+    ap.add_argument("cmd", choices=["collect", "screen", "incremental"])
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--min-pitches", type=int, default=250)
     a = ap.parse_args()
     if a.cmd == "collect":
         collect(a.workers, a.min_pitches)
+    elif a.cmd == "incremental":
+        screen(only_incremental=True)
     else:
         screen()
