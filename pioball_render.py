@@ -260,7 +260,7 @@ def render_graded_table(g: dict) -> io.BytesIO:
                      "bg": _ROW_HL, "bold": True})
     for i, r in enumerate(g["guesses"], 1):
         rows.append({"cells": [str(i), r["user_name"], None, str(r["guess"]), str(r["diff"]), r["result"]]})
-    return _table(_matchup(p), None, p, cols, rows)
+    return _table(_matchup_short(p) if p.get("batter") else _matchup(p), None, p, cols, rows)
 
 
 def render_guesses_table(c: dict, highlight_user_id: str | None = None) -> io.BytesIO:
