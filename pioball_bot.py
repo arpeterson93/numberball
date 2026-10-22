@@ -94,6 +94,8 @@ async def guess(interaction: discord.Interaction, swing: app_commands.Range[int,
         await interaction.followup.send(
             "That pitch is already in - guessing is closed. Try again once the next AB is up.")
         return
+    if not pitch_row.get("channel_id"):  # opened by "Batter Up!" - results post where the first guess was made
+        await asyncio.to_thread(swing_game.set_channel, pitch_row["id"], interaction.channel_id)
     _post_channel = int(pitch_row.get("channel_id") or interaction.channel_id)
     prior = await asyncio.to_thread(swing_game.submit_guess, pitch_row, interaction.user.id,
                                     interaction.user.display_name, swing)
@@ -108,7 +110,7 @@ async def _send_guesses(interaction: discord.Interaction, game: dict, highlight:
     """The current plate appearance's guesses as a table image; the row just
     added by /guess is highlighted. Shared by /guess and /guesses."""
     c = await asyncio.to_thread(swing_game.current_pa, game)
-    if not c["pitch_row"]:
+    if not c["pitch_row"] or not c["guesses"]:
         await interaction.followup.send(swing_game.format_current_pa(c))
         return
     try:
@@ -365,7 +367,7 @@ async def on_message(message: discord.Message) -> None:
         if live and _batting_team == swing_game.TEAM_ABBREV:
             # Our at-bat is up: capture the batter/pitcher/ranges for any open
             # pitch (guesses may have been taken early, during their at-bat).
-            await asyncio.to_thread(swing_game.refresh_snapshot, live["game_code"])
+            await asyncio.to_thread(swing_game.open_for_batter_up, live)
         return
     if _batting_team not in (None, swing_game.TEAM_ABBREV):
         return  # swing notices and results for the opponent's at-bats aren't ours

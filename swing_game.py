@@ -227,6 +227,19 @@ def refresh_snapshot(game_code: str) -> None:
         _t("swing_pitches").update(_without_situation(snap)).eq("id", latest["id"]).execute()
 
 
+def open_for_batter_up(game: dict) -> None:
+    """Our "Batter Up!": make sure this plate appearance has a pitch row even if nobody
+    ever guesses on it, so every pitch against us is recorded, graded and run through
+    the model, then snapshot it off the freshly re-read sheet."""
+    get_or_open_pitch(game, None, our_at_bat=False)  # the open row if there is one, else a new empty one
+    refresh_snapshot(game["game_code"])
+
+
+def set_channel(pitch_id: int, channel_id) -> None:
+    """Remember where the first guess happened, so graded results post there."""
+    _t("swing_pitches").update({"channel_id": str(channel_id)}).eq("id", pitch_id).execute()
+
+
 def close_open_pitch(game_code: str) -> bool:
     """Lock guessing for the game's open pitch (the real pitch has been posted
     in the results thread, but the plays sync may not have caught up yet).
@@ -325,7 +338,7 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
                play_num: int | None) -> dict | None:
     """Grade every guess on pitch row p against the real pitch, record the
     manager's actual swing as a benchmark row, and mark the pitch graded.
-    Returns the message payload, or None if nobody guessed."""
+    Returns the message payload, or None if nobody guessed (the pitch, Actual and Model are still recorded)."""
     ranges = [tuple(r) for r in (p.get("ranges") or utils.RESULT_RANGES)]
     guesses = [g for g in _t("swing_guesses").select("*").eq("pitch_id", p["id"]).execute().data
                if g["user_id"] not in (ACTUAL_ID, MODEL_ID)]
@@ -339,8 +352,6 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
         "graded_at": datetime.utcnow().isoformat(), "pitch": pitch, "swing": swing,
         "play_num": play_num, "actual_result": result,
     }).eq("id", p["id"]).execute()
-    if not graded:
-        return None
     graded.sort(key=lambda g: g["diff"])  # closest guess first
     actual = {"swing": swing, "result": result, "diff": None}
     # The swing our manager actually submitted, as a benchmark row on the same
@@ -362,6 +373,8 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
              "guess": int(p["model_swing"]), "diff": md, "result": mres},
             on_conflict="pitch_id,user_id").execute()
         model = {"swing": int(p["model_swing"]), "diff": md, "result": mres}
+    if not graded:
+        return None  # nobody guessed: the pitch is still recorded and graded, there's just nothing to post
     return {"pitch_row": p, "pitch": pitch, "actual": actual, "model": model, "guesses": graded}
 
 
@@ -689,6 +702,25 @@ def peek_open_pitch(game: dict) -> dict | None:
     return latest if latest and not latest.get("graded_at") else None
 
 
+HOT_WINDOW = 10   # pitches against us (not a player's own guesses)
+HOT_RV = 2.5      # about the top 5% of 10-pitch windows from pure random guessing
+
+
+def hot_users(user_ids) -> set[str]:
+    """Who is on fire: summed run value over the last HOT_WINDOW graded pitches against
+    us is at least HOT_RV. Pitches a player skipped count as 0, so the streak decays by
+    itself. Nobody is hot until there are HOT_WINDOW graded pitches in PioBall history."""
+    pitches = (_t("swing_pitches").select("id").not_.is_("graded_at", "null")
+               .order("graded_at", desc=True).limit(HOT_WINDOW).execute().data)
+    if len(pitches) < HOT_WINDOW:
+        return set()
+    totals: dict[str, float] = {}
+    for r in (_t("swing_guesses").select("user_id,result").in_("pitch_id", [p["id"] for p in pitches])
+              .not_.is_("result", "null").execute().data):
+        totals[r["user_id"]] = totals.get(r["user_id"], 0.0) + (run_value(r["result"]) or 0.0)
+    return {str(u) for u in user_ids if totals.get(str(u), 0.0) >= HOT_RV}
+
+
 def current_pa(game: dict) -> dict:
     """Everything /guesses shows: the open pitch's guesses (a plate appearance
     is a single pitch in Numberball). Read-only; pitch_row is None when
@@ -698,8 +730,13 @@ def current_pa(game: dict) -> dict:
         return {"pitch_row": None, "guesses": [], "closed": False}
     guesses = (_t("swing_guesses").select("user_name,guess,user_id").eq("pitch_id", p["id"])
                .neq("user_id", ACTUAL_ID).neq("user_id", MODEL_ID).order("guess").execute().data)
+    try:
+        hot = hot_users({g["user_id"] for g in guesses})
+    except Exception:  # the flame is a nicety - never block the guesses table on it
+        hot = set()
     for g in guesses:
         g["user_name"] = display_name(g["user_id"], g["user_name"])
+        g["hot"] = str(g["user_id"]) in hot
     return {"pitch_row": p, "guesses": guesses, "closed": is_closed(p)}
 
 

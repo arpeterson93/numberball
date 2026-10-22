@@ -99,6 +99,40 @@ def _triangle(d: ImageDraw.ImageDraw, ax: float, ay: float, bottom: bool, s: flo
 
 # ------------------------------------------------------------- generic table
 
+_EMOJI_FONT: list = []   # [font or None], loaded once
+
+
+def _emoji_font():
+    if not _EMOJI_FONT:
+        font = None
+        for name in ("seguiemj.ttf", "Segoe UI Emoji", "NotoColorEmoji.ttf"):
+            try:
+                font = ImageFont.truetype(name, 20 * _S)
+                break
+            except OSError:
+                continue
+        _EMOJI_FONT.append(font)
+    return _EMOJI_FONT[0]
+
+
+def _flame(d: ImageDraw.ImageDraw, cx: float, cy: float, h: float = 22) -> None:
+    """The 🔥 emoji centred on cx, cy from the system's colour emoji font; a drawn
+    flame (outer orange, inner yellow) when no emoji font is installed."""
+    font = _emoji_font()
+    if font is not None:
+        try:
+            d.text((_px(cx), _px(cy)), "\U0001F525", font=font, embedded_color=True, anchor="mm")
+            return
+        except Exception:
+            pass
+
+    def shape(pts, col):
+        d.polygon([(_px(cx + x * h / 22), _px(cy + y * h / 22)) for x, y in pts], fill=col)
+    shape([(0, -11), (2, -7), (5, -3), (7, 2), (6, 6), (3, 9), (0, 11), (-3, 9), (-6, 6), (-7, 2),
+           (-5, -2), (-3, -4), (-3, -8)], (244, 110, 22))
+    shape([(0, -2), (2, 1), (4, 4), (3, 7), (0, 9), (-3, 7), (-4, 4), (-2, 1)], (255, 200, 60))
+
+
 def _table(title: str, subtitle: str | None, p: dict | None, cols: list[dict], rows: list[dict],
            footer_h: int = 0, footer=None, as_image: bool = False):
     """cols: {label, w, align: l|r|c, kind: text|rank|chip|signed}. rows: {cells, bg?, bold?}.
@@ -176,6 +210,8 @@ def _table(title: str, subtitle: str | None, p: dict | None, cols: list[dict], r
                 if text != str(val):
                     text = text[:-1] + ".."
             d.text((_px(ax), mid), text, font=font, fill=color, anchor=an)
+            if i == 1 and row.get("flame"):  # on fire: a flame just right of the player's name
+                _flame(d, ax + d.textlength(text, font=font) / _S + 16, y + row_h / 2)
         y += row_h
     if footer:
         footer(d, y + 10, width)
@@ -237,7 +273,8 @@ def render_guesses_table(c: dict, highlight_user_id: str | None = None) -> io.By
     rows = []
     for i, g in enumerate(c["guesses"], 1):
         hl = highlight_user_id is not None and str(g["user_id"]) == str(highlight_user_id)
-        rows.append({"cells": [str(i), g["user_name"], str(g["guess"])], "bg": _ROW_HL if hl else None, "bold": hl})
+        rows.append({"cells": [str(i), g["user_name"], str(g["guess"])], "bg": _ROW_HL if hl else None, "bold": hl,
+                     "flame": g.get("hot")})
     sub = "Pitch is in - guessing closed" if c.get("closed") else "Active guesses"
     return _table(_matchup_short(p) if p.get("batter") else "Our next plate appearance", sub, p if p.get("batter") else None,
                   cols, rows)
