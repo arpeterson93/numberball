@@ -20,6 +20,7 @@
   --good:#4cc38a; --bad:#ee7676;
   --c0:#cde2fb; --c1:#86b6ef; --c2:#3987e5; --c3:#1c5cab; --c4:#199e70; --c5:#6e6d66; --c6:#55554f; --c7:#403f3b; --cout:#55554f; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--sans);padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .wrap{max-width:1760px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em}
@@ -72,6 +73,7 @@ input[type=range]{accent-color:var(--accent)}
     <div class="ctl">Perspective<span class="seg" id="persp"><button data-v="bat" aria-pressed="true">Hitting</button><button data-v="pit" aria-pressed="false">Pitching</button></span></div>
     <label class="ctl" title="Swings whose result only a hit and run explains: left out of the league mix, and their expected 1B counts as 1BWH and 2B as 2BWH"><span>Hit-and-run calls</span><span style="text-transform:none;letter-spacing:0;color:var(--fg2)"><input type="checkbox" id="hnr" checked> adjust for them</span></label>
     <div class="ctl">Metric set<span class="seg" id="mset"><button data-v="simple" aria-pressed="true">Simple (OBP / SLG)</button><button data-v="state" aria-pressed="false">Game state (runs / WPA)</button></span></div>
+    <div class="ctl" id="srcctl" title="League mix: every swing's expected result comes from the league-wide result mix at its diff. Own matchup: from that hitter's (or pitcher's) own attributes run through the calculator against every pitcher (hitter) in MLN that season, weighted by batters faced (plate appearances). Simple set: bases empty, no outs. Game state set: each swing's own outs, bases and runner speeds.">Expected from<span class="seg" id="src"><button data-v="league" aria-pressed="true">League mix</button><button data-v="own" aria-pressed="false">Own matchup distribution</button></span></div>
     <div class="ctl">Bucket width<span class="seg" id="bw"><button data-v="1" aria-pressed="true">1</button><button data-v="5" aria-pressed="false">5</button><button data-v="25" aria-pressed="false">25</button><button data-v="50" aria-pressed="false">50</button></span></div>
     <div class="ctl">League chart<span class="seg" id="mode"><button data-v="smooth" aria-pressed="true">Smoothed</button><button data-v="raw" aria-pressed="false">Raw</button><button data-v="model" aria-pressed="false" title="Stack every swing's calculator ranges instead of counting results">Calculator model</button></span></div>
     <label class="ctl">Smoothing width <span id="smv" style="text-transform:none;letter-spacing:0;color:var(--fg2)"></span><input type="range" id="sm" min="1" max="30" value="8"></label>
@@ -107,6 +109,7 @@ input[type=range]{accent-color:var(--accent)}
     <div class="scroll" style="overflow:auto"><table id="tbl2"></table></div>
   </section>
 
+  <section class="note" id="ownnote"><b>Own matchup distribution.</b> With <i>Expected from: Own matchup distribution</i>, expected results come from the player's own attributes instead of the league mix: the exact sheet calculator is run for a hitter against every pitcher in MLN that season (weighted by batters faced), and for a pitcher against every hitter (weighted by plate appearances); the result ranges are stacked into that player's own result mix at each diff. In the <i>Simple</i> set that is done with bases empty and no outs (stored in 10-wide diff buckets). In the <i>Game state</i> set every swing is run in its own outs, bases and runner speeds (and as a hit and run where the evidence says one was on), then valued with the same run-value and win-probability tables as the league mix, so xRuns, xWPA and the gaps measure results against what that player's build would give at the diffs he actually got. A pitcher's expectation is the hitters' side of it, as everywhere on this page. The league mix stays the default. Open a hitter and use <i>Matchup curve</i> to see the curve itself.</section>
   <section class="note" id="modelnote"></section>
   <section class="note" id="hnrnote"></section>
   <section class="note" id="note2" hidden>
@@ -120,7 +123,7 @@ const DATA=/*DATA*/null;
 const CL=['HR','3B','2B','1B','BB','K','GO','Air'];
 const sw=DATA.rows.map(r=>({s:r[0],t:r[1],b:r[2],p:r[3],d:r[4],c:r[5],raw:r[6],g:r[7],hf:r[12],dt:r[13]}));
 const $=id=>document.getElementById(id);
-const st={season:'all',bw:1,outs:'lump',mode:'smooth',sm:8,minpa:50,view:'bat',sort:{k:'pa',dir:-1},open:new Set(),logSort:{k:'seq',dir:1},dview:'dist',opsBw:25,hid:new Set(),hnr:true,persp:'bat'};
+const st={season:'all',bw:1,outs:'lump',mode:'smooth',sm:8,minpa:50,view:'bat',sort:{k:'pa',dir:-1},open:new Set(),logSort:{k:'seq',dir:1},dview:'dist',opsBw:25,hid:new Set(),hnr:true,persp:'bat',src:'league'};
 const PS=()=>st.persp==='pit'?-1:1;
 const mixSet=()=>st.hnr?sw.filter(x=>!x.hf):sw;
 const unb=b=>{const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);const w=new Uint16Array(u.buffer);const f=new Float32Array(w.length);for(let i=0;i<w.length;i++)f[i]=w[i]/65535;return f};
@@ -163,9 +166,24 @@ function build(bw){
 
 // ---------- aggregation ----------
 const HIT=[1,1,1,1,0,0,0,0],TBV=[4,3,2,1,0,0,0,0];
+// Own matchup distributions (tools/diff_lab/build_matchup.py): per hitter-season and pitcher-season, 8 classes x 51
+// ten-wide diff buckets, one byte per share.
+const OWN=DATA.own||{bat:{},pit:{},cv:{bat:[],pit:[]}},ownC={};
+function ownFor(x){
+  const side=st.persp==='bat'?'bat':'pit',nm=side==='bat'?DATA.bat[x.b]:DATA.pit[x.p],key=side+'|'+x.s+'|'+nm;
+  if(key in ownC)return ownC[key];
+  const ci=OWN[side][x.s+'|'+nm];if(ci===undefined){ownC[key]=null;return null}
+  const bin=atob(OWN.cv[side][ci]),sh=[];for(let c=0;c<8;c++){const a=new Float64Array(51);for(let k=0;k<51;k++)a[k]=bin.charCodeAt(c*51+k)/255;sh.push(a)}
+  const obp=new Float64Array(51),tb=new Float64Array(51),ab=new Float64Array(51);
+  for(let k=0;k<51;k++){obp[k]=sh[0][k]+sh[1][k]+sh[2][k]+sh[3][k]+sh[4][k];tb[k]=sh[3][k]+2*sh[2][k]+3*sh[1][k]+4*sh[0][k];ab[k]=1-sh[4][k]}
+  return ownC[key]={sh,p:sh.slice(0,5),obp,tb,ab};
+}
 function agg(list){
-  let pa=0,h=0,bb=0,tb=0,xo=0,xt=0,xa=0,ds=0;const act=[0,0,0,0,0],exp=[0,0,0,0,0];
-  for(const x of list){if(x.c<5)act[x.c]++;for(let j=0;j<5;j++)exp[j]+=M.p[j][x.d];pa++;h+=HIT[x.c];if(x.c===4)bb++;tb+=TBV[x.c];xo+=M.obp[x.d];xt+=M.tb[x.d];xa+=M.ab[x.d];ds+=x.d}
+  let pa=0,h=0,bb=0,tb=0,xo=0,xt=0,xa=0,ds=0;const act=[0,0,0,0,0],exp=[0,0,0,0,0];const own=st.src==='own';
+  for(const x of list){if(x.c<5)act[x.c]++;pa++;h+=HIT[x.c];if(x.c===4)bb++;tb+=TBV[x.c];ds+=x.d;
+    const o=own?ownFor(x):null;
+    if(o){const k=Math.min(Math.floor(x.d/10),50);for(let j=0;j<5;j++)exp[j]+=o.p[j][k];xo+=o.obp[k];xt+=o.tb[k];xa+=o.ab[k]}
+    else{for(let j=0;j<5;j++)exp[j]+=M.p[j][x.d];xo+=M.obp[x.d];xt+=M.tb[x.d];xa+=M.ab[x.d]}}
   const ab=pa-bb;
   return {pa,diff:ds/pa,obp:(h+bb)/pa,slg:ab?tb/ab:0,xobp:xo/pa,xslg:xa?xt/xa:0,act,exp};
 }
@@ -199,9 +217,9 @@ function stacked(bk,o){
     g+=`<rect x="${L+i*bwid}" y="${T}" width="${bwid}" height="${ih}" fill="transparent" data-tip="${esc(o.tip(b,v))}"/>`;
     if(o.mode!=='share'&&b.ref!=null){const ry=T+ih-ih*b.ref/mx;g+=`<line x1="${L+i*bwid+gp}" x2="${L+(i+1)*bwid-gp}" y1="${ry}" y2="${ry}" stroke="var(--fg)" stroke-width="2"/>`}
   });
-  const step=Math.max(1,Math.round(50/st.bw));
+  const bwv=o.bw||st.bw,step=Math.max(1,Math.round(50/bwv));
   bk.forEach((b,i)=>{if(i%step===0)g+=`<text x="${L+i*bwid}" y="${H-8}" text-anchor="middle" transform="translate(0,0)">${b.x0}</text>`});
-  if((bk.length-1)%step!==0||st.bw>1)g+=`<text x="${W-8}" y="${H-8}" text-anchor="end">500</text>`;
+  if(bk[bk.length-1].x0!==500&&((bk.length-1)%step!==0||bwv>1))g+=`<text x="${W-8}" y="${H-8}" text-anchor="end">500</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.label)}">${g}</svg>`;
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}
@@ -332,18 +350,36 @@ function detail(r){
   const LC=[['seq','Szn',1],...pcols(),['d','Diff'],['res','Actual',1],['top','Expected mix %',1],['xo','xOBP'],['xs','xSLG'],['val','OB+TB'],['xv','xOB+xTB'],['dv','Diff vs x']].filter(c=>c[1]!==null);
   const lh=LC.map(c=>`<th data-lk="${c[0]}" class="${c[2]?'l':''}" ${lk===c[0]?`aria-sort="${ld>0?'ascending':'descending'}"`:''}>${c[1]}${lk===c[0]?(ld>0?' ▲':' ▼'):''}</th>`).join('');
   const hd=txt=>`<h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">${txt}</h2>`;
-  const tog=`<div class="seg" data-dvwrap>${[['dist','Distribution'],['log','Swing log'],['ops','OPS vs xOPS']].map(([v,l])=>`<button data-dv="${v}" aria-pressed="${st.dview===v}">${l}</button>`).join('')}</div>`;
+  const tog=`<div class="seg" data-dvwrap>${[['dist','Distribution'],['log','Swing log'],['ops','OPS vs xOPS']].concat(st.view==='bat'?[['own','Matchup curve']]:[]).map(([v,l])=>`<button data-dv="${v}" aria-pressed="${st.dview===v}">${l}</button>`).join('')}</div>`;
   let body='';
   if(st.dview==='dist'){
     body=hd('Swings by diff bucket (line = league-average count)')+chart+`<div class="legend">${lgd(classes().map(c=>[cname(c),ccol(c)]))}</div>`;
   }else if(st.dview==='log'){
     body=hd(`Swing log${r.list.length>1500?' (first 1,500)':''} <span style="text-transform:none">- OB+TB is on-base (0/1) plus total bases (0-4) for the swing; Diff vs x is actual minus expected</span>`)+
       `<div class="log"><table><thead><tr>${lh}</tr></thead><tbody>${log}</tbody></table></div>`;
+  }else if(st.dview==='own'&&st.view==='bat'){
+    body=ownCurve(r);
   }else{
     body=hd('OPS and xOPS by diff bucket')+`<div class="seg" id="opsbw" style="margin-bottom:8px">${[10,25,50].map(w=>`<button data-ow="${w}" aria-pressed="${st.opsBw===w}">${w}-wide</button>`).join('')}</div>`+opsChart(r.list,st.opsBw)+
       `<div class="legend"><span><i style="background:var(--accent)"></i>OPS (actual)</span><span><i style="background:var(--fg2)"></i>xOPS</span><span><i style="background:var(--line)"></i>swing count</span></div>`;
   }
   return `<div class="detail"><div>${tog}${body}</div></div>`;
+}
+
+// A player's own result mix by diff (calculator run against every opposing pitcher/hitter that season), swing-weighted over seasons.
+function ownCurve(r){
+  const bySeason={};r.list.forEach(x=>{(bySeason[x.s]=bySeason[x.s]||[]).push(x)});
+  const acc=Array.from({length:8},()=>new Float64Array(51));let tot=0;
+  Object.keys(bySeason).forEach(sn=>{const x=bySeason[sn][0],o=ownFor(x);if(!o)return;const n=bySeason[sn].length;tot+=n;
+    for(let c=0;c<8;c++)for(let k=0;k<51;k++)acc[c][k]+=n*o.sh[c][k]});
+  if(!tot)return '<p class="note">No matchup distribution for this player (attributes missing).</p>';
+  const bk=[];
+  for(let k=0;k<51;k++){const vals=acc.map(a=>a[k]/tot),lo=k*10,hi=k===50?500:lo+9;
+    bk.push({x0:lo,x1:hi,vals,n:0,lg:M.obp[Math.min(lo+5,500)]})}
+  const chart=stacked(bk,{mode:'share',h:240,left:40,bw:10,label:'Own result mix by diff',tip:(b,v)=>{
+    const cs=classes();return `diff ${b.x0===b.x1?b.x0:b.x0+'-'+b.x1}\n`+cs.map((c,j)=>cname(c).padEnd(4)+pct(v[j]).padStart(7)).join('\n')+`\nown on-base ${pct(v[0]+v[1]+v[2]+v[3]+v[4])}  league ${pct(b.lg)}`}});
+  const who=st.persp==='bat'?['hitter','pitcher']:['pitcher','hitter'];
+  return `<h2 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px">Own matchup curve <span style="text-transform:none">- this ${who[0]}'s attributes against every ${who[1]} in MLN, result share at each diff (10-wide buckets)</span></h2>`+chart+`<div class="legend">${lgd(classes().map(c=>[cname(c),ccol(c)]))}</div>`;
 }
 
 // ---------- wiring ----------
@@ -365,7 +401,7 @@ function all(){leagueChart();render()}
   const seasons=[...new Set(sw.map(x=>x.s))].sort((a,b)=>b-a);
   $('season').innerHTML='<option value="all">All (S5-S'+seasons[0]+')</option>'+seasons.map(s=>`<option value="${s}">Season ${s}</option>`).join('');
   $('season').onchange=e=>{st.season=e.target.value==='all'?'all':+e.target.value;render()};
-  seg('bw','bw',Number);seg('mode','mode');seg('view','view');seg('persp','persp');
+  seg('bw','bw',Number);seg('mode','mode');seg('src','src');seg('view','view');seg('persp','persp');
   $('mode').addEventListener('click',()=>{$('sm').disabled=st.mode==='model';build(st.sm);all()});
   $('persp').addEventListener('click',()=>{$('vbat').textContent=st.persp==='bat'?'Hitters':'Pitchers'});
   $('hnr').onchange=e=>{st.hnr=e.target.checked;build(st.sm);all()};
@@ -414,6 +450,20 @@ function pmix(x){const pr=new Float64Array(NG),o=x.s8*NG;for(let g=0;g<NG;g++)pr
 const KAPPA=4;let P=null,NSA=null,EVR=null,dirty=true;
 st.mset='simple';st.sortS={k:'pa',dir:-1};st.logS={k:'seq',dir:1};st.dvS='dist';st.byBw=25;st.byMet='runs';st.lgOuts='all';st.lgBases='all';
 
+// state-aware own expectation (build_own_state.py): per swing, the player's own build run through the calculator in that
+// swing's outs, bases and runner speeds, turned into xRuns / xWPA like the league mix.
+let _OST=null,_bkey='';
+const needS=()=>dirty||_bkey!==st.src+st.persp+st.hnr;
+function ownSt(){
+  if(_OST)return _OST;const o=DATA.own.st,dec=b=>{const bin=atob(b),u=new Uint8Array(bin.length);for(let i=0;i<u.length;i++)u[i]=bin.charCodeAt(i);return new Int16Array(u.buffer)};
+  return _OST={bx:dec(o.bx),bw:dec(o.bw),px:dec(o.px),pw:dec(o.pw),h:o.h}}
+function applyOwn(){
+  const o=ownSt();
+  sw.forEach((x,i)=>{
+    let a=[o.bx[i],o.bw[i],o.px[i],o.pw[i]];
+    if(st.hnr&&x.hf&&o.h[i])a=o.h[i];
+    x.oB=a[0]===-32768?null:[a[0]/1000,a[1]/10000];x.oP=a[2]===-32768?null:[a[2]/1000,a[3]/10000];
+    const e=st.persp==='pit'?x.oP:x.oB;if(e){x.xrv=e[0];x.xwpa=e[1]}})}
 function buildS(bw){
   const R=Math.ceil(bw*3),W=[];for(let k=-R;k<=R;k++)W.push(Math.exp(-0.5*(k/bw)**2));
   const n=new Float64Array(24*D),c=new Float64Array(24*NG*D);
@@ -442,20 +492,21 @@ function buildS(bw){
     for(let s=0;s<24;s++)for(let d=0;d<D;d++){let tot=0;for(let g=0;g<NG;g++)if(RVT[s][g]!=null)tot+=m[(s*NG+g)*D+d];
       let ev=0;for(let g=0;g<NG;g++){const p=RVT[s][g]!=null&&tot>0?m[(s*NG+g)*D+d]/tot:0;P[(s*NG+g)*D+d]=p;if(p)ev+=p*RVT[s][g]}EVR[s*D+d]=ev}}
   sw.forEach(x=>{const w=CTX[x.cx][5],pr=pmix(x);let xw=0,ev=0;for(let g=0;g<NG;g++){if(w[g]!=null)xw+=pr[g]*w[g];const rv=RVT[x.s8][g];if(rv!=null)ev+=pr[g]*rv}x.xrv=ev;x.xwpa=xw});
+  _bkey=st.src+st.persp+st.hnr;if(st.src==='own')applyOwn();
   if(st.mode==='model')for(let s=0;s<24;s++){let t=0;for(let d=0;d<D;d++)t+=n[s*D+d];for(let d=0;d<D;d++)n[s*D+d]=t*(d===0||d===500?0.001:0.002)}
   NSA=n;dirty=false;
 }
 const _build=build;
 build=function(bw){_build(bw);dirty=true;if(st.mset==='state')buildS(bw)};
 
-function aggS(list,qq){const q=qq||PS();let pa=0,rv=0,xr=0,w=0,xw=0,ds=0,hn=0;for(const x of list){pa++;rv+=q*x.rv;xr+=q*x.xrv;w+=q*x.wpa;xw+=q*x.xwpa;ds+=x.d;if(x.hf)hn++}return{pa,diff:ds/pa,rv,xrv:xr,wpa:w,xwpa:xw,hn}}
+function aggS(list,qq,side){const q=qq||PS();let pa=0,rv=0,xr=0,w=0,xw=0,ds=0,hn=0;const own=side&&st.src==='own';for(const x of list){pa++;rv+=q*x.rv;const e=own?(side==='pit'?x.oP:x.oB):null;xr+=q*(e?e[0]:x.xrv);w+=q*x.wpa;xw+=q*(e?e[1]:x.xwpa);ds+=x.d;if(x.hf)hn++}return{pa,diff:ds/pa,rv,xrv:xr,wpa:w,xwpa:xw,hn}}
 const sg=(v,dp,sc)=>{const s=v*(sc||1);return `<span class="${s>=0?'pos':'neg'}">${s>=0?'+':''}${s.toFixed(dp)}</span>`};
 
 // ---------- league chart ----------
 const _league=leagueChart;
 leagueChart=function(){
   if(st.mset!=='state')return _league();
-  if(dirty)buildS(st.sm);
+  if(needS())buildS(st.sm);
   const sel=[];for(let s=0;s<24;s++){if(st.lgOuts!=='all'&&Math.floor(s/8)!==+st.lgOuts)continue;if(st.lgBases!=='all'&&s%8!==+st.lgBases)continue;sel.push(s)}
   const k=nb(),bk=[];
   for(let i=0;i<k;i++)bk.push({x0:i*st.bw,x1:st.bw===1?i:Math.min(500,(i+1)*st.bw),vals:new Float64Array(NG),n:0,ev:0});
@@ -481,7 +532,7 @@ const slab=t=>st.persp==='pit'?(SAVED[t]||t):t;
 const _render=render;
 render=function(){
   if(st.mset!=='state')return _render();
-  if(dirty)buildS(st.sm);
+  if(needS())buildS(st.sm);
   const base=filt(),key=gkey(),groups=new Map();
   base.forEach(x=>{const k=x[key];if(!groups.has(k))groups.set(k,[]);groups.get(k).push(x)});
   const lg=aggS(base);let rows=[];
@@ -590,11 +641,11 @@ $('lgbases').onchange=e=>{st.lgBases=e.target.value;leagueChart()};
 // ---------- team summary (always game-state metrics, follows the season, baseline and hit-and-run settings) ----------
 st.tsort={k:'tot',dir:-1};
 function teamEx(){
-  if(dirty)buildS(st.sm);
+  if(needS())buildS(st.sm);
   const base=filt(),H=new Map(),Pm=new Map();
   base.forEach(x=>{if(!H.has(x.t))H.set(x.t,[]);H.get(x.t).push(x);if(!Pm.has(x.dt))Pm.set(x.dt,[]);Pm.get(x.dt).push(x)});
   const rows=[];
-  H.forEach((hl,t)=>{const pl=Pm.get(t)||[],h=aggS(hl,1),p=aggS(pl,-1);
+  H.forEach((hl,t)=>{const pl=Pm.get(t)||[],h=aggS(hl,1,'bat'),p=aggS(pl,-1,'pit');
     rows.push({t,name:DATA.teams[t],h,p,hg:h.rv-h.xrv,hw:h.wpa-h.xwpa,pg:p.rv-p.xrv,pw:p.wpa-p.xwpa,tg:h.rv-h.xrv+p.rv-p.xrv,tw:h.wpa-h.xwpa+p.wpa-p.xwpa})});
   const val={name:r=>r.name,hpa:r=>r.h.pa,hd:r=>r.h.diff,hr:r=>r.h.rv,hx:r=>r.h.xrv,hg:r=>r.hg,hwp:r=>r.h.wpa,hxw:r=>r.h.xwpa,hw:r=>r.hw,
     ppa:r=>r.p.pa,pd:r=>r.p.diff,pr:r=>r.p.rv,px:r=>r.p.xrv,pg:r=>r.pg,pwp:r=>r.p.wpa,pxw:r=>r.p.xwpa,pw:r=>r.pw,tot:r=>r.tg,totw:r=>r.tw};

@@ -39,6 +39,11 @@ code{background:var(--tint); border-radius:3px; padding:0 3px;}
 .cat-tab.active{background:var(--navy); color:#fff; border-color:var(--navy);}
 .cat-tab .count{font-weight:800;}
 
+.mode-tabs .cat-tab{border-radius:6px;}
+td.status-fixed{color:var(--green); font-weight:700;}
+td.status-unresolved{color:var(--gold); font-weight:700;}
+td.status-new{color:var(--red); font-weight:700;}
+
 .filters{
   display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--card);
   border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:12px;
@@ -93,13 +98,35 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
     Sweeps every play across every season in <code>docs/data/{s01..sNN,current}/plays_*.json</code> - the same
     files the Gameday viewer itself loads, built from the MLN Google Sheets - and checks that baserunners, outs,
     and score flow correctly from one play to the next within each game, that every game's plays are numbered
-    without gaps, and that no whole sessions are missing. Entirely client-side: no database connection, just the
-    site's own already-published data. Click a row to see the surrounding plays in that game.
+    without gaps, that no whole sessions are missing, that no batter is also tracked as an on-base runner on
+    their own plate appearance, and that each completed game's final score matches the runs its own plays
+    credit. Entirely client-side: no database connection, just the site's own already-published data. Click a
+    row to see the surrounding plays in that game.
+  </p>
+  <p class="lede">
+    <strong>Compare vs. preview</strong> re-runs these same checks against a local
+    <code>docs/data/_preview/sNN/</code> build - made with
+    <code>python key_moments_build.py --archive-season NN --sheet-id &lt;copy sheet id&gt; --out-dir docs/data/_preview</code>
+    from an edited copy of the archive sheet - and shows which findings for that season are now fixed, still
+    unresolved, or newly introduced, so you can validate a fix before pasting it back into the real archive sheet.
   </p>
 
-  <div class="status-row">
+  <div class="cat-tabs mode-tabs" id="mode-tabs">
+    <button type="button" class="cat-tab active" data-mode="audit">Site audit</button>
+    <button type="button" class="cat-tab" data-mode="compare">Compare vs. preview</button>
+  </div>
+
+  <div class="status-row" id="audit-controls">
     <button type="button" class="btn primary" id="run-btn">Run audit</button>
+    <button type="button" class="btn" id="download-csv-btn" style="display:none">Download CSV</button>
     <span class="status" id="status-text">Not run yet.</span>
+  </div>
+  <div class="status-row" id="compare-controls" style="display:none">
+    <label>Preview season
+      <select id="cmp-season"><option value="">-</option></select>
+    </label>
+    <button type="button" class="btn primary" id="cmp-run-btn">Compare</button>
+    <span class="status" id="cmp-status-text">Looking for seasons built into docs/data/_preview/...</span>
   </div>
   <div class="err-box" id="err-box" style="display:none"></div>
 
@@ -107,8 +134,23 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
   <p class="cat-desc" id="cat-desc"></p>
 
   <div class="filters" id="filters" style="display:none">
-    <label>Season
+    <label id="f-season-wrap">Season
       <select id="f-season"><option value="">All</option></select>
+    </label>
+    <label id="f-status-wrap" style="display:none">Status
+      <select id="f-status">
+        <option value="">All</option>
+        <option value="fixed">Fixed</option>
+        <option value="unresolved">Unresolved</option>
+        <option value="new">New</option>
+      </select>
+    </label>
+    <label id="f-innings-wrap" style="display:none">Innings
+      <select id="f-innings">
+        <option value="">All</option>
+        <option value="reg">Regulation (&lt;7)</option>
+        <option value="extra">Extra (7+)</option>
+      </select>
     </label>
     <label>Search
       <input type="text" id="f-search" placeholder="game code, team, result...">
@@ -137,6 +179,16 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
   var activeCat = null;
   var expandedKey = null;
   var sweepErrors = [];
+
+  // "audit" (site data, as published) or "compare" (site vs. a local
+  // docs/data/_preview/sNN/ build from an edited copy of the archive sheet).
+  var mode = "audit";
+  var hasAuditRun = false;
+  var hasCompareRun = false;
+  var compareFindings = {};        // category -> array of finding objects, each tagged with _status
+  var compareGamePlaysReal = {};
+  var compareGamePlaysPreview = {};
+  var previewSeasonsChecked = false;
 
   var CATEGORIES = {
     play_num_gaps: {
@@ -188,11 +240,32 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
     },
     runner_count_mismatches: {
       label: "Runner count sanity",
-      desc: "The number of occupied bases in obc_before should equal the number of runners listed in runners_on_base for the same play (when that field is present) - a lightweight internal-consistency check on the data itself.",
+      desc: "The number of occupied bases in obc_before should equal the number of runners listed in runners_on_base for the same play (when that field is present) - a lightweight internal-consistency check on the data itself. runners_on_base isn't read off the sheet directly - it's replayed play-by-play within the half-inning from each play's own runner_moves, so a mismatch here usually means an earlier play in the half-inning left (or dropped) an identity the OBC chain itself didn't. Extra-innings rows (inning 7+) can also legitimately show this when a ghost runner starts the frame with no player_id to attach - use the Innings filter to separate the two.",
+      inningFilter: true,
       cols: [
         ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
-        ["obc_before", "OBC before"], ["obc_count", "OBC runners", "num"],
+        ["inning_half", "Inn"], ["obc_before", "OBC before"], ["obc_count", "OBC runners", "num"],
         ["runners_count", "runners_on_base", "num bad-if-diff:obc_count"],
+        ["open", "Open"],
+      ],
+    },
+    batter_is_runner: {
+      label: "Batter also a runner",
+      desc: "This play's own batter shouldn't already appear in runners_on_base (matched by name - identity ids aren't published on that field, only [full_name,last_name,spd,eye]) - a batter can't simultaneously be standing on base before their own plate appearance. A hit usually signals the same stale-identity replay bug as Runner count sanity (a base that should've been cleared several plays back never was), not a fresh problem on this specific row.",
+      inningFilter: true,
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"], ["play_num", "Play", "num"],
+        ["inning_half", "Inn"], ["batter_name", "Batter"], ["base", "Also on"],
+        ["open", "Open"],
+      ],
+    },
+    game_final_score_mismatches: {
+      label: "Game final score vs. runs",
+      desc: "For each completed game (is_game_final), the last play's own away_score/home_score should equal the sum of runs credited to that side across every play in the game - an aggregate cross-check independent of the row-to-row Score flow check above (that one only compares each play against the previous play's stored score, so it can't catch a game whose very first play didn't start from 0-0).",
+      cols: [
+        ["season", "Season"], ["game_code", "Game"], ["matchup", "Matchup"],
+        ["computed_away", "Computed away", "num bad-if-diff:final_away"], ["final_away", "Final away", "num"],
+        ["computed_home", "Computed home", "num bad-if-diff:final_home"], ["final_home", "Final home", "num"],
         ["open", "Open"],
       ],
     },
@@ -290,7 +363,10 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
   // ---- the checks themselves ----
 
-  function auditSeason(seasonLabel, plays) {
+  // Pure sweep: writes into the passed-in accumulators rather than the
+  // module globals, so the same checks can run twice in isolation (site vs.
+  // preview) for Compare mode without the two runs clobbering each other.
+  function sweepSeason(seasonLabel, plays, findingsAcc, gamePlaysAcc) {
     if (!plays.length) return;
 
     var byGame = groupBy(plays, "game_code");
@@ -298,7 +374,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
     Object.keys(byGame).forEach(function (gc) {
       var rows = byGame[gc].slice().sort(function (a, b) { return a.play_num - b.play_num; });
-      gamePlays[seasonLabel + "|" + gc] = rows;
+      gamePlaysAcc[seasonLabel + "|" + gc] = rows;
       rows.forEach(function (p) { seasonSessions[p.session_number] = true; });
 
       // 1. play_num gap check
@@ -306,7 +382,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
       var expectedIdxs = range(1, idxs.length);
       if (!arraysEqual(idxs, expectedIdxs)) {
         var missing = expectedIdxs.filter(function (i) { return idxs.indexOf(i) === -1; });
-        findings.play_num_gaps.push({
+        findingsAcc.play_num_gaps.push({
           season: seasonLabel, game_code: gc, matchup: matchup(rows[0]),
           n_plays: rows.length, missing: missing.join(";"),
           open: deepLink(gc, rows[0].play_num),
@@ -321,7 +397,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
         if (prev && isNewHalf) {
           var exp = nextHalf(prev.inning, prev.half);
           if (exp.inning !== p.inning || exp.half !== p.half) {
-            findings.inning_half_errors.push({
+            findingsAcc.inning_half_errors.push({
               season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
               prev_inning_half: prev.inning + " " + prev.half, inning_half: p.inning + " " + p.half,
               expected_inning_half: exp.inning + " " + exp.half,
@@ -333,7 +409,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
         var expectedObc = isNewHalf ? "000" : (prev ? prev.obc_after : "000");
         var expectedOuts = isNewHalf ? 0 : (prev ? prev.outs_after : 0);
         if (p.obc_before !== expectedObc || p.outs_before !== expectedOuts) {
-          findings.baserunner_flow.push({
+          findingsAcc.baserunner_flow.push({
             season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
             inning_half: p.inning + " " + p.half, prev_result: prev ? prev.result : "(half start)",
             expected_obc: expectedObc, stored_obc: p.obc_before,
@@ -349,7 +425,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
           var expectedAway = prev.away_score + (p.batting_is_home ? 0 : thisRuns);
           var expectedHome = prev.home_score + (p.batting_is_home ? thisRuns : 0);
           if (p.away_score !== expectedAway || p.home_score !== expectedHome) {
-            findings.score_flow.push({
+            findingsAcc.score_flow.push({
               season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
               prev_result: p.result, prev_runs: thisRuns,
               expected_away: expectedAway, stored_away: p.away_score,
@@ -367,16 +443,53 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
           var obcCount = (obcBefore.match(/1/g) || []).length;
           var runnersCount = Object.keys(p.runners_on_base).length;
           if (obcCount !== runnersCount) {
-            findings.runner_count_mismatches.push({
+            findingsAcc.runner_count_mismatches.push({
               season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+              inning: p.inning, inning_half: p.inning + " " + p.half,
               obc_before: obcBefore, obc_count: obcCount, runners_count: runnersCount,
               open: deepLink(gc, p.play_num),
+            });
+          }
+
+          // This play's own batter can't already be standing on base -
+          // matched by name since runners_on_base entries carry no id, only
+          // [full_name,last_name,spd,eye].
+          var batterName = (p.batter_name || "").trim().toLowerCase();
+          if (batterName) {
+            Object.keys(p.runners_on_base).forEach(function (base) {
+              var runnerName = ((p.runners_on_base[base] || [])[0] || "").trim().toLowerCase();
+              if (runnerName && runnerName === batterName) {
+                findingsAcc.batter_is_runner.push({
+                  season: seasonLabel, game_code: gc, matchup: matchup(p), play_num: p.play_num,
+                  inning: p.inning, inning_half: p.inning + " " + p.half,
+                  batter_name: p.batter_name, base: base,
+                  open: deepLink(gc, p.play_num),
+                });
+              }
             });
           }
         }
 
         prev = p;
       });
+
+      // 7. game-level final score vs. summed runs (completed games only)
+      var lastRow = rows[rows.length - 1];
+      if (lastRow.is_game_final) {
+        var sumAway = 0, sumHome = 0;
+        rows.forEach(function (r) {
+          var thisRuns = r.runs || 0;
+          if (r.batting_is_home) sumHome += thisRuns; else sumAway += thisRuns;
+        });
+        if (sumAway !== lastRow.away_score || sumHome !== lastRow.home_score) {
+          findingsAcc.game_final_score_mismatches.push({
+            season: seasonLabel, game_code: gc, matchup: matchup(lastRow), play_num: lastRow.play_num,
+            computed_away: sumAway, final_away: lastRow.away_score,
+            computed_home: sumHome, final_home: lastRow.home_score,
+            open: deepLink(gc, lastRow.play_num),
+          });
+        }
+      }
     });
 
     // 6. session gap check
@@ -385,7 +498,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
       var fullRange = range(sessionNums[0], sessionNums[sessionNums.length - 1]);
       var missingSessions = fullRange.filter(function (s) { return sessionNums.indexOf(s) === -1; });
       if (missingSessions.length) {
-        findings.session_gaps.push({
+        findingsAcc.session_gaps.push({
           season: seasonLabel, n_sessions: sessionNums.length,
           min_session: sessionNums[0], max_session: sessionNums[sessionNums.length - 1],
           missing: missingSessions.join(";"),
@@ -394,14 +507,76 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
     }
   }
 
+  function auditSeason(seasonLabel, plays) {
+    sweepSeason(seasonLabel, plays, findings, gamePlays);
+  }
+
   function deepLink(gameCode, playNum) {
     return SITE_BASE + "?game=" + gameCode + "&play=" + (playNum % 1000);
+  }
+
+  // ---- CSV export: one row per PLAY (not per finding), one TRUE/FALSE
+  // column per play-level check - so a play flagged by two different checks
+  // at once shows up as a single row, easy to scan across categories.
+  // play_num_gaps/session_gaps/game_final_score_mismatches are excluded -
+  // those are about a missing play, a whole session, or a game's total,
+  // never an existing play's own row, so they don't fit a "does THIS play
+  // have THIS issue" matrix.
+  var PLAY_LEVEL_CATS = ["baserunner_flow", "inning_half_errors", "score_flow", "runner_count_mismatches", "batter_is_runner"];
+
+  function buildPlayLevelRows() {
+    var byPlay = {};
+    PLAY_LEVEL_CATS.forEach(function (cat) {
+      (findings[cat] || []).forEach(function (f) {
+        var key = f.season + "|" + f.game_code + "|" + f.play_num;
+        if (!byPlay[key]) {
+          byPlay[key] = { season: f.season, game_code: f.game_code, play_num: f.play_num, matchup: f.matchup, open: f.open };
+          PLAY_LEVEL_CATS.forEach(function (c) { byPlay[key][c] = false; });
+        }
+        byPlay[key][cat] = true;
+      });
+    });
+    return Object.keys(byPlay).map(function (k) { return byPlay[k]; }).sort(function (a, b) {
+      if (a.season !== b.season) return a.season < b.season ? -1 : 1;
+      if (a.game_code !== b.game_code) return a.game_code < b.game_code ? -1 : 1;
+      return a.play_num - b.play_num;
+    });
+  }
+
+  function csvEscape(v) {
+    var s = String(v == null ? "" : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function downloadPlaysAuditCsv() {
+    var rows = buildPlayLevelRows();
+    var header = ["Season", "Game", "Play ID", "Matchup"]
+      .concat(PLAY_LEVEL_CATS.map(function (c) { return CATEGORIES[c].label; }))
+      .concat(["Open"]);
+    var lines = [header.map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      var line = [r.season, r.game_code, r.play_num, r.matchup]
+        .concat(PLAY_LEVEL_CATS.map(function (c) { return r[c] ? "TRUE" : "FALSE"; }))
+        .concat([r.open]);
+      lines.push(line.map(csvEscape).join(","));
+    });
+    var blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "plays_audit_findings.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // ---- render ----
 
   function finishAudit() {
     $("run-btn").disabled = false;
+    $("download-csv-btn").style.display = "";
+    hasAuditRun = true;
     var total = Object.keys(findings).reduce(function (s, c) { return s + findings[c].length; }, 0);
     var seasons = Object.keys(gamePlays).map(function (k) { return k.split("|")[0]; })
       .filter(function (s, i, arr) { return arr.indexOf(s) === i; });
@@ -412,10 +587,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
         (sweepErrors.length > 8 ? " ..." : "");
     }
     populateSeasonFilter(seasons);
-    renderTabs();
-    activeCat = activeCat || Object.keys(CATEGORIES)[0];
-    selectCategory(activeCat);
-    $("filters").style.display = "";
+    if (mode === "audit") refreshView();
   }
 
   function populateSeasonFilter(seasons) {
@@ -427,10 +599,127 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
     sel.value = current;
   }
 
+  // ---- Compare vs. preview ----
+
+  function discoverPreviewSeasons() {
+    // Unlike the real archive (always contiguous from s01), a preview build
+    // usually exists for just the one-off season being fixed - so probe
+    // every archive season (1-12) independently rather than stopping at the
+    // first miss.
+    return Promise.all(range(1, 12).map(function (n) {
+      return fetchJSON("../data/_preview/s" + pad2(n) + "/meta.json").then(function () { return n; }).catch(function () { return null; });
+    })).then(function (results) { return results.filter(function (n) { return n !== null; }); });
+  }
+
+  function maybeDiscoverPreviewSeasons() {
+    if (previewSeasonsChecked) return;
+    previewSeasonsChecked = true;
+    discoverPreviewSeasons().then(function (seasons) {
+      var sel = $("cmp-season");
+      if (!seasons.length) {
+        $("cmp-status-text").textContent = "No seasons found in docs/data/_preview/ - build one with key_moments_build.py --sheet-id/--out-dir first.";
+        return;
+      }
+      sel.innerHTML = seasons.map(function (n) {
+        return '<option value="' + n + '">Season ' + pad2(n) + "</option>";
+      }).join("");
+      $("cmp-status-text").textContent = seasons.length + " preview season(s) available.";
+    });
+  }
+
+  function runCompare() {
+    var n = parseInt($("cmp-season").value, 10);
+    if (!n) return;
+    var label = "s" + pad2(n);
+    $("cmp-run-btn").disabled = true;
+    $("cmp-status-text").textContent = "Loading " + label + " (site + preview)...";
+    $("err-box").style.display = "none";
+
+    var loadOne = function (dir) {
+      return fetchJSON(dir + "meta.json").then(function (meta) {
+        var sessions = meta.sessions || [];
+        return Promise.all(sessions.map(function (s) {
+          return fetchJSON(dir + "plays_" + pad2(s) + ".json").catch(function () { return []; });
+        })).then(function (chunks) { return [].concat.apply([], chunks); });
+      });
+    };
+
+    Promise.all([
+      loadOne("../data/" + label + "/"),
+      loadOne("../data/_preview/" + label + "/"),
+    ]).then(function (results) {
+      var realFindings = {}, previewFindings = {};
+      compareGamePlaysReal = {};
+      compareGamePlaysPreview = {};
+      Object.keys(CATEGORIES).forEach(function (c) { realFindings[c] = []; previewFindings[c] = []; });
+      sweepSeason(label, results[0], realFindings, compareGamePlaysReal);
+      sweepSeason(label, results[1], previewFindings, compareGamePlaysPreview);
+
+      compareFindings = {};
+      Object.keys(CATEGORIES).forEach(function (cat) {
+        var realByKey = {}, prevByKey = {};
+        realFindings[cat].forEach(function (f) { realByKey[findingKey(cat, f)] = f; });
+        previewFindings[cat].forEach(function (f) { prevByKey[findingKey(cat, f)] = f; });
+        var out = [];
+        Object.keys(realByKey).forEach(function (k) {
+          var f = Object.assign({}, realByKey[k]);
+          f._status = prevByKey[k] ? "unresolved" : "fixed";
+          out.push(f);
+        });
+        Object.keys(prevByKey).forEach(function (k) {
+          if (!realByKey[k]) {
+            var f = Object.assign({}, prevByKey[k]);
+            f._status = "new";
+            out.push(f);
+          }
+        });
+        compareFindings[cat] = out;
+      });
+
+      hasCompareRun = true;
+      var total = Object.keys(compareFindings).reduce(function (s, c) { return s + compareFindings[c].length; }, 0);
+      $("cmp-status-text").textContent = total + " difference(s) for " + label + " (fixed / unresolved / new).";
+      $("cmp-run-btn").disabled = false;
+      expandedKey = null;
+      refreshView();
+    }).catch(function (e) {
+      $("cmp-run-btn").disabled = false;
+      $("err-box").style.display = "";
+      $("err-box").textContent = "Compare failed: " + e.message + " - has this season been built into docs/data/_preview/?";
+    });
+  }
+
+  // ---- shared render (audit and compare share the category tabs / filters / table) ----
+
+  function currentFindings() { return mode === "compare" ? compareFindings : findings; }
+
+  function currentCols(cat) {
+    var cols = CATEGORIES[cat].cols;
+    return mode === "compare" ? [["_status", "Status"]].concat(cols) : cols;
+  }
+
+  function refreshView() {
+    var ran = mode === "compare" ? hasCompareRun : hasAuditRun;
+    $("f-season-wrap").style.display = mode === "compare" ? "none" : "";
+    $("f-status-wrap").style.display = mode === "compare" ? "" : "none";
+    if (!ran) {
+      $("cat-tabs").style.display = "none";
+      $("cat-desc").textContent = "";
+      $("filters").style.display = "none";
+      $("results-table").style.display = "none";
+      return;
+    }
+    renderTabs();
+    activeCat = activeCat || Object.keys(CATEGORIES)[0];
+    selectCategory(activeCat);
+    $("filters").style.display = "";
+  }
+
   function renderTabs() {
+    var f = currentFindings();
     var html = Object.keys(CATEGORIES).map(function (c) {
       return '<button type="button" class="cat-tab' + (c === activeCat ? " active" : "") + '" data-cat="' + c + '">' +
-        escapeHtml(CATEGORIES[c].label) + ' <span class="count">' + findings[c].length + "</span></button>";
+        escapeHtml(CATEGORIES[c].label) + ' <span class="count">' + (f[c] || []).length + "</span></button>";
     }).join("");
     $("cat-tabs").innerHTML = html;
     $("cat-tabs").style.display = "";
@@ -446,7 +735,8 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
       btn.classList.toggle("active", btn.getAttribute("data-cat") === cat);
     });
     $("cat-desc").textContent = CATEGORIES[cat].desc;
-    var cols = CATEGORIES[cat].cols;
+    $("f-innings-wrap").style.display = CATEGORIES[cat].inningFilter ? "" : "none";
+    var cols = currentCols(cat);
     $("results-head").innerHTML = cols.map(function (c) { return "<th>" + escapeHtml(c[1]) + "</th>"; }).join("");
     render();
   }
@@ -455,10 +745,15 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
   function filtered() {
     var cat = activeCat;
-    var season = $("f-season").value;
+    var season = mode === "compare" ? "" : $("f-season").value;
+    var status = mode === "compare" ? $("f-status").value : "";
+    var innings = CATEGORIES[cat].inningFilter ? $("f-innings").value : "";
     var search = $("f-search").value.trim().toLowerCase();
-    return (findings[cat] || []).filter(function (f) {
+    return (currentFindings()[cat] || []).filter(function (f) {
       if (season && f.season !== season) return false;
+      if (status && f._status !== status) return false;
+      if (innings === "reg" && f.inning >= 7) return false;
+      if (innings === "extra" && f.inning < 7) return false;
       if (search) {
         var hay = (f.game_code + " " + (f.matchup || "") + " " + (f.prev_result || "")).toLowerCase();
         if (hay.indexOf(search) === -1) return false;
@@ -469,6 +764,11 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
   function cellHtml(f, colDef) {
     var key = colDef[0], label = colDef[1], flags = colDef[2] || "";
+    if (key === "_status") {
+      var s = f._status || "";
+      return '<td data-label="' + escapeHtml(label) + '" class="status-' + escapeHtml(s) + '">' +
+        escapeHtml(s.charAt(0).toUpperCase() + s.slice(1)) + "</td>";
+    }
     var v = f[key];
     var isNum = flags.indexOf("num") !== -1;
     var badIfDiffMatch = flags.match(/bad-if-diff:(\w+)/);
@@ -481,7 +781,10 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
   }
 
   function detailRowHtml(cat, f) {
-    var rows = gamePlays[f.season + "|" + f.game_code] || [];
+    var gpKey = f.season + "|" + f.game_code;
+    var rows = mode === "compare"
+      ? (compareGamePlaysPreview[gpKey] || compareGamePlaysReal[gpKey] || [])
+      : (gamePlays[gpKey] || []);
     var idx = rows.findIndex(function (r) { return r.play_num === f.play_num; });
     var lo = idx === -1 ? 0 : Math.max(0, idx - 4);
     var hi = idx === -1 ? rows.length - 1 : Math.min(rows.length - 1, idx + 4);
@@ -499,7 +802,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
         '<td class="num">' + r.away_score + "-" + r.home_score + "</td>" +
       "</tr>";
     }).join("");
-    var colspan = CATEGORIES[cat].cols.length;
+    var colspan = currentCols(cat).length;
     return '<tr class="detail-row"><td colspan="' + colspan + '"><div class="detail-wrap">' +
       (rows.length ? '<table class="detail-table"><thead><tr>' +
         "<th>Play</th><th>Inning</th><th>Outs</th><th>OBC</th><th>Result</th><th>Batter</th><th>Runs</th><th>Score</th>" +
@@ -510,7 +813,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
   function rowHtml(cat, f) {
     var key = findingKey(cat, f);
-    var cols = CATEGORIES[cat].cols;
+    var cols = currentCols(cat);
     var main = '<tr class="finding-row' + (expandedKey === key ? " expanded" : "") + '" data-key="' + escapeHtml(key) + '">' +
       cols.map(function (c) { return cellHtml(f, c); }).join("") + "</tr>";
     return main + (expandedKey === key ? detailRowHtml(cat, f) : "");
@@ -518,7 +821,7 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
 
   function render() {
     var rows = filtered();
-    $("result-count").textContent = rows.length + " / " + (findings[activeCat] || []).length + " finding(s)";
+    $("result-count").textContent = rows.length + " / " + (currentFindings()[activeCat] || []).length + " finding(s)";
     $("results-body").innerHTML = rows.map(function (f) { return rowHtml(activeCat, f); }).join("");
     $("results-table").style.display = "";
 
@@ -532,12 +835,27 @@ tr.detail-row td{padding:0; border-bottom:1px solid var(--border);}
     });
   }
 
-  ["f-season", "f-search"].forEach(function (id) {
+  ["f-season", "f-status", "f-innings", "f-search"].forEach(function (id) {
     $(id).addEventListener("input", render);
     $(id).addEventListener("change", render);
   });
 
   $("run-btn").addEventListener("click", runAudit);
+  $("download-csv-btn").addEventListener("click", downloadPlaysAuditCsv);
+  $("cmp-run-btn").addEventListener("click", runCompare);
+
+  Array.prototype.forEach.call($("mode-tabs").querySelectorAll(".cat-tab"), function (btn) {
+    btn.addEventListener("click", function () {
+      mode = btn.getAttribute("data-mode");
+      Array.prototype.forEach.call($("mode-tabs").querySelectorAll(".cat-tab"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      $("audit-controls").style.display = mode === "audit" ? "" : "none";
+      $("compare-controls").style.display = mode === "compare" ? "" : "none";
+      if (mode === "compare") maybeDiscoverPreviewSeasons();
+      refreshView();
+    });
+  });
 
   // Auto-run on load - the whole point is a quick reference tool.
   runAudit();

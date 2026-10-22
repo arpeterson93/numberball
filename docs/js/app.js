@@ -966,9 +966,9 @@
   // convention a single play's own WPA already displays with elsewhere in
   // this file (e.g. "+5.0"), just without a "%" sign here (Alex's ask).
   var STATS_BATTING_COLS = [
-    ["gsc", "GSc", 1], ["wpa", "WPA", 1], ["ab", "AB"], ["r", "R"], ["h", "H"], ["2b", "2B"], ["3b", "3B"],
+    ["gsc", "GSc", 1], ["wpa", "WPA", 1], ["dpa", "DPA", 1], ["ab", "AB"], ["r", "R"], ["h", "H"], ["2b", "2B"], ["3b", "3B"],
     ["hr", "HR"], ["rbi", "RBI"], ["bb", "BB"], ["k", "K"], ["sb", "SB"], ["cs", "CS"],
-    ["gidp", "GIDP"],
+    ["gidp", "GIDP"], ["lob", "LOB"],
   ];
   // W/L/SV/HD render inline next to the pitcher's name instead (see
   // statsPitcherDecisionsHtml) - same placement/style as the scorecard's own
@@ -980,7 +980,7 @@
   // Baseball-Reference still shows. Left unmodified for MLN's 6-inning
   // games (Alex's call) - always a whole number, unlike batting's gsc.
   var STATS_PITCHING_COLS = [
-    ["gsc", "GSc"], ["wpa", "WPA", 1], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"],
+    ["gsc", "GSc"], ["wpa", "WPA", 1], ["dpa", "DPA", 1], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"], ["lob", "LOB"],
   ];
 
   // Which sub-tab is showing, and the current sort per sub-tab (persists
@@ -11311,7 +11311,7 @@
      (sceneScorebugHtml) sits directly under that team's own logo already, so
      repeating it there would be redundant - only the below-field placement
      (sceneDetailHtml, every width under the 900px breakpoint) still needs it. */
-  function sceneRoleHtml(role, id, name, teamAbbr, withLogo) {
+  function sceneRoleHtml(role, id, name, teamAbbr, withLogo, extraHtml) {
     var isFav = window.KMFavorites && id && window.KMFavorites.has(id);
     var star = id
       ? '<button type="button" class="star-btn ' + (isFav ? "on" : "") +
@@ -11323,6 +11323,7 @@
         "<span>" + role + "</span></div>" +
       '<div class="mu-name">' + star +
         "<span>" + escapeHtml(name || "-") + "</span></div>" +
+      (extraHtml || "") +
     "</div>";
   }
 
@@ -12197,7 +12198,145 @@
     return out ? '<div class="scene-debug">' + out + "</div>" : "";
   }
 
-  function sceneDetailHtml(m, flight) {
+  /* The two role blocks of a play's matchup row: PITCHING / AT BAT normally,
+     CATCHING / STEALING on a stolen base or caught stealing (Alex's ask) -
+     the runner and the catcher who made the throw (m.defense.C, since the
+     sheet's own catcher columns are blank on steals) are who the play is
+     actually about. KCS stays a pitching matchup (it is a strikeout first).
+     Falls back to pitcher/batter when either steal name is missing. */
+  function sceneMatchupRoles(m, withLogo, slide) {
+    var isSteal = !!(STEAL_SAFE_CODES[m.result] || (STEAL_CAUGHT_CODES[m.result] && m.result !== "KCS"));
+    var c = m.defense && m.defense.C;
+    var catcherName = c && c[0];
+    var swapAt = statSwapAtMs(m, resolvePlayFlight(m));
+    if (isSteal && catcherName && m.runner_name) {
+      return {
+        def: sceneRoleHtml("CATCHING", null, catcherName, m.def_team_abbr, withLogo),
+        off: sceneRoleHtml("STEALING", m.runner_id, m.runner_name, m.off_team_abbr, withLogo,
+          statSwapHtml(slide, "bat", m.runner_name, swapAt)),
+      };
+    }
+    return {
+      def: sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr, withLogo,
+        statSwapHtml(slide, "pit", m.pitcher_name, swapAt)),
+      off: sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr, withLogo,
+        statSwapHtml(slide, "bat", m.batter_name, swapAt)),
+    };
+  }
+
+  /* In-game stat lines beside the matchup players (Alex's ask): what the
+     player had done in THIS game before the play, swapping to what they have
+     after it once the play resolves. Derived client-side from the game's own
+     play list (slide.gamePlays up to slide.gameIdx), same sources the
+     scorecard uses: HIT_RESULTS/WALK_RESULTS/STRIKEOUT_RESULTS, `runs` as RBI,
+     `er_ids` for earned runs, outs_after - outs_before for innings. Batters:
+     H-AB plus whichever of HR/3B/2B/BB/RBI/SB/CS/DP/K are nonzero. Pitchers:
+     IP, H, ER, K always, plus BB/DP when nonzero. */
+  function gameStatTotals(plays, upto, kind, name) {
+    var s = { ab: 0, h: 0, d2: 0, d3: 0, hr: 0, bb: 0, rbi: 0, sb: 0, cs: 0, dp: 0, k: 0, outs: 0, er: 0 };
+    var pid = null;
+    for (var i = 0; i <= upto && i < plays.length; i++) {
+      var p = plays[i];
+      if (!p || p.is_on_deck) continue;
+      var r = p.result;
+      if (kind === "bat") {
+        if (p.runner_name === name) {
+          if (STEAL_SAFE_CODES[r]) s.sb++;
+          else if (STEAL_CAUGHT_CODES[r]) s.cs++;
+        }
+        if (p.batter_name !== name || !isGenuineTurn(p)) continue;
+        if (!WALK_RESULTS[r] && !SAC_RESULTS[r]) s.ab++;
+        if (HIT_RESULTS[r]) s.h++;
+        if (r === "2B" || r === "2BWH") s.d2++;
+        else if (r === "3B") s.d3++;
+        else if (r === "HR") s.hr++;
+        if (WALK_RESULTS[r]) s.bb++;
+        if (STRIKEOUT_RESULTS[r]) s.k++;
+        if (DP_RESULTS[r]) s.dp++;
+        s.rbi += p.runs || 0;
+      } else {
+        if (p.pitcher_name !== name) continue;
+        if (pid == null) pid = p.pitcher_id;
+        s.outs += Math.max(0, (p.outs_after || 0) - (p.outs_before || 0));
+        if (isGenuineTurn(p)) {
+          if (HIT_RESULTS[r]) s.h++;
+          if (WALK_RESULTS[r]) s.bb++;
+          if (STRIKEOUT_RESULTS[r]) s.k++;
+          if (DP_RESULTS[r]) s.dp++;
+        }
+        (p.er_ids || []).forEach(function (id) { if (pid != null && id === pid) s.er++; });
+      }
+    }
+    return s;
+  }
+  var DP_RESULTS = { DP: 1, DP21: 1, DP31: 1, DPH1: 1, DPRun: 1, LODP: 1 };
+
+  /* A stat line as tokens, each a run of segments (dyn segments are the
+     numbers that can roll). Zero stats are not shown (show=false).
+     Count-of-one box-score style: "2B" not "1 2B", "2 2B" at two. */
+  function statTokens(kind, s) {
+    function num(n, bare) { return { t: (bare && n === 1) ? "" : n + " ", dyn: 1 }; }
+    function cnt(key, label, n, good, bare) {
+      return { key: key, good: good, show: n > 0, segs: [num(n, bare), { t: label }] };
+    }
+    if (kind === "bat") {
+      return [
+        { key: "hab", good: true, show: true,
+          segs: [{ t: String(s.h), dyn: 1 }, { t: "-" }, { t: String(s.ab), dyn: 1, neu: 1 }] },
+        cnt("hr", "HR", s.hr, true, true), cnt("3b", "3B", s.d3, true, true), cnt("2b", "2B", s.d2, true, true),
+        cnt("bb", "BB", s.bb, true, true), cnt("rbi", "RBI", s.rbi, true, true),
+        cnt("sb", "SB", s.sb, true, true), cnt("cs", "CS", s.cs, false, true),
+        cnt("k", "K", s.k, false, true), cnt("dp", "DP", s.dp, false, true),
+      ];
+    }
+    return [
+      { key: "ip", good: true, show: true,
+        segs: [{ t: Math.floor(s.outs / 3) + "." + (s.outs % 3), dyn: 1 }, { t: " IP" }] },
+      cnt("h", "H", s.h, false, true), cnt("er", "ER", s.er, false, true),
+      cnt("k", "K", s.k, true, true), cnt("bb", "BB", s.bb, false, true), cnt("dp", "DP", s.dp, true, true),
+    ];
+  }
+
+  // When the play "lands" - the stat line swaps then. A steal breaks on the
+  // pitch itself (no field-sequence hold); everything else waits out the
+  // wheel hold plus the ball's flight, plus a short beat.
+  function statSwapAtMs(m, flight) {
+    if (STEAL_SAFE_CODES[m.result] || STEAL_CAUGHT_CODES[m.result]) return 900;
+    return FIELD_SEQUENCE_DELAY_MS + (flight ? ballTravelMs(flight) : 0) + 300;
+  }
+
+  function statSwapHtml(slide, kind, name, swapAtMs) {
+    if (!slide || !name || slide.gameIdx == null || slide.gameIdx < 0 || !slide.gamePlays) return "";
+    var play = slide.gamePlays[slide.gameIdx];
+    if (!play || play.is_on_deck) return "";
+    var bt = statTokens(kind, gameStatTotals(slide.gamePlays, slide.gameIdx - 1, kind, name));
+    var at = statTokens(kind, gameStatTotals(slide.gamePlays, slide.gameIdx, kind, name));
+    var at_ms = ' style="--at:' + swapAtMs + 'ms"';
+    var html = at.map(function (tok, i) {
+      if (!tok.show) return "";
+      var prev = bt[i];
+      // Only the pieces that changed animate: a brand-new token (0 -> 1)
+      // fades in whole; an existing one rolls just its changed number(s),
+      // the old value sliding up and out as the new one rises in beneath it.
+      if (!prev.show) {
+        return '<span class="ms-tok ms-enter"' + at_ms + ">" +
+          tok.segs.map(function (g) { return escapeHtml(g.t); }).join("") + "</span>";
+      }
+      return '<span class="ms-tok">' + tok.segs.map(function (g, j) {
+        var old = prev.segs[j].t;
+        if (!g.dyn || old === g.t) return "<span>" + escapeHtml(g.t) + "</span>";
+        // 1 -> 2: the bare count had no number at all, so the new one opens
+        // its own room (like a brand-new stat) instead of rolling in a
+        // pre-sized empty cell.
+        if (old === "") return '<span class="ms-numin"' + at_ms + ">" + escapeHtml(g.t) + "</span>";
+        return '<span class="ms-roll"><span class="ms-old"' + at_ms + ">" + escapeHtml(old) + "</span>" +
+          '<span class="ms-new"' + at_ms + ">" + escapeHtml(g.t) + "</span></span>";
+      }).join("") + "</span>";
+    }).join("");
+    return '<div class="mu-stat">' + html + "</div>";
+  }
+
+  function sceneDetailHtml(m, flight, slide) {
     /* Diff pill and the launch angle/exit velo readout stay beneath the
        field (Alex's spec) - the result pill itself now renders separately,
        above the field, via sceneResultPillHtml. "Player scores" moved out of
@@ -12217,9 +12356,9 @@
       // instead (style.css's own min-width:900px block), freeing this row's
       // vertical space for the diamond to grow into.
       '<div class="scene-matchup">' +
-        sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr, true) +
+        sceneMatchupRoles(m, true, slide).def +
         '<span class="mu-vs">vs</span>' +
-        sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr, true) +
+        sceneMatchupRoles(m, true, slide).off +
       "</div>" +
     "</div>";
   }
@@ -12701,7 +12840,7 @@
       '<div class="scene-top">' +
         sceneFieldHtml(m, flight) +
       "</div>" +
-      sceneDetailHtml(m, flight) +
+      sceneDetailHtml(m, flight, slide) +
       sceneRibbonHtml(slide) +
       sceneDebugHtml(m, flight) +
     "</div>";
@@ -12939,8 +13078,9 @@
     wrapRow(awayEl);
     wrapRow(homeEl);
     var awayBatting = !m.batting_is_home;
-    var pitcherHtml = sceneRoleHtml("PITCHING", m.pitcher_id, m.pitcher_name, m.def_team_abbr, false);
-    var batterHtml = sceneRoleHtml("AT BAT", m.batter_id, m.batter_name, m.off_team_abbr, false);
+    var roles = sceneMatchupRoles(m, false, slide);
+    var pitcherHtml = roles.def;
+    var batterHtml = roles.off;
     awayEl.insertAdjacentHTML("beforeend", awayBatting ? batterHtml : pitcherHtml);
     homeEl.insertAdjacentHTML("beforeend", awayBatting ? pitcherHtml : batterHtml);
   }
@@ -15650,8 +15790,10 @@
       : last;
   }
 
-  function liveGridMatchupLineHtml(prefix, id, name) {
-    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(liveGridLastName(id, name)) + "</div>";
+  function liveGridMatchupLineHtml(prefix, id, name, slide) {
+    var stat = slide ? statSwapHtml(slide, prefix === "P" ? "pit" : "bat", name,
+      statSwapAtMs(slide.play, resolvePlayFlight(slide.play))) : "";
+    return '<div class="live-grid-mu">' + prefix + ": " + escapeHtml(liveGridLastName(id, name)) + stat + "</div>";
   }
 
   /* logo/abbr/score have to move together as one unit (Alex's report: an
@@ -15803,11 +15945,11 @@
       liveGridWrapTeamRow(homeEl);
       var awayBatting = !m.batting_is_home;
       awayEl.insertAdjacentHTML("beforeend", awayBatting
-        ? liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name)
-        : liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name));
+        ? liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name, slide)
+        : liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name, slide));
       homeEl.insertAdjacentHTML("beforeend", awayBatting
-        ? liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name)
-        : liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name));
+        ? liveGridMatchupLineHtml("P", m.pitcher_id, m.pitcher_name, slide)
+        : liveGridMatchupLineHtml("AB", m.batter_id, m.batter_name, slide));
     }
 
     // Player-scores follows the fielding description on the same line

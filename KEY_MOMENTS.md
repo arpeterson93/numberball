@@ -58,6 +58,32 @@ The Action needs `contents: write` to push the refreshed JSON back; that is set
 in the workflow, but **Settings -> Actions -> General -> Workflow permissions**
 must allow read/write for it to take effect.
 
+## Troubleshooting: Pages deploy stuck ("Deployment failed, try again later")
+
+Symptom: the `build` job in `key_moments.yml` succeeds, but the `deploy` job
+(the `actions/deploy-pages` step) fails with a generic `Deployment failed, try
+again later` error - and it keeps failing on every subsequent run, even a
+manual `workflow_dispatch`. Deleting and recreating the `github-pages`
+environment (Settings -> Environments) and/or toggling the Pages Source
+dropdown between "GitHub Actions" and "Deploy from a branch" is not enough on
+its own; the `docs/CNAME` custom domain binding appears to be what actually
+gets wedged in GitHub's backend.
+
+Recovery sequence that has worked twice now:
+
+1. Repo Settings -> Pages -> **unpublish the site** (this is separate from
+   changing the Source dropdown).
+2. Settings -> Pages -> Build and deployment -> Source -> **Deploy from a
+   branch**.
+3. Delete `docs/CNAME`, commit, push to `main`. Let this deploy - it's fine
+   that the live site 404s on `data/*.json` at this point, since branch-deploy
+   serves whatever's committed and the JSON feed is generated only inside the
+   Actions run, never committed to git.
+4. Re-add `docs/CNAME` (contents: `mlngameday.com`), commit, push.
+5. Settings -> Pages -> Build and deployment -> Source -> switch back to
+   **GitHub Actions**. Let `key_moments.yml` run (push or
+   `workflow_dispatch`) - this should deploy cleanly again.
+
 ## What counts as a key moment
 
 `is_key_moment` is true if **any** rule fires. Each firing rule lands in the

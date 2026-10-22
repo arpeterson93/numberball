@@ -1,4 +1,4 @@
-"""Step 3: embed swings, contexts and run-value tables into template.html.
+"""Step 3 (after build_model.py, build_matchup.py and build_own_state.py): embed swings, contexts and run-value tables into template.html.
 
     python tools/diff_lab/build_artifact.py [output.html]
 
@@ -109,7 +109,31 @@ tv=[[int(se),round(float(np.abs(Ee[g.index.values].sum(0)-Aa[g.index.values].sum
 dd=Aa.sum(0)-Ee.sum(0)
 mdiff=[[GC[i],int(round(Aa.sum(0)[i])),int(round(Ee.sum(0)[i]))] for i in np.argsort(-np.abs(dd))[:6]]
 model=dict(pn=b64(MD["PN"]),ph=b64(MD["PH"][HSTATES]),hs=HSTATES,p8=b64(MD["P8"]),tv=tv,diffs=mdiff)
-data=dict(model=model,hnr=HS,teams=T,bat=B,pit=P,raw=RW,rows=rows,GC=GC,ctx=ctxl,rvt=RVT)
+# each player's own matchup distribution (build_matchup.py): one byte per share, 8 classes x 51 ten-wide buckets
+MU=pickle.load(open(CACHE/"matchup.pkl","rb"))
+own={side:MU[side] for side in ("bat","pit")}      # "season|name" -> curve index
+own["cv"]={side:[base64.b64encode(c.tobytes()).decode() for c in MU["curves"][side]] for side in ("bat","pit")}
+# state-aware own expectation per swing (build_own_state.py): probabilities of each result under the player's own build,
+# turned into expected runs / WPA with the same tables as the league mix; int16 (runs x1000, WPA x10000), -32768 = none
+OS=pickle.load(open(CACHE/"own_state.pkl","rb"))
+RV0=np.array([[np.nan if v is None else v for v in row] for row in RVT]); VALID=~np.isnan(RV0); RV0=np.nan_to_num(RV0)
+WX=np.array([[0.0 if v is None else v for v in c[5]] for c in ctxl])
+S8=(R.outs*8+R.brc).values; CXI=np.array([r[9] for r in rows])
+def own_ev(P,idx):
+    s8=S8[idx]; Pv=P*VALID[s8]; tot=Pv.sum(1); ok=tot>0; pr=Pv/np.where(ok,tot,1)[:,None]
+    xr=(pr*RV0[s8]).sum(1); xw=(pr*WX[CXI[idx]]).sum(1)
+    q=lambda v,k:np.where(ok,np.clip(np.round(v*k),-32767,32767),-32768).astype('<i2')
+    return q(xr,1000),q(xw,10000)
+allr=np.arange(len(R)); bx,bw=own_ev(OS["PB"],allr); px,pw=own_ev(OS["PP"],allr)
+nohave=~OS["have"]
+for a_ in (bx,bw,px,pw): a_[nohave]=-32768
+hi=sorted(OS["HB"]); hv={}
+if hi:
+    hidx=np.array(hi); hbx,hbw=own_ev(np.array([OS["HB"][i] for i in hi]),hidx); hpx,hpw=own_ev(np.array([OS["HP"][i] for i in hi]),hidx)
+    hv={int(i):[int(hbx[j]),int(hbw[j]),int(hpx[j]),int(hpw[j])] for j,i in enumerate(hi)}
+own["st"]=dict(bx=base64.b64encode(bx.tobytes()).decode(),bw=base64.b64encode(bw.tobytes()).decode(),
+               px=base64.b64encode(px.tobytes()).decode(),pw=base64.b64encode(pw.tobytes()).decode(),h=hv)
+data=dict(own=own,model=model,hnr=HS,teams=T,bat=B,pit=P,raw=RW,rows=rows,GC=GC,ctx=ctxl,rvt=RVT)
 html=open(HERE/'template.html',encoding='utf-8').read().replace('/*DATA*/null',json.dumps(data,separators=(',',':')))
 open(sys.argv[1] if len(sys.argv)>1 else CACHE/'diff_distribution.html','w',encoding='utf-8').write(html)
 print(len(rows),len(html)/1e6)

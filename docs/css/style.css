@@ -2648,6 +2648,37 @@ html[data-km-debug="1"] .km-tuning-panel{
   align-self:stretch;text-align:center;font-size:11px;font-weight:700;color:var(--muted);
   white-space:nowrap;overflow:hidden;
 }
+.live-grid-mu .mu-stat{font-size:10px;font-weight:600;}
+
+/* In-game stat line under a matchup player: the pre-play line shows at once,
+   then swaps to the post-play line at --at/--until (app.js statSwapHtml). Both
+   steps share one grid cell so the width never jumps. */
+.mu-stat{display:flex;flex-wrap:wrap;justify-content:center;font-size:12px;font-weight:700;color:var(--muted);
+  font-variant-numeric:tabular-nums;white-space:pre;max-width:100%;line-height:1.3;}
+.ms-tok + .ms-tok{margin-left:.6em;}
+/* A changed number: old value slides up and out while the new one rises in
+   from beneath (both stacked in one cell, so the width holds). */
+.ms-roll{display:inline-grid;overflow:hidden;vertical-align:bottom;}
+.ms-old,.ms-new{grid-area:1/1;}
+.ms-old{animation:msUp calc(380ms / var(--play-speed,1)) ease calc(var(--at) / var(--play-speed,1)) forwards;}
+.ms-new{animation:msRise calc(380ms / var(--play-speed,1)) ease calc(var(--at) / var(--play-speed,1)) both;}
+/* A stat first recorded on this play takes no room until it lands, then
+   opens a gap for itself while fading in, so the line scooches over. */
+.ms-tok.ms-enter{overflow:hidden;animation:msEnter calc(450ms / var(--play-speed,1)) ease calc(var(--at) / var(--play-speed,1)) both;}
+.ms-numin{display:inline-block;overflow:hidden;vertical-align:bottom;animation:msNumIn calc(450ms / var(--play-speed,1)) ease calc(var(--at) / var(--play-speed,1)) both;}
+@keyframes msNumIn{from{max-width:0;opacity:0;}to{max-width:3em;opacity:1;}}
+@keyframes msUp{to{transform:translateY(-100%);opacity:0;}}
+@keyframes msRise{from{transform:translateY(100%);opacity:0;}to{transform:none;opacity:1;}}
+@keyframes msEnter{
+  from{max-width:0;margin-left:0;opacity:0;}
+  to{max-width:8em;margin-left:.6em;opacity:1;}
+}
+@media (prefers-reduced-motion:reduce){
+  .ms-old{animation:none;opacity:0;}
+  .ms-new{animation:none;opacity:1;}
+  .ms-numin{animation:none;max-width:none;opacity:1;}
+  .ms-tok.ms-enter{animation:none;max-width:none;margin-left:.6em;opacity:1;}
+}
 
 /* Redundant now that the matchup line sits directly under the real team
    logo above (Alex's ask) - the old below-the-field row (sceneDetailHtml)

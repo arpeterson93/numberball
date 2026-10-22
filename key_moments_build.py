@@ -1269,12 +1269,13 @@ def _game_start_on_deck_moment(ref: dict, game: dict, game_lineup_rows: list[dic
     resolve the away team's leadoff slot (the Lineups tab hasn't been filled
     in for this game yet either).
 
-    Pitcher stays unresolved (id/name empty), same as _next_batter_moment's
-    own "first half-inning turnover" edge case - Path A deliberately never
-    sources a pitcher from the Lineups tab (lineup_alignment_at's own rule:
-    "P comes from the play row itself"), so a game with literally no play
-    rows yet has no pitcher to show, consistent with that existing rule
-    rather than a new guess.
+    The pitcher is the home team's starter, read from its "P" row on the
+    Lineups tab (the latest one if the sheet lists more than one). That is
+    only for this placeholder: lineup_alignment_at still never resolves a
+    pitcher mid-game ("P comes from the play row itself"), but a game with
+    no play rows yet has no play row to read one from. No "P" row (or a name
+    that doesn't resolve to a player) leaves the pitcher blank, never a
+    guess.
     """
     game_code = game.get("game_code") or ""
     off = _team_view(ref, game.get("away_team"))
@@ -1284,7 +1285,12 @@ def _game_start_on_deck_moment(ref: dict, game: dict, game_lineup_rows: list[dic
     if next_up is None:
         return None
     next_batter_view = _player_view(ref, next_up["player_id"])
-    pitcher_view = _player_view(ref, None)
+    starter = None
+    for r in game_lineup_rows:
+        if r.get("team") == deff["abbrev"] and r.get("pos") == "P" and r.get("player_name"):
+            if starter is None or (r.get("row") or -1) > (starter.get("row") or -1):
+                starter = r
+    pitcher_view = _player_view(ref, ref["name_to_id"].get(starter["player_name"]) if starter else None)
     play_num = utils.make_play_num(game_code, 1)
 
     return {
@@ -1621,10 +1627,12 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
     }
     if archive_season is not None:
         meta["is_archive"] = True
-        meta["post_sessions"] = sorted({
-            g["session_number"] for g in games
-            if g.get("session_number") in sessions_set and g.get("type") == "Post"
-        })
+    # Live season too (career_build.py and the Stats/Records/Search game-type
+    # filters read it); empty until the Games tab marks a session "Post".
+    meta["post_sessions"] = sorted({
+        g["session_number"] for g in games
+        if g.get("session_number") in sessions_set and g.get("type") == "Post"
+    })
     return rows, roster, meta
 
 
@@ -1822,6 +1830,34 @@ def _load_session_awards(sheet_id: str = SESSION_AWARDS_SHEET_ID) -> dict[tuple[
     return out
 
 
+# Results where the batter ends up on base even though the play records an out (a runner was retired instead).
+_BATTER_SAFE_OUT_CODES = {"FC", "FC3rd", "FCH", "BFC"}
+
+
+def _left_on_base(m: dict) -> int:
+    """Runners stranded when this play makes the third out (0 on every other play).
+
+    The log clears the bases at the third out, so it is rebuilt from the play: runners on before, plus the batter if
+    he reached, minus runs scored, minus runners retired. Credited to the batter at the plate and the pitcher on the
+    mound for that play (the league has no official individual LOB, team LOB is the sum over its batters).
+    """
+    ob, oa = m.get("outs_before"), m.get("outs_after")
+    obc = m.get("obc_before")
+    if ob is None or oa is None or not obc or oa < 3 or ob >= 3:
+        return 0
+    result = m.get("result")
+    on = obc.count("1")
+    runs = m.get("runs") or 0
+    outs_made = oa - ob
+    if result in NON_TURN_CODES:
+        batter_reached, batter_out = 0, 0
+    elif result in HIT_CODES or result in WALK_CODES or result in _BATTER_SAFE_OUT_CODES:
+        batter_reached, batter_out = 1, 0
+    else:
+        batter_reached, batter_out = 0, 1
+    return max(0, on + batter_reached - runs - (outs_made - batter_out))
+
+
 def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_by_code: dict,
                     awards: dict[tuple[int, int, int], str]) -> dict:
     """Session-wide batting/pitching stat lines for the Stats tab - the
@@ -1869,9 +1905,12 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
         result = m["result"]
         runs = m["runs"] or 0
 
+        lob = _left_on_base(m)
         batter_id = m.get("batter_id")
         if batter_id:
             b = _row(batting, batter_id, m["batter_name"])
+            if lob:
+                _bump(b, "lob", lob)
             if result not in NON_TURN_CODES:
                 _bump(b, "pa")
                 if result not in WALK_CODES and result not in SAC_CODES:
@@ -1897,6 +1936,10 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
                 if result in DOUBLE_PLAY_CODES:
                     _bump(b, "gidp")
                 _bump(b, "rbi", runs)
+                # an intentional walk has no real pitch or swing (logged as 0/0/0), so it is not a diff
+                if m.get("diff") is not None and result not in INTENTIONAL_WALK_CODES:
+                    _bump(b, "ds", m["diff"])
+                    _bump(b, "dn")
 
         # Runs scored: the batter's own run (only possible via a home run -
         # every other way to score requires already being a baserunner, a
@@ -1962,6 +2005,11 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
             # a caught-stealing mid-at-bat is still a real out the pitcher's
             # team gets credit for (mirrors app.js's buildPitchingStints).
             _bump(p, "outs", max(0, (m["outs_after"] or 0) - (m["outs_before"] or 0)))
+            if result not in NON_TURN_CODES and result not in INTENTIONAL_WALK_CODES and m.get("diff") is not None:
+                _bump(p, "ds", m["diff"])
+                _bump(p, "dn")
+            if lob:
+                _bump(p, "lob", lob)
             if result in HIT_CODES:
                 _bump(p, "h")
             if result in HOME_RUN_CODES:
@@ -2017,8 +2065,10 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
                     row["game_award"] = tier
 
     def _finish_batting(b: dict) -> dict:
-        for key in ("pa", "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "ibb", "k", "sb", "cs", "sf", "sh", "gidp"):
+        for key in ("pa", "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "ibb", "k", "sb", "cs", "sf", "sh", "gidp", "lob", "ds", "dn"):
             b.setdefault(key, 0)
+        # DPA: average pitch/swing diff over the batter's plate appearances.
+        b["dpa"] = round(b["ds"] / b["dn"], 1) if b["dn"] else None
         ab, h, bb, sf, sh = b["ab"], b["h"], b["bb"], b["sf"], b["sh"]
         singles = h - b["2b"] - b["3b"] - b["hr"]
         total_bases = singles + 2 * b["2b"] + 3 * b["3b"] + 4 * b["hr"]
@@ -2062,7 +2112,8 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
             25 + 8 * runs_created + 3 * b["r"] + 3 * b["rbi"] + reach_on_error - 2.5 * outs_responsible,
             1,
         )
-        del b["sf"], b["sh"], b["ibb"]  # internal-only (RC/gsc inputs), not requested columns
+        # sf stays on the line: career_build.py sums lines across games/seasons and needs it to recompute OBP exactly.
+        del b["sh"], b["ibb"]  # internal-only (RC/gsc inputs), not requested columns
         b["award"] = awards.get((season, session, b["player_id"]))
         b.setdefault("game_award", None)
         # Displayed as a bare number, percentage-scaled but with no "%" sign
@@ -2072,8 +2123,9 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
         return b
 
     def _finish_pitching(p: dict) -> dict:
-        for key in ("outs", "h", "hr", "bb", "k", "dp", "er", "w", "l", "sv", "hd"):
+        for key in ("outs", "h", "hr", "bb", "k", "dp", "er", "lob", "w", "l", "sv", "hd", "ds", "dn"):
             p.setdefault(key, 0)
+        p["dpa"] = round(p["ds"] / p["dn"], 1) if p["dn"] else None
         outs = p.pop("outs")
         innings = outs / 3.0
         p["ip"] = f"{outs // 3}.{outs % 3}"
@@ -2304,13 +2356,16 @@ def _fetch_archive_raw(sheet_id: str) -> dict:
     }
 
 
-def _build_and_write(sheet_id: str, archive_season: int | None = None, **raw) -> None:
+def _build_and_write(sheet_id: str, archive_season: int | None = None, out_root: str = OUT_DIR, **raw) -> None:
     """Build one season (current, when archive_season is None, or one
     historical archive season) and write its docs/data output. `**raw`
     forwards any of build()'s *_raw pre-fetched-tab params (used by
-    --archive-all; empty for a single-season build).
+    --archive-all; empty for a single-season build). `out_root` lets
+    --out-dir redirect an archive build somewhere other than the real
+    docs/data (e.g. docs/data/_preview, to validate a sheet edit before
+    pasting it back into the real archive sheet).
     """
-    out_dir = OUT_DIR if archive_season is None else os.path.join(OUT_DIR, f"s{archive_season:02d}")
+    out_dir = out_root if archive_season is None else os.path.join(out_root, f"s{archive_season:02d}")
     label = "current season" if archive_season is None else f"archive season {archive_season}"
 
     try:
@@ -2367,20 +2422,31 @@ def main() -> None:
     parser.add_argument("--archive-all", action="store_true",
                          help="Build every season found in the archive's Games tab (one fetch of each "
                               "archive tab, reused across all seasons).")
+    parser.add_argument("--sheet-id", default=None, metavar="ID",
+                         help="Override the archive sheet ID for --archive-season/--archive-all - e.g. a "
+                              "personal copy of the archive sheet being edited to fix a data issue. Defaults "
+                              "to the real MLN Historical Archive sheet. Ignored for a current-season build.")
+    parser.add_argument("--out-dir", default=None, metavar="DIR",
+                         help="Override the output root for --archive-season/--archive-all (default docs/data) "
+                              "- e.g. docs/data/_preview, to build from --sheet-id without touching the "
+                              "committed archive JSON. Ignored for a current-season build.")
     args = parser.parse_args()
 
+    sheet_id = args.sheet_id or ARCHIVE_SHEET_ID
+    out_root = args.out_dir or OUT_DIR
+
     if args.archive_all:
-        raw = _fetch_archive_raw(ARCHIVE_SHEET_ID)
+        raw = _fetch_archive_raw(sheet_id)
         seasons = sorted({g["season"] for g in raw["games_raw"] if g.get("season")})
         if not seasons:
             print("FATAL: no seasons found in the archive Games tab.", file=sys.stderr)
             sys.exit(1)
         for season in seasons:
-            _build_and_write(ARCHIVE_SHEET_ID, archive_season=season, **raw)
+            _build_and_write(sheet_id, archive_season=season, out_root=out_root, **raw)
         return
 
     if args.archive_season is not None:
-        _build_and_write(ARCHIVE_SHEET_ID, archive_season=args.archive_season)
+        _build_and_write(sheet_id, archive_season=args.archive_season, out_root=out_root)
         return
 
     _build_and_write(MLN_SHEET_ID, archive_season=None)
