@@ -139,18 +139,12 @@ def _render_zone_return_map(df: pd.DataFrame, is_mobile: bool, dark_mode: bool) 
     """Pitch Zone Cooldown's "Zone return map": one radial, position around the wheel by lag ring - when he throws near
     a spot, how often is the pitch 1, 2, 3... pitches later back within half the zone width of it (smoothed)."""
     st.caption(
-        "Angle = position on the 1-1000 wheel; each ring is a lag - outermost = the very next pitch, stepping inward "
-        "to 10 pitches later. Color = of the pitches he threw near that position, the % where the pitch that many "
-        "pitches later (it can be in a later game) came back within +/- half the zone width of that pitch. 'Near' is smoothed: a "
-        "pitch counts fully at the position and fades out to half the zone width away, so there are no hard zone "
-        "edges. Darker = comes back more often. Raw rates: a spot he throws a lot will naturally come back more "
-        "(hover shows how often he throws there). Neighboring positions share pitches, so they move together. Gray = "
-        "too few pitches to read. Black arc = his most recent pitch +/- half the zone width, i.e. what would count as "
-        "'back' for it. Numbered markers = where he is right now: marker k is the pitch thrown k-1 pitches ago "
-        "(1 = his last pitch), so the next pitch is lag k after it - read its ring color at the marker (hover for the "
-        "numbers). With 'Smooth across lags' on, each ring is blended with its neighbors, so ring k also reflects "
-        "a little of lags k-1 and k+1. Pitches are taken in order across games, so a follow-up (and a marker) can fall in a different game. "
-        "Pitches recorded as 0 (autos / no pitch submitted) are left out.")
+        "Each ring is a lag - outermost = the very next pitch, stepping inward to 10 pitches later. Color = of the "
+        "pitches he threw near that position, the % where the pitch that many pitches later came back within +/- half "
+        "the zone width of that pitch. Darker = comes back more often near that lag. Gray = too few pitches to read. "
+        "Arc along the outside = his most recent pitch +/- half the zone width. Numbered markers = where he is right "
+        "now: marker k is the pitch thrown k-1 pitches ago (1 = his last pitch), so the next pitch is lag k after it - "
+        "read its ring color at the marker.")
     width = st.select_slider("Zone width", options=[50, 100, 125, 200, 250], value=100, key="p_zone_return_width",
                              help="Both how far around each position the smoothing reaches (+/- half this) and how "
                                   "close a later pitch has to be to count as 'back'.")
@@ -2680,12 +2674,13 @@ with tab_p:
         st.divider()
         # ── pitch zone cooldown ─────────────────────────────────────────────
         st.subheader("Pitch Zone Cooldown")
-        st.caption(
-            "Following a result, what's the % chance that they'd have thrown another "
-            "pitch within the radius of the pitch by X pitches later? Yellow diamonds "
-            "are still-open cooldowns.")
         _cd_view_p = st.radio("View", ["Return CDF", "Distance by lag", "Zone return map"], horizontal=True,
                               key="p_cooldown_view")
+        if _cd_view_p == "Return CDF":
+            st.caption(
+                "Following a result, what's the % chance that they'd have thrown another "
+                "pitch within the radius of the pitch by X pitches later? Yellow diamonds "
+                "are still-open cooldowns.")
         if _cd_view_p == "Distance by lag":
             _render_cooldown_lag_view(df_p_pred, "pitch", "pitch", "p_cd_lag", _is_mobile)
         elif _cd_view_p == "Zone return map":
