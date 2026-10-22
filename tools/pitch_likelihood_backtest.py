@@ -200,8 +200,10 @@ TABLES_PATH = pathlib.Path(__file__).resolve().parent.parent / "pitch_model_tabl
 COOLDOWN_EXPIRE_ELAPSED = utils.COOLDOWN_EXPIRE_ELAPSED   # open triggers older than this carry no information (see utils)
 N_EFF_FULL = 1e9              # "pre-shrunk" signals (their own smoothing is built in): combine_signals' alpha -> 1
 # fitted with DEFAULT_WEIGHTS above (tools/pitch_model_fit.py): e_exact = weight on his own past exact values, m_spike =
-# shrinkage strength of the online repeat / echo rates toward the league rate
-HABIT_DEFAULTS = {"mixtures": True, "e_exact": 0.02, "m_spike": 400.0}
+# shrinkage strength of the online repeat / echo rates toward the league rate. m_spike was 400 with two spikes; with the four
+# spikes (2026-10-22, tools/pitch_model_spike_screen.py mgrid) the train-sample optimum is 100 and the curve is flat from 75 to
+# 200 (held-out -0.0013 vs 400, CI [-0.0029, -0.0001] at 150), so it is set to 150.
+HABIT_DEFAULTS = {"mixtures": True, "e_exact": 0.02, "m_spike": 150.0}
 
 
 def prepare_tables(raw: dict) -> dict:
@@ -646,10 +648,13 @@ def apply_mixtures(combined: np.ndarray, df_hist: pd.DataFrame, state: dict, cfg
 
     1. Exact past values: (1-e)*combined + e*(his own empirical distribution of exact pitch values) - he re-throws
        numbers he has thrown before.
-    2. Repeat / echo spikes: point masses on the previous pitch and the previous swing against him, each at a rate
-       estimated ONLINE from his own history (hits / n, shrunk toward the league rate with strength m_spike), so a
-       pitcher who echoes gets a big spike and one who never does gets about the league's. (A third spike on the pitch
-       BEFORE last was dropped: removing it changed held-out log-loss by -0.0001, CI [-0.0016, +0.0016].)
+    2. Repeat / echo spikes: point masses on the previous pitch, the previous swing, the previous plate appearance's DIFF
+       (circular |pitch - swing|; 0 counts as the wheel spot 1000) and the OPPOSITE side of the wheel from the previous
+       pitch (+500), each against him at a rate estimated ONLINE from his own history (hits / n, shrunk toward the league
+       rate with strength m_spike), so a pitcher who echoes gets a big spike and one who never does gets about the
+       league's. (A spike on the pitch BEFORE last was dropped: removing it changed held-out log-loss by -0.0001, CI
+       [-0.0016, +0.0016]. The diff and +500 spikes were added 2026-10-22 after a held-out test, tools/pitch_model_spike_screen.py:
+       -0.0054 and -0.0053 each, -0.0106 together, CI [-0.0177, -0.0051]; the pool weights do not move when refit under them.)
        A reference only counts within the same game (a first pitch of a game has no 'previous pitch' to echo) when the
        target row carries a game_id; live predictions without one assume the last pitch is in the same game."""
     if not cfg.habit.get("mixtures", True):
@@ -675,9 +680,20 @@ def apply_mixtures(combined: np.ndarray, df_hist: pd.DataFrame, state: dict, cfg
         "prev_pitch": (pv[-1], pv[1:] == pv[:-1], gm[1:] == gm[:-1], gm[-1]),
         "prev_swing": (sw[-1], pv[1:] == sw[:-1], gm[1:] == gm[:-1], gm[-1]),
     }
+    # The previous PA's diff and the opposite side of the wheel from the previous pitch. A pitch / swing outside 1-1000
+    # (a 0 is an auto / unsubmitted pitch) leaves the reference undefined.
+    pv_f = pv.astype(float)
+    ok_pv = (pv >= 1) & (pv <= 1000)
+    raw_diff = np.abs(pv_f - sw) % 1000
+    d_all = np.where(ok_pv & (sw >= 1) & (sw <= 1000), np.minimum(raw_diff, 1000 - raw_diff), np.nan)
+    diff_v = np.where(d_all == 0, 1000.0, d_all)
+    p500_v = np.where(ok_pv, (pv_f + 499) % 1000 + 1, np.nan)
+    same_game = gm[1:] == gm[:-1]
+    refs["prev_diff"] = (diff_v[-1], pv_f[1:] == diff_v[:-1], same_game & ~np.isnan(diff_v[:-1]), gm[-1])
+    refs["prev_pitch_p500"] = (p500_v[-1], pv_f[1:] == p500_v[:-1], same_game & ~np.isnan(p500_v[:-1]), gm[-1])
     total, add = 0.0, np.zeros(GRID_SIZE)
     for name, (val, hit, defined, ref_game) in refs.items():
-        if val != val or (tgt_game is not None and ref_game != tgt_game):
+        if name not in league or val != val or (tgt_game is not None and ref_game != tgt_game):
             continue
         rate = (float(hit[defined].sum()) + m * league[name]) / (float(defined.sum()) + m)
         total += rate

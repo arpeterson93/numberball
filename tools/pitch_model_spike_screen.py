@@ -8,6 +8,10 @@ League rates for the new references are the pooled hit rate over the TRAIN pitch
 
 Candidates (each is "the next pitch equals ..."; a reference only counts within the same game, like the real spikes):
   prev_pitch2       the pitch before last (control: dropped from the model, change -0.0001 [-0.0016, +0.0016])
+  (screen mode now treats prev_pitch, prev_swing, prev_diff and prev_pitch_p500 as the DEPLOYED set - the last two were added to
+  the model 2026-10-22 on the strength of the result below - so the candidate list is what is left; the Result block is the
+  test that justified adding them, run when the deployed set was only prev_pitch + prev_swing. `refit` mode keeps that
+  old-two vs new-four comparison.)
   prev_diff         the previous PA's diff (circular |pitch - swing|; 0 is the wheel spot 1000)
   prev_pitch_p500   previous pitch + 500 (the opposite side of the wheel)
   prev_swing_p500   previous swing + 500
@@ -15,6 +19,8 @@ Candidates (each is "the next pitch equals ..."; a reference only counts within 
 Change is vs the deployed model; NEGATIVE = adding the spike helps.
 
 Usage: python -I tools/pitch_model_spike_screen.py [screen] [steps_per_pitcher]   (default 400; ~16k steps from the 51 held-out pitchers)
+       python -I tools/pitch_model_spike_screen.py mgrid [steps_per_pitcher]     (shared spike strength m: pick on TRAIN, report held-out)
+       python -I tools/pitch_model_spike_screen.py validate [steps_per_pitcher]  (old vs new deployed model through the REAL apply_mixtures)
        python -I tools/pitch_model_spike_screen.py refit [steps_per_pitcher]     (default 150; do the pool weights / mixture strength
                                                                                   move when refit jointly under the mixtures + new spikes?)
 
@@ -26,6 +32,12 @@ Result (2026-10-22; deployed model log-loss 6.6547; change when ADDED, 95% pitch
   + prev_pitch_rev                   -0.0005 [-0.0021, +0.0008]
   + prev_diff + prev_pitch_p500      -0.0106 [-0.0177, -0.0051]   (55% of pitchers improve)
 Not yet added to the deployed model (tools/pitch_likelihood_backtest.apply_mixtures).
+
+SHIPPED 2026-10-22: prev_diff and prev_pitch_p500 are now spikes in bt.apply_mixtures (league rates 0.54% / 0.60% in the rebuilt
+pitch_model_tables.json) and the shared strength is m_spike = 150 (was 400). `mgrid` (four spikes): train-sample optimum m=100, flat from
+75 to 200; held-out change vs 400 is -0.0015 at 100, -0.0013 at 150 [-0.0029, -0.0001]. `validate` (the REAL apply_mixtures, old tables +
+m=400 vs new tables + m=150, 51 held-out pitchers, 7,650 steps): log-loss 6.6474 -> 6.6347, change -0.0128 [-0.0229, -0.0049], 59% of
+pitchers improve. tools/verify_pitch_mixtures.py checks the mixture stage itself.
 
 Joint refit (`refit` mode; 4,500 train / 7,650 held-out steps; deployed log-loss 6.6435 on that sample): refitting the nine pool weights
 jointly UNDER the mixtures moves them by at most 0.006 and gains nothing - deployed spikes -0.0000 [-0.0001, +0.0000]; with the two new spikes
@@ -49,9 +61,9 @@ import pitch_model_ablation as ab  # noqa: E402
 
 EPS = 1e-12
 GRID = 1000
-MODE = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ("screen", "refit") else "screen"
+MODE = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ("screen", "refit", "mgrid", "validate") else "screen"
 _nums = [a for a in sys.argv[1:] if a.isdigit()]
-STEPS_PER_PITCHER = int(_nums[0]) if _nums else (150 if MODE == "refit" else 400)
+STEPS_PER_PITCHER = int(_nums[0]) if _nums else (400 if MODE == "screen" else 150)
 
 
 def _circ(a, b):
@@ -140,8 +152,8 @@ def main():
     w_full = np.array([fr["weights"][n] for n in names])
     e, m = fr["habit"]["e_exact"], fr["habit"]["m_spike"]
     league = dict(tables["spike_rates"])
-    BASE = ["prev_pitch", "prev_swing"]
-    CANDS = ["prev_pitch2", "prev_diff", "prev_pitch_p500", "prev_swing_p500", "prev_pitch_rev"]
+    BASE = ["prev_pitch", "prev_swing", "prev_diff", "prev_pitch_p500"]      # the spikes in the deployed model
+    CANDS = ["prev_pitch2", "prev_swing_p500", "prev_pitch_rev"]
 
     # league rates for the new references: pooled hit rate over the TRAIN pitchers' own histories
     tot_h = {n: 0.0 for n in Refs.LAG}
@@ -164,8 +176,7 @@ def main():
     variants = {"FULL (deployed)": BASE}
     for cname in CANDS:
         variants[f"+ {cname}"] = BASE + [cname]
-    variants["+ prev_diff + prev_pitch_p500"] = BASE + ["prev_diff", "prev_pitch_p500"]
-    variants["+ prev_diff + prev_pitch_p500 + prev_swing_p500"] = BASE + ["prev_diff", "prev_pitch_p500", "prev_swing_p500"]
+    variants["+ prev_swing_p500 + prev_pitch_rev"] = BASE + ["prev_swing_p500", "prev_pitch_rev"]
 
     rng = np.random.default_rng(9)
     loss = {k: [] for k in variants}
@@ -188,7 +199,7 @@ def main():
                 loss[lab].append(-math.log(q[kk] + EPS))
             if checked < 30:                                   # my base mixture must equal the ablation tool's copy
                 q_ref = ab.mixtures(c, hist_pv, wk.swing[:t].astype(float), wk.game[:t], tgt, e, m,
-                                    tables["spike_rates"], {"prev_pitch", "prev_swing"})
+                                    tables["spike_rates"], set(BASE))
                 q_me = mixture(c, rf, t, tgt, e, m, league, BASE, hist_pv)
                 assert np.max(np.abs(q_ref - q_me)) < 1e-9, "base mixture differs from the ablation tool's"
                 checked += 1
@@ -348,5 +359,82 @@ def refit():
         print(f"  {nm:28s} {w_dep[i]:9.3f} {wB[i]:10.3f} {wC[i]:14.3f}")
 
 
+def mgrid():
+    """Shared spike strength m: choose on the TRAIN pitchers' sample (deployed pool weights, e, and the four deployed spikes),
+    then report the held-out change. Everything is the vectorised copy of the mixture stage used by `refit`."""
+    sp = json.loads((pf.OUT / "split.json").read_text())
+    fr = json.loads((pf.OUT / "fit_result.json").read_text())
+    tables = pf._train_tables(sp["train"])
+    allnames = pf.NAMES + pf.LEGACY
+    names = pf.NEW9
+    rows_all = [allnames.index(n) for n in names]
+    w_dep = np.array([fr["weights"][n] for n in names])
+    e = fr["habit"]["e_exact"]
+    league = dict(tables["spike_rates"])
+    REFS = ["prev_pitch", "prev_swing", "prev_diff", "prev_pitch_p500"]
+    Ttr = _step_table(sp["train"], rows_all, REFS, league, 90, np.random.default_rng(1))
+    Tte = _step_table(sp["test"], rows_all, REFS, league, STEPS_PER_PITCHER, np.random.default_rng(9))
+    print(f"train steps {len(Ttr['k'])}, test steps {len(Tte['k'])}; e={e}; league rates "
+          + ", ".join(f"{r} {league[r] * 1000:.2f}/1000" for r in REFS), flush=True)
+    grid = (25.0, 50.0, 75.0, 100.0, 150.0, 200.0, 300.0, 400.0, 600.0, 800.0)
+    base_te = _per_step_loss(Tte, w_dep, REFS, e, 400.0, league)
+    who = Tte["who"]
+    boot = np.random.default_rng(4)
+    print("")
+    print(f"{'m':>6s} {'train log-loss':>15s} {'test log-loss':>14s} {'test change vs m=400':>22s}  95% CI")
+    best = None
+    for m in grid:
+        tr = _per_step_loss(Ttr, w_dep, REFS, e, m, league).mean()
+        te = _per_step_loss(Tte, w_dep, REFS, e, m, league)
+        d = te - base_te
+        per = np.array([d[who == x].mean() for x in np.unique(who)])
+        bs = np.array([boot.choice(per, len(per)).mean() for _ in range(2000)])
+        lo, hi = np.percentile(bs, [2.5, 97.5])
+        if best is None or tr < best[1]:
+            best = (m, tr)
+        print(f"{m:6.0f} {tr:15.5f} {te.mean():14.5f} {per.mean():+22.5f}  [{lo:+.5f}, {hi:+.5f}]")
+    print("")
+    print(f"best m on the TRAIN sample: {best[0]:.0f}")
+
+
+def validate():
+    """Old vs new deployed model through the REAL bt.apply_mixtures on the held-out pitchers: the old model = tables without the
+    two new spike rates and m = 400 (so the new spikes are skipped); the new model = the tables and HABIT_DEFAULTS as shipped."""
+    import pitch_likelihood_backtest as bt
+    sp = json.loads((pf.OUT / "split.json").read_text())
+    fr = json.loads((pf.OUT / "fit_result.json").read_text())
+    tables_new = pf._train_tables(sp["train"])
+    tables_old = dict(tables_new)
+    tables_old["spike_rates"] = {k: v for k, v in tables_new["spike_rates"].items() if k not in ("prev_diff", "prev_pitch_p500")}
+    allnames = pf.NAMES + pf.LEGACY
+    names = pf.NEW9
+    rows_all = [allnames.index(n) for n in names]
+    w_full = np.array([fr["weights"][n] for n in names])
+    habit_old = {"mixtures": True, "e_exact": fr["habit"]["e_exact"], "m_spike": 400.0}
+    habit_new = {"mixtures": True, "e_exact": bt.HABIT_DEFAULTS["e_exact"], "m_spike": bt.HABIT_DEFAULTS["m_spike"]}
+    print(f"old: e={habit_old['e_exact']} m={habit_old['m_spike']} spikes {sorted(tables_old['spike_rates'])}")
+    print(f"new: e={habit_new['e_exact']} m={habit_new['m_spike']} spikes {sorted(tables_new['spike_rates'])}", flush=True)
+    per_old, per_new, n_steps = [], [], []
+    for name in sp["test"]:
+        if not (pf.OUT / f"{pf._safe(name)}.npz").exists():
+            continue
+        wk = pf.Walk(name)
+        ll_o, p_o = pf.mix_ll([wk], w_full, rows_all, habit_old, tables_old, True, sample=STEPS_PER_PITCHER, rng=np.random.default_rng(9))
+        ll_n, p_n = pf.mix_ll([wk], w_full, rows_all, habit_new, tables_new, True, sample=STEPS_PER_PITCHER, rng=np.random.default_rng(9))
+        per_old.append(ll_o)
+        per_new.append(ll_n)
+        n_steps.append(p_o[name][1])
+        del wk
+    per_old, per_new, n_steps = np.array(per_old), np.array(per_new), np.array(n_steps)
+    d = per_new - per_old
+    boot = np.random.default_rng(4)
+    bs = np.array([boot.choice(d, len(d)).mean() for _ in range(2000)])
+    lo, hi = np.percentile(bs, [2.5, 97.5])
+    print(f"{len(d)} held-out pitchers, {int(n_steps.sum())} steps")
+    print(f"old model log-loss {np.average(per_old, weights=n_steps):.4f}   new model {np.average(per_new, weights=n_steps):.4f}")
+    print(f"change (new - old) {np.average(d, weights=n_steps):+.4f}  pitcher-bootstrap 95% CI [{lo:+.4f}, {hi:+.4f}]  "
+          f"pitchers improved {(d < 0).mean() * 100:.0f}%")
+
+
 if __name__ == "__main__":
-    refit() if MODE == "refit" else main()
+    {"refit": refit, "mgrid": mgrid, "validate": validate}.get(MODE, main)()

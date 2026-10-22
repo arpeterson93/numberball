@@ -6,7 +6,8 @@
         tables held - see the cooldown notes in pitch_likelihood_backtest.py.
   league_counts : how often each pitch value 1..1000 was thrown league-wide (the fine-structure prior: round numbers,
         repdigits...).
-  spike_rates   : league rate at which a pitch equals the previous pitch / previous swing / pitch before last (same game).
+  spike_rates   : league rate at which a pitch equals the previous pitch / previous swing / pitch before last / the previous PA's
+        diff / the previous pitch + 500 (same game; prev_pitch2 is kept for reference, the deployed model no longer spikes on it).
 
 Usage:  python -I tools/build_pitch_model_tables.py [--out pitch_model_tables.json]
 The evaluation harness calls build_tables(pitcher_ids=train_ids) so held-out pitchers never feed their own tables.
@@ -70,8 +71,8 @@ def build_tables(pitcher_ids=None) -> dict:
     counts = np.zeros(1000)
     ar = {k: {c: np.zeros(MAX_LAG + 1) for c in CATS} for k in ("pitch", "delta")}
     hi = {k: {c: np.zeros(MAX_LAG + 1) for c in CATS} for k in ("pitch", "delta")}
-    spike_hits = np.zeros(3)
-    spike_n = np.zeros(3)
+    spike_hits = np.zeros(5)
+    spike_n = np.zeros(5)
     for pid, s in d.groupby("pitcher_id"):
         v = s.pitch.astype(int).to_numpy()
         counts += np.bincount((v - 1) % 1000, minlength=1000)
@@ -95,9 +96,23 @@ def build_tables(pitcher_ids=None) -> dict:
             valid = ok & ~np.isnan(refv)
             spike_n[j] += valid.sum()
             spike_hits[j] += (v[idx][valid] == refv[valid]).sum()
+        # previous PA's diff (circular |pitch - swing|, 0 is the wheel spot 1000) and the previous pitch + 500; pitches / swings
+        # outside 1-1000 (autos) leave a reference undefined
+        v_f = v.astype(float)
+        ok_v = (v >= 1) & (v <= 1000)
+        raw_d = np.abs(v_f - sw) % 1000
+        d_all = np.where(ok_v & (sw >= 1) & (sw <= 1000), np.minimum(raw_d, 1000 - raw_d), np.nan)
+        diff_v = np.where(d_all == 0, 1000.0, d_all)
+        p500_v = np.where(ok_v, (v_f + 499) % 1000 + 1, np.nan)
+        idx1 = np.arange(1, len(v))
+        for j, refv_full in ((3, diff_v), (4, p500_v)):
+            refv = refv_full[idx1 - 1]
+            valid = (g[idx1] == g[idx1 - 1]) & ~np.isnan(refv)
+            spike_n[j] += valid.sum()
+            spike_hits[j] += (v_f[idx1][valid] == refv[valid]).sum()
     out = {"radius": RADIUS, "max_lag": MAX_LAG, "league_counts": counts.astype(int).tolist(),
            "spike_rates": {k: float(h / n) if n else 0.0 for k, h, n in
-                           zip(("prev_pitch", "prev_swing", "prev_pitch2"), spike_hits, spike_n)}}
+                           zip(("prev_pitch", "prev_swing", "prev_pitch2", "prev_diff", "prev_pitch_p500"), spike_hits, spike_n)}}
     for dom, key in (("pitch", "cooldown_hazard"), ("delta", "delta_cooldown_hazard")):
         out[key] = {c: {str(k): (float(hi[dom][c][k] / ar[dom][c][k]) if ar[dom][c][k] else None)
                         for k in range(1, MAX_LAG + 1)} for c in CATS}

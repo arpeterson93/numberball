@@ -5,7 +5,8 @@ For each component, remove it and re-score the held-out steps from tools/pitch_m
     ("fixed"), and with the other weights re-optimised on the TRAIN sample ("refit") - the fair version, since correlated
     signals can pick up each other's weight;
   - exact-value mixture: e = 0;
-  - spikes: both off, then each of previous-pitch / previous-swing off on its own (the pitch-before-last spike is gone).
+  - spikes: all off, then each of previous-pitch / previous-swing / previous-diff / previous-pitch+500 off on its own (the
+    pitch-before-last spike is gone).
 The mixture stage below is a flag-able copy of pitch_likelihood_backtest.apply_mixtures (checked equal to it when every
 flag is on). League tables come from TRAIN pitchers only. Change is vs the full model; + = removing it HURTS (the piece helps).
 
@@ -33,7 +34,7 @@ STEPS_PER_PITCHER = 150
 
 
 def mixtures(c, pv, sw, gm, tgt_game, e, m, league, spikes_on, exact_on=True):
-    """Flag-able copy of bt.apply_mixtures. spikes_on: subset of {'prev_pitch','prev_swing','prev_pitch2'}."""
+    """Flag-able copy of bt.apply_mixtures. spikes_on: subset of {'prev_pitch','prev_swing','prev_diff','prev_pitch_p500'}."""
     n = len(pv)
     if n < 3:
         return c
@@ -41,9 +42,18 @@ def mixtures(c, pv, sw, gm, tgt_game, e, m, league, spikes_on, exact_on=True):
     q = ((1 - e) * c + e * own / own.sum()) if exact_on else c
     refs = {"prev_pitch": (pv[-1], pv[1:] == pv[:-1], gm[1:] == gm[:-1], gm[-1]),
             "prev_swing": (sw[-1], pv[1:] == sw[:-1], gm[1:] == gm[:-1], gm[-1])}
+    pv_f = pv.astype(float)
+    ok_pv = (pv >= 1) & (pv <= 1000)
+    raw_d = np.abs(pv_f - sw) % 1000
+    d_all = np.where(ok_pv & (sw >= 1) & (sw <= 1000), np.minimum(raw_d, 1000 - raw_d), np.nan)
+    diff_v = np.where(d_all == 0, 1000.0, d_all)
+    p500_v = np.where(ok_pv, (pv_f + 499) % 1000 + 1, np.nan)
+    same = gm[1:] == gm[:-1]
+    refs["prev_diff"] = (diff_v[-1], pv_f[1:] == diff_v[:-1], same & ~np.isnan(diff_v[:-1]), gm[-1])
+    refs["prev_pitch_p500"] = (p500_v[-1], pv_f[1:] == p500_v[:-1], same & ~np.isnan(p500_v[:-1]), gm[-1])
     total, add = 0.0, np.zeros(GRID)
     for name, (val, hit, defined, ref_game) in refs.items():
-        if name not in spikes_on or val != val or (tgt_game is not None and ref_game != tgt_game):
+        if name not in spikes_on or name not in league or val != val or (tgt_game is not None and ref_game != tgt_game):
             continue
         rate = (float(hit[defined].sum()) + m * league[name]) / (float(defined.sum()) + m)
         total += rate
@@ -61,7 +71,7 @@ def main():
     w_full = np.array([fr["weights"][n] for n in names])
     e, m = fr["habit"]["e_exact"], fr["habit"]["m_spike"]
     league = tables["spike_rates"]
-    ALL = {"prev_pitch", "prev_swing"}      # the pitch-before-last spike was dropped from the model
+    ALL = {"prev_pitch", "prev_swing", "prev_diff", "prev_pitch_p500"}   # the pitch-before-last spike was dropped
 
     # train sample for the refits
     rng = np.random.default_rng(1)
@@ -95,6 +105,8 @@ def main():
                     "- all spikes": dict(exact_on=True, spikes=set()),
                     "- spike: previous pitch": dict(exact_on=True, spikes=ALL - {"prev_pitch"}),
                     "- spike: previous swing": dict(exact_on=True, spikes=ALL - {"prev_swing"}),
+                    "- spike: previous diff": dict(exact_on=True, spikes=ALL - {"prev_diff"}),
+                    "- spike: previous pitch + 500": dict(exact_on=True, spikes=ALL - {"prev_pitch_p500"}),
                     "- both mixtures (pool only)": dict(exact_on=False, spikes=set())}
     rows_all = [col[n] for n in names]
 
