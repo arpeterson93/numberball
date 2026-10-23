@@ -3384,3 +3384,6 @@ html[data-km-debug="1"] .km-tuning-panel{
 .dx-chart svg{margin:0 auto;}
 .dx-legend{justify-content:center;}
 .dx-legend-break{flex-basis:100%;height:0;}
+/* Copy-link icon in the player header: bottom-right, clear of the name (header already pads right for the x). */
+#career-head .ph-link{position:absolute;right:8px;bottom:6px;border:none;background:transparent;color:inherit;opacity:0.8;padding:5px;border-radius:6px;cursor:pointer;line-height:0;}
+#career-head .ph-link:hover{opacity:1;background:rgba(127,127,127,0.25);}

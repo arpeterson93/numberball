@@ -218,12 +218,12 @@ def main() -> None:
 
                 gr = game_lines.setdefault((season, session, code), {
                     "s": season, "n": session, "g": code, "po": 1 if session in post else 0, "a": away, "h": home,
-                    "as": a_sc or 0, "hs": h_sc or 0, "f": 1 if final else 0, "bat": {}, "pit": {}})
+                    "as": a_sc or 0, "hs": h_sc or 0, "f": 1 if final else 0, "bat": {}, "pit": {}, "rb": {}, "rp": {}})
 
                 for side, score_for, score_against in ((away, a_sc, h_sc), (home, h_sc, a_sc)):
                     ts = team_sessions.setdefault((season, session, side), {
                         "s": season, "n": session, "t": side, "po": 1 if session in post else 0, "g": 0, "w": 0, "l": 0, "rs": 0, "ra": 0,
-                        "bat": {}, "pit": {}})
+                        "bat": {}, "pit": {}, "rb": {}, "rp": {}})
                     # a game still in progress counts (games, runs for/against so far, every stat line); only the
                     # win/loss waits for the final
                     ts["g"] += 1
@@ -261,6 +261,9 @@ def main() -> None:
                     player_games[pid]["bat"].append(row)
                     _add(team_sessions[(season, session, team)]["bat"], b, BAT_KEYS)
                     _add(gr["bat"], b, BAT_KEYS)
+                    if pid in rookie_ids.get(season, ()):      # rookie-only lines, for the Stats tab's Rookies filter
+                        _add(team_sessions[(season, session, team)]["rb"], b, BAT_KEYS)
+                        _add(gr["rb"], b, BAT_KEYS)
                     ps = player_sessions.setdefault((pid, season, session), {"t": team, "po": 1 if session in post else 0, "bat": {}, "pit": {}})
                     _add(ps["bat"], b, BAT_KEYS)
                     ps["bat"]["g"] = ps["bat"].get("g", 0) + 1
@@ -294,6 +297,9 @@ def main() -> None:
                     player_games[pid]["pit"].append(row)
                     _add(team_sessions[(season, session, team)]["pit"], line, PIT_KEYS)
                     _add(gr["pit"], line, PIT_KEYS)
+                    if pid in rookie_ids.get(season, ()):
+                        _add(team_sessions[(season, session, team)]["rp"], line, PIT_KEYS)
+                        _add(gr["rp"], line, PIT_KEYS)
                     ps = player_sessions.setdefault((pid, season, session), {"t": team, "po": 1 if session in post else 0, "bat": {}, "pit": {}})
                     _add(ps["pit"], line, PIT_KEYS)
                     ps["pit"]["g"] = ps["pit"].get("g", 0) + 1
@@ -394,13 +400,15 @@ def main() -> None:
     _write(os.path.join(DATA, "career", "stats_sessions.json"), sstats)
 
     # ---- records: team sessions -----------------------
-    team_rows = [dict(ts, bat=_compact(ts["bat"]), pit=_compact(ts["pit"])) for ts in team_sessions.values() if ts["g"]]
+    team_rows = [dict(ts, bat=_compact(ts["bat"]), pit=_compact(ts["pit"]), rb=_compact(ts["rb"]), rp=_compact(ts["rp"]))
+                 for ts in team_sessions.values() if ts["g"]]
     team_rows.sort(key=lambda r: (r["s"], r["n"], r["t"]))
     _write(os.path.join(DATA, "records.json"), {
         "seasons": seasons_meta, "teams": team_rows})
 
     # ---- records: one combined line per game (both teams) ------------------------
-    games = [dict(gl, bat=_compact(gl["bat"]), pit=_compact(gl["pit"])) for gl in game_lines.values() if gl["bat"] or gl["pit"]]
+    games = [dict(gl, bat=_compact(gl["bat"]), pit=_compact(gl["pit"]), rb=_compact(gl["rb"]), rp=_compact(gl["rp"]))
+             for gl in game_lines.values() if gl["bat"] or gl["pit"]]
     games.sort(key=lambda r: (r["s"], r["n"], r["g"]))
     _write(os.path.join(DATA, "records_games.json"), {"games": games})
 

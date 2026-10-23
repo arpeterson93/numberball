@@ -1593,7 +1593,7 @@
     if (granMode && window.MLNExtras) {
       window.MLNExtras.renderGran($("stats-gran"), {
         gran: statsGran, side: isBatting ? "bat" : "pit", allTime: allTime, season: season.active,
-        session: filters.session, gt: statsGameType, team: statsFilters.team,
+        session: filters.session, gt: statsGameType, team: statsFilters.team, rookies: statsFilters.rookiesOnly,
       });
     }
     if (focusId) {
@@ -14010,6 +14010,10 @@
   function copyReplayLink() {
     var url = replayShareUrl();
     if (!url) { toast("Nothing to share yet."); return; }
+    copyLinkToClipboard(url);
+  }
+
+  function copyLinkToClipboard(url) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url).then(function () {
         toast("Link copied to clipboard.");
@@ -17592,6 +17596,21 @@
   // the flow setActiveSeason + openReplayAtPlay already support for the
   // season selector, reused here rather than duplicated.
   function handleDeepLink() {
+    // ?search=... (All-Time filters) and ?player=<id> (player panel) are the other two link kinds
+    var params = new URLSearchParams(location.search);
+    if (window.MLNExtras) {
+      if (params.get("search") && window.MLNExtras.setSearchFromLink(params.get("search"))) {
+        allTime = true;
+        $("session-select").value = "alltime";
+        applyAllTimeMode();
+        return;
+      }
+      var pid = Number(params.get("player"));
+      if (pid) {
+        window.MLNExtras.openPlayer(pid, null, { side: params.get("side"), view: params.get("pview") });
+        return;
+      }
+    }
     var link = parseDeepLinkGame();
     if (!link) return;
     var playNum = link.play ? Number(link.code) * 1000 + link.play : null;
@@ -17659,6 +17678,7 @@
       playSlideshow: openCrossSeasonSlideshow,
       awardBadges: function (award, gameAward) { return statsAwardBadgeHtml(award) + statsGameAwardBadgeHtml(gameAward); },
       openPlay: openCrossSeasonPlay,
+      copyLink: copyLinkToClipboard,
       rerenderStats: function () { if (activeView === "stats") renderStats(); },
       resultLabels: function () { return data.meta.result_labels || {}; },
       seasonList: function () {

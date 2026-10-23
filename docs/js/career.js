@@ -181,10 +181,13 @@
     m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><img class="ph-logo" id="career-logo" alt="" hidden>' +
       '<div class="ph-left"><div class="ph-name"><strong id="career-title">Player</strong>' +
       '<span class="ph-pos" id="career-pos"></span></div><div class="ph-build" id="career-build"></div></div>' +
+      '<button type="button" class="ph-link" id="career-copy" title="Copy link to this player" aria-label="Copy link to this player">' +
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg></button>' +
       '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div>' +
       '<div class="modal-body" id="career-body"></div></div>';
     document.body.appendChild(m);
     $("career-close").addEventListener("click", closePlayer);
+    $("career-copy").addEventListener("click", function () { if (pm.id) B.copyLink(playerLinkUrl()); });
     m.addEventListener("click", function (e) { if (e.target === m) closePlayer(); });
     document.addEventListener("keydown", function (e) {
       var rm = $("replay-modal");
@@ -389,14 +392,14 @@
     $("career-build").innerHTML = parts.join("");
   }
 
-  function openPlayer(id, name) {
+  function openPlayer(id, name, opts) {
     ensureModal();
     $("career-modal").hidden = false;
     $("career-title").textContent = name || "Player";
     styleHead(null);
     $("career-modal").querySelector(".modal-card").style.width = "";
     $("career-body").innerHTML = '<div class="stats-empty">Loading career...</div>';
-    pm = { data: null, side: "bat", season: "all", gt: "all", loading: true, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
+    pm = { id: id, data: null, side: "bat", season: "all", gt: "all", loading: true, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
     Promise.all([getJ("data/career/p/" + id + ".json"), loadNames()]).then(function (res) {
       var d = res[0];
       pm.data = d;
@@ -404,6 +407,9 @@
       // Open on whichever side has the bigger body of work.
       var batPA = d.bat.reduce(function (a, r) { return a + (r.pa || 0); }, 0);
       pm.side = d.pit.length > d.bat.length || (!batPA && d.pit.length) ? "pit" : "bat";
+      // a shared link can ask for a side / view, honoured when this player has rows for it
+      if (opts && opts.side && d[opts.side] && d[opts.side].length) pm.side = opts.side;
+      if (opts && opts.view === "diffs") pm.view = "diffs";
       $("career-title").textContent = d.name;
       styleHead(d);
       fitCard();
@@ -562,7 +568,7 @@
   // it uses stats_sessions.json (below), and the Team / Game / League granularities are drawn from the
   // records data here: one row per team-session, per game (both teams together) or per league-session.
 
-  var rec = { data: null, games: null, tab: "team", side: "bat", gt: "all", season: "all", session: null, team: "", allTime: false,
+  var rec = { data: null, games: null, tab: "team", side: "bat", gt: "all", season: "all", session: null, team: "", allTime: false, rookies: false,
     sort: { key: "ops", dir: "desc" }, sorts: {}, shown: 100, el: null, token: 0 };
   // Team, Game and League all open on OPS (batting, best first) or ER6 (pitching, lowest first); a sort the user
   // picks is remembered for that granularity and side.
@@ -581,10 +587,14 @@
     return (s && s.teams[abbr]) || abbr;
   }
 
-  function sumInto(e, t) {
+  // bat / pit are the stat lines to add: the whole team's, or just its rookies' when the Rookies filter is on.
+  function sumInto(e, t, bat, pit) {
     e.g += t.g; e.rs += t.rs; e.ra += t.ra; e.w += t.w; e.l += t.l;
-    Object.keys(t.bat).forEach(function (k) { e.bat[k] = (e.bat[k] || 0) + t.bat[k]; });
-    Object.keys(t.pit).forEach(function (k) { e.pit[k] = (e.pit[k] || 0) + t.pit[k]; });
+    Object.keys(bat).forEach(function (k) { e.bat[k] = (e.bat[k] || 0) + bat[k]; });
+    Object.keys(pit).forEach(function (k) { e.pit[k] = (e.pit[k] || 0) + pit[k]; });
+  }
+  function recLines(x) {
+    return rec.rookies ? { bat: x.rb || {}, pit: x.rp || {} } : { bat: x.bat, pit: x.pit };
   }
 
   function recSeasonOk(s) { return rec.season === "all" || String(s) === String(rec.season); }
@@ -600,10 +610,12 @@
     d.teams.forEach(function (t) {
       if (!gtOk(rec.gt, t.po) || !recSeasonOk(t.s) || !recSessionOk(t.n)) return;
       if (!league && !recTeamOk(t.t)) return;
+      var ln = recLines(t);
+      if (rec.rookies && !Object.keys(rec.side === "bat" ? ln.bat : ln.pit).length) return;   // no rookie line on this side
       var key = (league ? "L" : t.t) + "|" + t.s + "|" + t.n;
       var e = groups[key];
       if (!e) { e = groups[key] = { s: t.s, n: t.n, abbr: t.t, g: 0, w: 0, l: 0, rs: 0, ra: 0, bat: {}, pit: {} }; order.push(e); }
-      sumInto(e, t);
+      sumInto(e, t, ln.bat, ln.pit);
     });
     return order.map(function (e) {
       var out = { s: e.s, n: e.n, g: league ? e.g / 2 : e.g, w: e.w, l: e.l, rs: e.rs, ra: e.ra };
@@ -622,8 +634,10 @@
     rec.games.forEach(function (g) {
       if (!gtOk(rec.gt, g.po) || !recSeasonOk(g.s) || !recSessionOk(g.n)) return;
       if (rec.team && !recTeamOk(g.a) && !recTeamOk(g.h)) return;
+      var ln = recLines(g);
+      var src = rec.side === "bat" ? ln.bat : ln.pit;
+      if (rec.rookies && !Object.keys(src).length) return;
       var e = { s: g.s, n: g.n, gc: g.g, g: 1, name: g.a + " " + g.as + " @ " + g.h + " " + g.hs, team: g.a + "/" + g.h };
-      var src = rec.side === "bat" ? g.bat : g.pit;
       Object.keys(src).forEach(function (k) { e[k] = src[k]; });
       out.push(e);
     });
@@ -695,12 +709,12 @@
   /* Called by the Stats tab for the Team / Game / League granularities. ctx: {gran, side, allTime, season,
      session, gt, team}. Fetches the records data on first use, then draws the table into el. */
   function renderGran(el, ctx) {
-    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime;
-    rec.tab = ctx.gran; rec.side = ctx.side;
+    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies;
+    rec.tab = ctx.gran; rec.rookies = !!ctx.rookies; rec.side = ctx.side;
     rec.sort = rec.sorts[rec.tab + rec.side] || defaultRecSort(rec.side); rec.gt = ctx.gt || "all"; rec.allTime = !!ctx.allTime;
     rec.season = ctx.allTime ? "all" : String(ctx.season); rec.session = ctx.allTime ? null : ctx.session;
     rec.team = ctx.team || "";
-    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime) rec.shown = REC_PAGE;
+    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies) rec.shown = REC_PAGE;
     rec.el = el;
     var needGames = rec.tab === "game";
     if (!rec.data || (needGames && !rec.games) || (rec.allTime && !at.fr)) {
@@ -821,6 +835,50 @@
     return f;
   }
 
+  // ── shareable links: ?search=<filters> (All-Time) and ?player=<id>[&side=pit][&pview=diffs] ──
+  function b64enc(o) {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64dec(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return JSON.parse(decodeURIComponent(escape(atob(s))));
+  }
+  function baseUrl() { var u = new URL(location.href); u.search = ""; u.hash = ""; return u; }
+
+  // Only the filters that differ from a fresh form go in the link, so a default search is a short link and a new
+  // season later doesn't pin the Seasons slider.
+  function searchLinkUrl() {
+    var def = defaultForm(), diff = {};
+    Object.keys(at.form).forEach(function (k) {
+      if (JSON.stringify(at.form[k]) !== JSON.stringify(def[k])) diff[k] = at.form[k];
+    });
+    var u = baseUrl();
+    u.searchParams.set("search", b64enc(diff));
+    return u.toString();
+  }
+
+  // Called by the app when it opens with ?search=...: load those filters, and run the search once the form is drawn.
+  function setSearchFromLink(code) {
+    var parsed;
+    try { parsed = b64dec(code); } catch (e) { return false; }
+    if (!parsed || typeof parsed !== "object") return false;
+    var f = defaultForm();
+    Object.keys(f).forEach(function (k) { if (parsed[k] !== undefined && (f[k] === null || typeof parsed[k] === typeof f[k])) f[k] = parsed[k]; });
+    if (!Array.isArray(f.tags)) f.tags = [];
+    at.form = f;
+    at.autoRun = true;
+    return true;
+  }
+
+  function playerLinkUrl() {
+    var u = baseUrl();
+    u.searchParams.set("player", String(pm.id));
+    if (pm.side === "pit") u.searchParams.set("side", "pit");
+    if (pm.view === "diffs") u.searchParams.set("pview", "diffs");
+    return u.toString();
+  }
+
   function loadNames() {
     if (at.names) return Promise.resolve(at.names);
     return getJ("data/search/names.json").then(function (n) {
@@ -915,6 +973,7 @@
       '<div class="filter-row dr-row">' + ["seasons", "inning", "diff", "lev", "wpa"].map(function (k) { return sliderHtml(k, f); }).join("") + "</div>" +
       '<div class="filters-footer"><div class="count-text" id="at-count">Set your filters, then press Apply.</div>' +
         '<div class="footer-actions"><button type="button" class="chip active" id="at-apply">Apply</button>' +
+        '<button type="button" class="link-btn" id="at-copy" title="Copy a link that applies these filters">Copy link</button>' +
         '<button type="button" class="link-btn" id="at-reset">&#8635; Reset filters</button></div></div>' +
       "</div></div>" +
       '<div id="at-out"></div>';
@@ -928,6 +987,7 @@
         el.innerHTML = allTimeHtml();
         wireAllTime();
         renderAllTimeOut();
+        if (at.autoRun) { at.autoRun = false; applyAllTime(); }
       }
     }).catch(function () { el.innerHTML = '<div class="stats-empty">Could not load the play index.</div>'; });
   }
@@ -1027,6 +1087,7 @@
       input.addEventListener("blur", function () { setTimeout(function () { box.hidden = true; }, 120); });
     });
     $("at-apply").addEventListener("click", applyAllTime);
+    $("at-copy").addEventListener("click", function () { B.copyLink(searchLinkUrl()); });
     $("at-card").addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type === "text") { e.preventDefault(); applyAllTime(); } });
     $("at-reset").addEventListener("click", function () {
       at.form = defaultForm(); at.results = null; at.note = ""; at.capped = false;
@@ -1280,5 +1341,6 @@
     loadTotals: loadTotals,
     totalsSeasons: function () { return totals ? totals.seasons : null; },
     openPlayer: openPlayer,
+    setSearchFromLink: setSearchFromLink,
   };
 })();
