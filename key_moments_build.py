@@ -227,6 +227,8 @@ TAG_LABELS = {
     "risp": "RISP",
     "run_scored": "Run scored",
     "lead_change": "Lead change",
+    "game_winning": "Game-winning",
+    "walk_off": "Walk-off",
     "bases_loaded": "Loaded bases",
     "steal": "Steal",
     "double_play": "Double Play",
@@ -767,9 +769,41 @@ def replay_game(plays: list[dict], game: dict | None, archive_mode: bool = False
             "wpa": None if (wp_before is None or wp_after is None) else wp_after - wp_before,
             "leverage": leverage,
             "game_ended": ended,
+            "game_winning": False,
+            "walk_off": False,
         })
 
+    _mark_game_winning(states)
     return states
+
+
+def _mark_game_winning(states: list[dict]) -> None:
+    """Flag the one play where the winning team's score first passes the
+    loser's FINAL score (winner_before <= loser_final < winner_after) - later
+    runs and PAs don't count. A walk-off is the game-winner that is also the
+    game's last play, by the home team in the bottom of the last inning or
+    later. Games not yet decided (or tied) get no flags."""
+    if not states:
+        return
+    last = states[-1]
+    bat_home = last["batting_is_home"]
+    away = last["away_score_before"] + (0 if bat_home else last["runs"])
+    home = last["home_score_before"] + (last["runs"] if bat_home else 0)
+    if not (last["game_ended"] or _is_walkoff_final(last["inning"], last["half"], last["outs_after"], home, away)):
+        return
+    if home == away:
+        return
+    winner_is_home = home > away
+    loser_final = away if winner_is_home else home
+    for s in states:
+        if s["batting_is_home"] != winner_is_home or s["runs"] <= 0:
+            continue
+        before = s["home_score_before"] if winner_is_home else s["away_score_before"]
+        if before <= loser_final < before + s["runs"]:
+            s["game_winning"] = True
+            s["walk_off"] = (s is last and winner_is_home and s["half"] == "bottom"
+                             and s["inning"] >= MLN_INNINGS)
+            break
 
 
 # ── tagging ───────────────────────────────────────────────────────────────────
@@ -799,6 +833,10 @@ def moment_tags(state: dict) -> list[str]:
         tags.append("run_scored")
     if _sign(state["lead_before"]) != _sign(state["lead_after"]):
         tags.append("lead_change")
+    if state.get("game_winning"):
+        tags.append("game_winning")
+    if state.get("walk_off"):
+        tags.append("walk_off")
     if state["obc_after"] == "111":
         tags.append("bases_loaded")
     if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
