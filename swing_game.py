@@ -334,11 +334,36 @@ def _actual_pitch(pitch_row: dict) -> dict | None:
     return None
 
 
+def _sync_hitter_guess(p: dict, swing: int | None) -> None:
+    """The hitter's own PioBall swing always ends up being the swing they really took:
+    logged if they never submitted one, overwritten if it differed. Skipped when the
+    batter isn't on the roster with a Discord id (or the real swing is unknown)."""
+    if swing is None or not 1 <= int(swing) <= 1000 or not p.get("batter"):
+        return
+    want = str(p["batter"]).strip().lower()
+    uid = next((u for name, u in roster().items() if name.strip().lower() == want), None)
+    if not uid:
+        return
+    existing = (_t("swing_guesses").select("id,guess").eq("pitch_id", p["id"])
+                .eq("user_id", uid).execute().data)
+    if existing:
+        if int(existing[0]["guess"]) != int(swing):
+            _t("swing_guesses").update({"guess": int(swing)}).eq("id", existing[0]["id"]).execute()
+        return
+    _t("swing_guesses").upsert(
+        {"pitch_id": p["id"], "user_id": uid, "user_name": display_name(uid, p["batter"]),
+         "guess": int(swing)}, on_conflict="pitch_id,user_id").execute()
+
+
 def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
                play_num: int | None) -> dict | None:
     """Grade every guess on pitch row p against the real pitch, record the
     manager's actual swing as a benchmark row, and mark the pitch graded.
     Returns the message payload, or None if nobody guessed (the pitch, Actual and Model are still recorded)."""
+    try:
+        _sync_hitter_guess(p, swing)
+    except Exception as e:  # a nicety - never block grading on it
+        print(f"hitter guess sync failed for pitch {p.get('id')}: {e!r}")
     ranges = [tuple(r) for r in (p.get("ranges") or utils.RESULT_RANGES)]
     guesses = [g for g in _t("swing_guesses").select("*").eq("pitch_id", p["id"]).execute().data
                if g["user_id"] not in (ACTUAL_ID, MODEL_ID)]
@@ -697,10 +722,11 @@ def format_leaderboard(rows: list[dict], title: str, min_pa: int = 1) -> str:
     if not rows:
         return f"**{title}**\nNo graded guesses yet."
     w = max(len(r["name"]) for r in rows[:15])
-    head = (f"{'':>2} {'Name':<{w}} {'PA':>3} {'RV':>6} {'RE24':>6} {'WPA%':>6} "
+    head = (f"{'':>2} {'Name':<{w}} {'PA':>3} {'DPA':>5} {'RV':>6} {'RE24':>6} {'WPA%':>6} "
             f"{'AVG':>5} {'OBP':>5} {'SLG':>5} {'OPS':>5}")
     lines = [head] + [
-        f"{i:>2} {r['name']:<{w}} {r['PA']:>3} {r['RV']:>+6.2f} {r['RE24']:>+6.2f} {r['WPA']:>+6.1f} "
+        f"{i:>2} {r['name']:<{w}} {r['PA']:>3} {('-' if r['DPA'] is None else format(r['DPA'], '.1f')):>5} "
+        f"{r['RV']:>+6.2f} {r['RE24']:>+6.2f} {r['WPA']:>+6.1f} "
         f"{_f(r['AVG']):>5} {_f(r['OBP']):>5} {_f(r['SLG']):>5} {_f(r['OPS']):>5}"
         for i, r in enumerate(rows[:15], 1)]
     return f"**{title}**\n```\n" + "\n".join(lines) + "\n```"

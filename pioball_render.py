@@ -287,6 +287,7 @@ def render_leaderboard(rows_in: list[dict], title: str, sort_label: str) -> io.B
     cols = [{"label": "#", "w": 36, "kind": "rank"},
             {"label": "PLAYER", "w": 190},
             {"label": "PA", "w": 52, "align": "r"},
+            {"label": "DPA", "w": 60, "align": "r"},
             {"label": "RV", "w": 72, "align": "r", "kind": "signed"},
             {"label": "RE24", "w": 72, "align": "r", "kind": "signed"},
             {"label": "WPA", "w": 72, "align": "r", "kind": "signed"},
@@ -296,7 +297,8 @@ def render_leaderboard(rows_in: list[dict], title: str, sort_label: str) -> io.B
             {"label": "OPS", "w": 64, "align": "r", "bold": True}]
     rows = []
     for i, r in enumerate(rows_in[:15], 1):
-        rows.append({"cells": [str(i), r["name"], str(r["PA"]), _fmt(r["RV"], 2), _fmt(r["RE24"], 2),
+        dpa = "-" if r.get("DPA") is None else f"{r['DPA']:.1f}"
+        rows.append({"cells": [str(i), r["name"], str(r["PA"]), dpa, _fmt(r["RV"], 2), _fmt(r["RE24"], 2),
                                _fmt(r["WPA"], 1, "%"),
                                swing_game._f(r["AVG"]), swing_game._f(r["OBP"]),
                                swing_game._f(r["SLG"]), swing_game._f(r["OPS"])]})
