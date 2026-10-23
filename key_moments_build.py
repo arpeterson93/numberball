@@ -1565,6 +1565,11 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
                 "team": p.get("team") or "",
                 "sub_league": _team_view(ref, p.get("team"))["sub_league"],
                 "rookie": bool(p.get("is_rookie")),
+                # Shown in the player modal header (career.js); status is the
+                # sheet's own Status column, so "active" is whatever it says.
+                "pos1": p.get("primary_pos") or "",
+                "pos2": p.get("secondary_pos") or "",
+                "status": p.get("status") or "",
             }
             for p in ref["players"] if p.get("player_id") and p.get("name")
         ),

@@ -147,6 +147,12 @@ def main() -> None:
     seasons_meta = []
     session_stat_rows: list[tuple] = []        # (season, session, side, row, postseason) straight from each season's meta.stats
     rookie_ids: dict[int, set] = {}            # season -> player ids flagged rookie that season
+    team_look: dict[str, dict] = {}            # abbr -> colours/logo from the latest season that team existed
+    last_pos: dict[int, list] = {}             # pid -> [primary, secondary] from the latest season they were rostered
+    active_team: dict[int, str] = {}           # pid -> team, only for players Active/Captain in the newest season
+    pos_season: dict[int, int] = {}
+    look_season: dict[str, int] = {}
+    last_season = max(sn for sn, _ in season_dirs())
 
     for season, sdir in season_dirs():
         meta = _load(os.path.join(sdir, "meta.json"))
@@ -154,6 +160,16 @@ def main() -> None:
         for p in roster:
             if p.get("id") and p.get("name"):
                 names[p["id"]] = p["name"]
+            if p.get("id") and p.get("pos1") and season >= pos_season.get(p["id"], 0):
+                last_pos[p["id"]] = [p["pos1"], p.get("pos2") or ""]
+                pos_season[p["id"]] = season
+            if season == last_season and p.get("id") and p.get("status") in ("Active", "Captain") and p.get("team") in (meta.get("teams") or {}):
+                active_team[p["id"]] = p["team"]
+        for abbr, t in (meta.get("teams") or {}).items():
+            if season < look_season.get(abbr, 0):
+                continue
+            look_season[abbr] = season
+            team_look[abbr] = {"c1": t.get("primary_hex") or "", "c2": t.get("secondary_hex") or "", "logo": t.get("logo_url") or ""}
         name_to_id = {p["name"]: p["id"] for p in roster if p.get("id") and p.get("name")}
         ref = {"player_by_id": {p["id"]: {"name": p["name"], "last_name": p.get("last_name")} for p in roster if p.get("id")},
                "name_to_id": name_to_id, "team_by_id": {}, "team_by_abbrev": {}}
@@ -299,7 +315,16 @@ def main() -> None:
     for pid, g in player_games.items():
         for side in ("bat", "pit"):
             g[side].sort(key=lambda r: (r["s"], r["n"], r["d"], r["g"]))
-        _write(os.path.join(out_dir, f"{pid}.json"), {"id": pid, "name": names.get(pid, f"Player {pid}"), **g,
+        # Header team: the current team for an active player, else the team (not franchise) with the most games.
+        games_by_team: dict[str, set] = defaultdict(set)
+        for side in ("bat", "pit"):
+            for r in g[side]:
+                if r.get("t"):
+                    games_by_team[r["t"]].add((r["s"], r["g"]))
+        top_team = max(games_by_team, key=lambda t: len(games_by_team[t])) if games_by_team else ""
+        hdr_team = active_team.get(pid) or top_team
+        hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0}
+        _write(os.path.join(out_dir, f"{pid}.json"), {"id": pid, "name": names.get(pid, f"Player {pid}"), "hdr": hdr, **g,
                                                       "dist": dist_by_player.get(pid, {"bat": {}, "pit": {}})})
 
     # ---- per-player per-season totals ------------------------------------------
@@ -445,6 +470,8 @@ def main() -> None:
         cur = max(known, key=lambda a: team_info[a]["seasons"][-1])
         franchises.append({"abbr": cur, "name": team_info[cur]["name"], "abbrs": known})
     franchises.sort(key=lambda f: f["name"])
+    for abbr, ti in team_info.items():
+        ti.update(team_look.get(abbr, {}))
     _write(os.path.join(DATA, "search", "names.json"),
            {"n": {str(k): v for k, v in names.items()}, "teams": team_info, "franchises": franchises})
     print(f"career_build: {len(player_games)} players, {len(team_rows)} team-sessions, {time.time() - t0:.0f}s")

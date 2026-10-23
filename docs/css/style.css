@@ -3325,7 +3325,24 @@ html[data-km-debug="1"] .km-tuning-panel{
 .stats-table tbody tr.stats-player-row.award-hitter td.stats-rk,
 .stats-table tbody tr.stats-player-row.award-pitcher td.stats-rk{border-left:3px solid var(--gold);padding-left:5px;}
 .xt-plain th.stats-rk,.xt-plain td.stats-rk{position:static;}
+/* Player column collapses to just the last name (no award/decision badges) once
+   the table has been scrolled sideways (app.js adds .scrolled to the wrap). */
+.stats-col-player .sp-short{display:none;}
+.stats-table-wrap.scrolled .stats-col-player .sp-full{display:none;}
+.stats-table-wrap.scrolled .stats-col-player .sp-short{display:inline-block;max-width:9ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
 @media (max-width:700px){
+  /* RK stays frozen on the records tables too (the static rule above is for wide screens). */
+  .xt-plain th.stats-rk,.xt-plain td.stats-rk{position:sticky;left:0;background:var(--card);z-index:3;}
+  .xt-plain thead th.stats-rk{z-index:7;}
   .xt-plain th.stats-col-name,.xt-plain td.stats-col-name{position:sticky;left:var(--stats-rk-w,0px);background:var(--card);z-index:3;}
   .xt-plain thead th.stats-col-name{z-index:7;}
 }
+
+/* Player modal header: team colour behind the name, logo at the right, positions beside the name. */
+#career-head{gap:12px;}
+#career-head .ph-name{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap;}
+#career-head .ph-right{display:flex;align-items:center;gap:12px;flex-shrink:0;}
+#career-head .ph-logo{height:36px;width:auto;max-width:60px;object-fit:contain;}
+#career-head .ph-pos{display:inline-flex;gap:4px;}
+#career-head .ph-pill{font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:1px 6px;border-radius:4px;border:1px solid currentColor;opacity:0.85;}
+#career-head.ph-colored .link-btn{color:inherit;}

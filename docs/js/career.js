@@ -178,8 +178,10 @@
     m.className = "modal";
     m.id = "career-modal";
     m.hidden = true;
-    m.innerHTML = '<div class="modal-card wide"><div class="modal-head"><strong id="career-title">Player</strong>' +
-      '<button type="button" class="link-btn" id="career-close">Close</button></div>' +
+    m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><div class="ph-name"><strong id="career-title">Player</strong>' +
+      '<span class="ph-pos" id="career-pos"></span></div>' +
+      '<div class="ph-right"><img class="ph-logo" id="career-logo" alt="" hidden>' +
+      '<button type="button" class="link-btn" id="career-close">Close</button></div></div>' +
       '<div class="modal-body" id="career-body"></div></div>';
     document.body.appendChild(m);
     $("career-close").addEventListener("click", closePlayer);
@@ -340,19 +342,40 @@
 
   function closePlayer() { var m = $("career-modal"); if (m) m.hidden = true; }
 
+  // Header: the player's team colour behind the name, team logo at the right, and primary / secondary
+  // position next to the name. Colours come from search/names.json (the team's latest season); text flips
+  // between white and near-black by the colour's brightness.
+  function styleHead(d) {
+    var head = $("career-head"), logo = $("career-logo"), pos = $("career-pos");
+    var h = d && d.hdr, t = h && at.teams && at.teams[h.t];
+    var hex = t && /^[0-9a-f]{6}$/i.test(t.c1 || "") ? t.c1 : "";
+    head.style.background = hex ? "#" + hex : "";
+    if (hex) {
+      var lum = (0.299 * parseInt(hex.slice(0, 2), 16) + 0.587 * parseInt(hex.slice(2, 4), 16) + 0.114 * parseInt(hex.slice(4, 6), 16)) / 255;
+      head.style.color = lum > 0.6 ? "#161715" : "#fff";
+    } else head.style.color = "";
+    head.classList.toggle("ph-colored", !!hex);
+    if (t && t.logo) { logo.src = t.logo; logo.alt = t.name || ""; logo.hidden = false; } else logo.hidden = true;
+    var ps = h ? h.pos.filter(Boolean) : [];
+    pos.innerHTML = ps.map(function (x) { return '<span class="ph-pill">' + esc(x) + "</span>"; }).join("");
+  }
+
   function openPlayer(id, name) {
     ensureModal();
     $("career-modal").hidden = false;
     $("career-title").textContent = name || "Player";
+    styleHead(null);
     $("career-body").innerHTML = '<div class="stats-empty">Loading career...</div>';
     pm = { data: null, side: "bat", season: "all", gt: "all", loading: true, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
-    getJ("data/career/p/" + id + ".json").then(function (d) {
+    Promise.all([getJ("data/career/p/" + id + ".json"), loadNames()]).then(function (res) {
+      var d = res[0];
       pm.data = d;
       pm.loading = false;
       // Open on whichever side has the bigger body of work.
       var batPA = d.bat.reduce(function (a, r) { return a + (r.pa || 0); }, 0);
       pm.side = d.pit.length > d.bat.length || (!batPA && d.pit.length) ? "pit" : "bat";
       $("career-title").textContent = d.name;
+      styleHead(d);
       renderPlayer();
     }).catch(function () {
       $("career-body").innerHTML = '<div class="stats-empty">No career log found for this player.</div>';

@@ -1385,9 +1385,14 @@
       var main = '<tr class="stats-player-row' + awardCls + (expanded ? " expanded" : "") +
           '" data-player-id="' + row.player_id + '" data-session="' + row.session + '">' +
         '<td class="stats-rk">' + ranks[ri] + "</td>" +
-        '<td class="stats-col-player" title="' + escapeHtml(row.name) + '">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
+        // sp-full / sp-short: once the table is scrolled sideways (.scrolled on
+        // the wrap, see the scroll listener below) only the short last name shows,
+        // so the frozen Player column stops eating the screen on small viewports.
+        '<td class="stats-col-player" title="' + escapeHtml(row.name) + '">' +
+          '<span class="sp-full">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
           (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
-          statsGameAwardBadgeHtml(row.game_award) +
+          statsGameAwardBadgeHtml(row.game_award) + "</span>" +
+          '<span class="sp-short">' + escapeHtml(resolvedLastName(row.player_id, row.name || "")) + "</span>" +
           (expanded ? statsPlayAllBtnHtml(row.player_id, row.session) : "") + "</td>" +
         cols.map(function (c) {
           var cls = statsStickyCls(c[0]) ? ' class="' + statsStickyCls(c[0]).trim() + '"' : "";
@@ -1430,7 +1435,7 @@
       else txt = tot[key] == null ? (c[2] != null ? "-" : "0") : statsCellText(tot, key, c[2]);
       return "<td" + (statsStickyCls(key) ? ' class="' + statsStickyCls(key).trim() + '"' : "") + ">" + txt + "</td>";
     }).join("");
-    return '<tfoot><tr class="stats-total-row"><td class="stats-rk"></td><td class="stats-col-player">' + escapeHtml(label) + "</td>" + cells + "</tr></tfoot>";
+    return '<tfoot><tr class="stats-total-row"><td class="stats-rk"></td><td class="stats-col-player"><span class="sp-full">' + escapeHtml(label) + '</span><span class="sp-short">Total</span></td>' + cells + "</tr></tfoot>";
   }
 
   function statsSubtabsHtml() {
@@ -1481,6 +1486,18 @@
     document.documentElement.style.setProperty("--stats-col1-w", (rkW + playerW) + "px");
     document.documentElement.style.setProperty("--stats-col2-w", (thirdCol ? thirdCol.getBoundingClientRect().width : 0) + "px");
   }
+
+  // Scroll doesn't bubble, so listen in the capture phase. Toggling .scrolled
+  // changes the Player column's width, so the live-measured sticky offsets that
+  // sit after it (SN, All-Time Season) are re-read right away.
+  document.addEventListener("scroll", function (e) {
+    var wrap = e.target;
+    if (!wrap || !wrap.classList || !wrap.classList.contains("stats-table-wrap") || !wrap.querySelector(".stats-col-player")) return;
+    var on = wrap.scrollLeft > 0;
+    if (wrap.classList.contains("scrolled") === on) return;
+    wrap.classList.toggle("scrolled", on);
+    updateStickyOffsets();
+  }, true);
 
   var stickyOffsetsResizeTimer;
   function scheduleStickyOffsetsUpdate() {
