@@ -3328,8 +3328,10 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Player column collapses to just the last name (no award/decision badges) once
    the table has been scrolled sideways (app.js adds .scrolled to the wrap). */
 .stats-col-player .sp-short{display:none;}
-.stats-table-wrap.scrolled .stats-col-player .sp-full{display:none;}
-.stats-table-wrap.scrolled .stats-col-player .sp-short{display:inline-block;max-width:9ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
+@media (max-width:700px){
+  .stats-table-wrap.scrolled .stats-col-player .sp-full{display:none;}
+  .stats-table-wrap.scrolled .stats-col-player .sp-short{display:inline-block;max-width:9ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
+}
 @media (max-width:700px){
   /* RK stays frozen on the records tables too (the static rule above is for wide screens). */
   .xt-plain th.stats-rk,.xt-plain td.stats-rk{position:sticky;left:0;background:var(--card);z-index:3;}
@@ -3365,3 +3367,20 @@ html[data-km-debug="1"] .km-tuning-panel{
 #career-head .ph-x{position:absolute;top:2px;right:4px;margin:0;font-size:22px;padding:2px 8px;z-index:2;}
 #career-head .ph-right{align-self:flex-end;}
 #career-head .ph-right{margin-right:12px;}
+/* Logo now leads the header, to the left of the name; the x is the only thing on the right. */
+#career-head{justify-content:flex-start;align-items:center;padding-right:44px;}
+#career-head .ph-logo{height:44px;max-width:70px;flex-shrink:0;}
+/* Build line: every item (hand included) shares one baseline and line box so none sits higher or lower. */
+#career-head .ph-build{align-items:baseline;line-height:1.3;}
+#career-head .ph-build > span{display:inline-block;line-height:1.3;vertical-align:baseline;}
+#career-head .ph-build b{font-size:inherit;line-height:inherit;}
+/* Large screens: the player panel is only as wide as its widest table needs (so nothing scrolls sideways), with a
+   floor so the Diffs chart and header keep room, and never wider than the screen. Phones keep the full-width card. */
+@media (min-width:701px){
+  #career-modal .modal-card.wide{width:max-content;min-width:min(100%,760px);max-width:100%;}
+}
+/* Diffs view: title, chart and legend centred; legend is three explicit rows. */
+.xt-diffs .xt-sub{justify-content:center;text-align:center;}
+.dx-chart svg{margin:0 auto;}
+.dx-legend{justify-content:center;}
+.dx-legend-break{flex-basis:100%;height:0;}

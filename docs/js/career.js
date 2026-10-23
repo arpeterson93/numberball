@@ -178,10 +178,10 @@
     m.className = "modal";
     m.id = "career-modal";
     m.hidden = true;
-    m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><div class="ph-left"><div class="ph-name"><strong id="career-title">Player</strong>' +
+    m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><img class="ph-logo" id="career-logo" alt="" hidden>' +
+      '<div class="ph-left"><div class="ph-name"><strong id="career-title">Player</strong>' +
       '<span class="ph-pos" id="career-pos"></span></div><div class="ph-build" id="career-build"></div></div>' +
-      '<div class="ph-right"><img class="ph-logo" id="career-logo" alt="" hidden>' +
-      '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div></div>' +
+      '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div>' +
       '<div class="modal-body" id="career-body"></div></div>';
     document.body.appendChild(m);
     $("career-close").addEventListener("click", closePlayer);
@@ -329,8 +329,13 @@
     for (var c = 0; c < bins.length; c++) for (var b = 0; b < 25; b++) n += bins[c][b];
     var rows = all.filter(function (r) { return r.s >= 5 && (pm.season === "all" || String(r.s) === pm.season); });
     var line = lineFrom(rows, side);
-    var legend = '<div class="dx-legend">' + DX().map(function (x) { return '<span><i style="background:' + x[1] + '"></i>' + x[0] + "</span>"; }).join("") +
-      '<span><i class="dx-key-mk"></i>DPA</span></div>';
+    // Three centred rows: HR-BB, SacF-GO, K-DPH1.
+    var legend = '<div class="dx-legend">', rowStart = { SacF: 1, K: 1 };
+    DX().forEach(function (x, i) {
+      if (rowStart[x[0]]) legend += '<div class="dx-legend-break"></div>';
+      legend += '<span><i style="background:' + x[1] + '"></i>' + x[0] + "</span>";
+    });
+    legend += "</div>";
     var body;
     if (!n) body = '<div class="stats-empty">No modelled swings here. Diff charts start in Season 5.</div>';
     else {
@@ -341,6 +346,23 @@
   }
 
   function closePlayer() { var m = $("career-modal"); if (m) m.hidden = true; }
+
+  // Large screens: size the card once, on open, to the widest of the player's Batting / Pitching Stats views
+  // (the Diffs chart just fills whatever width that is), so switching tabs never resizes it.
+  function fitCard() {
+    var card = $("career-modal").querySelector(".modal-card");
+    card.style.width = "";
+    if (window.innerWidth <= 700 || !pm.data) return;
+    var keep = { side: pm.side, view: pm.view, season: pm.season, gt: pm.gt }, widest = 0;
+    ["bat", "pit"].forEach(function (s) {
+      if (!pm.data[s].length) return;
+      pm.side = s; pm.view = "stats"; pm.season = "all"; pm.gt = "all";
+      renderPlayer();
+      widest = Math.max(widest, card.getBoundingClientRect().width);
+    });
+    pm.side = keep.side; pm.view = keep.view; pm.season = keep.season; pm.gt = keep.gt;
+    if (widest) card.style.width = Math.ceil(widest) + "px";
+  }
 
   // Header: the player's team colour behind the name, team logo at the right, and primary / secondary
   // position next to the name. Colours come from search/names.json (the team's latest season); text flips
@@ -372,6 +394,7 @@
     $("career-modal").hidden = false;
     $("career-title").textContent = name || "Player";
     styleHead(null);
+    $("career-modal").querySelector(".modal-card").style.width = "";
     $("career-body").innerHTML = '<div class="stats-empty">Loading career...</div>';
     pm = { data: null, side: "bat", season: "all", gt: "all", loading: true, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
     Promise.all([getJ("data/career/p/" + id + ".json"), loadNames()]).then(function (res) {
@@ -383,6 +406,7 @@
       pm.side = d.pit.length > d.bat.length || (!batPA && d.pit.length) ? "pit" : "bat";
       $("career-title").textContent = d.name;
       styleHead(d);
+      fitCard();
       renderPlayer();
     }).catch(function () {
       $("career-body").innerHTML = '<div class="stats-empty">No career log found for this player.</div>';
