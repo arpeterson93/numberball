@@ -1570,6 +1570,9 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
                 "pos1": p.get("primary_pos") or "",
                 "pos2": p.get("secondary_pos") or "",
                 "status": p.get("status") or "",
+                # Build attributes (only the ones the player has), plus bat/throw hand.
+                "hand": p.get("hand") or "",
+                "bld": {k: p[k] for k in ("con", "eye", "pwr", "spd", "mov", "cmd", "vel", "awr") if p.get(k) is not None},
             }
             for p in ref["players"] if p.get("player_id") and p.get("name")
         ),

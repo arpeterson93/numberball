@@ -178,10 +178,10 @@
     m.className = "modal";
     m.id = "career-modal";
     m.hidden = true;
-    m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><div class="ph-name"><strong id="career-title">Player</strong>' +
-      '<span class="ph-pos" id="career-pos"></span></div>' +
+    m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><div class="ph-left"><div class="ph-name"><strong id="career-title">Player</strong>' +
+      '<span class="ph-pos" id="career-pos"></span></div><div class="ph-build" id="career-build"></div></div>' +
       '<div class="ph-right"><img class="ph-logo" id="career-logo" alt="" hidden>' +
-      '<button type="button" class="link-btn" id="career-close">Close</button></div></div>' +
+      '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div></div>' +
       '<div class="modal-body" id="career-body"></div></div>';
     document.body.appendChild(m);
     $("career-close").addEventListener("click", closePlayer);
@@ -358,6 +358,13 @@
     if (t && t.logo) { logo.src = t.logo; logo.alt = t.name || ""; logo.hidden = false; } else logo.hidden = true;
     var ps = h ? h.pos.filter(Boolean) : [];
     pos.innerHTML = ps.map(function (x) { return '<span class="ph-pill">' + esc(x) + "</span>"; }).join("");
+    // Current (or, for a player no longer rostered, most recent) build: hand, then whichever attributes they have.
+    var b = (h && h.bld) || {}, parts = [];
+    if (b.hand) parts.push("<span>" + esc(b.hand) + "</span>");
+    ["con", "eye", "pwr", "spd", "mov", "cmd", "vel", "awr"].forEach(function (k) {
+      if (b[k] != null) parts.push("<span><b>" + k.toUpperCase() + "</b> " + b[k] + "</span>");
+    });
+    $("career-build").innerHTML = parts.join("");
   }
 
   function openPlayer(id, name) {
@@ -439,14 +446,14 @@
     var cols = side === "bat" ? PBAT : PPIT;
     var hasPost = d.bat.concat(d.pit).some(function (r) { return r.po; });
 
-    var tabs = '<div class="view-tabs xt-ptop">' + [["stats", "Stats"], ["diffs", "Diffs"]].map(function (v) {
-      return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
-    }).join("") + "</div>" +
-      '<div class="stats-subtabs xt-ptabs">' +
-      ["bat", "pit"].map(function (s) {
-        var n = d[s].length;
-        return '<button type="button" class="stats-subtab' + (side === s ? " active" : "") + '" data-pside="' + s + '"' +
-          (n ? "" : " disabled") + ">" + (s === "bat" ? "Batting" : "Pitching") + " (" + n + ")</button>";
+    // Batting / Pitching are the top-level tabs (only the sides this player has played); Stats / Diffs sit under them.
+    var sideTabs = ["bat", "pit"].filter(function (s) { return d[s].length; });
+    var tabs = (sideTabs.length ? '<div class="view-tabs xt-ptop">' + sideTabs.map(function (s) {
+      return '<button type="button" class="view-tab' + (side === s ? " active" : "") + '" data-pside="' + s + '">' +
+        (s === "bat" ? "Batting" : "Pitching") + "</button>";
+    }).join("") + "</div>" : "") +
+      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"]].map(function (v) {
+        return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
       }).join("") + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
 
     if (all.length && pm.view === "diffs") { renderDiffs(d, tabs, all); return; }

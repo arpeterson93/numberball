@@ -151,6 +151,7 @@ def main() -> None:
     last_pos: dict[int, list] = {}             # pid -> [primary, secondary] from the latest season they were rostered
     active_team: dict[int, str] = {}           # pid -> team, only for players Active/Captain in the newest season
     pos_season: dict[int, int] = {}
+    last_bld: dict[int, dict] = {}
     look_season: dict[str, int] = {}
     last_season = max(sn for sn, _ in season_dirs())
 
@@ -162,6 +163,7 @@ def main() -> None:
                 names[p["id"]] = p["name"]
             if p.get("id") and p.get("pos1") and season >= pos_season.get(p["id"], 0):
                 last_pos[p["id"]] = [p["pos1"], p.get("pos2") or ""]
+                last_bld[p["id"]] = {"hand": p.get("hand") or "", **(p.get("bld") or {})}
                 pos_season[p["id"]] = season
             if season == last_season and p.get("id") and p.get("status") in ("Active", "Captain") and p.get("team") in (meta.get("teams") or {}):
                 active_team[p["id"]] = p["team"]
@@ -323,7 +325,8 @@ def main() -> None:
                     games_by_team[r["t"]].add((r["s"], r["g"]))
         top_team = max(games_by_team, key=lambda t: len(games_by_team[t])) if games_by_team else ""
         hdr_team = active_team.get(pid) or top_team
-        hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0}
+        hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0,
+               "bld": last_bld.get(pid, {})}
         _write(os.path.join(out_dir, f"{pid}.json"), {"id": pid, "name": names.get(pid, f"Player {pid}"), "hdr": hdr, **g,
                                                       "dist": dist_by_player.get(pid, {"bat": {}, "pit": {}})})
 

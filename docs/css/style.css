@@ -3346,3 +3346,22 @@ html[data-km-debug="1"] .km-tuning-panel{
 #career-head .ph-pos{display:inline-flex;gap:4px;}
 #career-head .ph-pill{font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:1px 6px;border-radius:4px;border:1px solid currentColor;opacity:0.85;}
 #career-head.ph-colored .link-btn{color:inherit;}
+
+/* Player modal: Stats / Diffs underline tabs sit under Batting / Pitching, a step lighter. */
+#career-body .view-tabs.xt-ptabs{margin:0 0 8px;}
+#career-body .xt-ptabs .view-tab{font-size:12px;padding:6px 12px;}
+#career-head{align-items:flex-start;}
+#career-head .ph-left{display:flex;flex-direction:column;gap:4px;min-width:0;}
+#career-head .ph-build{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:11.5px;font-weight:600;opacity:0.9;}
+#career-head .ph-build b{font-weight:800;letter-spacing:0.3px;opacity:0.75;}
+#career-head .ph-build:empty{display:none;}
+#career-head .ph-right{align-self:center;}
+/* Close is the same x as the slideshow's, just inline in the header (inherits the header's text colour). */
+#career-head .ph-x{border:none;background:transparent;color:inherit;opacity:0.8;font-size:26px;line-height:1;padding:4px 8px;margin:-4px -8px -4px 0;cursor:pointer;border-radius:6px;}
+#career-head .ph-x:hover{opacity:1;background:rgba(127,127,127,0.25);}
+#career-head .ph-right{gap:8px;}
+/* x pinned to the header's top-right corner so it never competes with the name; logo drops to the bottom-right. */
+#career-head{position:relative;}
+#career-head .ph-x{position:absolute;top:2px;right:4px;margin:0;font-size:22px;padding:2px 8px;z-index:2;}
+#career-head .ph-right{align-self:flex-end;}
+#career-head .ph-right{margin-right:12px;}
