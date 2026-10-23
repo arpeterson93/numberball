@@ -2380,6 +2380,62 @@ with tab_p:
             )
             _dot_color_by_p = {"Recency": None, "Leverage": "leverage", "Prev result": "result",
                                "Result": "result_own"}[_dot_color_label_p]
+            _animate_radials_p = st.toggle(
+                "Animate radials", key="ctx_animate_p", value=False,
+                help="Off (default): the usual static radials. On: each radial gets Play / Pause and a slider that "
+                     "replays the last N pitches arriving from oldest to newest - it opens on the window as it stood "
+                     "just before the first of them, each new pitch lands on the outer ring and pushes the earlier "
+                     "dots inward, and the last frame is the static chart. Works with every dot coloring and the "
+                     "context filters. The newest pitch is ringed so it stands out. When the Suggested-Swing "
+                     "Backtest below has run, a gold dot also shows the model's (FFT-optimal) swing for the newest "
+                     "pitch and is replaced by the next pitch's own when it arrives (pitch-value views and the plain "
+                     "Deltas view).")
+            _secs_per_pitch_p = (
+                st.select_slider("Seconds per pitch", options=[0.5, 1.0, 2.0, 3.0, 5.0], value=2.0,
+                                 key="ctx_anim_speed_p",
+                                 help="How long each pitch stays on screen when you press Play (the slider under a "
+                                      "radial scrubs through it by hand).")
+                if _animate_radials_p else 2.0)
+
+            def _radial_ids_p(df_, col):
+                """Ids of the rows that carry a dot for this radial (the steps of its replay)."""
+                return df_.loc[df_[col].notna(), "id"].tolist() if (not df_.empty and col in df_.columns) else []
+
+            def _last_at_p(col, cut):
+                """His most recent non-null `col` among ALL his plays up to play id `cut` (what an implied-pitch view
+                was anchored on at that moment)."""
+                if cut is None or df_p_pred.empty or col not in df_p_pred.columns:
+                    return None
+                s_ = df_p_pred[(df_p_pred["id"] <= cut) & df_p_pred[col].notna()].sort_values("id")[col]
+                return int(s_.iloc[-1]) if len(s_) else None
+
+            # The model's FFT-optimal swing for each of his last 100 pitches (the Suggested-Swing Backtest, keyed by the
+            # play id of the pitch it was made for) - the gold dot in the replay.
+            _model_swing_by_id_p = (st.session_state.get(f"p_swbt_model_swing_{tab_p_pitcher}") or {}).get("by_id") or {}
+
+            def _pred_pitch_domain_p(cut):
+                """Prediction diamond for radials whose angle is a pitch value (Pitches, Combined, implied-pitch views)."""
+                sw = _model_swing_by_id_p.get(int(cut)) if cut is not None else None
+                return None if sw is None else (sw * 360.0 / 1000.0, f"Model (FFT) swing: {sw}")
+
+            def _pred_delta_domain_p(cut):
+                """Prediction diamond for the plain Deltas radial (angle = delta): the delta the model's swing implies
+                from the pitch that came before the newest one."""
+                sw = _model_swing_by_id_p.get(int(cut)) if cut is not None else None
+                if sw is None or df_p_pred.empty:
+                    return None
+                prev = df_p_pred[(df_p_pred["id"] < cut) & df_p_pred["pitch"].notna()].sort_values("id")["pitch"]
+                if prev.empty:
+                    return None
+                d = utils.circular_signed_delta(int(prev.iloc[-1]), int(sw))
+                return ((d * 180.0 / 500.0) % 360.0, f"Model (FFT) swing: {sw} (delta {d:+d})")
+
+            def _radial_fig_p(build, dfs, ids, pred=None):
+                """The static radial by default; the replayable one when 'Animate radials' is on."""
+                if not _animate_radials_p or not ids:
+                    return build(dfs, None)
+                return utils.radial_animation(build, dfs, ids, n_pitches, pitch_ms=int(_secs_per_pitch_p * 1000),
+                                              pred=pred if _model_swing_by_id_p else None)
             # Always attach the leverage / previous-result columns: the radials'
             # hover text (LI + result) reads them whichever coloring is picked.
             _df_cf_base_p = (_dot_color_df_cached(df_p_pred, _dot_color_by_p)
@@ -2491,12 +2547,13 @@ with tab_p:
 
         _actual_pitches_radial_p = len(_df_radial_pitches_p["pitch"].dropna().tail(n_pitches)) if not _df_radial_pitches_p.empty else 0
         st.plotly_chart(
-            utils.radial_recent_pitches_chart(_df_radial_pitches_p, n=n_pitches, value_col="pitch",
-                                              title=f"Last {_actual_pitches_radial_p} Pitches",
-                                              obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                              sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                              score_band_scores=_score_band_scores_p,
-                                              color_by=_dot_color_by_p),
+            _radial_fig_p(
+                lambda ds, cut: utils.radial_recent_pitches_chart(
+                    ds[0], n=n_pitches, value_col="pitch", title=f"Last {_actual_pitches_radial_p} Pitches",
+                    obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p, sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                    score_band_scores=_score_band_scores_p, color_by=_dot_color_by_p),
+                [_df_radial_pitches_p], _radial_ids_p(_df_radial_pitches_p, "pitch"),
+                pred=_pred_pitch_domain_p),
             width="stretch", key="p_radial",
         )
         _actual_deltas_radial_p = len(_df_radial_deltas_p["pitch_circ_delta"].dropna().tail(n_pitches)) if not _df_radial_deltas_p.empty else 0
@@ -2509,14 +2566,15 @@ with tab_p:
         # last in the filtered subset.
         _pf_true_anchor_p = _pf_pitches_p[-1] if _pf_pitches_p else None
         st.plotly_chart(
-            utils.radial_recent_deltas_chart(_df_radial_deltas_p, n=n_pitches, delta_col="pitch_circ_delta",
-                                             title=_deltas_radial_title_p,
-                                             center_on_prev=_center_deltas_p,
-                                             anchor=_pf_true_anchor_p,
-                                             obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                             score_band_scores=_score_band_scores_p,
-                                             color_by=_dot_color_by_p),
+            _radial_fig_p(
+                lambda ds, cut: utils.radial_recent_deltas_chart(
+                    ds[0], n=n_pitches, delta_col="pitch_circ_delta", title=_deltas_radial_title_p,
+                    center_on_prev=_center_deltas_p,
+                    anchor=_pf_true_anchor_p if cut is None else _last_at_p("pitch", cut),
+                    obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p, sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                    score_band_scores=_score_band_scores_p, color_by=_dot_color_by_p),
+                [_df_radial_deltas_p], _radial_ids_p(_df_radial_deltas_p, "pitch_circ_delta"),
+                pred=_pred_pitch_domain_p if _center_deltas_p else _pred_delta_domain_p),
             width="stretch", key="p_radial_delta",
         )
         st.toggle(
@@ -2534,16 +2592,16 @@ with tab_p:
         # pitch points should still anchor to it.
         _pf_true_anchor_delta_p = _pf_delta_p[-1] if _pf_delta_p else None
         st.plotly_chart(
-            utils.radial_recent_delta2_chart(_df_radial_delta2_p, n=n_pitches, delta2_col="pitch_circ_delta2_signed",
-                                             delta_col="pitch_circ_delta", value_col="pitch",
-                                             title=_delta2_radial_title_p,
-                                             center_on_prev=_center_delta2_p,
-                                             anchor=_pf_true_anchor_p,
-                                             anchor_delta=_pf_true_anchor_delta_p,
-                                             obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                             sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                             score_band_scores=_score_band_scores_p,
-                                             color_by=_dot_color_by_p),
+            _radial_fig_p(
+                lambda ds, cut: utils.radial_recent_delta2_chart(
+                    ds[0], n=n_pitches, delta2_col="pitch_circ_delta2_signed", delta_col="pitch_circ_delta",
+                    value_col="pitch", title=_delta2_radial_title_p, center_on_prev=_center_delta2_p,
+                    anchor=_pf_true_anchor_p if cut is None else _last_at_p("pitch", cut),
+                    anchor_delta=_pf_true_anchor_delta_p if cut is None else _last_at_p("pitch_circ_delta", cut),
+                    obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p, sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                    score_band_scores=_score_band_scores_p, color_by=_dot_color_by_p),
+                [_df_radial_delta2_p], _radial_ids_p(_df_radial_delta2_p, "pitch_circ_delta2_signed"),
+                pred=_pred_pitch_domain_p if _center_delta2_p else None),
             width="stretch", key="p_radial_delta2",
         )
         st.toggle(
@@ -2570,13 +2628,16 @@ with tab_p:
         # anchor to it.
         _pf_true_anchor_swing_p = _pf_swings_p[-1] if _pf_swings_p else None
         st.plotly_chart(
-            utils.radial_recent_deltas_chart(_df_radial_shadow_delta_p, n=n_pitches,
-                                             delta_col="pitch_shadow_delta_signed", value_col="swing",
-                                             title=_shadow_delta_radial_title_p,
-                                             center_on_prev=_center_shadow_delta_p,
-                                             anchor=_pf_true_anchor_swing_p,
-                                             score_band_scores=_score_band_scores_p,
-                                             color_by=_dot_color_by_p),
+            _radial_fig_p(
+                lambda ds, cut: utils.radial_recent_deltas_chart(
+                    ds[0], n=n_pitches, delta_col="pitch_shadow_delta_signed", value_col="swing",
+                    title=_shadow_delta_radial_title_p, center_on_prev=_center_shadow_delta_p,
+                    anchor=_pf_true_anchor_swing_p if cut is None else _last_at_p("swing", cut),
+                    obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p, sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                    score_band_scores=_score_band_scores_p, color_by=_dot_color_by_p),
+                [_df_radial_shadow_delta_p],
+                _radial_ids_p(_df_radial_shadow_delta_p, "pitch_shadow_delta_signed"),
+                pred=_pred_pitch_domain_p if _center_shadow_delta_p else None),
             width="stretch", key="p_radial_shadow_delta",
         )
         st.toggle(
@@ -2589,19 +2650,24 @@ with tab_p:
             _actual_pitches_radial_p, _actual_deltas_radial_p,
             _actual_delta2_radial_p if _cf_delta2_combined_on_p else 0,
         )
+        _combined_ids_p = sorted(set(_radial_ids_p(_df_radial_pitches_p, "pitch"))
+                                 | set(_radial_ids_p(_df_radial_deltas_p, "pitch_circ_delta"))
+                                 | (set(_radial_ids_p(_df_radial_delta2_p, "pitch_circ_delta2_signed"))
+                                    if _cf_delta2_combined_on_p else set()))
         st.plotly_chart(
-            utils.radial_combined_chart(_df_radial_pitches_p, _df_radial_deltas_p, n=n_pitches,
-                                        value_col="pitch", delta_col="pitch_circ_delta",
-                                        title=f"Last {_actual_combined_radial_p} Combined",
-                                        anchor=_pf_true_anchor_p,
-                                        df_delta2=_df_radial_delta2_p if _cf_delta2_combined_on_p else None,
-                                        delta2_col="pitch_circ_delta2_signed",
-                                        anchor_delta=_pf_true_anchor_delta_p,
-                                        include_delta2=_cf_delta2_combined_on_p,
-                                        score_band_scores=_score_band_scores_p,
-                                        obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p,
-                                        sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
-                                        color_by=_dot_color_by_p),
+            _radial_fig_p(
+                lambda ds, cut: utils.radial_combined_chart(
+                    ds[0], ds[1], n=n_pitches, value_col="pitch", delta_col="pitch_circ_delta",
+                    title=f"Last {_actual_combined_radial_p} Combined",
+                    anchor=_pf_true_anchor_p if cut is None else _last_at_p("pitch", cut),
+                    df_delta2=ds[2] if _cf_delta2_combined_on_p else None,
+                    delta2_col="pitch_circ_delta2_signed",
+                    anchor_delta=_pf_true_anchor_delta_p if cut is None else _last_at_p("pitch_circ_delta", cut),
+                    include_delta2=_cf_delta2_combined_on_p, score_band_scores=_score_band_scores_p,
+                    obr_lo=_ring_obr_lo_p, obr_hi=_ring_obr_hi_p, sacf_lo=_ring_sacf_lo_p, sacf_hi=_ring_sacf_hi_p,
+                    color_by=_dot_color_by_p),
+                [_df_radial_pitches_p, _df_radial_deltas_p, _df_radial_delta2_p], _combined_ids_p,
+                pred=_pred_pitch_domain_p),
             width="stretch", key="p_radial_combined",
         )
 

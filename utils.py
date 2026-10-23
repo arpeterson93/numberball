@@ -6514,6 +6514,161 @@ def radial_combined_chart(
     return fig
 
 
+def radial_animation(build, dfs: list, time_ids, n: int, max_frames: int = 60, frame_ms: int | None = None,
+                     pitch_ms: int = 2000,
+                     pred=None, pred_name: str = "Model (FFT) swing", controls: bool = True) -> go.Figure:
+    """Animated version of a "Last N" radial: the dots arrive from oldest to newest, replaying how the chart looked.
+
+    build(dfs_at_cutoff, cutoff_id) must return the ordinary static chart for those (already context-filtered) frames of
+    data. cutoff_id is None for the live chart; otherwise the chart is being replayed as of that play id, which lets the
+    caller re-anchor "implied pitch" views at what the most recent pitch was THEN. time_ids are the ids of the rows that
+    carry a dot for this chart, in any order - each one is a step of the replay.
+
+    The first frame is the chart as it stood just before the first of the final N dots (so it opens on a full "Last N"
+    view, not a blank one); every later frame adds the next pitch on the outer ring, which pushes the earlier dots
+    inward and drops the oldest off the center; the last frame is the static chart. Because every frame is the real
+    builder's output, recency colors, leverage / previous-result / result coloring, the slice backdrop and filters all
+    behave as they do statically.
+
+    The newest pitch in every frame is ringed (a dark ring over a white halo, legend entry "Latest pitch") so it stands
+    out from the dots that are already placed.
+
+    pred (optional): callable(cutoff_id) -> (theta_degrees, hover_label) or None. When given, every frame also shows one
+    gold dot - the model's prediction for the NEWEST pitch in that frame, sitting just outside it on the rim. When the
+    next pitch arrives that dot disappears and the next pitch's own prediction takes its place (no dot when pred returns
+    None for that pitch).
+
+    pitch_ms is how long each pitch stays on screen (default 2 seconds). If the window is longer than max_frames, frames
+    skip ahead by a fixed stride and each one is held stride x pitch_ms, so the pace stays "one pitch per pitch_ms" in
+    real time. frame_ms overrides the per-frame hold directly. The per-frame gaps (in pitches) and pitch_ms are left in
+    fig.layout.meta for callers that write their own file (the bot's GIF).
+
+    controls=False leaves out the Play / Pause buttons and slider (for rendering the frames to a GIF).
+
+    Only the dot traces, the slice backdrop and the latest-pitch / model markers animate; the rim rings and layout come
+    from the final chart. Falls back to the plain static chart when there is nothing to replay."""
+    ids = sorted({int(i) for i in time_ids})
+    base = build(dfs, None)                                         # the live chart: cutoff None means "now"
+    if len(ids) < 2 or len(base.data) == 0:
+        return base
+    K = min(int(n), len(ids) - 1)
+    stride = max(1, math.ceil((K + 1) / max(1, int(max_frames))))
+    steps = sorted(set(range(0, K + 1, stride)) | {K}, reverse=True)   # pitches back from "now": K ... 0
+    gaps = [0] + [steps[k - 1] - steps[k] for k in range(1, len(steps))]   # pitches advanced to reach each frame
+    if frame_ms is None:
+        frame_ms = int(pitch_ms) * stride
+
+    def is_dot(tr) -> bool:
+        return isinstance(tr, go.Scatterpolar) and tr.mode == "markers" and tr.hoverinfo == "text"
+
+    def is_backdrop(tr) -> bool:
+        return isinstance(tr, go.Barpolar) and tr.meta == "slice_backdrop"
+
+    live_idx = [i for i, tr in enumerate(base.data) if is_dot(tr) or is_backdrop(tr)]
+    n_extra = 2 + (1 if pred is not None else 0)                     # halo, ring[, model dot]
+    extra_idx = list(range(len(base.data), len(base.data) + n_extra))
+    live_all = live_idx + extra_idx
+
+    def empty_like(tr):
+        if is_backdrop(tr):
+            return tr
+        return go.Scatterpolar(r=[], theta=[], mode="markers", name=tr.name, hoverinfo="skip",
+                               marker=dict(symbol=tr.marker.symbol, size=tr.marker.size), showlegend=tr.showlegend)
+
+    try:
+        r_axis_max = float(base.layout.polar.radialaxis.range[1])
+    except Exception:
+        r_axis_max = None
+
+    def _latest_traces(dot_traces):
+        """A ring around the newest dot of each dot group: a white halo under a dark ring, readable on light and dark."""
+        rs, ths = [], []
+        for tr in dot_traces:
+            if tr.r is None or len(tr.r) == 0:
+                continue
+            j = int(np.argmax(np.asarray(tr.r, dtype=float)))
+            rs.append(tr.r[j])
+            ths.append(tr.theta[j])
+        halo = go.Scatterpolar(r=rs, theta=ths, mode="markers", hoverinfo="skip", showlegend=False,
+                               marker=dict(symbol="circle-open", size=21, color="#ffffff", line=dict(color="#ffffff", width=4.5)))
+        ring = go.Scatterpolar(r=rs, theta=ths, mode="markers", hoverinfo="skip", showlegend=True, name="Latest pitch",
+                               marker=dict(symbol="circle-open", size=16, color="#1f1f1f", line=dict(color="#1f1f1f", width=2.4)))
+        return [halo, ring]
+
+    def _pred_trace(result, dot_traces):
+        """The gold dot for one frame: outside the newest dot (one ring further out, clipped to the axis)."""
+        if result is None:
+            return go.Scatterpolar(r=[None], theta=[None], mode="markers", name=pred_name, showlegend=True,
+                                   hoverinfo="skip", marker=dict(symbol="circle", size=12, color="#f2b705"))
+        theta_deg, label = result
+        r_new = max((max(tr.r) for tr in dot_traces if tr.r is not None and len(tr.r)), default=1) + 1.0
+        if r_axis_max is not None:
+            r_new = min(r_new, r_axis_max - 0.1)
+        return go.Scatterpolar(r=[r_new], theta=[theta_deg], mode="markers", name=pred_name, showlegend=True,
+                               text=[label], hoverinfo="text",
+                               marker=dict(symbol="circle", size=12, color="#f2b705",
+                                           line=dict(color="#3a3a3a", width=1.3)))
+
+    frames, first_traces = [], None
+    for k, s in enumerate(steps):
+        cut = ids[-1 - s]
+        fig_s = base if s == 0 else build([d[d["id"] <= cut] if "id" in d.columns else d for d in dfs], cut)
+        dots_s = {tr.name: tr for tr in fig_s.data if is_dot(tr)}
+        back_s = next((tr for tr in fig_s.data if is_backdrop(tr)), None)
+        traces = []
+        for i in live_idx:
+            btr = base.data[i]
+            if is_backdrop(btr):
+                traces.append(back_s if back_s is not None else btr)
+            else:
+                traces.append(dots_s.get(btr.name, empty_like(btr)))
+        traces = traces + _latest_traces(list(dots_s.values()))
+        if pred is not None:
+            traces = traces + [_pred_trace(pred(cut), list(dots_s.values()))]
+        frames.append(go.Frame(data=traces, traces=live_all, name=str(k)))
+        if first_traces is None:
+            first_traces = traces
+
+    data = list(base.data) + first_traces[len(live_idx):]
+    for i, tr in zip(live_all, first_traces):
+        data[i] = tr
+    # the legend now exists (Latest pitch, model dot): keep the unnamed recency dots out of it
+    for tr in data:
+        if is_dot(tr) and tr.name is None:
+            tr.showlegend = False
+    for f in frames:
+        for tr in f.data:
+            if is_dot(tr) and tr.name is None:
+                tr.showlegend = False
+    fig = go.Figure(data=data, layout=base.layout, frames=frames)
+    fig.update_layout(showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0))
+    fig.update_layout(meta=dict(frame_gaps=gaps, pitch_ms=int(pitch_ms)))
+    if not controls:
+        return fig
+    anim = dict(frame=dict(duration=frame_ms, redraw=True), transition=dict(duration=0), fromcurrent=True,
+                mode="immediate")
+    fig.update_layout(
+        updatemenus=[dict(
+            type="buttons", direction="left", showactive=False, x=0.0, y=-0.06, xanchor="left", yanchor="top",
+            pad=dict(t=6, r=6),
+            buttons=[dict(label="Play", method="animate", args=[None, anim]),
+                     dict(label="Pause", method="animate",
+                          args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate",
+                                             transition=dict(duration=0))])])],
+        sliders=[dict(active=0, currentvalue=dict(visible=False), pad=dict(t=8, b=0, l=10, r=10), x=0.22, len=0.76,
+                      xanchor="left", y=-0.06, yanchor="top", ticklen=0,
+                      steps=[dict(method="animate", label="", args=[[f.name], dict(
+                          mode="immediate", frame=dict(duration=0, redraw=True), transition=dict(duration=0))])
+                             for f in frames])],
+    )
+    m = base.layout.margin
+    fig.update_layout(margin=dict(l=m.l if m.l is not None else 30, r=m.r if m.r is not None else 30,
+                                  t=m.t if m.t is not None else 40, b=70))
+    if base.layout.height:
+        fig.update_layout(height=int(base.layout.height) + 60)
+    return fig
+
+
 def _diff_to_result(diff: int, ranges: list | None = None) -> str:
     for result, lo, hi in (ranges or RESULT_RANGES):
         if lo <= diff <= hi:

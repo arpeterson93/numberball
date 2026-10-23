@@ -20,6 +20,7 @@ import io
 import os
 import pathlib
 import sys
+import threading
 
 import numpy as np
 import pandas as pd
@@ -841,6 +842,108 @@ def combined_radial_fig(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, include_del
                                         anchor=anchor, df_delta2=df_delta2, delta2_col="pitch_circ_delta2_signed",
                                         anchor_delta=anchor_delta, include_delta2=include_delta2,
                                         obr_lo=obr_lo, obr_hi=obr_hi, sacf_lo=sacf_lo, sacf_hi=sacf_hi)
+
+
+# ── animated radials (GIF) ───────────────────────────────────────────────────
+
+# kaleido (the image renderer) is a single shared browser process: the GIF path starts / stops a persistent one to render
+# its ~40 frames in a second or two each, so every render in the bot takes this lock (discord_bot._write_png does too).
+KALEIDO_LOCK = threading.RLock()
+GIF_MAX_FRAMES = 60
+GIF_PITCH_MS = 1000      # how long each pitch stays on screen in the GIF (the Streamlit replay defaults to 2 s)
+
+
+def _animated_radial(df: pd.DataFrame, id_sources: list[tuple[str, str]], build, n: int, context_kwargs: dict) -> go.Figure:
+    """utils.radial_animation over a raw (unfiltered) df: the context filter is applied INSIDE build for every frame, and
+    the steps of the replay are the dots that survive that filter. id_sources: (bucket_kind, column carrying the dot)."""
+    ids: set = set()
+    for kind, col in id_sources:
+        df_f = apply_prior_context(df, bucket_kind=kind, **context_kwargs)
+        if col in df_f.columns:
+            ids |= set(df_f.loc[df_f[col].notna(), "id"])
+    return utils.radial_animation(lambda ds, cut: build(ds[0]), [df], sorted(ids), n,
+                                  max_frames=GIF_MAX_FRAMES, pitch_ms=GIF_PITCH_MS, controls=False)
+
+
+def pitches_radial_anim(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, obr: tuple[int, int] | None = None,
+                         sacf: tuple[int, int] | None = None, **context_kwargs) -> go.Figure:
+    return _animated_radial(df, [("pitch", "pitch")],
+                            lambda d: pitches_radial_fig(d, n=n, obr=obr, sacf=sacf, **context_kwargs), n, context_kwargs)
+
+
+def deltas_radial_anim(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_prev: bool = False,
+                        obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
+                        **context_kwargs) -> go.Figure:
+    return _animated_radial(df, [("delta", "pitch_circ_delta")],
+                            lambda d: deltas_radial_fig(d, n=n, center_on_prev=center_on_prev, obr=obr, sacf=sacf,
+                                                        **context_kwargs), n, context_kwargs)
+
+
+def delta2_radial_anim(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_prev: bool = False,
+                        obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
+                        **context_kwargs) -> go.Figure:
+    return _animated_radial(df, [("delta2", "pitch_circ_delta2_signed")],
+                            lambda d: delta2_radial_fig(d, n=n, center_on_prev=center_on_prev, obr=obr, sacf=sacf,
+                                                        **context_kwargs), n, context_kwargs)
+
+
+def shadow_delta_radial_anim(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, center_on_prev: bool = False,
+                              obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
+                              **context_kwargs) -> go.Figure:
+    return _animated_radial(df, [("shadow_delta", "pitch_shadow_delta_signed")],
+                            lambda d: shadow_delta_radial_fig(d, n=n, center_on_prev=center_on_prev, obr=obr, sacf=sacf,
+                                                              **context_kwargs), n, context_kwargs)
+
+
+def combined_radial_anim(df: pd.DataFrame, n: int = RADIAL_DEFAULT_N, include_delta2: bool = False,
+                          obr: tuple[int, int] | None = None, sacf: tuple[int, int] | None = None,
+                          **context_kwargs) -> go.Figure:
+    sources = [("pitch", "pitch"), ("delta", "pitch_circ_delta")]
+    if include_delta2:
+        sources.append(("delta2", "pitch_circ_delta2_signed"))
+    return _animated_radial(df, sources,
+                            lambda d: combined_radial_fig(d, n=n, include_delta2=include_delta2, obr=obr, sacf=sacf,
+                                                          **context_kwargs), n, context_kwargs)
+
+
+def radial_gif_bytes(anim: go.Figure, width: int = 640, scale: float = 1.5, frame_ms: int = 1000,
+                      hold_ms: int = 3000) -> bytes:
+    """Render an animation figure (utils.radial_animation, controls=False) to an endlessly looping GIF: every frame is
+    drawn through the same dark-theme pipeline as the static PNGs; each pitch stays on screen for GIF_PITCH_MS and the
+    last frame holds for hold_ms. A persistent kaleido browser keeps each frame to a fraction of a second (about 17 s for 50 frames)."""
+    import kaleido
+    from PIL import Image
+
+    figs = []
+    for f in anim.frames:
+        data = list(anim.data)
+        for i, tr in zip(f.traces, f.data):
+            data[i] = tr
+        g = go.Figure(data=data, layout=anim.layout)
+        apply_dark_theme(g)
+        # the "Latest pitch" / model-dot legend sits on the dark page: give it a light backing so its dark ring reads
+        g.update_layout(legend=dict(bgcolor="rgba(240,240,240,0.95)", font=dict(color="#1f1f1f"), borderwidth=0))
+        figs.append(g)
+    height = int(anim.layout.height or 390)
+    with KALEIDO_LOCK:
+        kaleido.start_sync_server(n=1)
+        try:
+            pngs = [g.to_image(format="png", width=width, height=height, scale=scale) for g in figs]
+        finally:
+            kaleido.stop_sync_server()
+    ims = [Image.open(io.BytesIO(b)).convert("RGB").quantize(colors=128, method=Image.Quantize.FASTOCTREE,
+                                                              dither=Image.Dither.NONE) for b in pngs]
+    out = io.BytesIO()
+    meta = anim.layout.meta if isinstance(anim.layout.meta, dict) else {}
+    gaps, pitch_ms = meta.get("frame_gaps"), meta.get("pitch_ms", frame_ms)
+    if gaps and len(gaps) == len(ims):
+        # each frame is held for as many pitches as it advances to the next one, so the pace is one pitch per pitch_ms
+        durations = [int(gaps[k + 1] * pitch_ms) for k in range(len(ims) - 1)] + [hold_ms]
+    else:
+        durations = [frame_ms] * (len(ims) - 1) + [hold_ms]
+    ims[0].save(out, format="GIF", save_all=True, append_images=ims[1:], duration=durations, loop=0, optimize=True,
+                disposal=1)
+    return out.getvalue()
 
 
 # ── batter ───────────────────────────────────────────────────────────────────
