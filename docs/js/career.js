@@ -588,16 +588,26 @@
   }
 
   // bat / pit are the stat lines to add: the whole team's, or just its rookies' when the Rookies filter is on.
-  function sumInto(e, t, bat, pit) {
-    e.g += t.g; e.rs += t.rs; e.ra += t.ra; e.w += t.w; e.l += t.l;
+  // c = the games / W-L counts to add; bat / pit = the stat lines to add. With Rookies on, c is only the games
+  // a rookie played in (this team's own rookies for a team row, either team's for a league row) and the lines are
+  // just the rookies'.
+  function sumInto(e, c, bat, pit) {
+    e.g += c.g; e.rs += c.rs || 0; e.ra += c.ra || 0; e.w += c.w; e.l += c.l;
     Object.keys(bat).forEach(function (k) { e.bat[k] = (e.bat[k] || 0) + bat[k]; });
     Object.keys(pit).forEach(function (k) { e.pit[k] = (e.pit[k] || 0) + pit[k]; });
   }
   function recLines(x) {
     return rec.rookies ? { bat: x.rb || {}, pit: x.rp || {} } : { bat: x.bat, pit: x.pit };
   }
+  function recCounts(t, league) {
+    if (!rec.rookies) return t;
+    return t[(league ? "x" : "o") + (rec.side === "bat" ? "b" : "p")] || null;
+  }
 
-  function recSeasonOk(s) { return rec.season === "all" || String(s) === String(rec.season); }
+  function recSeasonOk(s) {
+    if (rec.allTime && rec.sRange && (s < rec.sRange[0] || s > rec.sRange[1])) return false;      // All-Time Seasons slider
+    return rec.season === "all" || String(s) === String(rec.season);
+  }
   function recSessionOk(n) { return rec.session == null || n === rec.session; }
   // Team filter: a plain abbreviation inside one season, a franchise (current abbreviation) All-Time.
   function recTeamOk(abbr) { return !rec.team || (rec.allTime ? franchiseAbbr(abbr) === rec.team : abbr === rec.team); }
@@ -610,15 +620,17 @@
     d.teams.forEach(function (t) {
       if (!gtOk(rec.gt, t.po) || !recSeasonOk(t.s) || !recSessionOk(t.n)) return;
       if (!league && !recTeamOk(t.t)) return;
-      var ln = recLines(t);
-      if (rec.rookies && !Object.keys(rec.side === "bat" ? ln.bat : ln.pit).length) return;   // no rookie line on this side
+      var ln = recLines(t), cnt = recCounts(t, league);
+      if (!cnt) return;                                     // Rookies on and none played in this team's games
       var key = (league ? "L" : t.t) + "|" + t.s + "|" + t.n;
       var e = groups[key];
       if (!e) { e = groups[key] = { s: t.s, n: t.n, abbr: t.t, g: 0, w: 0, l: 0, rs: 0, ra: 0, bat: {}, pit: {} }; order.push(e); }
-      sumInto(e, t, ln.bat, ln.pit);
+      sumInto(e, cnt, ln.bat, ln.pit);
     });
     return order.map(function (e) {
       var out = { s: e.s, n: e.n, g: league ? e.g / 2 : e.g, w: e.w, l: e.l, rs: e.rs, ra: e.ra };
+      // Rookies on: RS / RA are the rookies' own output - runs they scored, earned runs their pitchers allowed.
+      if (rec.rookies) { out.rs = e.bat.r || 0; out.ra = e.pit.er || 0; }
       out.name = league ? "League" : teamName(e.s, e.abbr);
       out.team = league ? "League" : e.abbr;
       var src = rec.side === "bat" ? e.bat : e.pit;
@@ -709,12 +721,12 @@
   /* Called by the Stats tab for the Team / Game / League granularities. ctx: {gran, side, allTime, season,
      session, gt, team}. Fetches the records data on first use, then draws the table into el. */
   function renderGran(el, ctx) {
-    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies;
-    rec.tab = ctx.gran; rec.rookies = !!ctx.rookies; rec.side = ctx.side;
+    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange;
+    rec.tab = ctx.gran; rec.rookies = !!ctx.rookies; rec.sRange = ctx.allTime && ctx.seasons ? ctx.seasons : null; rec.side = ctx.side;
     rec.sort = rec.sorts[rec.tab + rec.side] || defaultRecSort(rec.side); rec.gt = ctx.gt || "all"; rec.allTime = !!ctx.allTime;
     rec.season = ctx.allTime ? "all" : String(ctx.season); rec.session = ctx.allTime ? null : ctx.session;
     rec.team = ctx.team || "";
-    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies) rec.shown = REC_PAGE;
+    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange) rec.shown = REC_PAGE;
     rec.el = el;
     var needGames = rec.tab === "game";
     if (!rec.data || (needGames && !rec.games) || (rec.allTime && !at.fr)) {

@@ -1006,7 +1006,7 @@
   // separate for the same reason `team` is above. gameTeams (Alex's ask) -
   // [awayAbbr, homeAbbr] when a scoreboard tile is selected, else null; see
   // selectScoreboardTile/deselectScoreboardTile.
-  var statsFilters = { team: "", player: "", playerId: null, gameTeams: null, rookiesOnly: false, favoritesOnly: false };
+  var statsFilters = { team: "", player: "", playerId: null, gameTeams: null, rookiesOnly: false, favoritesOnly: false, seasons: null };
   var statsFiltersExpanded = false;
   // Stats scope: "session" = the picker's session (or the whole season split
   // by session, the picker's "All"), "season" = one row per player summing the
@@ -1144,6 +1144,7 @@
       var needle = statsFilters.player.toLowerCase();
       if (!row.name || row.name.toLowerCase().indexOf(needle) === -1) return false;
     }
+    if (allTime && statsFilters.seasons && (row.season < statsFilters.seasons[0] || row.season > statsFilters.seasons[1])) return false;
     if (statsFilters.rookiesOnly && !(allTime ? row.rookie : isRookieId(row.player_id))) return false;
     if (statsFilters.favoritesOnly && !isFavoritedId(row.player_id)) return false;
     return true;
@@ -1155,7 +1156,31 @@
   function statsActiveFilterCount() {
     return (statsFilters.team ? 1 : 0) + (statsFilters.player || statsFilters.playerId ? 1 : 0) +
       (statsFilters.rookiesOnly ? 1 : 0) + (statsFilters.favoritesOnly ? 1 : 0) +
-      (statsGameTypeApplies() && statsGameType !== "all" ? 1 : 0);
+      (statsGameTypeApplies() && statsGameType !== "all" ? 1 : 0) + (allTime && statsFilters.seasons ? 1 : 0);
+  }
+
+  // Seasons slider (All-Time only): oldest to newest season there is data for. statsFilters.seasons stays null
+  // while the slider sits at both ends, so "no limit" never pins a range.
+  function statsSeasonBounds() {
+    var s = seasonSessionGroups().map(function (g) { return g.season; });
+    return [Math.min.apply(null, s), Math.max.apply(null, s)];
+  }
+
+  function statsSeasonRangeHtml() {
+    var b = statsSeasonBounds(), v = statsFilters.seasons || b;
+    return '<div class="filter-group dr-group"><label class="group-label">Seasons <span class="dr-val" id="stats-season-val">S' +
+      v[0] + " - S" + v[1] + '</span></label><div class="dr" id="stats-season-range"><div class="dr-track"><div class="dr-fill"></div></div>' +
+      '<input type="range" class="dr-a" min="' + b[0] + '" max="' + b[1] + '" step="1" value="' + v[0] + '" aria-label="Seasons from">' +
+      '<input type="range" class="dr-b" min="' + b[0] + '" max="' + b[1] + '" step="1" value="' + v[1] + '" aria-label="Seasons to"></div></div>';
+  }
+
+  function paintStatsSeasonRange() {
+    var dr = $("stats-season-range");
+    if (!dr) return;
+    var x = dr.querySelector(".dr-a"), y = dr.querySelector(".dr-b"), min = Number(x.min), max = Number(x.max);
+    var fill = dr.querySelector(".dr-fill");
+    fill.style.left = ((Number(x.value) - min) / (max - min) * 100) + "%";
+    fill.style.right = (100 - (Number(y.value) - min) / (max - min) * 100) + "%";
   }
 
   function statsFiltersHtml() {
@@ -1206,6 +1231,7 @@
           '<div id="stats-player-suggest" class="player-suggest" hidden></div>' +
         "</div>" +
         gameTypeHtml +
+        (allTime ? statsSeasonRangeHtml() : "") +
         '<div class="filter-group">' +
           '<label class="group-label">Show</label>' +
           '<div class="chip-row" id="stats-toggle-chips">' +
@@ -1555,7 +1581,7 @@
     var rows = [], cols = [], loadingAgg = false;
     // Back to the first page whenever what is being listed changes.
     var sig = [statsGran, statsSubView, statsSort[statsSubView].key, statsSort[statsSubView].dir, statsGameType, allTime, season.active,
-      filters.session, statsFilters.team, statsFilters.player, statsFilters.playerId, statsFilters.rookiesOnly, statsFilters.favoritesOnly].join("|");
+      filters.session, statsFilters.team, statsFilters.player, statsFilters.playerId, statsFilters.rookiesOnly, statsFilters.favoritesOnly, statsFilters.seasons].join("|");
     if (sig !== statsSig) { statsSig = sig; statsShown = STATS_PAGE; }
     if (statsGran !== "player") {
       // team / game / league lines: career.js draws the table into #stats-gran below
@@ -1593,7 +1619,7 @@
     if (granMode && window.MLNExtras) {
       window.MLNExtras.renderGran($("stats-gran"), {
         gran: statsGran, side: isBatting ? "bat" : "pit", allTime: allTime, season: season.active,
-        session: filters.session, gt: statsGameType, team: statsFilters.team, rookies: statsFilters.rookiesOnly,
+        session: filters.session, gt: statsGameType, team: statsFilters.team, rookies: statsFilters.rookiesOnly, seasons: statsFilters.seasons,
       });
     }
     if (focusId) {
@@ -1607,6 +1633,7 @@
       if (wasSuggestOpen && restored && restored.value.trim()) statsRenderPlayerSuggest(restored.value);
     }
     updateStickyOffsets();
+    paintStatsSeasonRange();
     // A row expanded before ITS OWN session's plays finished loading shows
     // "Loading plays..." above - fill it in for real once they land. Reads
     // the expanded row's own session (from the key), not filters.session -
@@ -1698,6 +1725,7 @@
     statsFilters.playerId = null;
     statsFilters.rookiesOnly = false;
     statsFilters.favoritesOnly = false;
+    statsFilters.seasons = null;
     statsGameType = "all";
     deselectScoreboardTile();
   }
@@ -17045,6 +17073,14 @@
     });
     $("stats-view").addEventListener("change", function (e) {
       if (e.target.id === "stats-team-select") setStatsFilterTeam(e.target.value);
+      // Seasons slider: apply on release (a render per drag step would rebuild the slider under the thumb)
+      if (e.target.closest && e.target.closest("#stats-season-range")) {
+        var dr = $("stats-season-range"), lo = Number(dr.querySelector(".dr-a").value), hi = Number(dr.querySelector(".dr-b").value);
+        var bnd = statsSeasonBounds();
+        statsFilters.seasons = lo <= bnd[0] && hi >= bnd[1] ? null : [lo, hi];
+        statsExpandedKey = null;
+        renderStats();
+      }
     });
     // Player search - same delegated approach as the click handler above
     // (the input/suggestion dropdown/clear button are all rebuilt along
@@ -17053,6 +17089,14 @@
     // re-render). input bubbles natively; focusin/focusout are the
     // delegation-friendly versions of focus/blur, which don't bubble.
     $("stats-view").addEventListener("input", function (e) {
+      // Seasons slider: keep the thumbs ordered and the label live while dragging
+      if (e.target.closest && e.target.closest("#stats-season-range")) {
+        var d2 = $("stats-season-range"), xa = d2.querySelector(".dr-a"), xb = d2.querySelector(".dr-b");
+        if (Number(xa.value) > Number(xb.value)) { if (e.target === xa) xa.value = xb.value; else xb.value = xa.value; }
+        $("stats-season-val").textContent = "S" + xa.value + " - S" + xb.value;
+        paintStatsSeasonRange();
+        return;
+      }
       if (e.target.id !== "stats-player-input") return;
       setStatsFilterPlayerText(e.target.value);
       statsRenderPlayerSuggest(e.target.value);

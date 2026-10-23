@@ -235,6 +235,7 @@ def main() -> None:
                         elif (score_for or 0) < (score_against or 0):
                             ts["l"] += 1
 
+                rk_teams = {"b": set(), "p": set()}      # teams with a rookie batting / pitching line in this game
                 for b in stats["batting"]:
                     pid = b["player_id"]
                     team = tmap.get(pid)
@@ -262,6 +263,7 @@ def main() -> None:
                     _add(team_sessions[(season, session, team)]["bat"], b, BAT_KEYS)
                     _add(gr["bat"], b, BAT_KEYS)
                     if pid in rookie_ids.get(season, ()):      # rookie-only lines, for the Stats tab's Rookies filter
+                        rk_teams["b"].add(team)
                         _add(team_sessions[(season, session, team)]["rb"], b, BAT_KEYS)
                         _add(gr["rb"], b, BAT_KEYS)
                     ps = player_sessions.setdefault((pid, season, session), {"t": team, "po": 1 if session in post else 0, "bat": {}, "pit": {}})
@@ -298,6 +300,7 @@ def main() -> None:
                     _add(team_sessions[(season, session, team)]["pit"], line, PIT_KEYS)
                     _add(gr["pit"], line, PIT_KEYS)
                     if pid in rookie_ids.get(season, ()):
+                        rk_teams["p"].add(team)
                         _add(team_sessions[(season, session, team)]["rp"], line, PIT_KEYS)
                         _add(gr["rp"], line, PIT_KEYS)
                     ps = player_sessions.setdefault((pid, season, session), {"t": team, "po": 1 if session in post else 0, "bat": {}, "pit": {}})
@@ -310,6 +313,24 @@ def main() -> None:
                         ps["pit"][key] = ps["pit"].get(key, 0) + 1
                         tp = team_sessions[(season, session, team)]["pit"]
                         tp[key] = tp.get(key, 0) + 1
+
+                # Rookies filter: a team's G / W / L counted only over games where a rookie played (RS / RA come from the rookies' own lines).
+                # ob / op = games where THIS team had a rookie batting / pitching line; xb / xp = games where either
+                # team did (each such game sits under both teams, so the league row halves the game count).
+                for side, score_for, score_against in ((away, a_sc, h_sc), (home, h_sc, a_sc)):
+                    for k in ("b", "p"):
+                        if not rk_teams[k]:
+                            continue
+                        for pre, on in (("o", side in rk_teams[k]), ("x", True)):
+                            if not on:
+                                continue
+                            c = team_sessions[(season, session, side)].setdefault(pre + k, {"g": 0, "w": 0, "l": 0})
+                            c["g"] += 1
+                            if final:
+                                if (score_for or 0) > (score_against or 0):
+                                    c["w"] += 1
+                                elif (score_for or 0) < (score_against or 0):
+                                    c["l"] += 1
         print(f"  S{season:02d} done ({time.time() - t0:.0f}s)")
 
     # ---- per-player career logs ------------------------------------------------
