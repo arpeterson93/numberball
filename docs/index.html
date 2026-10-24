@@ -64,7 +64,19 @@
            docs/data/sNN/; until then this behaves like a plain session
            select scoped to the live season, same as before archive seasons
            existed. -->
-      <select id="session-select" class="session-select" aria-label="Season and session"></select>
+      <!-- Player search (career.js initHeaderSearch): the magnifier swaps the session picker for a text box whose
+           dropdown lists matching players A-Z; picking one opens the player panel. -->
+      <div id="header-search" class="header-search" hidden>
+        <input type="text" id="header-search-input" class="header-search-input" placeholder="Search players" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search players">
+        <div id="header-search-list" class="header-search-list" role="listbox" hidden></div>
+      </div>
+      <span class="sess-wrap"><select id="session-select" class="session-select" aria-label="Season and session"></select><span id="session-label" class="sess-label" aria-hidden="true"></span></span>
+      <button type="button" class="icon-btn" id="header-search-btn" title="Search players" aria-label="Search players" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="M21 21l-4.3-4.3"></path>
+        </svg>
+      </button>
       <!-- Phone-only shortcuts mirroring #toggle-chips's keymoments/favorites
            buttons (hidden above 600px via .header-toggle-btn's CSS) - kept in
            sync with those chips in both directions by app.js. Key Moments

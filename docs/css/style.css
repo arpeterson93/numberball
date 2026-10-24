@@ -3413,3 +3413,44 @@ html[data-km-debug="1"] .km-tuning-panel{
 @media (max-width:700px){
   .dx-chart text.dx-mk-t,.dx-chart text.dx-mk-lg-t{font-size:10px;}
 }
+
+/* Player modal, Game Scores view: bars take the team accent */
+.dx-chart .gs-bar{fill:var(--red);}
+
+/* Header player search: the magnifier swaps the session picker for a text box + A-Z dropdown of matching players. */
+.header-search{position:relative;flex:1 1 auto;min-width:0;}
+.header-search-input{width:220px;max-width:100%;padding:6px 10px;font-size:14px;font-weight:600;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);}
+.header-search-list{position:absolute;top:calc(100% + 4px);left:0;width:min(320px,92vw);max-height:min(60vh,420px);overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:40;padding:4px;}
+.hs-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border:none;background:none;border-radius:6px;font-size:14px;font-weight:600;color:var(--text);cursor:pointer;}
+.hs-item:hover,.hs-item.on{background:var(--tint);}
+.hs-team{font-size:11px;font-weight:800;letter-spacing:0.3px;color:var(--muted);flex-shrink:0;}
+.hs-empty{padding:10px;font-size:12.5px;color:var(--muted);text-align:center;}
+#header-search-btn.active{color:var(--text);background:var(--tint);}
+@media (max-width:600px){
+  .title-row.searching h1{display:none;}
+  .title-row.searching .title-actions{flex:1 1 auto;min-width:0;}
+  .header-search-input{width:100%;padding:4px 8px;}
+}
+.session-select[hidden],.header-search[hidden],.header-search-list[hidden]{display:none;}
+/* iOS zooms the page on focusing any input under 16px. The generic `input[type=text]` rule (13px) is more specific
+   than a bare class, so this goes through the id to win on phones and touch screens. */
+@media (max-width:600px),(pointer:coarse){
+  #header-search #header-search-input{font-size:16px;}
+}
+
+/* Session picker: the select's own text is transparent; #session-label (short "S13 • SN9") is drawn over it. */
+.sess-wrap{position:relative;display:inline-flex;align-items:center;}
+.sess-wrap .session-select{color:transparent;}
+.sess-wrap .session-select option,.sess-wrap .session-select optgroup{color:var(--text);}
+.sess-label{position:absolute;top:50%;transform:translateY(-50%);pointer-events:none;white-space:nowrap;color:var(--muted);}
+.session-select[hidden] + .sess-label{display:none;}
+
+/* Same height as the control it replaces (the generic input[type=text] rule is more specific than the bare class
+   above, so size goes through the id): the header row neither grows nor shifts when the search opens. */
+#header-search #header-search-input{box-sizing:border-box;width:220px;max-width:100%;height:30px;padding:0 10px;font-size:14px;line-height:normal;}
+@media (max-width:600px){
+  #header-search #header-search-input{width:100%;height:24px;padding:0 8px;font-size:16px;}
+}
+@media (pointer:coarse){
+  #header-search #header-search-input{font-size:16px;}
+}

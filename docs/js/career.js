@@ -367,6 +367,51 @@
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
   }
 
+  // Game Score distribution: how many of the player's games landed in each 10-point GSc band (batters 0-100+,
+  // pitchers -30 to 100), for the chosen season / game type, with the player's average marked.
+  function renderGsc(tabs, all) {
+    var side = pm.side, lo = side === "bat" ? 0 : -30, hi = side === "bat" ? 100 : 100, nb = (hi - lo) / 10;
+    var seasons = {};
+    all.forEach(function (r) { seasons[r.s] = 1; });
+    var pills = '<div class="stats-subtabs"><button type="button" class="stats-subtab' + (pm.season === "all" ? " active" : "") + '" data-pseason="all">All</button>' +
+      Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; }).map(function (sn) {
+        return '<button type="button" class="stats-subtab' + (String(sn) === pm.season ? " active" : "") + '" data-pseason="' + sn + '">S' + sn + "</button>";
+      }).join("") + "</div>";
+    var vals = all.filter(function (r) { return r.gsc != null && (pm.season === "all" || String(r.s) === pm.season); })
+      .map(function (r) { return r.gsc; }).sort(function (a, b) { return a - b; });
+    var body;
+    if (!vals.length) body = '<div class="stats-empty">No Game Scores here.</div>';
+    else {
+      var counts = new Array(nb).fill(0);
+      vals.forEach(function (v) { counts[Math.max(0, Math.min(nb - 1, Math.floor((v - lo) / 10)))]++; });
+      var mean = vals.reduce(function (a, v) { return a + v; }, 0) / vals.length;
+      var med = vals.length % 2 ? vals[(vals.length - 1) / 2] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
+      var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
+      var H = Math.round(W * 0.34) + 18, L = 40, R = 18, T = 30, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / nb;
+      var max = Math.max.apply(null, counts.concat([1]));
+      var yOf = function (v) { return T + ph - (v / max) * ph; };
+      var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Games by Game Score">';
+      [0, Math.round(max / 2), max].forEach(function (v) {
+        svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (yOf(v) + 3) + '" text-anchor="end">' + v + "</text>";
+      });
+      for (var i = 0; i < nb; i++) {
+        var x = L + i * bw + 1, w = bw - 2, a = lo + i * 10, tip = "GSc " + a + (i === nb - 1 ? "+" : "-" + (a + 9)) + "\n" + counts[i] + " game" + (counts[i] === 1 ? "" : "s");
+        svg += '<rect x="' + x.toFixed(1) + '" y="' + T + '" width="' + w.toFixed(1) + '" height="' + ph + '" fill="transparent"><title>' + tip + "</title></rect>";
+        if (counts[i]) svg += '<rect class="gs-bar" x="' + x.toFixed(1) + '" y="' + yOf(counts[i]).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + (T + ph - yOf(counts[i])).toFixed(1) + '"><title>' + tip + "</title></rect>";
+      }
+      var mx = L + (Math.max(lo, Math.min(hi, mean)) - lo) / (hi - lo) * pw;
+      svg += '<line x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + T + '" y2="' + (T + ph) + '" class="dx-mk"/>' +
+        '<text x="' + mx.toFixed(1) + '" y="11" text-anchor="' + (mx > W - 70 ? "end" : "start") + '" class="dx-mk-t">Avg ' + mean.toFixed(1) + "</text>";
+      for (var tk = 0; tk <= nb; tk++) {
+        svg += '<text x="' + (L + tk * bw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (lo + tk * 10) + "</text>";
+      }
+      svg += "</svg>";
+      body = '<div class="xt-sub">Game Score Distribution <span class="xt-hint">' + vals.length + " games &middot; avg " + mean.toFixed(1) + " &middot; median " + med.toFixed(1) +
+        " &middot; best " + vals[vals.length - 1].toFixed(1) + " &middot; worst " + vals[0].toFixed(1) + "</span></div>" + '<div class="dx-chart">' + svg + "</div>";
+    }
+    $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
+  }
+
   function closePlayer() { var m = $("career-modal"); if (m) m.hidden = true; }
 
   // Large screens: size the card once, on open, to the widest of the player's Batting / Pitching Stats views
@@ -441,7 +486,7 @@
       pm.side = d.pit.length > d.bat.length || (!batPA && d.pit.length) ? "pit" : "bat";
       // a shared link can ask for a side / view, honoured when this player has rows for it
       if (opts && opts.side && d[opts.side] && d[opts.side].length) pm.side = opts.side;
-      if (opts && opts.view === "diffs") pm.view = "diffs";
+      if (opts && (opts.view === "diffs" || opts.view === "gsc")) pm.view = opts.view;
       $("career-title").textContent = d.name;
       styleHead(d);
       fitCard();
@@ -514,11 +559,12 @@
       return '<button type="button" class="view-tab' + (side === s ? " active" : "") + '" data-pside="' + s + '">' +
         (s === "bat" ? "Batting" : "Pitching") + "</button>";
     }).join("") + "</div>" : "") +
-      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"]].map(function (v) {
+      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
         return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
       }).join("") + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
 
     if (all.length && pm.view === "diffs") { renderDiffs(d, tabs, all); return; }
+    if (all.length && pm.view === "gsc") { renderGsc(tabs, all); return; }
 
     if (!all.length) {
       $("career-body").innerHTML = tabs + '<div class="stats-empty">No ' + (side === "bat" ? "batting" : "pitching") + " games.</div>";
@@ -556,8 +602,9 @@
 
     // game log
     var shown = all.filter(function (r) { return pm.season === "all" || String(r.s) === pm.season; });
-    var gcols = [["d", "Date"], ["sn", "Sn"], ["awr", "Awards"], ["o", "Opp"]].concat(side === "pit" ? [["dec", "Dec"]] : [])
-      .concat(cols).concat([["dpa", "DPA", 1], ["wpa", "WPA", 1]]).concat(swingCols(side)).concat([["gsc", "GSc", side === "bat" ? 1 : null]]);
+    // GSc and WPA sit right after Opp, then the decision (pitchers), the counting stats, DPA and the swing columns.
+    var gcols = [["d", "Date"], ["sn", "Sn"], ["awr", "Awards"], ["o", "Opp"], ["gsc", "GSc", side === "bat" ? 1 : null], ["wpa", "WPA", 1]]
+      .concat(side === "pit" ? [["dec", "Dec"]] : []).concat(cols).concat([["dpa", "DPA", 1]]).concat(swingCols(side));
     var grows = shown.map(function (r) {
       var rr = withGaps(Object.assign({}, r, { sn: r.s * 100 + r.n, dpa: r.dn ? (r.ds || 0) / r.dn : null,
         awr: (r.aw === "player" ? 40 : r.aw ? 30 : 0) + (r.ga === "potg" ? 2 : r.ga ? 1 : 0) }));
@@ -583,10 +630,13 @@
         }).join("") + "</tr>";
     }).join("");
     var tl = lineFrom(shown, side);
-    var gfoot = "<tr><td>Total</td><td></td><td></td><td>" + shown.length + " G</td>" + (side === "pit" ? "<td></td>" : "") +
-      gcols.slice(side === "pit" ? 5 : 4).map(function (c) {
-        return "<td>" + (c[0] === "gsc" ? "" : cell(tl[c[0]] == null ? (NULLABLE[c[0]] ? null : 0) : tl[c[0]], c[2], c[0])) + "</td>";
-      }).join("") + "</tr>";
+    var gfoot = "<tr>" + gcols.map(function (c) {
+      var k = c[0];
+      if (k === "d") return "<td>Total</td>";
+      if (k === "o") return "<td>" + shown.length + " G</td>";
+      if (k === "sn" || k === "awr" || k === "dec" || k === "gsc") return "<td></td>";
+      return "<td>" + cell(tl[k] == null ? (NULLABLE[k] ? null : 0) : tl[k], c[2], k) + "</td>";
+    }).join("") + "</tr>";
 
     $("career-body").innerHTML = tabs +
       '<div class="xt-sub">By season <span class="xt-hint">click a season to filter the game log, click it again to clear</span></div>' + seasonTable +
@@ -919,7 +969,7 @@
     var u = baseUrl();
     u.searchParams.set("player", String(pm.id));
     if (pm.side === "pit") u.searchParams.set("side", "pit");
-    if (pm.view === "diffs") u.searchParams.set("pview", "diffs");
+    if (pm.view !== "stats") u.searchParams.set("pview", pm.view);
     return u.toString();
   }
 
@@ -927,10 +977,10 @@
     if (at.names) return Promise.resolve(at.names);
     return getJ("data/search/names.json").then(function (n) {
       // A copy cached from before the franchise list existed: fetch it fresh once.
-      if (n.franchises) return n;
+      if (n.franchises && n.c) return n;
       return fetch("data/search/names.json?v=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.json(); });
     }).then(function (n) {
-      at.names = n.n; at.teams = n.teams; at.franchises = n.franchises || [];
+      at.names = n.n; at.cx = n.c || null; at.teams = n.teams; at.franchises = n.franchises || [];
       // abbreviation -> its franchise (the team it is today), for the filter and the results table
       at.fr = {};
       at.franchises.forEach(function (fr) { fr.abbrs.forEach(function (a) { at.fr[a] = fr; }); });
@@ -1363,13 +1413,80 @@
     });
   }
 
+  // ── header player search: the magnifier swaps the session picker for a text box; its dropdown lists matching
+  // players A-Z (only those with a career file) and picking one opens the player panel ──
+  function initHeaderSearch() {
+    var btn = $("header-search-btn"), box = $("header-search"), input = $("header-search-input"), list = $("header-search-list");
+    if (!btn || !box || !input || !list) return;
+    var sel = $("session-select"), row = box.closest(".title-row"), people = null, hits = [], cur = -1;
+    function setOpen(on) {
+      box.hidden = !on;
+      if (sel) sel.hidden = on;
+      if (row) row.classList.toggle("searching", on);
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+      btn.classList.toggle("active", on);
+      if (!on) { list.hidden = true; input.value = ""; }
+      else { input.focus(); loadNames().then(function () { buildPeople(); show(); }); }
+    }
+    // names with a career file, A-Z; the team beside each tells apart players who share a name
+    function buildPeople() {
+      if (people || !at.names) return;
+      var ids = at.cx ? Object.keys(at.cx) : Object.keys(at.names);
+      people = ids.filter(function (id) { return at.names[id]; }).map(function (id) {
+        return { id: Number(id), name: at.names[id], key: at.names[id].toLowerCase(), team: at.cx ? at.cx[id] : "" };
+      }).sort(function (x, y) { return x.name.localeCompare(y.name); });
+    }
+    function show() {
+      if (!people) return;
+      var q = input.value.trim().toLowerCase();
+      hits = q ? people.filter(function (p) { return p.key.indexOf(q) !== -1; }) : people;
+      cur = -1;
+      if (!hits.length) { list.innerHTML = '<div class="hs-empty">No players found</div>'; list.hidden = !q; return; }
+      list.innerHTML = hits.slice(0, 60).map(function (p, i) {
+        return '<button type="button" class="hs-item" role="option" data-i="' + i + '">' + esc(p.name) + (p.team ? '<span class="hs-team">' + esc(p.team) + "</span>" : "") + "</button>";
+      }).join("") + (hits.length > 60 ? '<div class="hs-empty">' + (hits.length - 60) + " more - keep typing</div>" : "");
+      list.hidden = false;
+      // left edge flush with the text box; keep the right edge on screen
+      list.style.width = Math.max(200, Math.min(320, window.innerWidth - box.getBoundingClientRect().left - 12)) + "px";
+    }
+    function pick(i) {
+      var p = hits[i];
+      if (!p) return;
+      setOpen(false);
+      openPlayer(p.id, p.name);
+    }
+    function mark(d) {
+      var items = list.querySelectorAll(".hs-item");
+      if (!items.length) return;
+      cur = (cur + d + items.length) % items.length;
+      items.forEach(function (el, i) { el.classList.toggle("on", i === cur); });
+      items[cur].scrollIntoView({ block: "nearest" });
+    }
+    btn.addEventListener("click", function () { setOpen(box.hidden); });
+    input.addEventListener("input", show);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { setOpen(false); btn.focus(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); mark(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); mark(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); pick(cur >= 0 ? cur : 0); }
+    });
+    list.addEventListener("mousedown", function (e) { e.preventDefault(); });   // keep focus in the box until the pick lands
+    list.addEventListener("click", function (e) {
+      var it = e.target.closest(".hs-item");
+      if (it) pick(Number(it.getAttribute("data-i")));
+    });
+    document.addEventListener("click", function (e) {
+      if (!box.hidden && !box.contains(e.target) && !btn.contains(e.target)) setOpen(false);
+    });
+  }
+
   // ── public ──────────────────────────────────────────────────────────────────────
 
   var wired = false;
   window.MLNExtras = {
     init: function (bridge) {
       B = bridge;
-      if (!wired) { wireRecords(); wired = true; }
+      if (!wired) { wireRecords(); initHeaderSearch(); wired = true; }
     },
     render: function (view, el) {
       if (view === "alltime") renderAllTime(el);

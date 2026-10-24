@@ -341,6 +341,7 @@ def main() -> None:
     if os.path.isdir(out_dir):
         for f in os.listdir(out_dir):
             os.remove(os.path.join(out_dir, f))
+    hdr_teams: dict[int, str] = {}
     for pid, g in player_games.items():
         for side in ("bat", "pit"):
             g[side].sort(key=lambda r: (r["s"], r["n"], r["d"], r["g"]))
@@ -352,6 +353,7 @@ def main() -> None:
                     games_by_team[r["t"]].add((r["s"], r["g"]))
         top_team = max(games_by_team, key=lambda t: len(games_by_team[t])) if games_by_team else ""
         hdr_team = active_team.get(pid) or top_team
+        hdr_teams[pid] = hdr_team
         hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0,
                "bld": last_bld.get(pid, {})}
         _write(os.path.join(out_dir, f"{pid}.json"), {"id": pid, "name": names.get(pid, f"Player {pid}"), "hdr": hdr, **g,
@@ -505,7 +507,8 @@ def main() -> None:
     for abbr, ti in team_info.items():
         ti.update(team_look.get(abbr, {}))
     _write(os.path.join(DATA, "search", "names.json"),
-           {"n": {str(k): v for k, v in names.items()}, "teams": team_info, "franchises": franchises})
+           {"n": {str(k): v for k, v in names.items()}, "teams": team_info, "franchises": franchises,
+            "c": {str(k): v for k, v in hdr_teams.items()}})   # players with a career file -> header team (the header search)
     print(f"career_build: {len(player_games)} players, {len(team_rows)} team-sessions, {time.time() - t0:.0f}s")
 
 

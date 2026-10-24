@@ -1582,6 +1582,9 @@
     // Back to the first page whenever what is being listed changes.
     var sig = [statsGran, statsSubView, statsSort[statsSubView].key, statsSort[statsSubView].dir, statsGameType, allTime, season.active,
       filters.session, statsFilters.team, statsFilters.player, statsFilters.playerId, statsFilters.rookiesOnly, statsFilters.favoritesOnly, statsFilters.seasons].join("|");
+    // Same list as last time (an expand / collapse, or plays finishing their load): the rebuild below briefly
+    // collapses the page height, which would drop the scroll back toward the top - remember it and put it back.
+    var sameList = sig === statsSig, keepY = window.pageYOffset;
     if (sig !== statsSig) { statsSig = sig; statsShown = STATS_PAGE; }
     if (statsGran !== "player") {
       // team / game / league lines: career.js draws the table into #stats-gran below
@@ -1634,6 +1637,7 @@
     }
     updateStickyOffsets();
     paintStatsSeasonRange();
+    if (sameList && !granMode && Math.abs(window.pageYOffset - keepY) > 1) window.scrollTo(0, keepY);
     // A row expanded before ITS OWN session's plays finished loading shows
     // "Loading plays..." above - fill it in for real once they land. Reads
     // the expanded row's own session (from the key), not filters.session -
@@ -1653,8 +1657,14 @@
   }
 
   function toggleStatsExpand(rowKey) {
+    // Keep the clicked row where it is on screen (the plays open below it), whatever the rebuild does to the page.
+    var parts = rowKey.split("|");
+    var sel = '.stats-player-row[data-player-id="' + parts[0] + '"][data-session="' + parts[1] + '"]';
+    var before = document.querySelector(sel), top = before ? before.getBoundingClientRect().top : null;
     statsExpandedKey = statsExpandedKey === rowKey ? null : rowKey;
     renderStats();
+    var after = document.querySelector(sel);
+    if (after && top != null) window.scrollBy(0, after.getBoundingClientRect().top - top);
   }
 
   function setStatsSubView(view) {
@@ -16704,6 +16714,24 @@
   // to fall back to the active season's latest session) - used right after
   // a season switch, to land on a specific session instead of always
   // defaulting to the newest.
+  // A <select> is as wide as its WIDEST option ("S13 · Session 17"), however short the chosen one is. The select's
+  // own text is made transparent and a short overlay label ("S13 • SN9") is drawn over it instead, with the select
+  // sized to that label: the closed control is narrow, while the open list (and the phone picker) keep the full,
+  // unambiguous option labels. The options themselves are never rewritten, so nothing flickers as the picker opens.
+  function fitSessionSelect() {
+    var sel = $("session-select"), lab = $("session-label");
+    if (!sel || !lab || !sel.options.length) return;
+    var opt = sel.options[sel.selectedIndex] || sel.options[0], parts = opt.value.split("|");
+    lab.textContent = opt.value === "alltime" || parts.length < 2 ? opt.textContent
+      : "S" + parts[0] + " • " + (parts[1] === "" ? "All" : "SN" + parseInt(parts[1], 10));
+    var cs = window.getComputedStyle(sel);
+    lab.style.font = cs.font;
+    lab.style.letterSpacing = cs.letterSpacing;
+    lab.style.left = (parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth)) + "px";
+    var pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+    sel.style.width = Math.ceil(lab.getBoundingClientRect().width + pad + 16) + "px";   // 16: the dropdown arrow
+  }
+
   function populateSessionSelect(keepSelection, forceSession) {
     var sel = $("session-select");
     var groups = seasonSessionGroups();
@@ -16744,6 +16772,7 @@
     }
     filters.session = target;
     sel.value = allTime ? "alltime" : season.active + "|" + (target === null ? "" : target);
+    fitSessionSelect();
   }
 
   // Everything boot() already re-renders after a fresh data load, replayed
@@ -17149,6 +17178,7 @@
     // defaulting to the season's latest and re-rendering twice.
     $("session-select").addEventListener("change", function (e) {
       var sessSel = e.target;
+      fitSessionSelect();
       if (sessSel.value === "alltime") {
         allTime = true;
         statsExpandedKey = null;
@@ -17646,6 +17676,7 @@
       if (params.get("search") && window.MLNExtras.setSearchFromLink(params.get("search"))) {
         allTime = true;
         $("session-select").value = "alltime";
+        fitSessionSelect();
         applyAllTimeMode();
         return;
       }
@@ -17709,6 +17740,9 @@
       toast("Could not open that game.");
     });
   }
+
+  if (window.addEventListener) window.addEventListener("resize", function () { fitSessionSelect(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitSessionSelect(); });
 
   function initExtras() {
     if (!window.MLNExtras) return;
