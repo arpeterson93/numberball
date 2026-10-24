@@ -5443,7 +5443,7 @@ with tab_m:
     def _calc_ev_and_probs(ranges):
         return manager_calc.calc_ev_and_probs(_run_lookup, ranges, _current_obc, _current_outs)
 
-    def _outcome_grid(ranges, obc, outs, remaining=None, batting_lead=0):
+    def _outcome_grid(ranges, obc, outs, remaining=None, batting_lead=0, stealer=None):
         """Build flat outcome breakdown DataFrame sorted by (ER After + Runs) desc."""
         rows = []
         for entry in (ranges or []):
@@ -5452,12 +5452,12 @@ with tab_m:
 
             if r == "Safe":
                 runs = 0
-                new_obc_code, _ = utils.steal_advance(obc, outs)
+                new_obc_code, _ = utils.steal_advance(obc, outs, stealer)
                 nout = outs
             elif r == "Out":
-                # Caught stealing: lead runner out, other runners still advance one base
+                # Caught stealing: the stealing group's front runner is out, runners behind him advance one base
                 runs = 0
-                new_obc_code, _ = utils.steal_cs(obc)
+                new_obc_code, _ = utils.steal_cs(obc, stealer)
                 nout = min(outs + 1, 3)
             else:
                 runs, new_obc_code, nout = _lookup(r, obc, outs)
@@ -5548,8 +5548,8 @@ with tab_m:
         )
         return fig
 
-    def _show_outcome_grid(ranges, obc, outs, key, remaining=None, batting_lead=0):
-        grid = _outcome_grid(ranges, obc, outs, remaining, batting_lead)
+    def _show_outcome_grid(ranges, obc, outs, key, remaining=None, batting_lead=0, stealer=None):
+        grid = _outcome_grid(ranges, obc, outs, remaining, batting_lead, stealer)
         if grid.empty:
             return
         st.plotly_chart(_outcome_scatter(grid), use_container_width=True, key=f"{key}_scatter")
@@ -5726,8 +5726,8 @@ with tab_m:
         with st.expander("Outcome Breakdown", expanded=False):
             st.dataframe(grid, use_container_width=True, hide_index=True, key=key)
 
-    def _calc_steal_ev_and_probs(safe_range):
-        return manager_calc.calc_steal_ev_and_probs(_current_obc, _current_outs, safe_range)
+    def _calc_steal_ev_and_probs(safe_range, stealer=None):
+        return manager_calc.calc_steal_ev_and_probs(_current_obc, _current_outs, safe_range, stealer)
 
     _hnr_steal_advance_obc = manager_calc._hnr_steal_advance_obc
     _hnr_steal_cs_obc      = manager_calc._hnr_steal_cs_obc
@@ -5806,7 +5806,8 @@ with tab_m:
                 _man_runners.append({"base": _base, "safe_range": utils.STEAL_TABLE[_steal_to[_base]][_tidx]})
         _steal_runners = _man_runners
     # Default safe range: lead runner from sheet/manual, or fallback to 50
-    _default_safe_rng = _steal_runners[0]["safe_range"] if _steal_runners else 50
+    _default_stealer = manager_calc.default_stealer(_current_obc, _steal_runners)
+    _default_safe_rng = _default_stealer["safe_range"] if _default_stealer else 50
 
     # H&R valid with < 2 outs and runner on 1B, 2B, 1B+2B, or 1B+3B
     _HNR_VALID_OBCS = {"001", "010", "011", "101"}
@@ -5834,9 +5835,9 @@ with tab_m:
         return manager_calc.calc_wp_after(_run_lookup, ranges, _current_obc, _current_outs,
                                            remaining, batting_lead)
 
-    def _calc_steal_wp_after(steal_ev_rng, remaining, batting_lead):
+    def _calc_steal_wp_after(steal_ev_rng, remaining, batting_lead, stealer=None):
         return manager_calc.calc_steal_wp_after(_current_obc, _current_outs, steal_ev_rng,
-                                                 remaining, batting_lead)
+                                                 remaining, batting_lead, stealer)
 
     def _calc_hnr_wp_after(hnr_ranges, hnr_k_steal_safe_rng, remaining, batting_lead, no_steal=False):
         return manager_calc.calc_hnr_wp_after(_run_lookup, _current_obc, _current_outs, hnr_ranges,
@@ -5846,14 +5847,17 @@ with tab_m:
     def _manager_fragment():
         # Steal: sheet value drives the color bar; editable input drives the EV table
         _sheet_safe_rng = _default_safe_rng  # locked to sheet pull
+        _steal_base = None                   # None = lead runner (every runner goes)
         if _steal_runners:
             _steal_opts = {
-                f"{r['base']} (range: {r['safe_range']})": r["safe_range"]
+                f"{r['base']} (range: {r['safe_range']})": r
                 for r in _steal_runners
             }
             _steal_sel = st.selectbox("Stealing runner", list(_steal_opts.keys()),
+                                      index=_steal_runners.index(_default_stealer),
                                       key="mgr_steal_runner")
-            _sheet_safe_rng = _steal_opts[_steal_sel]
+            _sheet_safe_rng = _steal_opts[_steal_sel]["safe_range"]
+            _steal_base = _steal_opts[_steal_sel]["base"]
 
         _has_runners = _current_obc != "000" and bool(_steal_runners)
 
@@ -5893,7 +5897,7 @@ with tab_m:
         ev_swing, s_p1r, s_p2r, s_p3pr = _calc_ev_and_probs(result_ranges)
         ev_bunt,  b_p1r, b_p2r, b_p3pr = _calc_ev_and_probs(_bunt_ranges)
         if _has_runners:
-            ev_steal, st_p1r, st_p2r, st_p3pr = _calc_steal_ev_and_probs(_steal_ev_rng)
+            ev_steal, st_p1r, st_p2r, st_p3pr = _calc_steal_ev_and_probs(_steal_ev_rng, _steal_base)
         else:
             ev_steal = st_p1r = st_p2r = st_p3pr = None
         if _has_hnr:
@@ -5909,7 +5913,7 @@ with tab_m:
         if _wp_table_ready:
             wp_swing = _calc_wp_after(result_ranges, _mgr_remaining, _mgr_batting_lead)
             wp_bunt  = _calc_wp_after(_bunt_ranges,  _mgr_remaining, _mgr_batting_lead)
-            wp_steal = _calc_steal_wp_after(_steal_ev_rng, _mgr_remaining, _mgr_batting_lead) if _has_runners else None
+            wp_steal = _calc_steal_wp_after(_steal_ev_rng, _mgr_remaining, _mgr_batting_lead, _steal_base) if _has_runners else None
             wp_hnr   = _calc_hnr_wp_after(_hnr_ranges, _hnr_normal_rng, _mgr_remaining, _mgr_batting_lead,
                                            _hnr_no_steal) if _has_hnr else None
             wp_ifin  = _calc_wp_after(_if_in_ranges, _mgr_remaining, _mgr_batting_lead) if _has_if_in else None
@@ -6122,7 +6126,8 @@ with tab_m:
                 ("Out",  _sheet_safe_rng + 1, 500),
             ]
             _show_outcome_grid(_steal_ranges_for_grid, _current_obc, _current_outs, "grid_steal",
-                               _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
+                               _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead,
+                               stealer=_steal_base)
 
         if _has_hnr:
             st.divider()

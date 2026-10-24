@@ -1707,33 +1707,52 @@ def get_run_prob(outs: int, obc: str, exact: int | None = None, at_least: int | 
     return 0.0
 
 
-def steal_advance(obc: str, outs: int) -> tuple[str, int]:
-    """Return (new_obc, runs_scored) when a steal is safe - ALL runners advance one base."""
-    on_3b = obc[0] == "1"
-    on_2b = obc[1] == "1"
-    on_1b = obc[2] == "1"
-    runs = 1 if on_3b else 0   # 3B runner scores
-    n3   = on_2b               # 2B runner advances to 3B
-    n2   = on_1b               # 1B runner advances to 2B
-    n1   = False               # no new runner enters from outside
-    return f"{'1' if n3 else '0'}{'1' if n2 else '0'}{'1' if n1 else '0'}", runs
+_STEAL_BASE_NUM = {"1B": 1, "2B": 2, "3B": 3}
 
 
-def steal_cs(obc: str) -> tuple[str, int]:
-    """Return (new_obc, runs_scored) when a steal is caught - lead runner removed, others advance."""
-    on_3b = obc[0] == "1"
-    on_2b = obc[1] == "1"
-    on_1b = obc[2] == "1"
-    if on_3b:
-        # 3B runner caught; 2B->3B, 1B->2B
-        n3, n2, n1 = on_2b, on_1b, False
-    elif on_2b:
-        # 2B runner caught; 1B->2B
-        n3, n2, n1 = False, on_1b, False
-    else:
-        # 1B runner caught
-        n3, n2, n1 = False, False, False
-    return f"{'1' if n3 else '0'}{'1' if n2 else '0'}{'1' if n1 else '0'}", 0
+def _steal_group(obc: str, stealer: str | None = None) -> tuple[set[int], int]:
+    """(bases whose runners move on a steal, the front base of that group). obc is the 3B/2B/1B bit string.
+
+    The stealer goes, so do the runners behind him and any runner directly ahead who blocks him (a chain of adjacent
+    occupied bases). A runner further ahead holds: with 1B + 3B the 1B runner steals 2nd and the runner on 3rd stays.
+    The front of the group is the runner thrown out on a caught stealing. stealer=None (or a base nobody is on) is
+    the lead runner, so every runner goes."""
+    occ = {1: obc[2] == "1", 2: obc[1] == "1", 3: obc[0] == "1"}
+    lead = max((b for b, on in occ.items() if on), default=0)
+    s = _STEAL_BASE_NUM.get(stealer or "", lead)
+    if not occ.get(s):
+        s = lead
+    if not s:
+        return set(), 0
+    moving = {b for b, on in occ.items() if on and b < s} | {s}
+    front = s
+    while front < 3 and occ[front + 1]:
+        front += 1
+        moving.add(front)
+    return moving, front
+
+
+def _obc_code(bases: set[int]) -> str:
+    return f"{'1' if 3 in bases else '0'}{'1' if 2 in bases else '0'}{'1' if 1 in bases else '0'}"
+
+
+def _occupied_bases(obc: str) -> set[int]:
+    return {b for b, i in ((1, 2), (2, 1), (3, 0)) if obc[i] == "1"}
+
+
+def steal_advance(obc: str, outs: int, stealer: str | None = None) -> tuple[str, int]:
+    """Return (new_obc, runs_scored) when a steal is safe. stealer is "1B"/"2B"/"3B" (see _steal_group); None = lead runner."""
+    moving, _ = _steal_group(obc, stealer)
+    new = {b + 1 if b in moving else b for b in _occupied_bases(obc)}
+    return _obc_code(new - {4}), (1 if 4 in new else 0)
+
+
+def steal_cs(obc: str, stealer: str | None = None) -> tuple[str, int]:
+    """Return (new_obc, runs_scored) when a steal is caught - the front runner of the stealing group is out, the runners
+    behind him advance, anyone ahead who did not go holds."""
+    moving, front = _steal_group(obc, stealer)
+    new = {b + 1 if b in moving else b for b in _occupied_bases(obc) if b != front or front not in moving}
+    return _obc_code(new), 0
 
 
 def advance_runners(result: str, obc: str, outs_before: int) -> tuple[str, int]:

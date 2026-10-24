@@ -49,12 +49,12 @@ def calc_ev_and_probs(run_lookup: dict, ranges: list, current_obc: str, current_
     return ev, p1r, p2r, p3pr
 
 
-def calc_steal_ev_and_probs(current_obc: str, current_outs: int, safe_range: int):
+def calc_steal_ev_and_probs(current_obc: str, current_outs: int, safe_range: int, stealer: str | None = None):
     safe_prob = min(safe_range * 2 / 1000, 1.0)
     out_prob = 1.0 - safe_prob
-    safe_obc, safe_runs = utils.steal_advance(current_obc, current_outs)
+    safe_obc, safe_runs = utils.steal_advance(current_obc, current_outs, stealer)
     safe_ner = utils.get_expected_runs(current_outs, safe_obc) or 0
-    out_obc, _ = utils.steal_cs(current_obc)
+    out_obc, _ = utils.steal_cs(current_obc, stealer)
     out_nout = min(current_outs + 1, 3)
     out_ner = utils.get_expected_runs(out_nout, out_obc) or 0 if out_nout < 3 else 0
     ev = safe_prob * (safe_runs + safe_ner) + out_prob * out_ner
@@ -172,11 +172,11 @@ def calc_wp_after(run_lookup: dict, ranges: list, current_obc: str, current_outs
 
 
 def calc_steal_wp_after(current_obc: str, current_outs: int, steal_ev_rng: int,
-                         remaining: int, batting_lead: int) -> float:
+                         remaining: int, batting_lead: int, stealer: str | None = None) -> float:
     safe_prob = min(steal_ev_rng * 2 / 1000, 1.0)
     out_prob = 1.0 - safe_prob
-    safe_obc, safe_runs = utils.steal_advance(current_obc, current_outs)
-    cs_obc, _ = utils.steal_cs(current_obc)
+    safe_obc, safe_runs = utils.steal_advance(current_obc, current_outs, stealer)
+    cs_obc, _ = utils.steal_cs(current_obc, stealer)
     cs_nout = min(current_outs + 1, 3)
     safe_wp = wp_for_state(remaining, current_outs, safe_obc, batting_lead + int(safe_runs))
     cs_wp = wp_for_state(remaining, cs_nout, cs_obc, batting_lead)
@@ -243,6 +243,18 @@ def compare_sandbox_inputs(state: dict) -> list[str]:
     return diffs
 
 
+def default_stealer(obc: str, steal_runners: list | None) -> dict | None:
+    """The runner a steal is priced for by default: the lead runner, except with 1B + 3B where the runner on 1st goes
+    for 2nd (3B holds) - the attempt made in ~99% of real steals from that base state."""
+    if not steal_runners:
+        return None
+    if obc == "101":
+        first = next((r for r in steal_runners if r["base"] == "1B"), None)
+        if first:
+            return first
+    return steal_runners[0]
+
+
 def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = False,
                           hnr_no_steal: bool = False) -> dict:
     """Build the Manager tab's EV summary table (Decision/Exp WP/Exp Runs/
@@ -294,7 +306,9 @@ def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = Fa
         hnr_steal_runner = (next((r for r in steal_runners if r["base"] == "1B"), None)
                              if current_obc == "101" else (steal_runners[0] if steal_runners else None))
     hnr_normal_rng = hnr_steal_runner["safe_range"] if hnr_steal_runner else 50
-    steal_ev_rng = steal_runners[0]["safe_range"] if steal_runners else 50
+    steal_runner = default_stealer(current_obc, steal_runners)
+    steal_ev_rng = steal_runner["safe_range"] if steal_runner else 50
+    steal_base = steal_runner["base"] if steal_runner else None
 
     inning = state.get("inning", 1)
     half = str(state.get("half", "Top"))
@@ -319,8 +333,8 @@ def build_strategy_table(state: dict, run_lookup: dict, if_in_checked: bool = Fa
     rows = [_swing_like_row("Normal Swing", result_ranges), _swing_like_row("Bunt", bunt_ranges)]
 
     if has_runners:
-        ev, p1r, p2r, p3pr = calc_steal_ev_and_probs(current_obc, current_outs, steal_ev_rng)
-        wp = (calc_steal_wp_after(current_obc, current_outs, steal_ev_rng, remaining, batting_lead)
+        ev, p1r, p2r, p3pr = calc_steal_ev_and_probs(current_obc, current_outs, steal_ev_rng, steal_base)
+        wp = (calc_steal_wp_after(current_obc, current_outs, steal_ev_rng, remaining, batting_lead, steal_base)
               if wp_table_ready else None)
         rows.append({"decision": "Steal", "exp_wp": wp, "exp_runs": ev, "p1r": p1r, "p2r": p2r, "p3pr": p3pr})
 
