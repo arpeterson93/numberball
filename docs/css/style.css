@@ -20,6 +20,7 @@
   --orange: #c05a00;            /* scorecard: thrown-out-on-the-bases fill */
   --slate: #5b6472;             /* fielding-chart tab: ball-in-play-out fill */
 
+  --stripe: #f8f9fb;
   --tint: #f3f5f8;              /* neutral fill: badges, hover rows, tag pills */
   --tint-red: #fdeef0;
   --tint-red-border: #f0b8c0;
@@ -75,6 +76,7 @@
   --orange: #e08a3c;
   --slate: #8a93a3;
 
+  --stripe: #1e252f;
   --tint: #232b36;
   --tint-red: #3a1e22;
   --tint-red-border: #5c2c33;
@@ -266,13 +268,13 @@ button{font-family:inherit;cursor:pointer;}
    overflow-x there. Left alone above it: sticky;left:0 with no scrolling
    ancestor just behaves like static positioning, which is exactly the no-op
    we want once there's no horizontal scroll to freeze against. */
-.stats-table th:first-child,.stats-table td:first-child{text-align:left;position:sticky;left:0;background:var(--card);z-index:2;}
+.stats-table th:first-child,.stats-table td:first-child{text-align:left;position:sticky;left:0;background:var(--row-bg,var(--card));z-index:2;}
 /* Full Season's SN column (Alex's ask) - frozen right alongside Player,
    same reasoning/no-op-above-700px as the first-column rule above. Sticks
    at --stats-col1-w (Player's own live-measured width, app.js's
    updateStickyOffsets) rather than a second hardcoded offset, so it stays
    correct regardless of how wide a given name+badges render. */
-.stats-table th.stats-col-session,.stats-table td.stats-col-session{position:sticky;left:var(--stats-col1-w);background:var(--card);z-index:2;}
+.stats-table th.stats-col-session,.stats-table td.stats-col-session{position:sticky;left:var(--stats-col1-w);background:var(--row-bg,var(--card));z-index:2;}
 /* Header row sticks to the top of the actual page scroll (Alex's ask), not
    .stats-table-wrap's own scrollport - this is why .stats-table-wrap must
    NOT be an overflow container up here: position:sticky resolves against
@@ -3257,7 +3259,7 @@ html[data-km-debug="1"] .km-tuning-panel{
   #career-body .stats-subtabs{flex-wrap:wrap;gap:6px;}
   .stats-table.xt-plain{font-size:11.5px;}
   .stats-table.xt-plain th,.stats-table.xt-plain td{padding:6px 5px;}
-  .xt-plain th:first-child,.xt-plain td:first-child{position:sticky;left:0;background:var(--card);z-index:3;}
+  .xt-plain th:first-child,.xt-plain td:first-child{position:sticky;left:0;background:var(--row-bg,var(--card));z-index:3;}
   .xt-plain thead th:first-child{z-index:7;}
   .xt-plain tfoot td:first-child{z-index:6;}
   .stats-table tbody tr.xt-click:hover td:first-child,.stats-table tbody tr.xt-on td:first-child{background:var(--tint);}
@@ -3304,7 +3306,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 .xt-obc{line-height:0;}
 
 /* All-Time Stats: Season, then SN, stay beside Player while the table scrolls sideways. */
-.stats-table th.stats-col-sn,.stats-table td.stats-col-sn{position:sticky;left:calc(var(--stats-col1-w) + var(--stats-col2-w,0px));background:var(--card);z-index:2;}
+.stats-table th.stats-col-sn,.stats-table td.stats-col-sn{position:sticky;left:calc(var(--stats-col1-w) + var(--stats-col2-w,0px));background:var(--row-bg,var(--card));z-index:2;}
 .stats-table thead th.stats-col-sn{z-index:12;}
 .stats-filters .chip-row{flex-wrap:wrap;}
 /* A game opened from the player panel plays on top of it. */
@@ -3313,7 +3315,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 
 /* RK: a narrow rank column at the far left of every Stats table; Player (when there is one) sticks right after it. */
 .stats-table th.stats-rk,.stats-table td.stats-rk{width:34px;min-width:34px;padding-left:8px;padding-right:4px;text-align:center;color:var(--muted);font-weight:700;}
-.stats-table th.stats-col-player,.stats-table td.stats-col-player{text-align:left;position:sticky;left:var(--stats-rk-w,0px);background:var(--card);z-index:2;}
+.stats-table th.stats-col-player,.stats-table td.stats-col-player{text-align:left;position:sticky;left:var(--stats-rk-w,0px);background:var(--row-bg,var(--card));z-index:2;}
 .stats-table thead th.stats-col-player{z-index:12;}
 .stats-table tfoot td.stats-col-player{z-index:4;}
 .stats-table tbody tr.stats-player-row.expanded td.stats-col-player{font-weight:800;}
@@ -3334,9 +3336,9 @@ html[data-km-debug="1"] .km-tuning-panel{
 }
 @media (max-width:700px){
   /* RK stays frozen on the records tables too (the static rule above is for wide screens). */
-  .xt-plain th.stats-rk,.xt-plain td.stats-rk{position:sticky;left:0;background:var(--card);z-index:3;}
+  .xt-plain th.stats-rk,.xt-plain td.stats-rk{position:sticky;left:0;background:var(--row-bg,var(--card));z-index:3;}
   .xt-plain thead th.stats-rk{z-index:7;}
-  .xt-plain th.stats-col-name,.xt-plain td.stats-col-name{position:sticky;left:var(--stats-rk-w,0px);background:var(--card);z-index:3;}
+  .xt-plain th.stats-col-name,.xt-plain td.stats-col-name{position:sticky;left:var(--stats-rk-w,0px);background:var(--row-bg,var(--card));z-index:3;}
   .xt-plain thead th.stats-col-name{z-index:7;}
 }
 
@@ -3391,3 +3393,23 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Player modal: --red is overridden on the card with the team accent; keep filled-pill text legible on it. */
 #career-modal .stats-subtab.active,#career-modal .chip.active{color:var(--acc-ink,#fff);}
 #career-modal .obc-chip.active{color:var(--acc-ink,#fff);}
+
+/* Subtle zebra striping on the data tables. Frozen (sticky) cells carry their own solid background, so they read
+   --row-bg too. The Stats player table marks alternate rows with .row-alt in JS because an expanded row's extra
+   <tr> would otherwise flip the parity of every row below it. Hover / selected / award fills still win. */
+.stats-table tbody tr.row-alt,.xt-plain tbody tr:nth-child(even){--row-bg:var(--stripe);background:var(--stripe);}
+
+/* Award rows: the Player cell's own hover rule (more specific than the row's) used to repaint just that cell with
+   the neutral tint while the rest of the row kept its gold. Hover / a tapped row now deepens the gold across the
+   whole row, Player and RK cells included. */
+.stats-table tbody tr.stats-player-row.award-player:hover td,
+.stats-table tbody tr.stats-player-row.award-player:hover td.stats-col-player{background:color-mix(in srgb, var(--gold) 30%, var(--card));}
+.stats-table tbody tr.stats-player-row.award-hitter:hover td,
+.stats-table tbody tr.stats-player-row.award-pitcher:hover td,
+.stats-table tbody tr.stats-player-row.award-hitter:hover td.stats-col-player,
+.stats-table tbody tr.stats-player-row.award-pitcher:hover td.stats-col-player{background:color-mix(in srgb, var(--gold) 18%, var(--card));}
+
+/* Diff chart: smaller DPA / League labels on phones (they sit in a band above the plot) */
+@media (max-width:700px){
+  .dx-chart text.dx-mk-t,.dx-chart text.dx-mk-lg-t{font-size:10px;}
+}

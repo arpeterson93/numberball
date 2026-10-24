@@ -246,7 +246,11 @@
   function dxChart(kind, bins, lg, dpa, lgdpa) {
     // Sized to the panel (so the labels stay a readable size at any width): up to 1000px wide on a big screen.
     var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
-    var H = Math.round(W * 0.34), L = 40, R = 18, T = 12, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / 25;
+    // The DPA / League labels get their own band above the plot (two rows when they have to stack), so they
+    // never sit on top of the bars.
+    var withMk = kind === "count" && (dpa != null || lgdpa != null);
+    var T = withMk ? 30 : 12;
+    var H = Math.round(W * 0.34) + (withMk ? 18 : 0), L = 40, R = 18, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / 25;
     var n = [];
     var NC = bins.length;
     for (var b = 0; b < 25; b++) { var t = 0; for (var c = 0; c < NC; c++) t += bins[c][b]; n.push(t); }
@@ -299,7 +303,7 @@
       if (marks.length > 1 && idx === 0 && mx < L + 80) left = false;          // no room on the left edge
       if (marks.length > 1 && idx === 1 && mx > W - 90) left = true;            // no room on the right edge
       var stack = marks.length > 1 && ((idx === 0 && !left) || (idx === 1 && left));
-      svg += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (T + 11 + (stack ? idx * 14 : 0)) + '" text-anchor="' + (left ? "end" : "start") +
+      svg += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (11 + (stack ? idx * 12 : 0)) + '" text-anchor="' + (left ? "end" : "start") +
         '" class="' + m[1] + '-t">' + m[2] + "</text>";
     });
     for (var tk = 0; tk <= 5; tk++) {

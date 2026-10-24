@@ -1408,7 +1408,7 @@
       var rowKey = statsRowKey(row);
       var expanded = rowKey === statsExpandedKey;
       var awardCls = row.award ? " award-" + row.award : "";
-      var main = '<tr class="stats-player-row' + awardCls + (expanded ? " expanded" : "") +
+      var main = '<tr class="stats-player-row' + awardCls + (expanded ? " expanded" : "") + (ri % 2 ? " row-alt" : "") +
           '" data-player-id="' + row.player_id + '" data-session="' + row.session + '">' +
         '<td class="stats-rk">' + ranks[ri] + "</td>" +
         // sp-full / sp-short: once the table is scrolled sideways (.scrolled on
