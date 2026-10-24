@@ -388,11 +388,24 @@ def main() -> None:
         acc = lg_s.setdefault(key, [0, 0])
         acc[0] += ps["bat"].get("ds", 0)
         acc[1] += ps["bat"].get("dn", 0)
+    # league Game Score sums per side and season ("p" suffix = postseason): the Game Scores chart's league average
+    lg_gsc: dict[str, dict[str, list]] = {"bat": {}, "pit": {}}
+    for g in player_games.values():
+        for side in ("bat", "pit"):
+            for r in g[side]:
+                if r.get("gsc") is None:
+                    continue
+                acc = lg_gsc[side].setdefault(f"{r['s']}p" if r.get("po") else str(r["s"]), [0.0, 0])
+                acc[0] += r["gsc"]
+                acc[1] += 1
+    for side in lg_gsc:
+        for acc in lg_gsc[side].values():
+            acc[0] = round(acc[0], 1)
     _write(os.path.join(DATA, "career", "model.json"), {
         "w": dm.BIN_W, "bins": dm.BINS, "p": dm.league_bins() if dm.available() else None,
         # every result the model separates (1B, 1BWH, 2B, GO, DP21 ...) with the Streamlit scouting colour for it
         "gc": [[g, utils._RESULT_ZONE_COLORS.get(g, "#cccccc")] for g in (dm.model()["GC"] if dm.available() else [])],
-        "lgdpa": round(ds / dn, 1) if dn else None, "lg_s": lg_s})
+        "lgdpa": round(ds / dn, 1) if dn else None, "lg_s": lg_s, "lg_gsc": lg_gsc})
     _write(os.path.join(DATA, "career", "totals.json"),
            {"seasons": [s["season"] for s in seasons_meta], "players": totals})
 

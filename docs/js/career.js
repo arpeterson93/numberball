@@ -377,6 +377,24 @@
       Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; }).map(function (sn) {
         return '<button type="button" class="stats-subtab' + (String(sn) === pm.season ? " active" : "") + '" data-pseason="' + sn + '">S' + sn + "</button>";
       }).join("") + "</div>";
+    if (!modelData) {
+      $("career-body").innerHTML = tabs + '<div class="stats-empty">Loading game scores...</div>';
+      getJ("data/career/model.json").then(function (m) { modelData = m; renderPlayer(); }).catch(function () {
+        $("career-body").innerHTML = tabs + '<div class="stats-empty">Could not load the league data.</div>';
+      });
+      return;
+    }
+    // League average Game Score for what the chart shows: the same season / game type, over the seasons this
+    // player actually has scores in (so "All" lines up with a one-season player's S-view), on this side.
+    var mine = {}, lgS = 0, lgN = 0;
+    all.forEach(function (r) { if (r.gsc != null) mine[r.s] = 1; });
+    var lgg = (modelData.lg_gsc || {})[side] || {};
+    Object.keys(lgg).forEach(function (k) {
+      var post = k.charAt(k.length - 1) === "p", sn = parseInt(k, 10);
+      if (!gtOk(pm.gt, post) || (pm.season !== "all" && String(sn) !== pm.season) || !mine[sn]) return;
+      lgS += lgg[k][0]; lgN += lgg[k][1];
+    });
+    var lgAvg = lgN ? lgS / lgN : null;
     var vals = all.filter(function (r) { return r.gsc != null && (pm.season === "all" || String(r.s) === pm.season); })
       .map(function (r) { return r.gsc; }).sort(function (a, b) { return a - b; });
     var body;
@@ -399,14 +417,27 @@
         svg += '<rect x="' + x.toFixed(1) + '" y="' + T + '" width="' + w.toFixed(1) + '" height="' + ph + '" fill="transparent"><title>' + tip + "</title></rect>";
         if (counts[i]) svg += '<rect class="gs-bar" x="' + x.toFixed(1) + '" y="' + yOf(counts[i]).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + (T + ph - yOf(counts[i])).toFixed(1) + '"><title>' + tip + "</title></rect>";
       }
-      var mx = L + (Math.max(lo, Math.min(hi, mean)) - lo) / (hi - lo) * pw;
-      svg += '<line x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + T + '" y2="' + (T + ph) + '" class="dx-mk"/>' +
-        '<text x="' + mx.toFixed(1) + '" y="11" text-anchor="' + (mx > W - 70 ? "end" : "start") + '" class="dx-mk-t">Avg ' + mean.toFixed(1) + "</text>";
+      // The two markers, as on the Diffs chart: the league's (dotted, grey) and the player's average. The lower
+      // value's label sits left of its line and the higher one's right, stacking only when an edge leaves no room.
+      var xOfV = function (v) { return L + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * pw; };
+      var marks = [[lgAvg, "dx-mk-lg", "League " + (lgAvg == null ? "" : lgAvg.toFixed(1))], [mean, "dx-mk", "Avg " + mean.toFixed(1)]]
+        .filter(function (m) { return m[0] != null; });
+      marks.sort(function (a, b) { return a[0] - b[0]; });
+      marks.forEach(function (m, idx) {
+        var mx = xOfV(m[0]);
+        svg += '<line x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + T + '" y2="' + (T + ph) + '" class="' + m[1] + '"/>';
+        var left = marks.length > 1 ? idx === 0 : mx > W - 90;
+        if (marks.length > 1 && idx === 0 && mx < L + 80) left = false;
+        if (marks.length > 1 && idx === 1 && mx > W - 90) left = true;
+        var stack = marks.length > 1 && ((idx === 0 && !left) || (idx === 1 && left));
+        svg += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (11 + (stack ? idx * 12 : 0)) + '" text-anchor="' + (left ? "end" : "start") +
+          '" class="' + m[1] + '-t">' + m[2] + "</text>";
+      });
       for (var tk = 0; tk <= nb; tk++) {
         svg += '<text x="' + (L + tk * bw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (lo + tk * 10) + "</text>";
       }
       svg += "</svg>";
-      body = '<div class="xt-sub">Game Score Distribution <span class="xt-hint">' + vals.length + " games &middot; avg " + mean.toFixed(1) + " &middot; median " + med.toFixed(1) +
+      body = '<div class="xt-sub">Game Score Distribution <span class="xt-hint">' + vals.length + " games &middot; avg " + mean.toFixed(1) + (lgAvg == null ? "" : " (league " + lgAvg.toFixed(1) + ")") + " &middot; median " + med.toFixed(1) +
         " &middot; best " + vals[vals.length - 1].toFixed(1) + " &middot; worst " + vals[0].toFixed(1) + "</span></div>" + '<div class="dx-chart">' + svg + "</div>";
     }
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
