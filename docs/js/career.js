@@ -74,7 +74,7 @@
     s.dpa = s.dn ? s.ds / s.dn : null;
     return withGaps(s);
   }
-  /* Runs / WPA against the calculator model's expectation (Season 5 on; absent before). */
+  /* Runs / WPA against the calculator model's expectation (absent where a season has no modelled swings). */
   function withGaps(s) {
     var has = s.xr != null || s.rv != null;
     s.rvx = has ? (s.rv || 0) - (s.xr || 0) : null;
@@ -299,13 +299,16 @@
 
   // The league's average diff for what the chart is showing: the selected season (or all of them), regular
   // season and/or postseason as filtered - the same slice as the player's own line.
-  function leagueDpa() {
+  // League average over the seasons the player actually has swings in (so "All" matches a one-season player's S-view).
+  function leagueDpa(d, side) {
     var lg = modelData.lg_s;
     if (!lg) return modelData.lgdpa;
+    var mine = {};
+    Object.keys(((d && d.dist) || {})[side] || {}).forEach(function (k) { mine[parseInt(k, 10)] = 1; });
     var ds = 0, dn = 0;
     Object.keys(lg).forEach(function (k) {
       var post = k.charAt(k.length - 1) === "p", sn = parseInt(k, 10);
-      if (!gtOk(pm.gt, post) || (pm.season !== "all" && String(sn) !== pm.season)) return;
+      if (!gtOk(pm.gt, post) || (pm.season !== "all" && String(sn) !== pm.season) || !mine[sn]) return;
       ds += lg[k][0]; dn += lg[k][1];
     });
     return dn ? ds / dn : modelData.lgdpa;
@@ -315,7 +318,7 @@
     var side = pm.side;
     var seasons = {};
     all.forEach(function (r) { seasons[r.s] = 1; });
-    var snums = Object.keys(seasons).map(Number).filter(function (n) { return n >= 5; }).sort(function (a, b) { return a - b; });
+    var snums = Object.keys(seasons).map(Number).filter(function (n) { return n >= 1; }).sort(function (a, b) { return a - b; });
     var pills = '<div class="stats-subtabs"><button type="button" class="stats-subtab' + (pm.season === "all" ? " active" : "") + '" data-pseason="all">All</button>' +
       snums.map(function (sn) {
         return '<button type="button" class="stats-subtab' + (String(sn) === pm.season ? " active" : "") + '" data-pseason="' + sn + '">S' + sn + "</button>";
@@ -330,7 +333,7 @@
     var bins = dxBins(d, side);
     var n = 0;
     for (var c = 0; c < bins.length; c++) for (var b = 0; b < 25; b++) n += bins[c][b];
-    var rows = all.filter(function (r) { return r.s >= 5 && (pm.season === "all" || String(r.s) === pm.season); });
+    var rows = all.filter(function (r) { return (pm.season === "all" || String(r.s) === pm.season); });
     var line = lineFrom(rows, side);
     // Three centred rows: HR-BB, SacF-GO, K-DPH1.
     var legend = '<div class="dx-legend">', rowStart = { SacF: 1, K: 1 };
@@ -340,10 +343,10 @@
     });
     legend += "</div>";
     var body;
-    if (!n) body = '<div class="stats-empty">No modelled swings here. Diff charts start in Season 5.</div>';
+    if (!n) body = '<div class="stats-empty">No modelled swings here.</div>';
     else {
       body = '<div class="xt-sub">Diff Distribution <span class="xt-hint">' + n.toLocaleString() + " swings, 20-wide buckets</span></div>" +
-        '<div class="dx-chart">' + dxChart("count", bins, null, line.dpa, leagueDpa()) + "</div>" + legend;
+        '<div class="dx-chart">' + dxChart("count", bins, null, line.dpa, leagueDpa(d, side)) + "</div>" + legend;
     }
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
   }
@@ -380,6 +383,19 @@
       head.style.color = lum > 0.6 ? "#161715" : "#fff";
     } else head.style.color = "";
     head.classList.toggle("ph-colored", !!hex);
+    // Accent (tab underline, active pills, slider) follows the team's secondary colour, else its primary.
+    // Near-white picks keep the site red; the text on a filled accent flips by luminance.
+    var card = $("career-modal").querySelector(".modal-card"), acc = "";
+    [t && t.c2, t && t.c1].some(function (c) {
+      if (!/^[0-9a-f]{6}$/i.test(c || "")) return false;
+      var l = (0.299 * parseInt(c.slice(0, 2), 16) + 0.587 * parseInt(c.slice(2, 4), 16) + 0.114 * parseInt(c.slice(4, 6), 16)) / 255;
+      if (l > 0.8) return false;
+      acc = c;
+      card.style.setProperty("--acc-ink", l > 0.6 ? "#161715" : "#fff");
+      return true;
+    });
+    if (acc) card.style.setProperty("--red", "#" + acc);
+    else { card.style.removeProperty("--red"); card.style.removeProperty("--acc-ink"); }
     if (t && t.logo) { logo.src = t.logo; logo.alt = t.name || ""; logo.hidden = false; } else logo.hidden = true;
     var ps = h ? h.pos.filter(Boolean) : [];
     pos.innerHTML = ps.map(function (x) { return '<span class="ph-pill">' + esc(x) + "</span>"; }).join("");

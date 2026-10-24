@@ -3387,3 +3387,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Copy-link icon in the player header: bottom-right, clear of the name (header already pads right for the x). */
 #career-head .ph-link{position:absolute;right:8px;bottom:6px;border:none;background:transparent;color:inherit;opacity:0.8;padding:5px;border-radius:6px;cursor:pointer;line-height:0;}
 #career-head .ph-link:hover{opacity:1;background:rgba(127,127,127,0.25);}
+
+/* Player modal: --red is overridden on the card with the team accent; keep filled-pill text legible on it. */
+#career-modal .stats-subtab.active,#career-modal .chip.active{color:var(--acc-ink,#fff);}
+#career-modal .obc-chip.active{color:var(--acc-ink,#fff);}

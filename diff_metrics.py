@@ -1,6 +1,6 @@
 """Per-swing run value, WPA and their calculator-model expectations, for the website's career data.
 
-Every swing (a play with a pitch, a swing and a diff, from Season 5 on) is scored three ways:
+Every swing (a play with a pitch, a swing and a diff, every season) is scored three ways:
 
   rv   runs added: run expectancy after the play plus runs scored on it, minus run expectancy before it (RE24)
   wp   win probability added over the swing, batting side, in percentage points
@@ -19,7 +19,7 @@ import utils
 
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "diff_lab", "model.npz")
 INNINGS = 6
-FIRST_SEASON = 5
+FIRST_SEASON = 1
 BINS = 25          # diff 0-500 in buckets of 20 (500 joins the last bucket)
 BIN_W = 20
 MERGE = {"DPRun": "DP", "TP": "DP", "LODP": "DP"}
