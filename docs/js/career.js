@@ -220,6 +220,15 @@
   // both come from model.json (gc), so the chart stays in step with the model.
   var modelData = null;
   function DX() { return modelData.gc; }
+  // Stack / legend order, bottom to top: the model's order, except the doubles and singles lead with their
+  // "with hold-up" variants (2BWH before 2B, 1BWH and 1BWH2 before 1B).
+  var DX_FIRST = ["HR", "3B", "2BWH", "2B", "1BWH", "1BWH2", "1B"];
+  function dxOrder() {
+    var names = DX().map(function (x) { return x[0]; }), out = [];
+    DX_FIRST.forEach(function (n) { var i = names.indexOf(n); if (i >= 0) out.push(i); });
+    names.forEach(function (n, i) { if (out.indexOf(i) < 0) out.push(i); });
+    return out;
+  }
 
   function dxBins(d, side) {
     var tot = [], nc = DX().length;
@@ -256,7 +265,9 @@
       // the whole column (for the space above the stack); each segment below carries its own tip on top of it
       svg += '<rect x="' + x.toFixed(1) + '" y="' + T + '" width="' + w.toFixed(1) + '" height="' + ph + '" fill="transparent"><title>' + tip + "\n" + n[i] + " swing" + (n[i] === 1 ? "" : "s") + "</title></rect>";
       if (n[i]) {
-        for (var c2 = 0; c2 < NC; c2++) {
+        var ord = dxOrder();
+        for (var o2 = 0; o2 < NC; o2++) {
+          var c2 = ord[o2];
           var v2 = kind === "count" ? bins[c2][i] : bins[c2][i] / n[i];
           if (!v2) continue;
           var h = (v2 / max) * ph;
@@ -337,7 +348,8 @@
     var line = lineFrom(rows, side);
     // Three centred rows: HR-BB, SacF-GO, K-DPH1.
     var legend = '<div class="dx-legend">', rowStart = { SacF: 1, K: 1 };
-    DX().forEach(function (x, i) {
+    dxOrder().forEach(function (i) {
+      var x = DX()[i];
       if (rowStart[x[0]]) legend += '<div class="dx-legend-break"></div>';
       legend += '<span><i style="background:' + x[1] + '"></i>' + x[0] + "</span>";
     });
