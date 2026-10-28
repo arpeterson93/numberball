@@ -4990,11 +4990,17 @@ with tab_c:
         # Safe-range ring on the radials (same idea as the pitcher's OBR ring) -
         # off until the steal has been moved from its untouched 500 default.
         _ring_lo_c, _ring_hi_c = (_safe_lo_c, _safe_hi_c) if _pred_steal_val_c != 500 else (None, None)
+        # Rim band under the pill outline, like the Pitcher's score band: 1 where a throw would be Safe, 0 where Out.
+        _band_scores_c = None
+        if _ring_lo_c is not None:
+            _band_d_c = np.abs(np.arange(1, 1001) - _pred_steal_val_c)
+            _band_scores_c = (np.minimum(_band_d_c, 1000 - _band_d_c) <= _c_safe_range).astype(float)
         _actual_throws_radial_c = len(_df_radial_throws_c["throw_num"].dropna().tail(n_throws)) if not _df_radial_throws_c.empty else 0
         st.plotly_chart(
             utils.radial_recent_pitches_chart(_df_radial_throws_c, n=n_throws, value_col="throw_num",
                                               title=f"Last {_actual_throws_radial_c} Throws",
-                                              obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
+                                              obr_lo=_ring_lo_c, obr_hi=_ring_hi_c,
+                                              score_band_scores=_band_scores_c),
             width="stretch", key="c_radial",
         )
         _actual_deltas_radial_c = len(_df_radial_deltas_c["throw_num_circ_delta"].dropna().tail(n_throws)) if not _df_radial_deltas_c.empty else 0
@@ -5007,7 +5013,8 @@ with tab_c:
                                              value_col="throw_num", title=_deltas_radial_title_c,
                                              center_on_prev=_center_deltas_c,
                                              anchor=_cf_true_anchor_c,
-                                             obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
+                                             obr_lo=_ring_lo_c, obr_hi=_ring_hi_c,
+                                             score_band_scores=_band_scores_c),
             width="stretch", key="c_radial_delta",
         )
         st.toggle(
@@ -5021,7 +5028,8 @@ with tab_c:
                                         value_col="throw_num", delta_col="throw_num_circ_delta",
                                         title=f"Last {_actual_combined_radial_c} Combined",
                                         anchor=_cf_true_anchor_c,
-                                        obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
+                                        obr_lo=_ring_lo_c, obr_hi=_ring_hi_c,
+                                        score_band_scores=_band_scores_c),
             width="stretch", key="c_radial_combined",
         )
 
