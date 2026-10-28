@@ -8,7 +8,12 @@ Usage:
     python sync_plays.py
 """
 from __future__ import annotations
+import hashlib
+import json
+import os
+import pathlib
 import sys
+import time
 import database as db
 import utils
 
@@ -35,6 +40,108 @@ _GAMES_TABLE_COLS = {
 }
 
 
+# ── change tracking ───────────────────────────────────────────────────────────
+# The sync runs every 5 minutes and almost nothing changes between runs, so it keeps a small state file (restored /
+# saved by the workflow's Actions cache) holding a hash of every row it last wrote plus short-lived copies of the
+# Supabase lookup tables. A run then (1) skips a plays tab entirely when the sheet is byte-identical to last time,
+# (2) upserts only the rows whose hash changed, and (3) reads the lookups from the file instead of Supabase.
+# No state (first run, evicted cache, SYNC_FULL=1, or older than FULL_REFRESH_S) means a full upsert - the same writes
+# as before, with returning="minimal" so Supabase sends nothing back.
+_STATE_VERSION = 1
+_FULL_REFRESH_S = 24 * 3600      # re-upsert everything this often so any drift from the sheets is healed
+_GAMES_TTL_S = 3600              # game_code -> id; also refreshed immediately when a play's game is missing
+_NAMES_TTL_S = 20 * 60           # id -> name maps: a renamed / newly added player shows up within this window
+
+STATE: "_State | None" = None
+
+
+def _hash(obj) -> str:
+    return hashlib.md5(json.dumps(obj, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+
+
+class _State:
+    def __init__(self):
+        self.path = pathlib.Path(os.environ.get("SYNC_STATE_PATH", ".sync_state/state.json"))
+        self.data: dict = {}
+        self._loaded = ""
+        try:
+            self._loaded = self.path.read_text(encoding="utf-8")
+            self.data = json.loads(self._loaded)
+        except Exception:
+            self.data = {}
+        if self.data.get("version") != _STATE_VERSION:
+            self.data = {}
+        forced = os.environ.get("SYNC_FULL", "").strip().lower() in ("1", "true", "yes")
+        stale = time.time() - self.data.get("full_at", 0) > _FULL_REFRESH_S
+        self.full = forced or stale or not self.data
+        if self.full:
+            self.data = {"version": _STATE_VERSION, "full_at": time.time(), "lookups": {}, "sections": {}}
+        print(f"[state] {'full upsert' if self.full else 'incremental'} run "
+              f"({'forced' if forced else 'no/stale state' if stale or not self._loaded else 'state loaded'})")
+
+    # lookups -----------------------------------------------------------------
+    def _fresh(self, name: str, ttl: float) -> bool:
+        ent = self.data["lookups"].get(name)
+        return bool(ent) and time.time() - ent["at"] < ttl
+
+    def fresh(self, *names_ttls: tuple[str, float]) -> bool:
+        return all(self._fresh(n, t) for n, t in names_ttls)
+
+    def lookup(self, name: str, fetch, ttl: float, refresh: bool = False) -> tuple[list, bool]:
+        """(value, fetched_now). value is JSON-friendly; refetched from Supabase only when stale or refresh=True."""
+        if not refresh and self._fresh(name, ttl):
+            return self.data["lookups"][name]["v"], False
+        value = fetch()
+        self.data["lookups"][name] = {"at": time.time(), "v": value}
+        return value, True
+
+    # per-section row hashes --------------------------------------------------
+    def section(self, name: str) -> dict:
+        return self.data["sections"].setdefault(name, {})
+
+    def save(self) -> bool:
+        """Write the state file; returns True when it differs from what was loaded (the workflow re-caches only then)."""
+        text = json.dumps(self.data, sort_keys=True, default=str)
+        changed = text != self._loaded
+        if changed:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(text, encoding="utf-8")
+        return changed
+
+
+def _upsert_changed(section: str, rows: list[dict], key: str, upsert) -> tuple[int, list[str]]:
+    """Upsert only rows whose hash differs from the last successful write of this section; record the new hashes."""
+    sec = STATE.section(section)
+    old = {} if STATE.full else sec.get("rows", {})
+    new = {str(r[key]): _hash(r) for r in rows}
+    changed = [r for r in rows if old.get(str(r[key])) != new[str(r[key])]]
+    try:
+        n = upsert(changed) if changed else 0
+    except Exception as e:
+        return 0, [str(e)]
+    sec["rows"] = new
+    print(f"  {section}: {n} of {len(rows)} rows changed")
+    return n, []
+
+
+def _plays_unchanged(section: str, plays: list[dict], *lookups: tuple[str, float]) -> bool:
+    """True when the sheet's plays are identical to the last fully-synced run and the lookups are still fresh."""
+    if STATE.full or STATE.section(section).get("raw") != _hash(plays):
+        return False
+    return STATE.fresh(*lookups)
+
+
+def _games_lookup(codes: set) -> list[list]:
+    """[[id, game_code, league], ...]; re-read from Supabase if a play's game isn't in the cached copy yet."""
+    def fetch():
+        return [[g["id"], str(g["game_code"]).strip(), g.get("league")]
+                for g in db.get_game_lookup() if g.get("game_code") and g.get("id")]
+    rows, fetched = STATE.lookup("games", fetch, _GAMES_TTL_S)
+    if not fetched and {str(c).strip() for c in codes} - {r[1] for r in rows}:
+        rows, _ = STATE.lookup("games", fetch, _GAMES_TTL_S, refresh=True)
+    return rows
+
+
 # ── RLN ───────────────────────────────────────────────────────────────────────
 
 def sync_rln_games(sheet_id: str) -> tuple[int, list[str]]:
@@ -44,10 +151,7 @@ def sync_rln_games(sheet_id: str) -> tuple[int, list[str]]:
     for g in games:
         g["league"] = "RLN"
         g["game_type"] = "live"
-    try:
-        return db.bulk_upsert_games(games), []
-    except Exception as e:
-        return 0, [str(e)]
+    return _upsert_changed("rln_games", games, "game_code", db.bulk_upsert_games)
 
 
 def sync_rln_plays(sheet_id: str) -> tuple[int, list[str]]:
@@ -55,11 +159,15 @@ def sync_rln_plays(sheet_id: str) -> tuple[int, list[str]]:
     if not plays:
         return 0, ["No plays found in the RLN Plays (Raw) tab."]
 
-    all_games   = db.get_games()
-    all_players = db.get_all_players()
-    game_code_to_id   = {g["game_code"]: g["id"] for g in all_games  if g.get("game_code")}
-    player_id_to_name = {p["player_id"]: p["name"] for p in all_players
-                         if p.get("player_id") and p.get("name")}
+    raw = _hash(plays)
+    if _plays_unchanged("rln_plays", plays, ("games", _GAMES_TTL_S), ("rln_players", _NAMES_TTL_S)):
+        print("  rln_plays: sheet unchanged, skipped")
+        return 0, []
+
+    game_code_to_id = {code: gid for gid, code, _ in _games_lookup({p["game_code"] for p in plays})}
+    names, _ = STATE.lookup("rln_players", lambda: [[p["player_id"], p["name"]] for p in db.get_player_name_lookup()
+                                                    if p.get("player_id") and p.get("name")], _NAMES_TTL_S)
+    player_id_to_name = dict(names)
 
     plays_sorted  = sorted(plays, key=lambda p: p["play_num"])
     seen_inn:     dict[str, set]   = {}
@@ -119,10 +227,10 @@ def sync_rln_plays(sheet_id: str) -> tuple[int, list[str]]:
 
     if not rows:
         return 0, errors
-    try:
-        return db.bulk_upsert_plays(rows), errors
-    except Exception as e:
-        return 0, errors + [str(e)]
+    n, errs = _upsert_changed("rln_plays", rows, "play_num", db.bulk_upsert_plays)
+    if not errors and not errs:
+        STATE.section("rln_plays")["raw"] = raw     # fully synced: next identical sheet read can be skipped
+    return n, errors + errs
 
 
 # ── MLN ───────────────────────────────────────────────────────────────────────
@@ -144,10 +252,7 @@ def sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
         g["archive_sheet_id"] = sheet_id
         g["game_type"] = "live"
     games = [{k: v for k, v in g.items() if k in _GAMES_TABLE_COLS} for g in games]
-    try:
-        return db.bulk_upsert_games(games), []
-    except Exception as e:
-        return 0, [str(e)]
+    return _upsert_changed("mln_games", games, "game_code", db.bulk_upsert_games)
 
 
 def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
@@ -155,10 +260,15 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
     if not plays:
         return 0, ["No plays found in the MLN Plays (Raw) tab."]
 
-    all_games = db.get_games()
-    game_code_to_id = {str(g["game_code"]).strip(): g["id"] for g in all_games if g.get("game_code") and g.get("id")}
-    mln_game_codes  = sorted(str(g["game_code"]).strip() for g in all_games
-                             if g.get("league") == "MLN" and g.get("game_code"))
+    raw = _hash(plays)
+    if _plays_unchanged("mln_plays", plays, ("games", _GAMES_TTL_S), ("mln_teams", _NAMES_TTL_S),
+                        ("mln_players", _NAMES_TTL_S)):
+        print("  mln_plays: sheet unchanged, skipped")
+        return 0, []
+
+    all_games = _games_lookup({p["game_code"] for p in plays})
+    game_code_to_id = {code: gid for gid, code, _ in all_games}
+    mln_game_codes  = sorted(code for _, code, league in all_games if league == "MLN")
     play_game_codes = sorted({p["game_code"] for p in plays})
     if not mln_game_codes:
         return 0, [
@@ -172,12 +282,12 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
         f"{len(missing)} game code(s) missing from DB e.g. {missing[:5]}",
     ] if missing else [])
 
-    mln_teams   = db.get_mln_teams_for_lookup()
-    mln_players = db.get_mln_players_for_lookup()
-    team_id_to_full = {t["team_id"]: t["full_team"] for t in mln_teams
-                       if t.get("team_id") and t.get("full_team")}
-    sid_to_name     = {p["s_id"]: p["name"] for p in mln_players
-                       if p.get("s_id") and p.get("name")}
+    teams, _ = STATE.lookup("mln_teams", lambda: [[t["team_id"], t["full_team"]] for t in db.get_mln_teams_for_lookup()
+                                                  if t.get("team_id") and t.get("full_team")], _NAMES_TTL_S)
+    plyrs, _ = STATE.lookup("mln_players", lambda: [[p["s_id"], p["name"]] for p in db.get_mln_players_for_lookup()
+                                                    if p.get("s_id") and p.get("name")], _NAMES_TTL_S)
+    team_id_to_full = dict(teams)
+    sid_to_name     = dict(plyrs)
 
     plays_sorted  = sorted(plays, key=lambda p: p["play_num"])
     seen_inn:     dict[str, set]   = {}
@@ -244,10 +354,10 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
     if not rows:
         return 0, diag + errors
     rows = list({(r["play_num"], r.get("league", "MLN")): r for r in rows}.values())
-    try:
-        return db.bulk_upsert_mln_plays(rows), diag + errors
-    except Exception as e:
-        return 0, diag + errors + [str(e)]
+    n, errs = _upsert_changed("mln_plays", rows, "play_num", db.bulk_upsert_mln_plays)
+    if not errors and not errs:
+        STATE.section("mln_plays")["raw"] = raw     # fully synced: next identical sheet read can be skipped
+    return n, diag + errors + errs
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -284,13 +394,19 @@ def _check_credentials() -> bool:
 
 
 def main() -> None:
+    global STATE
     if not _check_credentials():
         sys.exit(1)
+    STATE = _State()
     hard_error = False
     hard_error |= _run("RLN Games",  sync_rln_games,  _RLN_SHEET_ID)
     hard_error |= _run("RLN Plays",  sync_rln_plays,  _RLN_SHEET_ID)
     hard_error |= _run("MLN Games",  sync_mln_games,  _MLN_SHEET_ID)
     hard_error |= _run("MLN Plays",  sync_mln_plays,  _MLN_SHEET_ID)
+    changed = STATE.save()
+    if os.environ.get("GITHUB_OUTPUT"):      # tells the workflow whether to re-save its Actions cache
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"state_changed={'true' if changed else 'false'}\n")
     print()
     if hard_error:
         print("Sync completed with errors.", file=sys.stderr)

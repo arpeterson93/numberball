@@ -37,7 +37,8 @@ def _bulk_upsert(table: str, rows: list[dict], on_conflict: str) -> int:
         return 0
     total = 0
     for i in range(0, len(rows), _CHUNK):
-        _client().table(table).upsert(rows[i:i + _CHUNK], on_conflict=on_conflict).execute()
+        # returning="minimal": the default sends every upserted row back, which counts as Supabase egress
+        _client().table(table).upsert(rows[i:i + _CHUNK], on_conflict=on_conflict, returning="minimal").execute()
         total += len(rows[i:i + _CHUNK])
     return total
 
@@ -63,6 +64,27 @@ def get_games() -> list[dict]:
         .select("*")
         .order("season", desc=True)
         .order("session_number", desc=True)
+    )
+
+
+def get_game_lookup() -> list[dict]:
+    """Just id / game_code / league for every game - the sync's game_code -> id map, without get_games()'s select *."""
+    return _fetch_all(
+        _client().table("games")
+        .select("id, game_code, league")
+        .order("season", desc=True)
+        .order("session_number", desc=True)
+        .order("id")
+    )
+
+
+def get_player_name_lookup() -> list[dict]:
+    """Just player_id / name for every player - the RLN sync's id -> name map, without get_all_players()'s 17 columns."""
+    return _fetch_all(
+        _client().table("players")
+        .select("player_id, name")
+        .order("name")
+        .order("player_id")
     )
 
 

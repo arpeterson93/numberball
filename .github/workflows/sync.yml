@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '*/5 * * * *'   # every 5 minutes
   workflow_dispatch:         # allows manual trigger from GitHub Actions tab
+    inputs:
+      full:
+        description: 'Re-upsert every row instead of only the changed ones'
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -22,8 +27,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Row hashes + lookup tables from the last run (see "change tracking" in sync_plays.py). The state is saved
+      # under a fresh key only when it changed; restore-keys picks the newest one. A missing / evicted cache just
+      # means a full upsert, never a wrong one.
+      - name: Restore sync state
+        uses: actions/cache/restore@v4
+        with:
+          path: .sync_state
+          key: sync-state-v1-${{ github.run_id }}
+          restore-keys: sync-state-v1-
+
       - name: Run sync
+        id: sync
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SYNC_FULL: ${{ inputs.full }}
         run: python -u sync_plays.py
+
+      - name: Save sync state
+        if: always() && steps.sync.outputs.state_changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .sync_state
+          key: sync-state-v1-${{ github.run_id }}-${{ github.run_attempt }}

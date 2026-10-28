@@ -26,3 +26,6 @@ tools/probe_output/pitch_screen/
 tools/probe_output/pitch_model_fit/
 tools/probe_output/pitch_calibration/
 tools/probe_output/transitions/
+
+# Sync change-tracking state (Actions cache locally mirrored by SYNC_STATE_PATH)
+.sync_state/
