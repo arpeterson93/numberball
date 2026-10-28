@@ -4987,10 +4987,14 @@ with tab_c:
                 _df_radial_throws_c = df_c_pred
                 _df_radial_deltas_c  = df_c_pred
 
+        # Safe-range ring on the radials (same idea as the pitcher's OBR ring) -
+        # off until the steal has been moved from its untouched 500 default.
+        _ring_lo_c, _ring_hi_c = (_safe_lo_c, _safe_hi_c) if _pred_steal_val_c != 500 else (None, None)
         _actual_throws_radial_c = len(_df_radial_throws_c["throw_num"].dropna().tail(n_throws)) if not _df_radial_throws_c.empty else 0
         st.plotly_chart(
             utils.radial_recent_pitches_chart(_df_radial_throws_c, n=n_throws, value_col="throw_num",
-                                              title=f"Last {_actual_throws_radial_c} Throws"),
+                                              title=f"Last {_actual_throws_radial_c} Throws",
+                                              obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
             width="stretch", key="c_radial",
         )
         _actual_deltas_radial_c = len(_df_radial_deltas_c["throw_num_circ_delta"].dropna().tail(n_throws)) if not _df_radial_deltas_c.empty else 0
@@ -5002,7 +5006,8 @@ with tab_c:
             utils.radial_recent_deltas_chart(_df_radial_deltas_c, n=n_throws, delta_col="throw_num_circ_delta",
                                              value_col="throw_num", title=_deltas_radial_title_c,
                                              center_on_prev=_center_deltas_c,
-                                             anchor=_cf_true_anchor_c),
+                                             anchor=_cf_true_anchor_c,
+                                             obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
             width="stretch", key="c_radial_delta",
         )
         st.toggle(
@@ -5015,7 +5020,8 @@ with tab_c:
             utils.radial_combined_chart(_df_radial_throws_c, _df_radial_deltas_c, n=n_throws,
                                         value_col="throw_num", delta_col="throw_num_circ_delta",
                                         title=f"Last {_actual_combined_radial_c} Combined",
-                                        anchor=_cf_true_anchor_c),
+                                        anchor=_cf_true_anchor_c,
+                                        obr_lo=_ring_lo_c, obr_hi=_ring_hi_c),
             width="stretch", key="c_radial_combined",
         )
 
