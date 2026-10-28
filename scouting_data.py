@@ -201,6 +201,20 @@ def _resolve_sheet_player(players: list[dict], by_sid: dict, by_pid: dict,
     return row or by_pid.get(str(raw_id), {})
 
 
+def _state_plays(game_code: int, game_id, is_mln: bool) -> list[dict]:
+    """The game's plays for the inning/half read: off the MLN sheet (ahead of the plays sync, and free) when it has them,
+    else the Supabase plays table."""
+    if is_mln:
+        try:
+            import live_sheet
+            plays = live_sheet.plays(game_code)
+            if plays:
+                return plays
+        except Exception:
+            pass
+    return db.get_plays_for_game(game_id) or []
+
+
 @st.cache_data(ttl=30)
 def resolve_game_state(game_code: int) -> dict:
     """Everything the Discord bot needs to drive scouting commands and the
@@ -287,7 +301,7 @@ def resolve_game_state(game_code: int) -> dict:
 
     # Inning/half aren't on the sheet - derive them the same way the Manager
     # tab does, from the last play synced to Supabase for this game.
-    plays = db.get_plays_for_game(game_id) or []
+    plays = _state_plays(game_code, game_id, is_mln)
     if plays:
         last_play = sorted(plays, key=lambda p: p.get("play_num") or p.get("id") or 0)[-1]
         li = int(last_play.get("inning") or 1)

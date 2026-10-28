@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta
 
 import database as db
+import live_sheet
 import scouting_data
 import utils
 
@@ -147,8 +148,7 @@ def _sheet_finals() -> set[str] | None:
     if _finals is not None and time.time() - _finals_loaded < _FINALS_TTL:
         return _finals
     try:
-        _finals = {str(g["game_code"]) for g in utils.read_mln_games_from_sheet(MLN_SHEET_ID)
-                   if utils.game_is_final(g)}
+        _finals = {str(g["game_code"]) for g in live_sheet.games() if utils.game_is_final(g)}
         _finals_loaded = time.time()
         return _finals
     except Exception as e:
@@ -174,9 +174,7 @@ def find_live_game(override: str | None = None) -> dict | None:
         g = db.get_game_by_code(int(override))
         return g
     finals = _sheet_finals()
-    games = [g for g in db.get_games()
-             if TEAM in (g.get("home_team"), g.get("away_team"))
-             and not _game_over(g, finals) and g.get("sheet_url")]
+    games = _candidate_games(finals)
     if not games:
         return None
     season = max(g.get("season") or 0 for g in games)
@@ -196,10 +194,88 @@ def find_live_game(override: str | None = None) -> dict | None:
     return best
 
 
-def _last_play(game_code) -> dict | None:
+def _last_play_db(game_code) -> dict | None:
     rows = (_t("plays").select("play_num,timestamp").eq("game_code", str(game_code))
             .order("play_num", desc=True).limit(1).execute().data)
     return rows[0] if rows else None
+
+
+# The live game, its plays and its latest play come straight off the MLN sheet (live_sheet): it is the raw source the plays
+# sync copies into Supabase, so it is current before the sync runs and reading it costs no Supabase egress. Every helper
+# falls back to the Supabase tables if the sheet can't be read.
+
+_SHEET_URL_TTL = 120
+_sheet_urls: dict = {"at": 0.0, "codes": None, "urls": {}}
+
+
+def _sheet_url_flags(codes: list[str]) -> dict[str, str]:
+    """{game_code: scoresheet link} from Supabase for just the candidate games (a few rows, cached). The link is set by
+    hand on the Games page when a game goes live, so having one is what marks a game as ready for the bot."""
+    cache = _sheet_urls
+    if cache["codes"] == codes and time.time() - cache["at"] < _SHEET_URL_TTL:
+        return cache["urls"]
+    urls = db.get_game_sheet_urls(codes)
+    cache.update(at=time.time(), codes=list(codes), urls=urls)
+    return urls
+
+
+def _candidate_games(finals: set[str] | None) -> list[dict]:
+    """Our unfinished games that have a scoresheet link on file."""
+    try:
+        cands = [g for g in live_sheet.games()
+                 if TEAM in (g.get("home_team"), g.get("away_team")) and not _game_over(g, finals)]
+        urls = _sheet_url_flags([g["game_code"] for g in cands])
+        return [{**g, "sheet_url": urls[g["game_code"]]} for g in cands if g["game_code"] in urls]
+    except Exception as e:
+        print(f"games sheet read failed, using the synced games table: {e!r}")
+        return [g for g in db.get_games()
+                if TEAM in (g.get("home_team"), g.get("away_team"))
+                and not _game_over(g, finals) and g.get("sheet_url")]
+
+
+def _last_play(game_code) -> dict | None:
+    try:
+        return live_sheet.last_play(game_code)
+    except Exception as e:
+        print(f"plays sheet read failed, using the synced plays table: {e!r}")
+        return _last_play_db(game_code)
+
+
+def _plays_after(code: str, after: int, limit: int, cols: str) -> list[dict]:
+    """This game's plays with play_num > after, oldest first (cols is only used by the Supabase fallback)."""
+    try:
+        return [p for p in live_sheet.plays(code) if int(p["play_num"]) > int(after)][:limit]
+    except Exception as e:
+        print(f"plays sheet read failed, using the synced plays table: {e!r}")
+        return (_t("plays").select(cols).eq("game_code", str(code)).gt("play_num", after)
+                .order("play_num").limit(limit).execute().data)
+
+
+def recent_plays(code: str, n: int) -> list[dict]:
+    """The game's newest n plays, newest first."""
+    try:
+        return live_sheet.plays(code)[::-1][:n]
+    except Exception as e:
+        print(f"plays sheet read failed, using the synced plays table: {e!r}")
+        return (_t("plays").select("play_num,pitch,swing,result,timestamp").eq("game_code", str(code))
+                .order("play_num", desc=True).limit(n).execute().data)
+
+
+def _game_row(code) -> dict:
+    try:
+        g = live_sheet.game(code)
+        if g:
+            return g
+    except Exception as e:
+        print(f"games sheet read failed, using the synced games table: {e!r}")
+    return db.get_game_by_code(int(code)) or {}
+
+
+def current_season() -> int | None:
+    try:
+        return live_sheet.current_season()
+    except Exception:
+        return max((g.get("season") or 0 for g in db.get_games()), default=None)
 
 
 # ------------------------------------------------------------- open pitch
@@ -256,7 +332,7 @@ def _snapshot(code: str) -> dict:
             "inning": state.get("inning"), "half": state.get("half"),
             "outs": state.get("outs"), "obc": state.get("obc"),
             "swing_type": swing_type, "ranges": [list(r) for r in ranges]}
-    game = db.get_game_by_code(int(code)) or {}
+    game = _game_row(code)
     if game.get("away_team"):
         ours, theirs = (("away_score", "home_score") if game["away_team"] == TEAM
                         else ("home_score", "away_score"))
@@ -378,9 +454,7 @@ def _reconcile(code: str) -> set[int]:
     pending = [r for r in rows if r.get("play_num") is None and r.get("pitch") is not None]
     if not pending:
         return claimed
-    plays = (_t("plays").select("play_num,play_type,pitch,swing").eq("game_code", code)
-             .gt("play_num", min(int(r["after_play_num"]) for r in pending))
-             .order("play_num").limit(200).execute().data)
+    plays = _plays_after(code, min(int(r["after_play_num"]) for r in pending), 200, "play_num,play_type,pitch,swing")
     for r in pending:
         for pl in plays:
             n = int(pl["play_num"])
@@ -398,9 +472,8 @@ def _actual_pitch(pitch_row: dict) -> dict | None:
     """First real pitch (swing, not a steal, not already claimed by an earlier
     graded pitch) in plays after the open pitch."""
     claimed = _reconcile(pitch_row["game_code"])
-    rows = (_t("plays").select("play_num,play_type,result,pitch,swing,off_team")
-            .eq("game_code", pitch_row["game_code"]).gt("play_num", pitch_row["after_play_num"])
-            .order("play_num").limit(20).execute().data)
+    rows = _plays_after(pitch_row["game_code"], pitch_row["after_play_num"], 20,
+                        "play_num,play_type,result,pitch,swing,off_team")
     for r in rows:
         if str(r.get("play_type") or "").lower() == "steal" or int(r["play_num"]) in claimed:
             continue

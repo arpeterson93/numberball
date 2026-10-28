@@ -255,40 +255,11 @@ def sync_mln_games(sheet_id: str) -> tuple[int, list[str]]:
     return _upsert_changed("mln_games", games, "game_code", db.bulk_upsert_games)
 
 
-def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
-    plays = utils.read_mln_plays_from_sheet(sheet_id, tab="Plays (Raw)")
-    if not plays:
-        return 0, ["No plays found in the MLN Plays (Raw) tab."]
-
-    raw = _hash(plays)
-    if _plays_unchanged("mln_plays", plays, ("games", _GAMES_TTL_S), ("mln_teams", _NAMES_TTL_S),
-                        ("mln_players", _NAMES_TTL_S)):
-        print("  mln_plays: sheet unchanged, skipped")
-        return 0, []
-
-    all_games = _games_lookup({p["game_code"] for p in plays})
-    game_code_to_id = {code: gid for gid, code, _ in all_games}
-    mln_game_codes  = sorted(code for _, code, league in all_games if league == "MLN")
-    play_game_codes = sorted({p["game_code"] for p in plays})
-    if not mln_game_codes:
-        return 0, [
-            f"No MLN games in DB - sync MLN Games first. "
-            f"Plays reference game codes like: {play_game_codes[:5]}"
-        ]
-    missing = sorted(set(play_game_codes) - set(mln_game_codes))
-    diag = ([
-        f"DB has {len(mln_game_codes)} MLN game(s) e.g. {mln_game_codes[:5]}",
-        f"Plays reference {len(play_game_codes)} game(s) e.g. {play_game_codes[:5]}",
-        f"{len(missing)} game code(s) missing from DB e.g. {missing[:5]}",
-    ] if missing else [])
-
-    teams, _ = STATE.lookup("mln_teams", lambda: [[t["team_id"], t["full_team"]] for t in db.get_mln_teams_for_lookup()
-                                                  if t.get("team_id") and t.get("full_team")], _NAMES_TTL_S)
-    plyrs, _ = STATE.lookup("mln_players", lambda: [[p["s_id"], p["name"]] for p in db.get_mln_players_for_lookup()
-                                                    if p.get("s_id") and p.get("name")], _NAMES_TTL_S)
-    team_id_to_full = dict(teams)
-    sid_to_name     = dict(plyrs)
-
+def build_mln_rows(plays: list[dict], game_code_to_id: dict, sid_to_name: dict, team_id_to_full: dict,
+                   require_game: bool = True) -> tuple[list[dict], list[str]]:
+    """The plays-table row for every MLN sheet play (names, teams, outs before the play, diff and first-pitch flags
+    resolved from the lookups). Shared by the sync and by PioBall's live pitcher history, which passes
+    require_game=False so a play whose game has no Supabase id yet still builds (game_id stays None)."""
     plays_sorted  = sorted(plays, key=lambda p: p["play_num"])
     seen_inn:     dict[str, set]   = {}
     seen_pitcher: dict[str, set]   = {}
@@ -300,7 +271,7 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
         gc         = play["game_code"]
         season     = play.get("season") or _CURRENT_MLN_SEASON or (int(gc[:2]) if gc and len(gc) >= 2 and gc[:2].isdigit() else None)
         game_db_id = game_code_to_id.get(gc)
-        if not game_db_id:
+        if require_game and not game_db_id:
             errors.append(f"Play {play['play_num']}: game {gc} not in DB - sync MLN Games first.")
             continue
 
@@ -350,6 +321,44 @@ def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
             "is_fp_inn":    is_fp_inn,
             "is_fp_app":    is_fp_app,
         })
+    return rows, errors
+
+
+def sync_mln_plays(sheet_id: str) -> tuple[int, list[str]]:
+    plays = utils.read_mln_plays_from_sheet(sheet_id, tab="Plays (Raw)")
+    if not plays:
+        return 0, ["No plays found in the MLN Plays (Raw) tab."]
+
+    raw = _hash(plays)
+    if _plays_unchanged("mln_plays", plays, ("games", _GAMES_TTL_S), ("mln_teams", _NAMES_TTL_S),
+                        ("mln_players", _NAMES_TTL_S)):
+        print("  mln_plays: sheet unchanged, skipped")
+        return 0, []
+
+    all_games = _games_lookup({p["game_code"] for p in plays})
+    game_code_to_id = {code: gid for gid, code, _ in all_games}
+    mln_game_codes  = sorted(code for _, code, league in all_games if league == "MLN")
+    play_game_codes = sorted({p["game_code"] for p in plays})
+    if not mln_game_codes:
+        return 0, [
+            f"No MLN games in DB - sync MLN Games first. "
+            f"Plays reference game codes like: {play_game_codes[:5]}"
+        ]
+    missing = sorted(set(play_game_codes) - set(mln_game_codes))
+    diag = ([
+        f"DB has {len(mln_game_codes)} MLN game(s) e.g. {mln_game_codes[:5]}",
+        f"Plays reference {len(play_game_codes)} game(s) e.g. {play_game_codes[:5]}",
+        f"{len(missing)} game code(s) missing from DB e.g. {missing[:5]}",
+    ] if missing else [])
+
+    teams, _ = STATE.lookup("mln_teams", lambda: [[t["team_id"], t["full_team"]] for t in db.get_mln_teams_for_lookup()
+                                                  if t.get("team_id") and t.get("full_team")], _NAMES_TTL_S)
+    plyrs, _ = STATE.lookup("mln_players", lambda: [[p["s_id"], p["name"]] for p in db.get_mln_players_for_lookup()
+                                                    if p.get("s_id") and p.get("name")], _NAMES_TTL_S)
+    team_id_to_full = dict(teams)
+    sid_to_name     = dict(plyrs)
+
+    rows, errors = build_mln_rows(plays, game_code_to_id, sid_to_name, team_id_to_full)
 
     if not rows:
         return 0, diag + errors

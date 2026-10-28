@@ -169,8 +169,7 @@ async def leaderboard(interaction: discord.Interaction, scope: str = "season", s
     elif scope == "season":
         season = (game or {}).get("season")
         if season is None:
-            games = await asyncio.to_thread(database.get_games)
-            season = max((g.get("season") or 0) for g in games)
+            season = await asyncio.to_thread(swing_game.current_season)
         rows = await asyncio.to_thread(swing_game.stats, "season", season=season, by=sort)
         title = f"PioBall - Season {season}"
     else:
@@ -212,8 +211,7 @@ async def player(interaction: discord.Interaction, player: str | None = None,
     game = await _live_game()
     season = (game or {}).get("season")
     if season is None:
-        games = await asyncio.to_thread(database.get_games)
-        season = max((g.get("season") or 0) for g in games)
+        season = await asyncio.to_thread(swing_game.current_season)
     card = await asyncio.to_thread(swing_game.player_card, who_id, count,
                                    game["game_code"] if game else None, season)
     if not card["history"]["rows"]:

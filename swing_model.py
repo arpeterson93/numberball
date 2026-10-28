@@ -15,6 +15,7 @@ import numpy as np
 
 import bot_charts
 import database as db
+import live_sheet
 import scouting_data
 import swing_game
 import utils
@@ -48,12 +49,11 @@ def sync_status(game_code, last_result: dict | None = None) -> dict:
             age = 0
         if r.get("pitch") is not None and age < _FEED_MAX_AGE:
             pending.append(r)
-    plays = (_t("plays").select("play_num,pitch,swing,result,timestamp").eq("game_code", code)
-             .order("play_num", desc=True).limit(_RECENT_PLAYS).execute().data)
+    plays = swing_game.recent_plays(code, _RECENT_PLAYS)
     issues = []
     if pending:
         n = len(pending)
-        issues.append(f"{n} graded pitch{'es' if n != 1 else ''} not in the plays table yet")
+        issues.append(f"{n} graded pitch{'es' if n != 1 else ''} not on the plays sheet yet")
     # A result from another game (back-to-back sessions) can never appear in this game's plays.
     verified = (bool(last_result) and time.time() - last_result["at"] < _FEED_MAX_AGE
                 and str(last_result.get("game_code")) == code)
@@ -62,17 +62,37 @@ def sync_status(game_code, last_result: dict | None = None) -> dict:
                    and (last_result.get("swing") is None or p.get("swing") == last_result["swing"])
                    for p in plays)
         if not seen:
-            issues.append(f"the latest result in the feed (pitch {last_result['pitch']}) hasn't synced yet")
+            issues.append(f"the latest result in the feed (pitch {last_result['pitch']}) hasn't reached the plays sheet yet")
     return {"ok": not issues, "issues": issues, "verified": verified,
             "last_play": plays[0] if plays else None}
 
 
+_HISTORY_TTL = 4 * 3600
+_history_cache: dict = {}
+
+
 def _history(pitcher: str):
-    """The pitcher's full history straight from Supabase. Deliberately not
-    scouting_data.load_pitcher_plays, whose one-hour cache would hide the
-    pitches thrown earlier in this very game."""
+    """The pitcher's full history: his Supabase plays (fetched once per few hours - older seasons never change) plus every
+    current-season play on the sheet that Supabase doesn't have yet, so the pitches thrown earlier in this very game are
+    there without waiting for the plays sync. Deliberately not scouting_data.load_pitcher_plays, whose one-hour cache
+    would hide them."""
     pid = scouting_data.player_dir()["name_to_pid"].get(pitcher)
-    raw = db.get_plays_for_pitcher_id(pid) if pid is not None else db.get_plays_for_pitcher(pitcher)
+    key = pid if pid is not None else pitcher
+    hit = _history_cache.get(key)
+    if hit is None or time.time() - hit[0] > _HISTORY_TTL:
+        raw = (db.get_plays_for_pitcher_id(pid) if pid is not None else db.get_plays_for_pitcher(pitcher)) or []
+        hit = _history_cache[key] = (time.time(), raw)
+    raw = list(hit[1])
+    try:
+        have = {p.get("play_num") for p in raw}
+        next_id = max((p.get("id") or 0 for p in raw), default=0) + 1
+        tail = [r for r in live_sheet.history_rows()
+                if r["play_num"] not in have and (r.get("pitcher_id") == pid if pid is not None
+                                                  else r.get("pitcher_name") == pitcher)]
+        for i, r in enumerate(sorted(tail, key=lambda r: r["play_num"])):
+            raw.append({**r, "id": next_id + i})    # sheet plays have no Supabase id yet; keep them in play order
+    except Exception as e:
+        print(f"plays sheet read failed, history is only as new as the plays table: {e!r}")
     return utils.enrich_df(utils.flatten_games(raw)) if raw else None
 
 
@@ -118,7 +138,7 @@ def recommend(game: dict, metric: str = "obp", last_result: dict | None = None, 
     if not sync["ok"] and not force:
         return {"ok": False, "sync": sync,
                 "reason": "Not recommending yet - the data isn't current: " + "; ".join(sync["issues"])
-                          + ". The plays sync runs every 5 minutes; try again after the next one."}
+                          + ". The plays sheet usually catches up within a minute; try again shortly."}
 
     # Re-read the sheet now that the plays are synced, so the inning/half/score the
     # model sees reflect the plate appearances just before this one.
@@ -186,7 +206,7 @@ def format_recommendation(r: dict) -> str:
         lines.append("Sync check: all graded pitches are in plays. The bot hasn't seen a feed result since it "
                      "started, so the very latest pitch is unconfirmed.")
     else:
-        lines.append("Sync check passed: the latest feed result is in the plays table.")
+        lines.append("Sync check passed: the latest feed result is on the plays sheet.")
     if not r["saved"] and not r.get("forced"):
         lines.append("(Not saved to the pitch - run migrate_swing_game.sql for the model_* columns.)")
     return "\n".join(lines)

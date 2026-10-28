@@ -170,6 +170,16 @@ def get_player_name_lookup() -> list[dict]:
     )
 
 
+def get_game_sheet_urls(game_codes: list) -> dict[str, str]:
+    """{game_code: sheet_url} for just these games, only those with a scoresheet link on file."""
+    codes = [str(c) for c in game_codes]
+    if not codes:
+        return {}
+    rows = (_client().table("games").select("game_code, sheet_url").in_("game_code", codes)
+            .not_.is_("sheet_url", "null").execute().data)
+    return {str(r["game_code"]): r["sheet_url"] for r in rows if r.get("sheet_url")}
+
+
 def get_game(game_id: int) -> dict | None:
     rows = (
         _client().table("games")
