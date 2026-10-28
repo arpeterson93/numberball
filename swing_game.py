@@ -88,6 +88,29 @@ def roster() -> dict[str, str]:
     return out
 
 
+_our_names: set[str] = set()
+_our_names_loaded = 0.0
+
+
+def is_our_batter(name: str | None) -> bool | None:
+    """Is this batter a Pioneer (newest season we appear in)? False for another team's
+    batter - the sheet already shows the opponent's next PA before our flag flips.
+    None when unknown (no name, or the players lookup failed): don't block on it."""
+    global _our_names, _our_names_loaded
+    if not name:
+        return None
+    try:
+        if not _our_names or time.time() - _our_names_loaded > _NAMES_TTL:
+            rows = db._fetch_all(_t("players").select("name,season").eq("team", TEAM_ABBREV))
+            season = max((r.get("season") or 0 for r in rows), default=0)
+            _our_names = {str(r["name"]).strip().lower() for r in rows
+                          if r.get("name") and (r.get("season") or 0) == season}
+            _our_names_loaded = time.time()
+    except Exception:
+        return None
+    return str(name).strip().lower() in _our_names if _our_names else None
+
+
 def display_name(user_id: str, fallback: str | None) -> str:
     """The Pioneers player this Discord user is, else their Discord name."""
     if str(user_id) == ACTUAL_ID:
@@ -109,15 +132,51 @@ def _parse_ts(s: str | None):
         return None
 
 
+MLN_SHEET_ID = "1NQ4l0EjwFYVdIjlYIkycYfuWw_jdZKiWsNURTcTy4AA"  # same sheet MLN Gameday builds from
+_FINALS_TTL = 60
+_finals: set[str] | None = None
+_finals_loaded = 0.0
+
+
+def _sheet_finals() -> set[str] | None:
+    """Game codes the sheet's Games tab marks final - the same read and definition
+    (utils.game_is_final on the sheet's own Win/scores) MLN Gameday uses. The synced
+    games table can't say: the sync fills win_team from the running score. Cached briefly;
+    None if the sheet can't be read."""
+    global _finals, _finals_loaded
+    if _finals is not None and time.time() - _finals_loaded < _FINALS_TTL:
+        return _finals
+    try:
+        _finals = {str(g["game_code"]) for g in utils.read_mln_games_from_sheet(MLN_SHEET_ID)
+                   if utils.game_is_final(g)}
+        _finals_loaded = time.time()
+        return _finals
+    except Exception as e:
+        print(f"games sheet read failed, using the synced games table: {e!r}")
+        return None
+
+
+def _game_over(g: dict, finals: set[str] | None) -> bool:
+    if finals is not None:
+        return str(g["game_code"]) in finals
+    # Sheet unreachable: synced win_team is the running leader, so also require the last
+    # play to be in or past the last regulation inning (last_inning looks like 'B2').
+    if not g.get("win_team"):
+        return False
+    m = re.search(r"\d+", str(g.get("last_inning") or ""))
+    return bool(m) and int(m.group()) >= utils.game_innings(g.get("league") or "MLN")
+
+
 def find_live_game(override: str | None = None) -> dict | None:
     """The in-progress Pioneers game: unfinished, has a sheet on file, in the
     newest season, and (if it has plays) not stale. override pins a game_code."""
     if override:
         g = db.get_game_by_code(int(override))
         return g
+    finals = _sheet_finals()
     games = [g for g in db.get_games()
              if TEAM in (g.get("home_team"), g.get("away_team"))
-             and not g.get("win_team") and g.get("sheet_url")]
+             and not _game_over(g, finals) and g.get("sheet_url")]
     if not games:
         return None
     season = max(g.get("season") or 0 for g in games)
@@ -172,7 +231,9 @@ def get_or_open_pitch(game: dict, channel_id: str | None, our_at_bat: bool = Tru
     row = {"game_code": code, "season": game.get("season"), "seq": seq, "after_play_num": after,
            "channel_id": str(channel_id) if channel_id else None}
     if our_at_bat:
-        row.update(_snapshot(code))
+        snap = _snapshot(code)
+        if is_our_batter(snap.get("batter")) is not False:  # else the sheet is on the opponent's PA
+            row.update(snap)
     try:
         try:
             return _t("swing_pitches").insert(row).execute().data[0]
@@ -221,6 +282,11 @@ def refresh_snapshot(game_code: str) -> None:
     if clear:
         clear()  # the cached state is up to 30s old - could still be the opponent's PA
     snap = _snapshot(str(game_code))
+    if is_our_batter(snap.get("batter")) is False:
+        return  # the sheet still shows the opponent's PA - keep what we have, retry on the next call
+    if any(latest.get(k) and snap.get(k) and latest[k] != snap[k] for k in ("batter", "pitcher")):
+        # new matchup: a model swing frozen for the old one no longer applies
+        snap.update({"model_swing": None, "model_metric": None, "model_at": None})
     try:
         _t("swing_pitches").update(snap).eq("id", latest["id"]).execute()
     except Exception:
@@ -252,31 +318,42 @@ def close_open_pitch(game_code: str) -> bool:
 
 
 def is_closed(pitch_row: dict) -> bool:
-    """Closed by the thread listener, graded, or the real pitch has already
-    synced into plays."""
+    """Closed by close_open_pitch (no longer called from the feed), graded, or the real
+    pitch has already synced into plays."""
     if pitch_row.get("closed_at") or pitch_row.get("graded_at"):
         return True
     return _actual_pitch(pitch_row) is not None
 
 
 def submit_guess(pitch_row: dict, user_id: str, user_name: str, guess: int) -> int | None:
-    """Record a guess. One per user per pitch and final: returns None when
-    accepted, or the user's existing guess if they already guessed."""
-    existing = (_t("swing_guesses").select("guess").eq("pitch_id", pitch_row["id"])
+    """Record a guess. One per user per pitch, but a new guess replaces the old one while
+    the pitch is open. Returns the guess it replaced, or None if there wasn't one."""
+    existing = (_t("swing_guesses").select("id,guess").eq("pitch_id", pitch_row["id"])
                 .eq("user_id", str(user_id)).execute().data)
     if existing:
+        _t("swing_guesses").update({"guess": int(guess), "user_name": display_name(user_id, user_name)})             .eq("id", existing[0]["id"]).execute()
         return int(existing[0]["guess"])
     try:
         _t("swing_guesses").insert(
             {"pitch_id": pitch_row["id"], "user_id": str(user_id),
              "user_name": display_name(user_id, user_name), "guess": int(guess)}).execute()
     except Exception:  # double-submit race: the unique (pitch_id, user_id) key caught it
-        again = (_t("swing_guesses").select("guess").eq("pitch_id", pitch_row["id"])
-                 .eq("user_id", str(user_id)).execute().data)
-        if again:
-            return int(again[0]["guess"])
-        raise
+        _t("swing_guesses").update({"guess": int(guess)}).eq("pitch_id", pitch_row["id"])             .eq("user_id", str(user_id)).execute()
     return None
+
+
+def clear_guesses(pitch_id: int, user_id: str | None = None) -> int:
+    """Delete the open pitch's guesses (one user's, or everyone's) so they can be re-submitted,
+    e.g. after the opposing pitcher changed. Never touches the Actual/Model benchmark rows.
+    Returns how many were removed."""
+    q = (_t("swing_guesses").select("id").eq("pitch_id", pitch_id)
+         .neq("user_id", ACTUAL_ID).neq("user_id", MODEL_ID))
+    if user_id is not None:
+        q = q.eq("user_id", str(user_id))
+    ids = [r["id"] for r in q.execute().data]
+    for i in ids:
+        _t("swing_guesses").delete().eq("id", i).execute()
+    return len(ids)
 
 
 def count_guesses(pitch_id: int) -> int:
@@ -453,8 +530,7 @@ def grade_ready() -> list[dict]:
 _RESULT_RE = re.compile(r"\bResult:\s*\**\s*([A-Za-z0-9]+)")
 _PITCH_RE = re.compile(r"\bPitch:\s*\**\s*(\d{1,4})\b")
 _SWING_RE = re.compile(r"\bSwing:\s*\**\s*(\d{1,4})\b")
-# Posted before the result, and the first one reveals the swing - so guessing
-# must close here, not at the result.
+# Posted before the result. Guessing no longer closes on it - only on the result.
 _BATTER_RE = re.compile(r"Current Batter:\s*\**\s*([A-Za-z]{2,4})\b")
 _SWING_IN_RE = re.compile(r"swing has been swung|your swing is in", re.I)
 

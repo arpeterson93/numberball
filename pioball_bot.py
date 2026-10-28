@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 
 import discord
@@ -99,10 +100,8 @@ async def guess(interaction: discord.Interaction, swing: app_commands.Range[int,
     _post_channel = int(pitch_row.get("channel_id") or interaction.channel_id)
     prior = await asyncio.to_thread(swing_game.submit_guess, pitch_row, interaction.user.id,
                                     interaction.user.display_name, swing)
-    if prior is not None:
-        await interaction.followup.send(
-            f"{interaction.user.mention} you already guessed **{prior}** for this pitch - guesses are final.")
-        return
+    if prior is not None and prior != swing:
+        await interaction.followup.send(f"{interaction.user.mention} changed their guess from **{prior}** to **{swing}**.")
     await _send_guesses(interaction, game, highlight=interaction.user.id)
 
 
@@ -119,6 +118,23 @@ async def _send_guesses(interaction: discord.Interaction, game: dict, highlight:
     except Exception as e:
         print(f"guesses image failed, sending text: {e!r}")
         await interaction.followup.send(swing_game.format_current_pa(c))
+
+
+@bot.tree.command(name="clearguesses", description="Clear guesses on the open pitch so they can be re-submitted (e.g. after a pitching change)")
+@app_commands.describe(everyone="Clear everyone's guesses (default: just yours)")
+async def clearguesses(interaction: discord.Interaction, everyone: bool = False) -> None:
+    await interaction.response.defer()
+    game = await _live_game()
+    p = await asyncio.to_thread(swing_game.peek_open_pitch, game) if game else None
+    if not p:
+        await interaction.followup.send("No open pitch to clear guesses on.")
+        return
+    if await asyncio.to_thread(swing_game.is_closed, p):
+        await interaction.followup.send("That pitch is already in - guesses can't be cleared.")
+        return
+    n = await asyncio.to_thread(swing_game.clear_guesses, p["id"], None if everyone else interaction.user.id)
+    who = "everyone's guesses" if everyone else f"{interaction.user.mention}'s guess"
+    await interaction.followup.send(f"Cleared {who} ({n}). Re-submit with `/guess`." if n else "Nothing to clear.")
 
 
 @bot.tree.command(name="guesses", description="Show everyone's guesses for the current plate appearance")
@@ -336,7 +352,7 @@ async def _before_loop() -> None:
     await bot.wait_until_ready()
 
 
-_model_tried: set[int] = set()   # pitch ids the model has already been computed for (or failed hard on)
+_model_tried: set[tuple] = set()   # (pitch id, batter) the model has already been computed for (or failed hard on)
 
 
 @tasks.loop(seconds=60)
@@ -349,14 +365,14 @@ async def model_loop() -> None:
         if not game or not await _our_at_bat(game):
             return
         p = await asyncio.to_thread(swing_game.peek_open_pitch, game)
-        if (not p or p["id"] in _model_tried or p.get("model_swing") is not None
+        if (not p or (p["id"], p.get("batter")) in _model_tried or p.get("model_swing") is not None
                 or await asyncio.to_thread(swing_game.is_closed, p)):
             return
         r = await asyncio.to_thread(swing_model.recommend, game, "obp", _last_feed_result, False)
         if r["ok"]:
-            _model_tried.add(p["id"])
+            _model_tried.add((p["id"], p.get("batter")))
         elif "sync" not in r and "isn't up" not in r["reason"]:
-            _model_tried.add(p["id"])   # a real failure (no history etc.): don't retry every minute
+            _model_tried.add((p["id"], p.get("batter")))   # a real failure (no history etc.): don't retry every minute
         # else: the data isn't current yet - try again next minute
     except Exception as e:
         print(f"model loop error: {e!r}")
@@ -391,6 +407,20 @@ def _message_text(message: discord.Message) -> str:
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
+    await _handle_feed(message)
+
+
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message) -> None:
+    """The ump bot may post a play and fill in the result by editing it. Only act when the edit
+    is what made the message parseable, so an edit to an old, already-handled result can never
+    grade the next pitch."""
+    age = (discord.utils.utcnow() - after.created_at).total_seconds()
+    if age < 600 and swing_game.parse_feed(_message_text(before)) is None:
+        await _handle_feed(after)
+
+
+async def _handle_feed(message: discord.Message) -> None:
     # Results feed: not every message is a play, so only act on a recognised
     # swing-in notice (lock guessing) or result (grade right now).
     if message.author == bot.user or not RESULTS_CHANNEL_ID:
@@ -404,7 +434,10 @@ async def on_message(message: discord.Message) -> None:
               f"components={len(message.components)} attachments={len(message.attachments)}")
     parsed = swing_game.parse_feed(text)
     if not parsed:
+        if re.search(r"pitch|result|swing", text, re.I):  # looks like a play we can't read: show it
+            print(f"feed message not recognised: {text[:400]!r}")
         return
+    print(f"feed {parsed['kind']}: {parsed}")
     global _batting_team, _last_feed_result
     if parsed["kind"] == "result":
         seen_in = await _live_game()
@@ -422,10 +455,10 @@ async def on_message(message: discord.Message) -> None:
         return  # swing notices and results for the opponent's at-bats aren't ours
     live = await _live_game()
     if not live:
+        print(f"feed {parsed['kind']} ignored: no live Pioneers game found")
         return
     if parsed["kind"] == "swing_in":
-        await asyncio.to_thread(swing_game.close_open_pitch, live["game_code"])
-        return
+        return  # guessing stays open until the result arrives (graded), not when the swing is submitted
     g = await asyncio.to_thread(swing_game.grade_from_feed, live["game_code"], parsed)
     if g:
         channel = await _results_channel(g["pitch_row"])

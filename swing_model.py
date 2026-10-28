@@ -103,7 +103,10 @@ def recommend(game: dict, metric: str = "obp", last_result: dict | None = None, 
     results table is the swing that was actually on offer, not a later hindsight."""
     code = str(game["game_code"])
     p = swing_game.peek_open_pitch(game)
-    if not p or not p.get("batter") or not p.get("pitcher"):
+    if p and swing_game.is_our_batter(p.get("batter")) is not True and not swing_game.is_closed(p):
+        swing_game.refresh_snapshot(code)  # empty or opponent snapshot: re-read the sheet once
+        p = swing_game.peek_open_pitch(game)
+    if not p or not p.get("batter") or not p.get("pitcher") or swing_game.is_our_batter(p["batter"]) is False:
         return {"ok": False, "reason": "Nothing to recommend yet - our next plate appearance isn't up "
                                        "(or the first /guess hasn't opened it)."}
     if swing_game.is_closed(p):
@@ -121,6 +124,8 @@ def recommend(game: dict, metric: str = "obp", last_result: dict | None = None, 
     # model sees reflect the plate appearances just before this one.
     swing_game.refresh_snapshot(code)
     p = swing_game.peek_open_pitch(game) or p
+    if swing_game.is_our_batter(p.get("batter")) is False:
+        return {"ok": False, "reason": "Our next plate appearance isn't up on the sheet yet."}
     df = _history(p["pitcher"])
     if df is None or df.empty:
         return {"ok": False, "reason": f"No plays on file for {p['pitcher']}."}
