@@ -5,11 +5,85 @@ SUPABASE_URL / SUPABASE_KEY environment variables (GitHub Actions / CLI).
 """
 from __future__ import annotations
 
+import functools
+import json
 import os
+import sys
 import streamlit as st
 from supabase import create_client, Client
 
+try:
+    from supabase.lib.client_options import SyncClientOptions as _ClientOptions
+except ImportError:                      # older supabase-py
+    from supabase.lib.client_options import ClientOptions as _ClientOptions
+
 _CHUNK = 1000  # PostgREST's default page cap; matches it to halve round-trips
+
+# Per-process counters for the paginated reads and bulk upserts below (see stats()). Bytes are only estimated when
+# SB_TRACK_BYTES is set, since that re-serialises every page.
+_STATS = {"read_calls": 0, "read_rows": 0, "read_bytes": 0, "write_calls": 0, "write_rows": 0}
+
+
+def stats() -> dict:
+    return dict(_STATS)
+
+
+def _client_tag() -> str:
+    """Who is calling, sent as X-Client-Info / User-Agent so Supabase's API logs can be grouped by caller: SB_CLIENT_TAG if
+    set (the sync workflow sets sync-<run id>), "streamlit-app" inside Streamlit, else script-<entry script name>."""
+    tag = os.environ.get("SB_CLIENT_TAG")
+    if tag:
+        return tag
+    try:
+        from streamlit.runtime import exists
+        if exists():
+            return "streamlit-app"
+    except Exception:
+        pass
+    return "script-" + (os.path.splitext(os.path.basename(sys.argv[0] or ""))[0] or "python")
+
+
+# Local copy of the plays/players tables for analysis tools (tools/local_plays.py sets NB_LOCAL_PLAYS to the pickle). The
+# app and bots never set it, so they always read live. Loaded once per process.
+_LOCAL: dict = {}
+
+
+def _local_data() -> dict | None:
+    path = os.environ.get("NB_LOCAL_PLAYS")
+    if not path:
+        return None
+    if path not in _LOCAL:
+        import pickle
+        with open(path, "rb") as fh:
+            _LOCAL[path] = pickle.load(fh)
+    return _LOCAL[path]
+
+
+def _local_plays_for(col: str, value, leagues) -> list[dict] | None:
+    """Plays where col == value from the local copy (None when local mode is off), shaped like the live queries:
+    ordered by id, nested games dict, scrimmage dropped."""
+    d = _local_data()
+    if d is None:
+        return None
+    idx = d.setdefault("_idx", {}).get(col)
+    if idx is None:
+        idx = {}
+        for p in d["plays"]:
+            idx.setdefault(p.get(col), []).append(p)
+        d["_idx"][col] = idx
+    return [p for p in idx.get(value, [])
+            if (not leagues or p.get("league") in leagues) and p.get("game_type") != "scrimmage"]
+
+
+def _local_first(col: str):
+    """Decorator for the get_plays_for_* lookups: answer from the local copy when local mode is on."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def inner(value, leagues=None):
+            rows = _local_plays_for(col, value, leagues)
+            return rows if rows is not None else fn(value, leagues)
+        return inner
+    return deco
 
 
 @st.cache_resource
@@ -28,7 +102,9 @@ def _client() -> Client:
             "Add supabase_url/supabase_key to .streamlit/secrets.toml or set "
             "SUPABASE_URL/SUPABASE_KEY environment variables."
         )
-    return create_client(url, key)
+    tag = _client_tag()
+    return create_client(url, key, options=_ClientOptions(
+        headers={"X-Client-Info": f"numberball/{tag}", "User-Agent": f"numberball/{tag}"}))
 
 
 def _bulk_upsert(table: str, rows: list[dict], on_conflict: str) -> int:
@@ -36,7 +112,9 @@ def _bulk_upsert(table: str, rows: list[dict], on_conflict: str) -> int:
     if not rows:
         return 0
     total = 0
+    _STATS["write_rows"] += len(rows)
     for i in range(0, len(rows), _CHUNK):
+        _STATS["write_calls"] += 1
         # returning="minimal": the default sends every upserted row back, which counts as Supabase egress
         _client().table(table).upsert(rows[i:i + _CHUNK], on_conflict=on_conflict, returning="minimal").execute()
         total += len(rows[i:i + _CHUNK])
@@ -49,6 +127,10 @@ def _fetch_all(query) -> list[dict]:
     offset = 0
     while True:
         batch = query.range(offset, offset + _CHUNK - 1).execute().data
+        _STATS["read_calls"] += 1
+        _STATS["read_rows"] += len(batch)
+        if os.environ.get("SB_TRACK_BYTES"):
+            _STATS["read_bytes"] += len(json.dumps(batch, default=str))
         results.extend(batch)
         if len(batch) < _CHUNK:
             break
@@ -153,6 +235,9 @@ def update_game_sheet_url(game_id: int, sheet_url: str | None) -> None:
 # ------------------------------------------------------------------ plays
 
 def get_all_plays(league: str | None = None) -> list[dict]:
+    local = _local_data()
+    if local is not None:
+        return [p for p in local["plays"] if not league or p.get("league") == league]
     q = (
         _client().table("plays")
         .select("*, games(season, session_number, home_team, away_team, game_code)")
@@ -179,10 +264,15 @@ def get_all_play_values() -> list[dict]:
     catcher id they belong to - for building a league-wide last-2-digit
     baseline distribution and each player's own reference stats. No games
     join (unlike get_all_plays), since this pulls the entire plays table."""
+    local = _local_data()
+    if local is not None:
+        keep = ("pitch", "swing", "throw_num", "pitcher_id", "batter_id", "catcher_id")
+        return [{k: p.get(k) for k in keep} for p in local["plays"]]
     return _fetch_all(_client().table("plays").select(
         "pitch, swing, throw_num, pitcher_id, batter_id, catcher_id"))
 
 
+@_local_first("pitcher_name")
 def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
@@ -196,6 +286,7 @@ def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+@_local_first("pitcher_id")
 def get_plays_for_pitcher_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
     """Plays by pitcher_id - ties a human's history together across name changes."""
     q = (
@@ -210,6 +301,7 @@ def get_plays_for_pitcher_id(player_id: int, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+@_local_first("catcher_name")
 def get_plays_for_catcher(catcher_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
@@ -223,6 +315,7 @@ def get_plays_for_catcher(catcher_name: str, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+@_local_first("catcher_id")
 def get_plays_for_catcher_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
     """Plays by catcher_id - ties a human's history together across name changes."""
     q = (
@@ -237,6 +330,7 @@ def get_plays_for_catcher_id(player_id: int, leagues: list[str] | None = None) -
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+@_local_first("batter_name")
 def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (
         _client().table("plays")
@@ -250,6 +344,7 @@ def get_plays_for_batter(batter_name: str, leagues: list[str] | None = None) -> 
     return [p for p in raw if p.get("game_type") != "scrimmage"]
 
 
+@_local_first("batter_id")
 def get_plays_for_batter_id(player_id: int, leagues: list[str] | None = None) -> list[dict]:
     """Plays by batter_id - ties a human's history together across name changes."""
     q = (
@@ -457,6 +552,9 @@ def bulk_upsert_teams(teams: list[dict]) -> int:
 
 @st.cache_data(ttl=300)
 def get_all_players() -> list[dict]:
+    local = _local_data()
+    if local is not None and local.get("players") is not None:
+        return local["players"]
     return _fetch_all(
         _client().table("players")
         .select("player_id, s_id, season, name, team, primary_pos, secondary_pos, status, gm, hand, con, eye, pwr, spd, mov, cmd, vel, awr")

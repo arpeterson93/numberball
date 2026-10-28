@@ -326,6 +326,10 @@ def swing() -> None:
                   f"[95% CI {lo:+.4f}, {hi:+.4f}], {np.mean(pv > 0):.0%} of pitchers better")
 
 if __name__ == "__main__":
+    import os as _os
+    sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import local_plays
+    local_plays.enable()
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["collect", "fit", "swing"])
     ap.add_argument("--workers", type=int, default=6)

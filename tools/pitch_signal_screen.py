@@ -416,6 +416,10 @@ def screen(only_incremental: bool = False) -> None:
 
 
 if __name__ == "__main__":
+    import os as _os
+    sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import local_plays
+    local_plays.enable()
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["collect", "screen", "incremental"])
     ap.add_argument("--workers", type=int, default=6)

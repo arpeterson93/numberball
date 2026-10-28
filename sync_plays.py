@@ -404,6 +404,9 @@ def main() -> None:
     hard_error |= _run("MLN Games",  sync_mln_games,  _MLN_SHEET_ID)
     hard_error |= _run("MLN Plays",  sync_mln_plays,  _MLN_SHEET_ID)
     changed = STATE.save()
+    s = db.stats()
+    print(f"[egress] {os.environ.get('SB_CLIENT_TAG', 'sync')}: {s['read_calls']} paged reads / {s['read_rows']} rows "
+          f"(~{s['read_bytes'] / 1e6:.2f} MB JSON), {s['write_calls']} write calls / {s['write_rows']} rows")
     if os.environ.get("GITHUB_OUTPUT"):      # tells the workflow whether to re-save its Actions cache
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
             fh.write(f"state_changed={'true' if changed else 'false'}\n")

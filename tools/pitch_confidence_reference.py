@@ -154,4 +154,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import os as _os
+    sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import local_plays
+    local_plays.enable()
     main()

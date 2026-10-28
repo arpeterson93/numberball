@@ -168,8 +168,9 @@ def run_tests(groups: list[dict], radii: list[int], boots: int, only: list[str] 
 
 
 def fetch() -> None:
-    import database as db
-    rows = db.get_all_plays()
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import local_plays
+    rows = local_plays.plays()      # the local raw copy when it exists, else one live download that creates it
     df = pd.DataFrame(rows)
     if "games" in df.columns:
         g = df["games"].apply(lambda x: x if isinstance(x, dict) else {})

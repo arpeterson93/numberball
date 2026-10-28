@@ -43,6 +43,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SYNC_FULL: ${{ inputs.full }}
+          SB_CLIENT_TAG: sync-${{ github.run_id }}   # shows up in Supabase API logs (X-Client-Info)
+          SB_TRACK_BYTES: '1'                        # per-run read-size estimate in the [egress] log line
         run: python -u sync_plays.py
 
       - name: Save sync state
