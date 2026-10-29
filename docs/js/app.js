@@ -8425,7 +8425,7 @@
   // instead, at the same beat the out itself resolves.
   // KCS is a strikeout that also caught a runner stealing on the same pitch -
   // the batter half of that combo gets the same "K" treatment as a plain K.
-  var STRIKEOUT_RESULTS = { K: 1, AutoK: 1, KCS: 1 };
+  var STRIKEOUT_RESULTS = { K: 1, AutoK: 1, KCS: 1, bAuto: 1 };
   // Same idea as STRIKEOUT_RESULTS' "K" (no ball flight to hang a label off,
   // so it labels the batter directly) - a walk still moves the batter to
   // first, but the "BB"/"IBB" itself happened at the plate, so the label
@@ -12458,7 +12458,7 @@
       var r = p.result;
       if (kind === "bat") {
         if (p.runner_name === name) {
-          if (STEAL_SAFE_CODES[r]) s.sb++;
+          if (STEAL_SAFE_CODES[r] || r === "AutoSB") s.sb++;
           else if (STEAL_CAUGHT_CODES[r]) s.cs++;
         }
         if (p.batter_name !== name || !isGenuineTurn(p)) continue;
@@ -14126,7 +14126,7 @@
   // above) rather than a fresh guess - KCS excluded from the caught set on
   // purpose, since it's also a real strikeout (the batter's own turn), not
   // just a steal attempt.
-  var NON_TURN_RESULTS = { Balk: 1 };
+  var NON_TURN_RESULTS = { Balk: 1, AutoSB: 1, pAuto: 1, cAuto: 1 };
   Object.keys(STEAL_SAFE_CODES).forEach(function (k) { NON_TURN_RESULTS[k] = 1; });
   Object.keys(STEAL_CAUGHT_CODES).forEach(function (k) { if (k !== "KCS") NON_TURN_RESULTS[k] = 1; });
   function isGenuineTurn(play) { return !NON_TURN_RESULTS[play.result]; }

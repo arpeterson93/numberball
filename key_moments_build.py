@@ -136,7 +136,8 @@ TRIPLE_PLAY_CODES = {"TP", "LOTP"}
 # STRIKEOUT_RESULTS/WALK_RESULTS/NON_TURN_RESULTS (built independently there
 # for the per-game scorecard) - kept here as the one server-side copy so
 # _session_stats and any future consumer share a single source.
-STRIKEOUT_CODES = {"K", "AutoK", "KCS"}
+# bAuto (a batter auto) is scored as a strikeout: PA, AB, K for the hitter, K and an out for the pitcher.
+STRIKEOUT_CODES = {"K", "AutoK", "KCS", "bAuto"}
 WALK_CODES = {"BB", "IBB", "AutoBB"}
 SAC_FLY_CODES = {"SacF", "DSacF"}
 SAC_BUNT_CODES = {"SacB"}
@@ -144,13 +145,18 @@ SAC_BUNT_CODES = {"SacB"}
 # walks specifically (a batter isn't really "earning" an IBB the way a real
 # walk is earned). AutoBB stays lumped into the plain BB count either way.
 INTENTIONAL_WALK_CODES = {"IBB"}
+# Autos resolve with no real pitch or swing (logged 0/0/0), so like IBB they are not a diff.
+# AutoSB is a stolen base for the runner; pAuto/cAuto are ghost-runner placements, not batter results.
+AUTO_STEAL_CODES = {"AutoSB"}
+NO_DIFF_CODES = INTENTIONAL_WALK_CODES | {"AutoK", "AutoBB", "bAuto", "AutoSB", "pAuto", "cAuto"}
 TWO_BASE_CODES = {"2B", "2BWH"}
 THREE_BASE_CODES = {"3B"}
 HOME_RUN_CODES = {"HR"}
 # Not a real batter turn at all (mid-at-bat steal attempt or a balk) - PA/AB
 # both skip these, same as app.js's isGenuineTurn.
 NON_TURN_CODES = (
-    STEAL_SUCCESS_CODES | STEAL_SUCCESS_MULTI_CODES | CAUGHT_STEALING_CODES | {"Balk"}
+    STEAL_SUCCESS_CODES | STEAL_SUCCESS_MULTI_CODES | CAUGHT_STEALING_CODES | {"Balk", "pAuto", "cAuto"}
+    | AUTO_STEAL_CODES
 )
 
 RESULT_LABELS = {
@@ -1982,8 +1988,8 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
                 if result in DOUBLE_PLAY_CODES:
                     _bump(b, "gidp")
                 _bump(b, "rbi", runs)
-                # an intentional walk has no real pitch or swing (logged as 0/0/0), so it is not a diff
-                if m.get("diff") is not None and result not in INTENTIONAL_WALK_CODES:
+                # an intentional walk or auto has no real pitch or swing (logged as 0/0/0), so it is not a diff
+                if m.get("diff") is not None and result not in NO_DIFF_CODES:
                     _bump(b, "ds", m["diff"])
                     _bump(b, "dn")
 
@@ -2003,7 +2009,7 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
         # not the batter at the plate during the steal attempt.
         runner_id = m.get("runner_id")
         if runner_id:
-            if result in STEAL_SUCCESS_CODES or result in STEAL_SUCCESS_MULTI_CODES:
+            if result in STEAL_SUCCESS_CODES or result in STEAL_SUCCESS_MULTI_CODES or result in AUTO_STEAL_CODES:
                 _bump(_row(batting, runner_id, m["runner_name"]), "sb")
             elif result in CAUGHT_STEALING_CODES:
                 _bump(_row(batting, runner_id, m["runner_name"]), "cs")
@@ -2015,7 +2021,7 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
         # merely standing at the plate during it.
         wpa = m.get("wpa") or 0.0
         is_steal_play = (result in STEAL_SUCCESS_CODES or result in STEAL_SUCCESS_MULTI_CODES
-                          or result in CAUGHT_STEALING_CODES)
+                          or result in CAUGHT_STEALING_CODES or result in AUTO_STEAL_CODES)
         if is_steal_play:
             if runner_id:
                 _bump(_row(batting, runner_id, m["runner_name"]), "wpa", wpa)
@@ -2051,7 +2057,7 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
             # a caught-stealing mid-at-bat is still a real out the pitcher's
             # team gets credit for (mirrors app.js's buildPitchingStints).
             _bump(p, "outs", max(0, (m["outs_after"] or 0) - (m["outs_before"] or 0)))
-            if result not in NON_TURN_CODES and result not in INTENTIONAL_WALK_CODES and m.get("diff") is not None:
+            if result not in NON_TURN_CODES and result not in NO_DIFF_CODES and m.get("diff") is not None:
                 _bump(p, "ds", m["diff"])
                 _bump(p, "dn")
             if lob:

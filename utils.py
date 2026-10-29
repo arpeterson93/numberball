@@ -1677,8 +1677,8 @@ def seq_result_category(result: str) -> str:
 
 _OUT_RESULTS = {"GO", "FO", "PO", "K", "GORA", "DSacF", "DFO", "SacF", "FC", "LO",
                 "LCO", "FC3rd", "FCH", "SacB", "CS", "CS2", "CS3", "CS4",
-                "BFC"}
-_DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP", "KCS"}
+                "BFC", "AutoK", "bAuto"}
+_DP_RESULTS  = {"DP", "DPH1", "DP21", "DP31", "DPRun", "LODP", "BDP", "KCS", "DP32"}
 _TP_RESULTS  = {"TP", "LOTP"}
 
 
