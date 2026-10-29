@@ -8426,6 +8426,14 @@
   // instead, at the same beat the out itself resolves.
   // KCS is a strikeout that also caught a runner stealing on the same pitch -
   // the batter half of that combo gets the same "K" treatment as a plain K.
+  // The result pill's color on the feed card and the slideshow: blue for what is good for the offense, red for
+  // the rest. By result category, except the three that have no hitting category but a clear beneficiary:
+  // pAuto and Balk in blue, bAuto in red.
+  function resultPillTone(m) {
+    if (m.result === "pAuto" || m.result === "Balk") return "offense";
+    if (m.result === "bAuto") return "defense";
+    return m.result_category === "hitting" ? "offense" : "defense";
+  }
   var STRIKEOUT_RESULTS = { K: 1, AutoK: 1, KCS: 1, bAuto: 1 };
   // Same idea as STRIKEOUT_RESULTS' "K" (no ball flight to hang a label off,
   // so it labels the batter directly) - a walk still moves the batter to
@@ -8831,14 +8839,6 @@
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
     // then covering the very next base themselves is one unassisted touch,
-  // The result pill's color on the feed card and the slideshow: blue for what is good for the offense, red for
-  // the rest. By result category, except the three that have no hitting category but a clear beneficiary:
-  // pAuto and Balk in blue, bAuto in red.
-  function resultPillTone(m) {
-    if (m.result === "pAuto" || m.result === "Balk") return "offense";
-    if (m.result === "bAuto") return "defense";
-    return m.result_category === "hitting" ? "offense" : "defense";
-  }
     // not a throw to himself. This is also where an unassisted play falls
     // out on its own - a routine 1B/3B putout, or an unassisted lineout
     // double play - purely from the coverage rules above, with no separate
@@ -17723,6 +17723,19 @@
   // Jump to a season + session, then do one thing there: open the Stats tab,
   // the game's scorecard, or the replay at a specific play. A season switch is
   // the same setActiveSeason the picker uses (cached after the first visit).
+  // The players in the Stats table el sits in, in the order shown, so the player panel can step to the next/previous one.
+  function statsPlayerNavList(el) {
+    var table = el.closest("table"), out = [], seen = {};
+    if (!table) return null;
+    table.querySelectorAll(".stats-player-row").forEach(function (tr) {
+      var id = Number(tr.getAttribute("data-player-id")), cell = tr.querySelector(".stats-col-player") || tr.children[0];
+      if (!id || seen[id]) return;
+      seen[id] = 1;
+      out.push({ id: id, name: (cell && cell.getAttribute("title")) || "" });
+    });
+    return out;
+  }
+
   function goToSession(n, sess, opts) {
     opts = opts || {};
     var ready;
@@ -17839,16 +17852,3 @@
     boot();
   }
 })();
-  // The players in the Stats table el sits in, in the order shown, so the player panel can step to the next/previous one.
-  function statsPlayerNavList(el) {
-    var table = el.closest("table"), out = [], seen = {};
-    if (!table) return null;
-    table.querySelectorAll(".stats-player-row").forEach(function (tr) {
-      var id = Number(tr.getAttribute("data-player-id")), cell = tr.querySelector(".stats-col-player") || tr.children[0];
-      if (!id || seen[id]) return;
-      seen[id] = 1;
-      out.push({ id: id, name: (cell && cell.getAttribute("title")) || "" });
-    });
-    return out;
-  }
-
