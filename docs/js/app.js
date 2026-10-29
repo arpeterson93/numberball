@@ -640,6 +640,7 @@
     // hitting result gets, rather than a broken lookup on a null result.
     var resultLabel = m.is_on_deck ? "Now Batting" : ((data.meta.result_labels || {})[m.result] || m.result);
     var resultCat = m.is_on_deck ? "hitting" : m.result_category;
+    var pillTone = m.is_on_deck ? "offense" : resultPillTone(m);
     var counterpart = (m.counterpart_id && m.counterpart_id !== m.featured_id)
       ? '<span class="counterpart">vs ' +
         (isFavoritedId(m.counterpart_id)
@@ -676,7 +677,7 @@
             ? '<a class="player-name" href="' + PLAYER_LINK_BASE + encodeURIComponent(m.featured_id) +
               '" target="_blank" rel="noopener noreferrer">' + escapeHtml(m.featured_name) + "</a>"
             : '<span class="player-name">' + escapeHtml(m.featured_name) + "</span>") +
-          '<span class="result-pill ' + (resultCat === "hitting" ? "offense" : "defense") + '">' +
+          '<span class="result-pill ' + pillTone + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
           counterpart +
@@ -8830,6 +8831,14 @@
 
     // Collapse adjacent duplicates: the same fielder touching the ball and
     // then covering the very next base themselves is one unassisted touch,
+  // The result pill's color on the feed card and the slideshow: blue for what is good for the offense, red for
+  // the rest. By result category, except the three that have no hitting category but a clear beneficiary:
+  // pAuto and Balk in blue, bAuto in red.
+  function resultPillTone(m) {
+    if (m.result === "pAuto" || m.result === "Balk") return "offense";
+    if (m.result === "bAuto") return "defense";
+    return m.result_category === "hitting" ? "offense" : "defense";
+  }
     // not a throw to himself. This is also where an unassisted play falls
     // out on its own - a routine 1B/3B putout, or an unassisted lineout
     // double play - purely from the coverage rules above, with no separate
@@ -12182,7 +12191,7 @@
     }
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;
     return '<div class="scene-result-line">' +
-      '<span class="result-pill ' + (m.result_category === "hitting" ? "offense" : "defense") + '">' +
+      '<span class="result-pill ' + resultPillTone(m) + '">' +
         escapeHtml(resultLabel) + "</span>" +
       // Cheap and worth doing (Stage 4d): a home run that stayed inside the
       // park is rare enough that without a callout it reads as a glitch.
