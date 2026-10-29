@@ -2345,7 +2345,9 @@ def _scoreboard(rows: list[dict], games: list[dict], session: int,
             "home_win_prob": None,
         })
 
-    tiles.sort(key=lambda g: g["leverage"], reverse=True)
+    # Unfinished games first, highest leverage first; finished games go last. Finals carry leverage 0,
+    # which an 8-run blowout in progress also rounds to, so sorting on leverage alone let the two tie.
+    tiles.sort(key=lambda g: (g["is_game_final"], -g["leverage"]))
     return tiles
 
 
