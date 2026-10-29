@@ -15,15 +15,18 @@ Optional: PIOBALL_RESULTS_CHANNEL_ID, PIOBALL_GUILD_ID (instant command sync whi
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import database
+import pace
 import pioball_render
 import swing_game
 import swing_model
@@ -297,6 +300,52 @@ async def game(interaction: discord.Interaction, game_code: str | None = None) -
     _game_override = game_code or None
     await interaction.response.send_message(
         f"Pinned to game `{game_code}`." if game_code else "Back on auto-detect.", ephemeral=True)
+
+
+@bot.tree.command(name="pace", description="Pace of play for a game: team and ump time, from the results feed timestamps")
+@app_commands.describe(game_code="Numberball game code (default: the live Pioneers game)")
+async def pace_command(interaction: discord.Interaction, game_code: str | None = None) -> None:
+    await interaction.response.defer()
+    g = await asyncio.to_thread(database.get_game_by_code, int(game_code)) if game_code else await _live_game()
+    if not g:
+        await interaction.followup.send("No game found - give a game code." if not game_code else f"No game `{game_code}` found.")
+        return
+    if not RESULTS_CHANNEL_ID:
+        await interaction.followup.send("The results feed channel isn't configured.")
+        return
+    # start_time is a date placeholder (12:00 UTC) and end_time runs ~5h early (local time stored as UTC), so pad both ends; trim_to_game cuts the exact game out.
+    start = pace.parse_ts(g.get("start_time"))
+    if start is None:
+        await interaction.followup.send(f"Game `{g['game_code']}` has no start time on file.")
+        return
+    end = pace.parse_ts(g.get("end_time")) or datetime.now(timezone.utc)
+    channel = bot.get_channel(RESULTS_CHANNEL_ID) or await bot.fetch_channel(RESULTS_CHANNEL_ID)
+    msgs = [{"ts": m.created_at, "text": _message_text(m)}
+            async for m in channel.history(limit=None, after=start - timedelta(hours=12),
+                                           before=end + timedelta(hours=8), oldest_first=True)]
+    msgs = pace.trim_to_game(msgs, g["game_code"])
+    pas = pace.build_pas(msgs)
+    s = pace.summarize(pace.analyze(pas))
+    if s["n_pa"] < 2:
+        await interaction.followup.send(f"Not enough timed plate appearances in the feed for game `{g['game_code']}`.")
+        return
+    looks = await asyncio.to_thread(swing_game.team_looks, [g.get("away_team"), g.get("home_team")], g.get("season"))
+    sides = pace.game_sides(g, looks, list(s["teams"]))
+    title = f"Pace of play - {g.get('away_team')} @ {g.get('home_team')}"
+    subtitle = (f"S{g.get('season')} | game {g['game_code']} | {s['n_pa']} plate appearances | {pace.fmt_dur(s['total_raw'])} "
+                f"on the clock, {pace.fmt_dur(s['total_act'])} active")
+    try:
+        sides = [{"abbrev": x["abbrev"], "color": pioball_render._hex(x["hex"])} for x in sides]
+        buf = await asyncio.to_thread(pioball_render.render_pace, s, title, subtitle, sides[0], sides[1],
+                                     pace.half_innings(pas))
+        await interaction.followup.send(file=discord.File(buf, filename="pace.png"))
+    except Exception as e:  # fall back to the text report rather than say nothing
+        print(f"pace image failed, sending text: {e!r}")
+        body = pace.format_report(s, title)
+        if len(body) > 1900:
+            await interaction.followup.send(file=discord.File(io.BytesIO(body.encode("utf-8")), filename="pace.txt"))
+        else:
+            await interaction.followup.send(f"```\n{body}\n```")
 
 
 async def _post_graded(channel, g: dict) -> None:

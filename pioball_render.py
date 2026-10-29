@@ -540,3 +540,234 @@ def render_player(name: str, card: dict) -> io.BytesIO:
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+# ------------------------------------------------------------- pace of play
+
+_UMP_GRAY = (112, 116, 122)
+
+
+def _mix(c: tuple[int, int, int], other: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    return tuple(int(c[i] + (other[i] - c[i]) * t) for i in range(3))
+
+
+def _apart(a: tuple[int, int, int], b: tuple[int, int, int]) -> tuple[int, int, int]:
+    """b, lightened when it is too close to a to tell the two halves of a bar apart."""
+    if sum(abs(a[i] - b[i]) for i in range(3)) < 90:
+        return _mix(b, (255, 255, 255), 0.45)
+    return b
+
+
+def _rounded_fill(img: Image.Image, x0: float, y0: float, x1: float, y1: float, radius: float,
+                  segs: list[tuple[float, float, tuple[int, int, int]]]) -> None:
+    """One rounded rectangle filled left to right by (from_x, to_x, colour) stretches, 1px background seams between."""
+    box = (_px(x0), _px(y0), _px(x1), _px(y1))
+    w, h = box[2] - box[0], box[3] - box[1]
+    if w <= 0:
+        return
+    layer = Image.new("RGB", (w, h), _BG)
+    ld = ImageDraw.Draw(layer)
+    for i, (sx0, sx1, col) in enumerate(segs):
+        ld.rectangle((_px(sx0) - box[0], 0, _px(sx1) - box[0], h), fill=col)
+        if i:
+            ld.rectangle((_px(sx0) - box[0], 0, _px(sx0) - box[0] + _S - 1, h), fill=_BG)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=_px(radius), fill=255)
+    img.paste(layer, (box[0], box[1]), mask)
+
+
+def _pace_bar(img: Image.Image, d: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float,
+              segs: list[tuple[float, tuple[int, int, int], str]]) -> None:
+    """One rounded bar filled by (share, colour, "NAME 12%") segments, left to right. The label sits inside its
+    segment when it fits, then just the %, otherwise the % hangs under the bar."""
+    total = sum(max(f, 0.0) for f, _, _ in segs) or 1.0
+    cx, spans = x, []
+    for f, col, label in segs:
+        sw = w * max(f, 0.0) / total
+        if sw > 0:
+            spans.append((cx, cx + sw, col, label))
+        cx += sw
+    _rounded_fill(img, x, y, x + w, y + h, h / 2.5, [(x0, x1, col) for x0, x1, col, _ in spans])
+    font = _font(13, True)
+    for x0, x1, col, label in spans:
+        for text in (label, label.rsplit(" ", 1)[-1]):
+            if d.textlength(text, font=font) / _S + 10 <= x1 - x0:
+                d.text((_px((x0 + x1) / 2), _px(y + h / 2)), text, font=font, fill=_ink_on(col), anchor="mm")
+                break
+        else:
+            d.text((_px((x0 + x1) / 2), _px(y + h + 2)), label.rsplit(" ", 1)[-1], font=_font(11, True),
+                   fill=_MUTED, anchor="mt")
+
+
+def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, timeline: list[dict] | None = None,
+                trend: list[tuple[str, float, float, float, str | None]] | None = None) -> io.BytesIO:
+    """Pace-of-play card. s is pace.summarize(); away / home are {"abbrev", "color"} (abbrev as the feed writes it).
+    timeline is pace.half_innings(): when given, one row per inning (away bats left, home bats right) leads the card.
+    trend (a season card) is one (label, away active, ump active, home active, home hex) per game, oldest first: each
+    becomes a PA/BF-adjusted total-game-time bar at the very top, the home side in that game's own colour when given."""
+    import pace
+    W, pad, gutter, bar_h = 760, 20, 78, 26
+    bar_x, bar_w = pad + gutter, W - 2 * pad - gutter
+    a, h = away["abbrev"], home["abbrev"]
+    a_col, h_col = away["color"], _apart(away["color"], home["color"])
+    T = s["teams"]
+    zero = {"raw": 0.0, "act": 0.0, "n": 0}
+    ta = T.get(a) or {"bat": zero, "pitch": zero}
+    th = T.get(h) or {"bat": zero, "pitch": zero}
+    ump = {k: sum(u["review"][k] + u["relay"][k] for u in s["umps"].values()) for k in ("raw", "act")}
+
+    def pct(v: float, whole: float) -> int:
+        return round(100 * v / whole) if whole else 0
+
+    # active time only; each panel's second row re-weights both teams to the same number of PAs / BFs (their average),
+    # keeping each team's own per-PA / per-BF rate
+    adj = pace.adjust_for_volume(s, a, h)
+    ref_bat = (ta["bat"]["n"] + th["bat"]["n"]) / 2
+    ref_pitch = (ta["pitch"]["n"] + th["pitch"]["n"]) / 2
+    panels = [("TOTAL GAME TIME",
+               [("Active", [(ta["bat"]["act"] + ta["pitch"]["act"], a_col, a), (ump["act"], _UMP_GRAY, "Ump"),
+                            (th["bat"]["act"] + th["pitch"]["act"], h_col, h)]),
+                ("PA/BF adj", [(adj[a]["act"], a_col, a), (ump["act"], _UMP_GRAY, "Ump"), (adj[h]["act"], h_col, h)])]),
+              ("HITTING",
+               [("Active", [(ta["bat"]["act"], a_col, a), (th["bat"]["act"], h_col, h)]),
+                ("PA adj", [(ta["bat"]["avg_act"] * ref_bat, a_col, a), (th["bat"]["avg_act"] * ref_bat, h_col, h)])]),
+              ("PITCHING",
+               [("Active", [(ta["pitch"]["act"], a_col, a), (th["pitch"]["act"], h_col, h)]),
+                ("BF adj", [(ta["pitch"]["avg_act"] * ref_pitch, a_col, a),
+                            (th["pitch"]["avg_act"] * ref_pitch, h_col, h)])])]
+    umps = sorted(s["umps"].items(), key=lambda kv: -kv[1]["review"]["raw"])
+    n_un = sum(v["unsplit"]["n"] for v in T.values())
+
+    row_h, row_gap = 15, 5
+    trend_h, trend_gap = 20, 6
+    tr_h = 22 + len(trend) * (trend_h + trend_gap) + 14 if trend else 0
+    innings = sorted({b["inning"] for b in timeline}) if timeline else []
+    tl_h = 22 + 18 + 18 + len(innings) * (row_h + row_gap) + 12 if timeline else 0
+    H = 74 + tr_h + tl_h + len(panels) * (22 + 2 * (bar_h + 8) + 14) + 22 + 20 + 2 * 26 + 12 + 22 + len(umps) * 44 + 6 + 15 * 7 + 16
+    img = Image.new("RGB", (W * _S, H * _S), _BG)
+    d = ImageDraw.Draw(img)
+    d.text((_px(pad), _px(26)), title, font=_font(20, True), fill=_TEXT, anchor="lm")
+    d.text((_px(pad), _px(50)), subtitle, font=_font(12), fill=_MUTED, anchor="lm")
+
+    y = 74
+    if trend:
+        _panel_title(d, pad, y + 8, "TOTAL GAME TIME, PA/BF ADJ, BY GAME")
+        y += 22
+        for label, va, vu, vh, hx in trend:
+            whole = va + vu + vh
+            row_col = _apart(a_col, _hex(hx)) if hx else h_col
+            d.text((_px(pad), _px(y + trend_h / 2)), label.split()[0], font=_font(12), fill=_MUTED, anchor="lm")
+            _pace_bar(img, d, bar_x, y, bar_w, trend_h,
+                      [(va, a_col, f"{a} {pct(va, whole)}%"), (vu, _UMP_GRAY, f"{pct(vu, whole)}%"),
+                       (vh, row_col, f"{label.split()[-1]} {pct(vh, whole)}%")])
+            y += trend_h + trend_gap
+        y += 14
+    if timeline:
+        _panel_title(d, pad, y + 8, "INNING TIMELINE   width = active time")
+        y += 22
+        # legend: whose time each colour is
+        lx = pad
+        for col, text in ((a_col, a), (h_col, h), (_UMP_GRAY, "Ump")):
+            d.rounded_rectangle((_px(lx), _px(y + 3), _px(lx + 12), _px(y + 13)), radius=_px(3), fill=col)
+            d.text((_px(lx + 17), _px(y + 8)), text, font=_font(11), fill=_MUTED, anchor="lm")
+            lx += 17 + int(d.textlength(text, font=_font(11)) / _S) + 18
+        gx, side_w = pad + 26, (W - 2 * pad - 26 - 10) / 2
+        owner_col = {a: a_col, h: h_col, "": _UMP_GRAY}
+        longest = max(b["act"] for b in timeline) or 1.0
+        # scale key, right-aligned on the legend row: the smallest round duration that is at least ~30px wide
+        unit = next((u for u in (60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400)
+                    if side_w * u / longest >= 30), 86400)
+        unit_w = side_w * unit / longest
+        unit_txt = f"{unit // 3600}h" if unit >= 3600 else f"{unit // 60}m"
+        tx = W - pad - d.textlength(unit_txt, font=_font(11)) / _S
+        bx1, mid = tx - 6, y + 8
+        d.text((_px(tx), _px(mid)), unit_txt, font=_font(11), fill=_MUTED, anchor="lm")
+        d.line((_px(bx1 - unit_w), _px(mid), _px(bx1), _px(mid)), fill=_MUTED, width=_S)
+        for ex in (bx1 - unit_w, bx1):
+            d.line((_px(ex), _px(mid - 4), _px(ex), _px(mid + 4)), fill=_MUTED, width=_S)
+        y += 18
+        for cx, who in ((gx, a), (gx + side_w + 10, h)):
+            d.text((_px(cx + 4), _px(y + 8)), f"{who} batting", font=_font(11), fill=_MUTED, anchor="lm")
+        y += 18
+        by = {(b["inning"], b["half"]): b for b in timeline}
+        for inn in innings:
+            d.text((_px(pad + 8), _px(y + row_h / 2)), str(inn), font=_font(11), fill=_MUTED, anchor="mm")
+            for cx, half in ((gx, "top"), (gx + side_w + 10, "bottom")):
+                b = by.get((inn, half))
+                if not b:
+                    d.rounded_rectangle((_px(cx), _px(y), _px(cx + side_w), _px(y + row_h)), radius=_px(row_h / 2.5),
+                                        outline=_ROW_A, width=_S)
+                    continue
+                spans, sx = [], cx
+                for kind, owner, sec in b["segs"]:
+                    sw = side_w * sec / longest
+                    if sw > 0:
+                        spans.append((sx, sx + sw, owner_col.get(owner, _UMP_GRAY)))
+                    sx += sw
+                _rounded_fill(img, cx, y, sx, y + row_h, row_h / 2.5, spans)
+            y += row_h + row_gap
+        y += 12
+    for name, rows in panels:
+        _panel_title(d, pad, y + 8, name)
+        y += 22
+        for label, segs in rows:
+            whole = sum(f for f, _, _ in segs)
+            d.text((_px(pad), _px(y + bar_h / 2)), label, font=_font(12), fill=_MUTED, anchor="lm")
+            _pace_bar(img, d, bar_x, y, bar_w, bar_h, [(f, c, f"{pct(f, whole)}%" if n == "Ump" else f"{n} {pct(f, whole)}%") for f, c, n in segs])
+            y += bar_h + 8
+        y += 14
+
+    # per PA (hitting) and per BF (pitching): each cell "avg | median", active time
+    _panel_title(d, pad, y + 8, "PER PA (HITTING) AND PER BF (PITCHING)   active, avg | median")
+    y += 22
+    x_pa, x_bf, x0, cw = pad + 60, pad + 106, pad + 200, 230
+    heads = (("Hitting", "bat"), ("Pitching", "pitch"))
+    d.text((_px(x_pa), _px(y + 8)), "PA", font=_font(11), fill=_MUTED, anchor="lm")
+    d.text((_px(x_bf), _px(y + 8)), "BF", font=_font(11), fill=_MUTED, anchor="lm")
+    for ci, (label, _) in enumerate(heads):
+        d.text((_px(x0 + ci * cw), _px(y + 8)), label, font=_font(11), fill=_MUTED, anchor="lm")
+    y += 20
+    for t, col in ((a, a_col), (h, h_col)):
+        d.rectangle((_px(pad), _px(y), _px(W - pad), _px(y + 24)), fill=_ROW_A)
+        d.rectangle((_px(pad), _px(y), _px(pad + 4), _px(y + 24)), fill=col)
+        d.text((_px(pad + 12), _px(y + 12)), t, font=_font(13, True), fill=_TEXT, anchor="lm")
+        for x_n, key in ((x_pa, "bat"), (x_bf, "pitch")):
+            d.text((_px(x_n), _px(y + 12)), str(((T.get(t) or {}).get(key) or {}).get("n", 0)), font=_font(12),
+                   fill=_TEXT, anchor="lm")
+        for ci, (_, key) in enumerate(heads):
+            st = (T.get(t) or {}).get(key)
+            if st and st["n"]:
+                d.text((_px(x0 + ci * cw), _px(y + 12)), f"{pace.fmt_dur(st['avg_act'])} | {pace.fmt_dur(st['med_act'])}",
+                       font=_font(12), fill=_TEXT, anchor="lm")
+        y += 26
+    y += 12
+
+    _panel_title(d, pad, y + 8, "UMPIRE")
+    y += 22
+    for name, u in umps:
+        r, rl = u["review"], u["relay"]
+        d.text((_px(pad), _px(y + 9)), name, font=_font(13, True), fill=_TEXT, anchor="lm")
+        d.text((_px(W - pad), _px(y + 9)),
+               f"{pct(r['act'] + rl['act'], s['total_act'])}% of active game time", font=_font(12), fill=_MUTED, anchor="rm")
+        d.text((_px(pad + 10), _px(y + 28)),
+               f"swing → result: avg {pace.fmt_dur(r['avg_act'])} | median {pace.fmt_dur(r['med_act'])}     "
+               f"relay (est.): {pace.fmt_dur(rl['act'])} total", font=_font(12), fill=_MUTED, anchor="lm")
+        y += 44
+
+    foot = ["Active = time weighted by when results usually get logged (Central time, smoothed S11-S13 history): busy hours count",
+            "in full, the overnight lull ~10%. Adj rows: hitting takes ~2x longer than pitching, so each team's own per-PA and",
+            "per-BF times are re-weighted to the same number of PAs and BFs (the two teams' average); ump time is unchanged.",
+            "Ump bar = swing → result plus an estimated relay (their median turnaround, carved out of result → next ping);",
+            "pitching is the rest of that gap."]
+    if n_un:
+        foot.append(f"{n_un} PA had no swing post (conditional / ump-handled): ump credited their median turnaround, rest to hitting.")
+    y += 6
+    for line in foot:
+        d.text((_px(pad), _px(y + 6)), line, font=_font(10), fill=_MUTED, anchor="lm")
+        y += 15
+
+    img = img.crop((0, 0, W * _S, _px(y + 12)))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
