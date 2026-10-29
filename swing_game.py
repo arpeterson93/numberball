@@ -845,6 +845,21 @@ def team_brand() -> dict:
     return _BRAND
 
 
+def team_looks(full_names: list[str], season: int | None) -> dict[str, dict]:
+    """{full_team: team row with abbrev, primary_hex} for the given teams, preferring the given season's row."""
+    out: dict[str, dict] = {}
+    try:
+        rows = (_t("teams").select("full_team,abbrev,primary_hex,season").in_("full_team", [n for n in full_names if n])
+                .order("season", desc=True).execute().data)
+    except Exception:
+        return out
+    for r in rows:
+        cur = out.get(r["full_team"])
+        if cur is None or (season is not None and r.get("season") == season and cur.get("season") != season):
+            out[r["full_team"]] = r
+    return out
+
+
 def player_card(user_id, limit: int = 10, game_code: str | None = None, season: int | None = None) -> dict:
     """Everything the /player card shows: the player's stat line for this game,
     this season and all time, plus their recent guesses (player_history)."""
