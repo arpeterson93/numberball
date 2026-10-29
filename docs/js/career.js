@@ -172,6 +172,10 @@
 
   var pm = { data: null, side: "bat", season: "all", gt: "all", loading: false, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
 
+  // Prev / next through the list the player was opened from (a Stats table, the header search results), and whether
+  // opening pushed a history entry (so Back closes the panel) or the page was landed on a player link.
+  var pnav = { list: null, idx: -1 }, pushed = false;
+
   function ensureModal() {
     if ($("career-modal")) return;
     var m = document.createElement("div");
@@ -181,6 +185,8 @@
     m.innerHTML = '<div class="modal-card wide"><div class="modal-head" id="career-head"><img class="ph-logo" id="career-logo" alt="" hidden>' +
       '<div class="ph-left"><div class="ph-name"><strong id="career-title">Player</strong>' +
       '<span class="ph-pos" id="career-pos"></span></div><div class="ph-build" id="career-build"></div></div>' +
+      '<button type="button" class="ph-nav ph-prev" id="career-prev" title="Previous player" aria-label="Previous player" hidden>&#8249;</button>' +
+      '<button type="button" class="ph-nav ph-next" id="career-next" title="Next player" aria-label="Next player" hidden>&#8250;</button>' +
       '<button type="button" class="ph-link" id="career-copy" title="Copy link to this player" aria-label="Copy link to this player">' +
       '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg></button>' +
       '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div>' +
@@ -189,9 +195,20 @@
     $("career-close").addEventListener("click", closePlayer);
     $("career-copy").addEventListener("click", function () { if (pm.id) B.copyLink(playerLinkUrl()); });
     m.addEventListener("click", function (e) { if (e.target === m) closePlayer(); });
+    $("career-prev").addEventListener("click", function () { stepPlayer(-1); });
+    $("career-next").addEventListener("click", function () { stepPlayer(1); });
     document.addEventListener("keydown", function (e) {
       var rm = $("replay-modal");
-      if (e.key === "Escape" && !m.hidden && !(rm && !rm.hidden)) closePlayer();   // Escape closes the replay first
+      if (m.hidden || (rm && !rm.hidden)) return;   // the replay sits on top of this panel and owns the keys first
+      if (e.key === "Escape") closePlayer();
+      else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName || "") && !e.altKey && !e.ctrlKey && !e.metaKey) stepPlayer(e.key === "ArrowLeft" ? -1 : 1);
+    });
+    // Back / Forward: the panel is its own history entry, so Back closes it and Forward brings it back.
+    window.addEventListener("popstate", function () {
+      var q = new URLSearchParams(location.search), pid = Number(q.get("player"));
+      if (pid) {
+        if (m.hidden || pm.id !== pid) openPlayer(pid, null, { side: q.get("side"), view: q.get("pview"), season: q.get("season"), gt: q.get("gt"), fromPop: true });
+      } else if (!m.hidden) closePlayer(true);
     });
     m.addEventListener("click", function (e) {
       var sub = e.target.closest("[data-pside]");
@@ -243,6 +260,35 @@
     return tot;
   }
 
+  // A y axis that lands on round, equally spaced gridlines: a 1 / 2 / 5 step (times a power of ten) that needs at most
+  // four intervals, with the top gridline at the first multiple of the step at or above the data (3 -> 0 1 2 3, 7 -> 0 2 4 6 8).
+  function niceScale(max) {
+    var mag = Math.max(1, Math.pow(10, Math.floor(Math.log(Math.max(max, 1) / 4) / Math.LN10))), step = mag;   // counts: whole steps only
+    [1, 2, 5, 10].some(function (m) { step = m * mag; return Math.ceil(max / step) <= 4; });
+    var top = Math.max(step, Math.ceil(max / step) * step), ticks = [];
+    for (var v = 0; v <= top + step / 1e6; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
+    return { top: top, ticks: ticks };
+  }
+
+  // Marker labels along the band above a plot. The lower value's label sits left of its line and the higher one's right;
+  // a label that would run off an edge flips sides, and one that would still touch its neighbour drops to a second row.
+  // marks: [[value, class, text], ...] sorted ascending; xOf maps a value to its x.
+  function markLabels(marks, xOf, W, L) {
+    var cw = window.innerWidth <= 700 ? 5.8 : 7.2, boxes = [], out = "";
+    marks.forEach(function (m, idx) {
+      var mx = xOf(m[0]), wd = m[2].length * cw;
+      var left = marks.length > 1 ? idx === 0 : mx > W - wd - 10;
+      if (left && mx - 5 - wd < 4) left = false;
+      if (!left && mx + 5 + wd > W - 2) left = true;
+      var x0 = left ? mx - 5 - wd : mx + 5, row = 0;
+      boxes.forEach(function (b) { if (b.row === row && x0 < b.x1 + 6 && x0 + wd > b.x0 - 6) row = 1; });
+      boxes.push({ x0: x0, x1: x0 + wd, row: row });
+      out += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (11 + row * 12) + '" text-anchor="' + (left ? "end" : "start") +
+        '" class="' + m[1] + '-t">' + m[2] + "</text>";
+    });
+    return out;
+  }
+
   function dxChart(kind, bins, lg, dpa, lgdpa) {
     // Sized to the panel (so the labels stay a readable size at any width): up to 1000px wide on a big screen.
     var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
@@ -254,10 +300,11 @@
     var n = [];
     var NC = bins.length;
     for (var b = 0; b < 25; b++) { var t = 0; for (var c = 0; c < NC; c++) t += bins[c][b]; n.push(t); }
-    var max = kind === "count" ? Math.max.apply(null, n.concat([1])) : 1;
+    var sc = kind === "count" ? niceScale(Math.max.apply(null, n.concat([1]))) : null;
+    var max = kind === "count" ? sc.top : 1;
     var yOf = function (v) { return T + ph - (v / max) * ph; };
     var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + (kind === "count" ? "Swings by diff" : "Results by diff") + '">';
-    var ticks = kind === "count" ? [0, Math.round(max / 2), max] : [0, 0.5, 1];
+    var ticks = kind === "count" ? sc.ticks : [0, 0.5, 1];
     ticks.forEach(function (v) {
       svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (yOf(v) + 3) + '" text-anchor="end">' +
         (kind === "count" ? v : Math.round(v * 100) + "%") + "</text>";
@@ -289,23 +336,16 @@
       }
       svg += '<polyline points="' + pts.join(" ") + '" class="dx-lg"/>';
     }
-    // The two markers: the league's (dotted, grey) and the player's DPA. Labels sit on opposite sides of their
-    // lines - the lower value's to its left, the higher value's to its right - so they never run into each other,
-    // and stack vertically only when an edge leaves no room on the outside.
+    // The two markers: the league's (dotted, grey) and the player's DPA.
     var marks = [[lgdpa, "dx-mk-lg", "League " + (lgdpa == null ? "" : Math.round(lgdpa))],
       [dpa, "dx-mk", "DPA " + (dpa == null ? "" : Math.round(dpa))]].filter(function (m) { return m[0] != null; });
     marks.sort(function (a, b) { return a[0] - b[0]; });
-    marks.forEach(function (m, idx) {
-      var mx = L + (m[0] / 500) * pw;
+    var xOfD = function (v) { return L + (v / 500) * pw; };
+    marks.forEach(function (m) {
+      var mx = xOfD(m[0]);
       svg += '<line x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + T + '" y2="' + (T + ph) + '" class="' + m[1] + '"/>';
-      if (kind !== "count") return;
-      var left = marks.length > 1 ? idx === 0 : mx > W - 90;
-      if (marks.length > 1 && idx === 0 && mx < L + 80) left = false;          // no room on the left edge
-      if (marks.length > 1 && idx === 1 && mx > W - 90) left = true;            // no room on the right edge
-      var stack = marks.length > 1 && ((idx === 0 && !left) || (idx === 1 && left));
-      svg += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (11 + (stack ? idx * 12 : 0)) + '" text-anchor="' + (left ? "end" : "start") +
-        '" class="' + m[1] + '-t">' + m[2] + "</text>";
     });
+    if (kind === "count") svg += markLabels(marks, xOfD, W, L);
     for (var tk = 0; tk <= 5; tk++) {
       svg += '<text x="' + (L + (tk * 100 / 500) * pw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + tk * 100 + "</text>";
     }
@@ -406,10 +446,10 @@
       var med = vals.length % 2 ? vals[(vals.length - 1) / 2] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
       var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
       var H = Math.round(W * 0.34) + 18, L = 40, R = 18, T = 30, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / nb;
-      var max = Math.max.apply(null, counts.concat([1]));
+      var sc = niceScale(Math.max.apply(null, counts.concat([1]))), max = sc.top;
       var yOf = function (v) { return T + ph - (v / max) * ph; };
       var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Games by Game Score">';
-      [0, Math.round(max / 2), max].forEach(function (v) {
+      sc.ticks.forEach(function (v) {
         svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (yOf(v) + 3) + '" text-anchor="end">' + v + "</text>";
       });
       for (var i = 0; i < nb; i++) {
@@ -423,16 +463,11 @@
       var marks = [[lgAvg, "dx-mk-lg", "League " + (lgAvg == null ? "" : lgAvg.toFixed(1))], [mean, "dx-mk", "Avg " + mean.toFixed(1)]]
         .filter(function (m) { return m[0] != null; });
       marks.sort(function (a, b) { return a[0] - b[0]; });
-      marks.forEach(function (m, idx) {
+      marks.forEach(function (m) {
         var mx = xOfV(m[0]);
         svg += '<line x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + T + '" y2="' + (T + ph) + '" class="' + m[1] + '"/>';
-        var left = marks.length > 1 ? idx === 0 : mx > W - 90;
-        if (marks.length > 1 && idx === 0 && mx < L + 80) left = false;
-        if (marks.length > 1 && idx === 1 && mx > W - 90) left = true;
-        var stack = marks.length > 1 && ((idx === 0 && !left) || (idx === 1 && left));
-        svg += '<text x="' + (mx + (left ? -5 : 5)).toFixed(1) + '" y="' + (11 + (stack ? idx * 12 : 0)) + '" text-anchor="' + (left ? "end" : "start") +
-          '" class="' + m[1] + '-t">' + m[2] + "</text>";
       });
+      svg += markLabels(marks, xOfV, W, L);
       for (var tk = 0; tk <= nb; tk++) {
         svg += '<text x="' + (L + tk * bw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + (lo + tk * 10) + "</text>";
       }
@@ -443,7 +478,48 @@
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
   }
 
-  function closePlayer() { var m = $("career-modal"); if (m) m.hidden = true; }
+  // Closing walks back over the entry opening pushed; a panel that was landed on (shared link) has nothing behind it,
+  // so its params are stripped from the address bar instead. fromPop: the browser already moved, only hide.
+  function closePlayer(fromPop) {
+    var m = $("career-modal");
+    if (!m || m.hidden) return;
+    m.hidden = true;
+    if (fromPop === true) { pushed = false; return; }
+    if (pushed) { pushed = false; try { window.history.back(); } catch (e) { /* ignore */ } return; }
+    var u = new URL(location.href);
+    if (!u.searchParams.has("player")) return;
+    ["player", "side", "pview", "season", "gt"].forEach(function (k) { u.searchParams.delete(k); });
+    try { window.history.replaceState(null, "", u.pathname + u.search + u.hash); } catch (e) { /* ignore */ }
+  }
+
+  // Keeps the address bar on the exact view (side, tab, season, game type) without adding history entries.
+  function syncPlayerUrl() {
+    var m = $("career-modal");
+    if (!pm.id || !m || m.hidden) return;
+    var u = new URL(playerLinkUrl());
+    try { window.history.replaceState({ mlnPlayer: pm.id, landing: !pushed }, "", u.pathname + u.search); } catch (e) { /* ignore */ }
+  }
+
+  function updatePlayerNav() {
+    var has = pnav.list && pnav.list.length > 1 && pnav.idx >= 0, p = $("career-prev"), n = $("career-next");
+    p.hidden = n.hidden = !has;
+    $("career-head").classList.toggle("has-nav", !!has);
+    if (!has) return;
+    p.disabled = pnav.idx <= 0;
+    n.disabled = pnav.idx >= pnav.list.length - 1;
+    p.title = pnav.idx > 0 ? "Previous: " + pnav.list[pnav.idx - 1].name : "Previous player";
+    n.title = pnav.idx < pnav.list.length - 1 ? "Next: " + pnav.list[pnav.idx + 1].name : "Next player";
+  }
+
+  // Same side / tab / season / game type carry over to the neighbour where they exist for that player.
+  function stepPlayer(dir) {
+    var i = pnav.idx + dir;
+    if (!pnav.list || i < 0 || i >= pnav.list.length) return;
+    var t = pnav.list[i];
+    openPlayer(t.id, t.name, { side: pm.side, view: pm.view, season: pm.season === "all" ? null : pm.season, gt: pm.gt, fromNav: true });
+    var body = $("career-body");
+    if (body) body.scrollTop = 0;
+  }
 
   // Large screens: size the card once, on open, to the widest of the player's Batting / Pitching Stats views
   // (the Diffs chart just fills whatever width that is), so switching tabs never resizes it.
@@ -502,7 +578,24 @@
 
   function openPlayer(id, name, opts) {
     ensureModal();
+    opts = opts || {};
+    var wasOpen = !$("career-modal").hidden;
+    if (opts.list) pnav.list = opts.list;
+    else if (!opts.fromNav && !opts.fromPop) pnav.list = null;
+    pnav.idx = pnav.list ? pnav.list.findIndex(function (x) { return x.id === id; }) : -1;
     $("career-modal").hidden = false;
+    updatePlayerNav();
+    if (!opts.fromPop) {
+      // a fresh open is a new history entry; stepping players or landing on a player link just rewrites the current one
+      var landed = !wasOpen && new URLSearchParams(location.search).get("player") === String(id);
+      try {
+        var u = baseUrl(); u.searchParams.set("player", String(id));
+        if (wasOpen || landed) window.history.replaceState({ mlnPlayer: id, landing: landed }, "", u.pathname + u.search);
+        else { window.history.pushState({ mlnPlayer: id }, "", u.pathname + u.search); pushed = true; }
+      } catch (e) { /* ignore */ }
+    } else {
+      pushed = !!(history.state && history.state.mlnPlayer && !history.state.landing);
+    }
     $("career-title").textContent = name || "Player";
     styleHead(null);
     $("career-modal").querySelector(".modal-card").style.width = "";
@@ -518,6 +611,8 @@
       // a shared link can ask for a side / view, honoured when this player has rows for it
       if (opts && opts.side && d[opts.side] && d[opts.side].length) pm.side = opts.side;
       if (opts && (opts.view === "diffs" || opts.view === "gsc")) pm.view = opts.view;
+      if (opts.gt === "reg" || (opts.gt === "post" && d[pm.side].some(function (r) { return r.po; }))) pm.gt = opts.gt;
+      if (opts.season && d[pm.side].some(function (r) { return String(r.s) === String(opts.season); })) pm.season = String(opts.season);
       $("career-title").textContent = d.name;
       styleHead(d);
       fitCard();
@@ -576,6 +671,11 @@
   var NULLABLE = { wpa: 1, gsc: 1, dpa: 1, rv: 1, xr: 1, rvx: 1, wp: 1, xw: 1, wvx: 1 };
 
   function renderPlayer() {
+    renderPlayerBody();
+    syncPlayerUrl();
+  }
+
+  function renderPlayerBody() {
     var d = pm.data;
     if (!d) return;
     var side = pm.side;
@@ -681,7 +781,7 @@
   // it uses stats_sessions.json (below), and the Team / Game / League granularities are drawn from the
   // records data here: one row per team-session, per game (both teams together) or per league-session.
 
-  var rec = { data: null, games: null, tab: "team", side: "bat", gt: "all", season: "all", session: null, team: "", allTime: false, rookies: false,
+  var rec = { data: null, games: null, tab: "team", side: "bat", gt: "all", season: "all", session: null, team: "", allTime: false, rookies: false, leagueBy: "session",
     sort: { key: "ops", dir: "desc" }, sorts: {}, shown: 100, el: null, token: 0 };
   // Team, Game and League all open on OPS (batting, best first) or ER6 (pitching, lowest first); a sort the user
   // picks is remembered for that granularity and side.
@@ -717,6 +817,9 @@
     return t[(league ? "x" : "o") + (rec.side === "bat" ? "b" : "p")] || null;
   }
 
+  // All-Time League: one row per session (default) or per season, with every filter applied either way.
+  function byYear() { return rec.tab === "league" && rec.allTime && rec.leagueBy === "season"; }
+
   function recSeasonOk(s) {
     if (rec.allTime && rec.sRange && (s < rec.sRange[0] || s > rec.sRange[1])) return false;      // All-Time Seasons slider
     return rec.season === "all" || String(s) === String(rec.season);
@@ -735,7 +838,7 @@
       if (!league && !recTeamOk(t.t)) return;
       var ln = recLines(t), cnt = recCounts(t, league);
       if (!cnt) return;                                     // Rookies on and none played in this team's games
-      var key = (league ? "L" : t.t) + "|" + t.s + "|" + t.n;
+      var key = (league ? "L" : t.t) + "|" + t.s + "|" + (byYear() ? 0 : t.n);
       var e = groups[key];
       if (!e) { e = groups[key] = { s: t.s, n: t.n, abbr: t.t, g: 0, w: 0, l: 0, rs: 0, ra: 0, bat: {}, pit: {} }; order.push(e); }
       sumInto(e, cnt, ln.bat, ln.pit);
@@ -773,8 +876,8 @@
     var game = rec.tab === "game", league = rec.tab === "league";
     // The league is the whole entity, so it gets no name column at all.
     var who = league ? [] : [["name", game ? "Game" : "Team"]];
-    if (rec.season === "all") who.push(["s", "Season"]);
-    who.push(["n", "SN"]);
+    if (rec.season === "all" || byYear()) who.push(["s", "Season"]);
+    if (!byYear()) who.push(["n", "SN"]);
     var stats = rec.side === "bat" ? REC_BAT.slice() : REC_PIT.slice();
     var extra = [];
     if (rec.tab === "team") extra = [["w", "W"], ["l", "L"]].concat(rec.side === "bat" ? [["rs", "RS"]] : [["ra", "RA"]]);
@@ -806,7 +909,7 @@
       if (i === 0 || v !== prev) { ranks.push(String(i + 1)); prev = v; } else ranks.push("");
     });
     var body = shown.map(function (r, ri) {
-      var nav = ' class="xt-click" data-rseason="' + r.s + '" data-rsession="' + r.n + '"' + (r.gc ? ' data-rgame="' + esc(r.gc) + '"' : "");
+      var nav = ' class="xt-click" data-rseason="' + r.s + '"' + (byYear() ? "" : ' data-rsession="' + r.n + '"') + (r.gc ? ' data-rgame="' + esc(r.gc) + '"' : "");
       return "<tr" + nav + '><td class="stats-rk">' + ranks[ri] + "</td>" + cols.map(function (c) {
         var k = c[0];
         if (k === "name") return '<td class="stats-col-name">' + esc(r.name) + "</td>";
@@ -822,10 +925,12 @@
       ? '<div class="xt-bar"><button type="button" class="chip" id="rec-more">Show ' + Math.min(REC_PAGE, rows.length - shown.length) + " more (" +
         shown.length + " of " + rows.length.toLocaleString() + ")</button></div>" : "";
     var drawn = rows.length;
-    box.innerHTML = rows.length
+    var by = rec.tab === "league" && rec.allTime
+      ? '<div class="xt-bar rec-by">' + chip("Per session", 'data-rby="session"', rec.leagueBy !== "season") + chip("Per season", 'data-rby="season"', rec.leagueBy === "season") + "</div>" : "";
+    box.innerHTML = by + (rows.length
       ? '<div class="stats-table-wrap stats-agg xt-table"><table class="stats-table xt-plain"><thead><tr>' + head +
         "</tr></thead><tbody>" + body + "</tbody></table></div>" + more
-      : '<div class="stats-empty">No ' + (rec.tab === "game" ? "games" : rec.tab === "league" ? "league lines" : "team lines") + " match.</div>";
+      : '<div class="stats-empty">No ' + (rec.tab === "game" ? "games" : rec.tab === "league" ? "league lines" : "team lines") + " match.</div>");
     // the name column (Team / Game) sticks just right of RK on a phone; RK's width is its offset
     var rk = box.querySelector("th.stats-rk");
     if (rk) document.documentElement.style.setProperty("--stats-rk-w", rk.getBoundingClientRect().width + "px");
@@ -834,12 +939,12 @@
   /* Called by the Stats tab for the Team / Game / League granularities. ctx: {gran, side, allTime, season,
      session, gt, team}. Fetches the records data on first use, then draws the table into el. */
   function renderGran(el, ctx) {
-    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange;
+    var sig = rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange + rec.leagueBy;
     rec.tab = ctx.gran; rec.rookies = !!ctx.rookies; rec.sRange = ctx.allTime && ctx.seasons ? ctx.seasons : null; rec.side = ctx.side;
     rec.sort = rec.sorts[rec.tab + rec.side] || defaultRecSort(rec.side); rec.gt = ctx.gt || "all"; rec.allTime = !!ctx.allTime;
     rec.season = ctx.allTime ? "all" : String(ctx.season); rec.session = ctx.allTime ? null : ctx.session;
     rec.team = ctx.team || "";
-    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange) rec.shown = REC_PAGE;
+    if (sig !== rec.tab + rec.side + rec.gt + rec.season + rec.session + rec.team + rec.allTime + rec.rookies + rec.sRange + rec.leagueBy) rec.shown = REC_PAGE;
     rec.el = el;
     var needGames = rec.tab === "game";
     if (!rec.data || (needGames && !rec.games) || (rec.allTime && !at.fr)) {
@@ -865,9 +970,17 @@
         rec.shown = REC_PAGE; renderRecTable(); return;
       }
       if (e.target.closest("#rec-more")) { rec.shown += REC_PAGE; renderRecTable(); return; }
+      t = e.target.closest("[data-rby]");
+      if (t) {
+        rec.leagueBy = t.getAttribute("data-rby");
+        // per season, newest first; per session, back to the usual best-first sort
+        rec.sort = rec.leagueBy === "season" ? { key: "s", dir: "desc" } : defaultRecSort(rec.side);
+        rec.sorts[rec.tab + rec.side] = rec.sort;
+        rec.shown = REC_PAGE; renderRecTable(); return;
+      }
       t = e.target.closest("tr[data-rseason]");
       if (t) {
-        var s = Number(t.getAttribute("data-rseason")), n = Number(t.getAttribute("data-rsession")), g = t.getAttribute("data-rgame");
+        var s = Number(t.getAttribute("data-rseason")), n = t.hasAttribute("data-rsession") ? Number(t.getAttribute("data-rsession")) : null, g = t.getAttribute("data-rgame");
         if (g) B.goTo(s, n, { gameCode: g });
         else B.goTo(s, n, { view: "stats" });
       }
@@ -1001,6 +1114,8 @@
     u.searchParams.set("player", String(pm.id));
     if (pm.side === "pit") u.searchParams.set("side", "pit");
     if (pm.view !== "stats") u.searchParams.set("pview", pm.view);
+    if (pm.season !== "all") u.searchParams.set("season", pm.season);
+    if (pm.gt !== "all") u.searchParams.set("gt", pm.gt);
     return u.toString();
   }
 
@@ -1484,7 +1599,7 @@
       var p = hits[i];
       if (!p) return;
       setOpen(false);
-      openPlayer(p.id, p.name);
+      openPlayer(p.id, p.name, { list: hits.slice(0, 60).map(function (h) { return { id: h.id, name: h.name }; }) });
     }
     function mark(d) {
       var items = list.querySelectorAll(".hs-item");

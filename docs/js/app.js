@@ -17082,7 +17082,8 @@
       }
       var careerBtn = e.target.closest("[data-career-id]");
       if (careerBtn && window.MLNExtras) {
-        window.MLNExtras.openPlayer(Number(careerBtn.getAttribute("data-career-id")), careerBtn.getAttribute("data-career-name"));
+        window.MLNExtras.openPlayer(Number(careerBtn.getAttribute("data-career-id")), careerBtn.getAttribute("data-career-name"),
+          { list: statsPlayerNavList(careerBtn) });
         return;
       }
       var gtBtn = e.target.closest("[data-gametype]");
@@ -17103,7 +17104,8 @@
       if (allTime) {
         // All-Time rows are spread over many seasons, so a click opens the player's career panel.
         if (window.MLNExtras) {
-          window.MLNExtras.openPlayer(Number(row.getAttribute("data-player-id")), row.children[0].getAttribute("title"));
+          window.MLNExtras.openPlayer(Number(row.getAttribute("data-player-id")), row.children[0].getAttribute("title"),
+            { list: statsPlayerNavList(row) });
         }
         return;
       }
@@ -17691,7 +17693,7 @@
       }
       var pid = Number(params.get("player"));
       if (pid) {
-        window.MLNExtras.openPlayer(pid, null, { side: params.get("side"), view: params.get("pview") });
+        window.MLNExtras.openPlayer(pid, null, { side: params.get("side"), view: params.get("pview"), season: params.get("season"), gt: params.get("gt") });
         return;
       }
     }
@@ -17837,3 +17839,16 @@
     boot();
   }
 })();
+  // The players in the Stats table el sits in, in the order shown, so the player panel can step to the next/previous one.
+  function statsPlayerNavList(el) {
+    var table = el.closest("table"), out = [], seen = {};
+    if (!table) return null;
+    table.querySelectorAll(".stats-player-row").forEach(function (tr) {
+      var id = Number(tr.getAttribute("data-player-id")), cell = tr.querySelector(".stats-col-player") || tr.children[0];
+      if (!id || seen[id]) return;
+      seen[id] = 1;
+      out.push({ id: id, name: (cell && cell.getAttribute("title")) || "" });
+    });
+    return out;
+  }
+

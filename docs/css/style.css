@@ -3454,3 +3454,12 @@ html[data-km-debug="1"] .km-tuning-panel{
 @media (pointer:coarse){
   #header-search #header-search-input{font-size:16px;}
 }
+
+/* Player panel prev / next: top-right, left of the x; the header gains padding so a long name never runs under them. */
+#career-head .ph-nav{position:absolute;top:2px;border:none;background:transparent;color:inherit;opacity:0.8;font-size:24px;line-height:1;padding:2px 9px;border-radius:6px;cursor:pointer;z-index:2;}
+#career-head .ph-nav:hover:not(:disabled){opacity:1;background:rgba(127,127,127,0.25);}
+#career-head .ph-nav:disabled{opacity:0.25;cursor:default;}
+#career-head .ph-nav[hidden]{display:none;}
+#career-head .ph-next{right:36px;}
+#career-head .ph-prev{right:68px;}
+#career-head.has-nav{padding-right:104px;}
