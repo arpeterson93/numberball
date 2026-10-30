@@ -3386,9 +3386,9 @@ html[data-km-debug="1"] .km-tuning-panel{
 .dx-chart svg{margin:0 auto;}
 .dx-legend{justify-content:center;}
 .dx-legend-break{flex-basis:100%;height:0;}
-/* Copy-link icon in the player header: bottom-right, clear of the name (header already pads right for the x). */
-#career-head .ph-link{position:absolute;right:8px;bottom:6px;border:none;background:transparent;color:inherit;opacity:0.8;padding:5px;border-radius:6px;cursor:pointer;line-height:0;}
-#career-head .ph-link:hover{opacity:1;background:rgba(127,127,127,0.25);}
+/* Copy-link icon: far right of the Batting / Pitching tab row. */
+#career-body .ph-link{margin-left:auto;align-self:center;border:none;background:transparent;color:inherit;opacity:0.6;padding:5px;margin-bottom:2px;border-radius:6px;cursor:pointer;line-height:0;}
+#career-body .ph-link:hover{opacity:1;background:rgba(127,127,127,0.25);}
 
 /* Player modal: --red is overridden on the card with the team accent; keep filled-pill text legible on it. */
 #career-modal .stats-subtab.active,#career-modal .chip.active{color:var(--acc-ink,#fff);}
@@ -3455,11 +3455,10 @@ html[data-km-debug="1"] .km-tuning-panel{
   #header-search #header-search-input{font-size:16px;}
 }
 
-/* Player panel prev / next: top-right, left of the x; the header gains padding so a long name never runs under them. */
-#career-head .ph-nav{position:absolute;top:2px;border:none;background:transparent;color:inherit;opacity:0.8;font-size:24px;line-height:1;padding:2px 9px;border-radius:6px;cursor:pointer;z-index:2;}
+/* Player panel prev / next: bottom-right, where the copy-link icon used to sit, so the name row only has the x to clear. */
+#career-head .ph-nav{position:absolute;bottom:6px;border:none;background:transparent;color:inherit;opacity:0.8;font-size:24px;line-height:1;padding:2px 9px;border-radius:6px;cursor:pointer;z-index:2;}
 #career-head .ph-nav:hover:not(:disabled){opacity:1;background:rgba(127,127,127,0.25);}
 #career-head .ph-nav:disabled{opacity:0.25;cursor:default;}
 #career-head .ph-nav[hidden]{display:none;}
-#career-head .ph-next{right:36px;}
-#career-head .ph-prev{right:68px;}
-#career-head.has-nav{padding-right:104px;}
+#career-head .ph-next{right:8px;}
+#career-head .ph-prev{right:40px;}

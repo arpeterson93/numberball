@@ -187,13 +187,10 @@
       '<span class="ph-pos" id="career-pos"></span></div><div class="ph-build" id="career-build"></div></div>' +
       '<button type="button" class="ph-nav ph-prev" id="career-prev" title="Previous player" aria-label="Previous player" hidden>&#8249;</button>' +
       '<button type="button" class="ph-nav ph-next" id="career-next" title="Next player" aria-label="Next player" hidden>&#8250;</button>' +
-      '<button type="button" class="ph-link" id="career-copy" title="Copy link to this player" aria-label="Copy link to this player">' +
-      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg></button>' +
       '<button type="button" class="ph-x" id="career-close" aria-label="Close">&times;</button></div>' +
       '<div class="modal-body" id="career-body"></div></div>';
     document.body.appendChild(m);
     $("career-close").addEventListener("click", closePlayer);
-    $("career-copy").addEventListener("click", function () { if (pm.id) B.copyLink(playerLinkUrl()); });
     m.addEventListener("click", function (e) { if (e.target === m) closePlayer(); });
     $("career-prev").addEventListener("click", function () { stepPlayer(-1); });
     $("career-next").addEventListener("click", function () { stepPlayer(1); });
@@ -211,6 +208,7 @@
       } else if (!m.hidden) closePlayer(true);
     });
     m.addEventListener("click", function (e) {
+      if (e.target.closest("#career-copy")) { if (pm.id) B.copyLink(playerLinkUrl()); return; }
       var sub = e.target.closest("[data-pside]");
       if (sub) { pm.side = sub.getAttribute("data-pside"); pm.season = "all"; pm.sortSeason = { key: "s", dir: "asc" }; pm.sortLog = { key: "d", dir: "desc" }; renderPlayer(); return; }
       var gtb = e.target.closest("[data-pgt]");
@@ -500,6 +498,10 @@
     try { window.history.replaceState({ mlnPlayer: pm.id, landing: !pushed }, "", u.pathname + u.search); } catch (e) { /* ignore */ }
   }
 
+  // Copy-link button: the far right of the top tab row (Batting / Pitching) in the player panel body.
+  var LINK_BTN = '<button type="button" class="ph-link" id="career-copy" title="Copy link to this player" aria-label="Copy link to this player">' +
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg></button>';
+
   function updatePlayerNav() {
     var has = pnav.list && pnav.list.length > 1 && pnav.idx >= 0, p = $("career-prev"), n = $("career-next");
     p.hidden = n.hidden = !has;
@@ -507,6 +509,10 @@
     if (!has) return;
     p.disabled = pnav.idx <= 0;
     n.disabled = pnav.idx >= pnav.list.length - 1;
+    [pnav.idx - 1, pnav.idx + 1].forEach(function (j) {
+      var t = pnav.list[j];
+      if (t) getJ("data/career/p/" + t.id + ".json").catch(function () {});
+    });
     p.title = pnav.idx > 0 ? "Previous: " + pnav.list[pnav.idx - 1].name : "Previous player";
     n.title = pnav.idx < pnav.list.length - 1 ? "Next: " + pnav.list[pnav.idx + 1].name : "Next player";
   }
@@ -597,7 +603,7 @@
       pushed = !!(history.state && history.state.mlnPlayer && !history.state.landing);
     }
     $("career-title").textContent = name || "Player";
-    styleHead(null);
+    if (!opts.fromNav) styleHead(null);   // stepping keeps the old colours until the new header is ready, rather than flashing unstyled
     $("career-modal").querySelector(".modal-card").style.width = "";
     $("career-body").innerHTML = '<div class="stats-empty">Loading career...</div>';
     pm = { id: id, data: null, side: "bat", season: "all", gt: "all", loading: true, view: "stats", sortSeason: { key: "s", dir: "asc" }, sortLog: { key: "sn", dir: "desc" } };
@@ -689,10 +695,10 @@
     var tabs = (sideTabs.length ? '<div class="view-tabs xt-ptop">' + sideTabs.map(function (s) {
       return '<button type="button" class="view-tab' + (side === s ? " active" : "") + '" data-pside="' + s + '">' +
         (s === "bat" ? "Batting" : "Pitching") + "</button>";
-    }).join("") + "</div>" : "") +
+    }).join("") + LINK_BTN + "</div>" : "") +
       '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
         return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
-      }).join("") + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
+      }).join("") + (sideTabs.length ? "" : LINK_BTN) + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
 
     if (all.length && pm.view === "diffs") { renderDiffs(d, tabs, all); return; }
     if (all.length && pm.view === "gsc") { renderGsc(tabs, all); return; }
