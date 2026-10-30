@@ -596,15 +596,20 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    affordance. An SVG polygon, not a "▶" text glyph: iOS renders that glyph
    with its own colored emoji presentation, which doesn't match the app's
    monochrome icon set. */
-.play-jump-btn{
+.play-jump-btn,.play-profile-btn{
   position:relative;z-index:2;
   width:20px;height:20px;padding:0;display:flex;align-items:center;justify-content:center;
   border:1px solid var(--border);border-radius:20px;background:var(--tint);
   color:var(--muted);cursor:pointer;flex-shrink:0;
 }
 .play-jump-btn svg{width:9px;height:9px;fill:currentColor;margin-left:1px;}
-.play-jump-btn:hover,.play-jump-btn:focus-visible{color:var(--blue);border-color:var(--blue);}
+.play-jump-btn:hover,.play-jump-btn:focus-visible,.play-profile-btn:hover,.play-profile-btn:focus-visible{color:var(--blue);border-color:var(--blue);}
 .play-jump-btn.loading{opacity:0.4;pointer-events:none;}
+/* Player-profile silhouette: shares the play button's rules above so the two always match. */
+.play-profile-btn svg{width:12px;height:12px;fill:currentColor;}
+/* Scorecard names that open the player modal. */
+[data-open-player].lineup-name,[data-open-player].sc-pitch-name{cursor:pointer;}
+[data-open-player].lineup-name:hover,[data-open-player].sc-pitch-name:hover{text-decoration:underline;}
 /* Stats tab's play-all button (statsPlayAllBtnHtml) - same round icon-badge
    as .play-jump-btn above, just sitting inline in the player-name cell
    (next to the name/badges) instead of a card's own absolutely-positioned
@@ -3236,7 +3241,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 /* Player panel: the card is a fixed-height column so the by-season table and
    the game log each scroll inside their own pane, with header and total row
    pinned (the log takes whatever height is left). */
-#career-modal{padding:12px;}
+#career-modal{padding:12px;z-index:26;}   /* above the scorecard (20) and the replay (25) it can be opened from */
 .modal-card.wide{height:100%;max-height:none;}
 .modal-card.wide .modal-body{overflow:hidden;min-height:0;flex:1 1 auto;}
 #career-body .xt-season{max-height:30vh;overflow:auto;}

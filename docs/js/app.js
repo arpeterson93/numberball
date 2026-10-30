@@ -662,12 +662,21 @@
         '<svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>' +
         "</button>"
       : "";
+    // Head-and-shoulders silhouette: opens the featured player's player modal
+    // (handled with the play-jump button in handleMomentCardClick).
+    var profileBtn = m.featured_id
+      ? '<button type="button" class="play-profile-btn" data-open-player="' + escapeHtml(String(m.featured_id)) +
+        '" data-open-player-name="' + escapeHtml(m.featured_name || "") + '" title="Player profile" aria-label="Open ' +
+        escapeHtml(m.featured_name || "player") + ' profile">' +
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle>' +
+        '<path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"></path></svg></button>'
+      : "";
     var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
     var levBarHex = teamColor(m.featured_team_abbr);
 
     return '<div class="moment">' +
-      '<div class="corner-actions">' + jumpBtn + "</div>" +
+      '<div class="corner-actions">' + profileBtn + jumpBtn + "</div>" +
       '<div class="lev-bar' + (levBarHex ? "" : " neutral") + '"' +
         (levBarHex ? ' style="background:' + escapeHtml(levBarHex) + '"' : "") + "></div>" +
       '<div class="moment-left">' +
@@ -15074,8 +15083,8 @@
         var posLabel = stint.posStart === stint.posEnd ? stint.posStart : (stint.posStart + "/" + stint.posEnd);
         return '<div class="lineup-entry' + subBorderClass(stint.subType) + '">' +
           '<span class="lineup-pos">' + escapeHtml(posLabel || "") + '</span>' +
-          '<span class="lineup-name lineup-name-full" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(stint.name || "") + "</span>" +
-          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '">' + escapeHtml(mobileLastName(stint.playerId, stint.name)) + "</span>" +
+          '<span class="lineup-name lineup-name-full" title="' + escapeHtml(stint.name || "") + '"' + openPlayerAttrs(stint.playerId, stint.name) + '>' + escapeHtml(stint.name || "") + "</span>" +
+          '<span class="lineup-name lineup-name-short" title="' + escapeHtml(stint.name || "") + '"' + openPlayerAttrs(stint.playerId, stint.name) + '>' + escapeHtml(mobileLastName(stint.playerId, stint.name)) + "</span>" +
           "</div>";
       }).join("");
       rows += '<div class="sc-cell sc-lineup' + nowBattingCls + '"' + nowBattingStyle + '>' +
@@ -15277,6 +15286,11 @@
       "</span>";
   }
 
+  // Makes a scorecard name clickable (wireScorecard opens the player modal); nothing without a player id.
+  function openPlayerAttrs(id, name) {
+    return id == null ? "" : ' data-open-player="' + escapeHtml(String(id)) + '" data-open-player-name="' + escapeHtml(name || "") + '"';
+  }
+
   function scorecardBattingBodyHtml(box) {
     // Pitching now lives entirely on its own tab (Alex's ask) - this tab is
     // just the two teams' batting grids, back to back.
@@ -15346,7 +15360,7 @@
     var groups = pitcherInningGroups(stint);
     return '<div class="sc-pitch-pitcher">' +
       '<div class="sc-pitch-pitcher-head">' +
-        '<span class="sc-pitch-name">' + escapeHtml(stint.name || "") +
+        '<span class="sc-pitch-name"' + openPlayerAttrs(stint.pitcherId, stint.name) + '>' + escapeHtml(stint.name || "") +
           (decision ? ' <span class="pitch-decision">' + decision + "</span>" : "") +
         "</span>" +
         pitchStatLineHtml(stint.ip, stint.bf, stint.h, stint.er, stint.bb, stint.k) +
@@ -15883,6 +15897,7 @@
     modal.addEventListener("click", function (e) {
       var tabBtn = e.target.closest("[data-scorecard-tab]");
       if (tabBtn) { switchScorecardTab(tabBtn.getAttribute("data-scorecard-tab")); return; }
+      if (openPlayerFromClick(e)) return;
     });
     modal.addEventListener("click", function (e) {
       var cell = e.target.closest("[data-play]");
@@ -17028,6 +17043,14 @@
     }).join("");
   }
 
+  // Any element carrying data-open-player (id) / data-open-player-name opens that player's player modal.
+  function openPlayerFromClick(e) {
+    var el = e.target.closest("[data-open-player]");
+    if (!el || !window.MLNExtras) return false;
+    window.MLNExtras.openPlayer(Number(el.getAttribute("data-open-player")), el.getAttribute("data-open-player-name"));
+    return true;
+  }
+
   // Shared by #moments and #stats-view's own delegated click handlers - a
   // card() render's own play-jump/favorite-star buttons carry these data
   // attributes regardless of which container it ended up in (Alex's report:
@@ -17036,6 +17059,7 @@
   // true when it handled the click, so a caller with its own follow-up
   // checks knows to stop there.
   function handleMomentCardClick(e) {
+    if (openPlayerFromClick(e)) return true;
     var jumpBtn = e.target.closest("[data-jump-game]");
     if (jumpBtn) {
       openReplayAtPlay(
