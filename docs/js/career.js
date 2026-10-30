@@ -823,8 +823,9 @@
     return t[(league ? "x" : "o") + (rec.side === "bat" ? "b" : "p")] || null;
   }
 
-  // All-Time League: one row per session (default) or per season, with every filter applied either way.
-  function byYear() { return rec.tab === "league" && rec.allTime && rec.leagueBy === "season"; }
+  // All-Time League and Team: one row per session (default) or per season, with every filter applied either way.
+  // Per season on Team is one row per team per season, e.g. to compare every team's rookies in a season.
+  function byYear() { return (rec.tab === "league" || rec.tab === "team") && rec.allTime && rec.leagueBy === "season"; }
 
   function recSeasonOk(s) {
     if (rec.allTime && rec.sRange && (s < rec.sRange[0] || s > rec.sRange[1])) return false;      // All-Time Seasons slider
@@ -931,7 +932,7 @@
       ? '<div class="xt-bar"><button type="button" class="chip" id="rec-more">Show ' + Math.min(REC_PAGE, rows.length - shown.length) + " more (" +
         shown.length + " of " + rows.length.toLocaleString() + ")</button></div>" : "";
     var drawn = rows.length;
-    var by = rec.tab === "league" && rec.allTime
+    var by = (rec.tab === "league" || rec.tab === "team") && rec.allTime
       ? '<div class="xt-bar rec-by">' + chip("Per session", 'data-rby="session"', rec.leagueBy !== "season") + chip("Per season", 'data-rby="season"', rec.leagueBy === "season") + "</div>" : "";
     box.innerHTML = by + (rows.length
       ? '<div class="stats-table-wrap stats-agg xt-table"><table class="stats-table xt-plain"><thead><tr>' + head +
