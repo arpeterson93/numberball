@@ -21,6 +21,7 @@ on:
       - 'docs/**'
       - 'key_moments_build.py'
       - 'career_build.py'
+      - 'rookie_tags.py'
       - 'requirements.txt'
       - '.github/workflows/key_moments.yml'
   schedule:

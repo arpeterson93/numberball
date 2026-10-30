@@ -31,6 +31,7 @@ from collections import defaultdict
 
 import diff_metrics as dm
 import key_moments_build as kmb
+import rookie_tags
 import utils
 
 DATA = os.path.join("docs", "data")
@@ -137,6 +138,9 @@ def game_teams(rows: list[dict], name_to_id: dict) -> dict[int, str]:
 
 def main() -> None:
     t0 = time.time()
+    # Rookie flags come from the plays (first season with a game line), not the sheet; rewritten before any roster is read.
+    changed = rookie_tags.apply()
+    print(f"  rookie flags from plays: {sum(c for c, _ in changed.values())} changed across {len(changed)} seasons")
     names: dict[int, str] = {}
     player_games: dict[int, dict] = defaultdict(lambda: {"bat": [], "pit": []})
     team_sessions: dict[tuple, dict] = {}
@@ -150,6 +154,7 @@ def main() -> None:
     team_look: dict[str, dict] = {}            # abbr -> colours/logo from the latest season that team existed
     last_pos: dict[int, list] = {}             # pid -> [primary, secondary] from the latest season they were rostered
     active_team: dict[int, str] = {}           # pid -> team, only for players Active/Captain in the newest season
+    roster_team: dict[int, str] = {}           # pid -> team, any status, for anyone on the newest season's roster
     pos_season: dict[int, int] = {}
     last_bld: dict[int, dict] = {}
     look_season: dict[str, int] = {}
@@ -165,8 +170,10 @@ def main() -> None:
                 last_pos[p["id"]] = [p["pos1"], p.get("pos2") or ""]
                 last_bld[p["id"]] = {"hand": p.get("hand") or "", **(p.get("bld") or {})}
                 pos_season[p["id"]] = season
-            if season == last_season and p.get("id") and p.get("status") in ("Active", "Captain") and p.get("team") in (meta.get("teams") or {}):
-                active_team[p["id"]] = p["team"]
+            if season == last_season and p.get("id") and p.get("team") in (meta.get("teams") or {}):
+                roster_team[p["id"]] = p["team"]
+                if p.get("status") in ("Active", "Captain"):
+                    active_team[p["id"]] = p["team"]
         for abbr, t in (meta.get("teams") or {}).items():
             if season < look_season.get(abbr, 0):
                 continue
@@ -345,14 +352,17 @@ def main() -> None:
     for pid, g in player_games.items():
         for side in ("bat", "pit"):
             g[side].sort(key=lambda r: (r["s"], r["n"], r["d"], r["g"]))
-        # Header team: the current team for an active player, else the team (not franchise) with the most games.
+        # Header team: the current team for an active player; else the team they are rostered with or played for in the
+        # newest season (a Hiatus player still belongs to it); else the team (not franchise) with the most games.
         games_by_team: dict[str, set] = defaultdict(set)
         for side in ("bat", "pit"):
             for r in g[side]:
                 if r.get("t"):
                     games_by_team[r["t"]].add((r["s"], r["g"]))
         top_team = max(games_by_team, key=lambda t: len(games_by_team[t])) if games_by_team else ""
-        hdr_team = active_team.get(pid) or top_team
+        newest = {t: sum(1 for s, _ in gs if s == last_season) for t, gs in games_by_team.items()}
+        played_team = max(newest, key=newest.get) if newest and max(newest.values()) else ""
+        hdr_team = active_team.get(pid) or roster_team.get(pid) or played_team or top_team
         hdr_teams[pid] = hdr_team
         hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0,
                "bld": last_bld.get(pid, {})}
