@@ -614,7 +614,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    as .play-jump-btn above, just sitting inline in the player-name cell
    (next to the name/badges) instead of a card's own absolutely-positioned
    .corner-actions, so it needs its own spacing rather than that wrapper's. */
-.stats-play-all-btn{display:inline-flex;margin-left:6px;vertical-align:middle;}
+.stats-play-all-btn,.stats-profile-btn{display:inline-flex;margin-left:6px;vertical-align:middle;}
 /* Absolutely positioned, not a flex child - a flex item stretched with
    align-items:stretch only fills the flex line's content-box height, which
    sits inset by .moment's own top/bottom padding, so the bar fell short of
@@ -3193,7 +3193,6 @@ html[data-km-debug="1"] .km-tuning-panel{
 .stats-scope-note{font-size:12px;color:var(--muted);margin:-6px 0 12px;}
 .stats-range{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
 .stats-range select{padding:5px 8px;}
-.stats-expand-actions{margin:0 0 10px;}
 .stats-table tfoot td{
   font-weight:800;border-top:2px solid var(--border);border-bottom:none;background:var(--card);
   position:sticky;bottom:0;z-index:3;

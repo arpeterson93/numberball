@@ -624,7 +624,17 @@
     return "";
   }
 
-  function card(m) {
+  // Round head-and-shoulders badge that opens a player's player modal (handled by openPlayerFromClick).
+  function profileBtnHtml(id, name, extraClass) {
+    return '<button type="button" class="play-profile-btn' + (extraClass ? " " + extraClass : "") +
+      '" data-open-player="' + escapeHtml(String(id)) + '" data-open-player-name="' + escapeHtml(name || "") +
+      '" title="Player profile" aria-label="Open ' + escapeHtml(name || "player") + ' profile">' +
+      '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle>' +
+      '<path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"></path></svg></button>';
+  }
+
+  // noProfile: the Stats tab's expanded player row already carries the profile button for the whole list.
+  function card(m, noProfile) {
     var labels = data.meta.tag_labels || {};
     var isFav = window.KMFavorites && m.featured_id && window.KMFavorites.has(m.featured_id);
     var star = m.featured_id
@@ -664,13 +674,7 @@
       : "";
     // Head-and-shoulders silhouette: opens the featured player's player modal
     // (handled with the play-jump button in handleMomentCardClick).
-    var profileBtn = m.featured_id
-      ? '<button type="button" class="play-profile-btn" data-open-player="' + escapeHtml(String(m.featured_id)) +
-        '" data-open-player-name="' + escapeHtml(m.featured_name || "") + '" title="Player profile" aria-label="Open ' +
-        escapeHtml(m.featured_name || "player") + ' profile">' +
-        '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle>' +
-        '<path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"></path></svg></button>'
-      : "";
+    var profileBtn = (m.featured_id && !noProfile) ? profileBtnHtml(m.featured_id, m.featured_name) : "";
     var inlineLogo = teamLogoImg(m.featured_team_abbr, "team-logo-inline-img");
 
     var levBarHex = teamColor(m.featured_team_abbr);
@@ -1135,7 +1139,7 @@
     var plays = statsPlayerSessionPlays(playerId, session);
     if (!plays) return '<div class="stats-empty">Loading plays...</div>';
     if (!plays.length) return '<div class="stats-empty">No plays found for this player.</div>';
-    return plays.map(card).join("");
+    return plays.map(function (m) { return card(m, true); }).join("");
   }
 
   function statsRowVisible(row) {
@@ -1429,7 +1433,7 @@
           (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
           statsGameAwardBadgeHtml(row.game_award) + "</span>" +
           '<span class="sp-short">' + escapeHtml(resolvedLastName(row.player_id, row.name || "")) + "</span>" +
-          (expanded ? statsPlayAllBtnHtml(row.player_id, row.session) : "") + "</td>" +
+          (expanded ? profileBtnHtml(row.player_id, row.name, "stats-profile-btn") + statsPlayAllBtnHtml(row.player_id, row.session) : "") + "</td>" +
         cols.map(function (c) {
           var cls = statsStickyCls(c[0]) ? ' class="' + statsStickyCls(c[0]).trim() + '"' : "";
           return "<td" + cls + ">" + statsCellText(row, c[0], c[2]) + "</td>";
@@ -1438,8 +1442,6 @@
       if (!expanded) return main;
       return main + '<tr class="stats-expand-row"><td colspan="' + (cols.length + 2) + '">' +
         '<div class="stats-expand-content">' +
-          '<div class="stats-expand-actions"><button type="button" class="chip" data-career-id="' + row.player_id +
-            '" data-career-name="' + escapeHtml(row.name) + '">Career game log</button></div>' +
           '<div class="stats-expand-plays">' + statsExpandPlaysHtml(row.player_id, row.session) + "</div>" +
         "</div></td></tr>";
     }).join("");
