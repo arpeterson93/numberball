@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import statistics
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import swing_game
@@ -48,7 +48,7 @@ _BATTER_UP_RE = re.compile(r"\*\*\*(?P<banner>.+?)\*\*\*\s*-\s*(?P<ump>[^\n`]+)"
 # "Swing is in!"), always after a "Processing swing" notice that doesn't count. Its name is the stable part.
 _SWING_CONFIRM_RE = re.compile(r"swing has been swung|swing is in", re.I)
 _SWING_BOT_RE = re.compile(r"Swing-E", re.I)
-_BATTER_LINE_RE = re.compile(r"Current Batter:\**\s*([A-Za-z]{2,4})\s+(\S+)\s+(.+?)\s*\(<@")
+_BATTER_LINE_RE = re.compile(r"Current Batter:\**\s*([A-Za-z]{2,4})\s+(\S+)\s+(.+?)\s*\((?:<@|@)")
 _SCORE_RE = re.compile(r"^([A-Za-z]{2,4})\s+(\d+)\s.*?([\u25b2\u25bc])\s*(\d+)\s*$")
 _HOME_RE = re.compile(r"^([A-Za-z]{2,4})\s+(\d+)\s.*?(\d)\s+Outs?\s*$")
 _WELCOME_RE = re.compile(r"Season\s+\d+\s+Game\s+\d+:.*?-\s*(\d{5,7})\)")
@@ -129,9 +129,12 @@ def build_pas(messages: list[dict]) -> list[dict]:
         text, ts = m["text"], m["ts"]
         parsed = swing_game.parse_feed(text)
         if parsed and parsed["kind"] == "batter_up":
-            if cur and cur["swing"] is None and cur["result"] is None and cur["team"] == parsed["team"]:
-                # pinch hitter / re-ping for the same PA: the batting side's clock keeps running from the first ping
+            if cur and cur["result"] is None and cur["team"] == parsed["team"]:
+                # pinch hitter / re-ping for the same PA: the batting side's clock keeps running from the first ping, and a
+                # swing posted before the swap didn't count (the ump handles the result)
                 cur["subs"] += 1
+                cur["swing"] = None
+                cur.setdefault("first_batter", cur.get("batter"))
                 cur.update({k: v for k, v in parse_state(text).items() if k in ("batter", "batter_pos")})
                 continue
             hdr = _BATTER_UP_RE.search(text)
@@ -139,14 +142,61 @@ def build_pas(messages: list[dict]) -> list[dict]:
                    "swing": None, "result": None, "pitch": None, "swing_value": None, "outcome": None, "subs": 0,
                    "opened": _session_start(ts) if not pas else None, **parse_state(text)}
             pas.append(cur)
+        elif parsed and parsed["kind"] == "result" and parsed["result"] in NOPING_RESULTS and (cur is None or cur["result"]):
+            # no pitch, no ping: the stretch since the previous result is the pitching side's (team is filled in below)
+            outs = re.search(r"(\d) outs?\b", text)
+            cur = {"team": None, "ump": cur["ump"] if cur else None, "ping": None, "swing": None, "result": ts,
+                   "pitch": parsed["pitch"], "swing_value": parsed.get("swing"), "outcome": parsed["result"], "subs": 0,
+                   "noping": True, "outs": int(outs.group(1)) if outs else None,
+                   "opened": _session_start(ts) if not pas else None}
+            pas.append(cur)
         elif cur is None:
             continue
         elif _SWING_CONFIRM_RE.search(text) or (_SWING_BOT_RE.search(text) and not re.search(r"processing", text, re.I)):
             if cur["swing"] is None and cur["result"] is None:
                 cur["swing"] = ts
-        elif parsed and parsed["kind"] == "result" and cur["result"] is None:
-            cur.update(result=ts, pitch=parsed["pitch"], swing_value=parsed.get("swing"), outcome=parsed["result"])
-    return pas
+            elif cur["result"] is not None:
+                cur["moved_on"] = True   # a new swing after the result: a later result is not a correction of this one
+        elif parsed and parsed["kind"] == "result":
+            if cur["result"] is None:
+                cur.update(result=ts, pitch=parsed["pitch"], swing_value=parsed.get("swing"), outcome=parsed["result"])
+            elif (ts - cur["result"] <= CORRECTION_WINDOW and not cur.get("moved_on")
+                  and {cur["pitch"], cur["swing_value"]} & {parsed["pitch"], parsed.get("swing")} - {None}):
+                # the ump re-posted the result (a typo in one number, or pitch and swing swapped), so it shares a value
+                # with the first: the later values win, the clock keeps the first post's time
+                cur["corrected"] = True
+                cur.update(pitch=parsed["pitch"], swing_value=parsed.get("swing"), outcome=parsed["result"])
+    return _place_noping(pas)
+
+
+def _next_batting(p: dict, teams: list[str]) -> str:
+    """The side that bats after p's result: the same team unless the outs reach 3."""
+    outs = (p.get("outs") or 0) + _OUTS_ADDED.get(p["outcome"], 0)
+    return next((t for t in teams if t != p["team"]), p["team"]) if outs >= 3 else p["team"]
+
+
+def _place_noping(pas: list[dict]) -> list[dict]:
+    """Give each no-ping PA the side and scorebug state of the batter who follows it (or, with none after it, work them
+    out from the PA before). One with neither is dropped."""
+    teams = sorted({p["team"] for p in pas if p["team"]})
+    out: list[dict] = []
+    for i, p in enumerate(pas):
+        if p.get("noping"):
+            nxt = next((q for q in pas[i + 1:] if not q.get("noping")), None)
+            prev = next((q for q in reversed(out) if q.get("team")), None)
+            if nxt:
+                p.update({k: nxt[k] for k in ("team", "inning", "half", "pitcher", "away_score", "home_score") if k in nxt})
+            elif prev:
+                p["team"] = _next_batting(prev, teams)
+                if p["team"] != prev["team"] and prev.get("inning") is not None:
+                    p["half"] = "bottom" if prev.get("half") == "top" else "top"
+                    p["inning"] = prev["inning"] + (0 if prev.get("half") == "top" else 1)
+                elif prev.get("inning") is not None:
+                    p.update({"inning": prev["inning"], "half": prev.get("half")})
+            if not p["team"]:
+                continue
+        out.append(p)
+    return out
 
 
 # ------------------------------------------------------------- allocation
@@ -156,7 +206,52 @@ def _sec(a: datetime, b: datetime) -> tuple[float, float]:
     return max((b - a).total_seconds(), 0.0), active_seconds(a, b)
 
 
-def analyze(pas: list[dict]) -> dict:
+_OUTS_ADDED = {"K": 1, "GO": 1, "FO": 1, "PO": 1, "SacF": 1, "SacB": 1, "DFO": 1, "KCS": 1,
+               "DP": 2, "DP31": 2, "DP21": 2, "DPH1": 2, "LODP": 2, "DSacF": 2, "TP": 3}
+
+
+# Autos: the side that owed the move ran out the clock, so the play ends on the maximum time and goes against that side.
+# bAuto / AutoK are the batter's (scored as strikeouts); pAuto / AutoBB (a walk) / AutoSB (a steal the defense never
+# answered) / cAuto (the catcher's) are the pitching side's.
+AUTO_RESULTS = {"bAuto": "bat", "AutoK": "bat", "pAuto": "pitch", "AutoBB": "pitch", "AutoSB": "pitch", "cAuto": "pitch",
+                "Balk": "pitch"}
+# Results that arrive with no Batter Up ping before them: the pitching side's pitch never came (the autos and a balk) or
+# isn't thrown (IBB), so the whole stretch since the previous result is the pitching side's.
+NOPING_RESULTS = {"pAuto", "AutoBB", "AutoSB", "cAuto", "Balk", "IBB"}
+# A second result this soon after the first, with no ping or swing in between and a pitch or swing value in common, is
+# the ump's correction of it.
+CORRECTION_WINDOW = timedelta(minutes=30)
+
+
+def auto_side(p: dict) -> str | None:
+    """"bat" when the batting side timed out, "pitch" when the pitching side did, else None."""
+    return AUTO_RESULTS.get(p.get("outcome"))
+
+
+def open_stretch(pas: list[dict], now: datetime) -> dict | None:
+    """The clock still running at `now`: {"kind": "wait" | "hit" | "ump", "owner": team abbrev or "", "since", "raw", "act"}.
+    Ping posted -> batting team; swing posted -> ump; result posted -> the fielding side of the next PA (the ump's relay
+    estimate is not split out here: the stretch is shown as it stands). Which side bats next is read from the outs
+    the last PA left (None when the outs are unknown and it was not obviously the third)."""
+    if not pas or now is None:
+        return None
+    p = pas[-1]
+    teams = sorted({q["team"] for q in pas})
+    flip = False
+    if p["result"]:
+        since, kind = p["result"], "wait"
+        nxt = _next_batting(p, teams)
+        flip = nxt != p["team"]
+        owner = next((t for t in teams if t != nxt), "")
+    elif p["swing"]:
+        since, kind, owner = p["swing"], "ump", ""
+    else:
+        since, kind, owner = p["ping"], "hit", p["team"]
+    raw, act = _sec(since, now)
+    return {"kind": kind, "owner": owner, "since": since, "raw": raw, "act": act, "ump": p["ump"] or "?", "flip": flip}
+
+
+def analyze(pas: list[dict], now: datetime | None = None) -> dict:
     """Allocate every measurable stretch. Only fully timed PAs count (a ping and a result); a PA with no
     swing message (auto swing, or the message missed) can't be split between batter and ump, so it is
     estimated (see below) and counted in `unsplit`.
@@ -172,18 +267,36 @@ def analyze(pas: list[dict]) -> dict:
     turn_act = statistics.median(a for _, a in ump_turn) if ump_turn else 0.0
 
     teams = {t: {"bat": [], "pitch": [], "unsplit": []} for t in teams_seen}
+    autos = {t: {"bat": 0, "pitch": 0} for t in teams_seen}
     umps: dict[str, dict] = {}
 
     def ump_row(name):
         return umps.setdefault(name or "?", {"review": [], "relay": [], "unsplit": []})
 
     for i, p in enumerate(pas):
-        if not p["result"]:
+        if not p["result"] and not (now and i == len(pas) - 1):
+            continue
+        side = auto_side(p) if p["result"] else None
+        if p.get("noping"):
+            f = fielding[p["team"]]
+            since = pas[i - 1]["result"] if i > 0 else p.get("opened")
+            if since and f:
+                teams[f]["pitch"].append(_sec(since, p["result"]))
+            if side == "pitch" and f:
+                autos[f]["pitch"] += 1
             continue
         u = ump_row(p["ump"])
-        if p["swing"]:
+        if side == "bat":
+            autos[p["team"]]["bat"] += 1
+        elif side == "pitch" and fielding[p["team"]]:
+            autos[fielding[p["team"]]]["pitch"] += 1
+        if not p["result"]:
+            pass   # the open last PA: its own stretch is res["open"], but the wait before its ping is finished time
+        elif p["swing"]:
             teams[p["team"]]["bat"].append(_sec(p["ping"], p["swing"]))
             u["review"].append(_sec(p["swing"], p["result"]))
+        elif auto_side(p) == "bat":
+            teams[p["team"]]["bat"].append(_sec(p["ping"], p["result"]))   # never swung: the ump had nothing to do
         else:
             # No swing post (conditional / ump-handled swing): ping -> result mixes batter and ump time, so the
             # ump gets their median turnaround and the batting team the rest.
@@ -202,24 +315,32 @@ def analyze(pas: list[dict]) -> dict:
             if f:
                 teams[f]["pitch"].append((gap_raw - relay_raw, gap_act - relay_act))
             u["relay"].append((relay_raw, relay_act))
-    return {"teams": teams, "umps": umps, "n_pa": len(done), "turnaround": (turn_raw, turn_act),
-            "start": pas[0]["ping"] if pas else None, "end": pas[done[-1]]["result"] if done else None}
+    return {"teams": teams, "umps": umps, "autos": autos, "n_pa": len(done), "turnaround": (turn_raw, turn_act),
+            "start": (pas[0]["ping"] or pas[0]["result"]) if pas else None, "end": pas[done[-1]]["result"] if done else None,
+            "open": open_stretch(pas, now)}
 
 
-def _stats(rows: list[tuple[float, float]]) -> dict:
+def _stats(rows: list[tuple[float, float]], extra: tuple[float, float] = (0.0, 0.0)) -> dict:
+    """raw / act totals include `extra` (an open stretch); averages and medians stay on the finished rows."""
     n = len(rows)
-    raw, act = sum(r for r, _ in rows), sum(a for _, a in rows)
+    rows_raw, rows_act = sum(r for r, _ in rows), sum(a for _, a in rows)
+    raw, act = rows_raw + extra[0], rows_act + extra[1]
     return {"n": n, "raw": raw, "act": act,
-            "avg_raw": raw / n if n else 0.0, "avg_act": act / n if n else 0.0,
+            "avg_raw": rows_raw / n if n else 0.0, "avg_act": rows_act / n if n else 0.0,
             "med_raw": statistics.median(r for r, _ in rows) if n else 0.0,
             "med_act": statistics.median(a for _, a in rows) if n else 0.0}
 
 
 def summarize(res: dict) -> dict:
     """Totals, shares and per-PA / per-BF figures ready to print."""
-    teams = {t: {"bat": _stats(v["bat"]), "pitch": _stats(v["pitch"]), "unsplit": _stats(v["unsplit"])}
+    op = res.get("open")
+    ex = lambda kind, owner: (op["raw"], op["act"]) if op and op["kind"] == kind and op["owner"] == owner else (0.0, 0.0)
+    teams = {t: {"bat": _stats(v["bat"], ex("hit", t)), "pitch": _stats(v["pitch"], ex("wait", t)),
+                 "unsplit": _stats(v["unsplit"])}
              for t, v in res["teams"].items()}
-    umps = {u: {"review": _stats(v["review"]), "relay": _stats(v["relay"]), "unsplit": _stats(v["unsplit"])}
+    last_ump = op["ump"] if op else None   # an open ump stretch goes on the ump of the last PA
+    umps = {u: {"review": _stats(v["review"], ex("ump", "") if u == last_ump else (0.0, 0.0)),
+                "relay": _stats(v["relay"]), "unsplit": _stats(v["unsplit"])}
             for u, v in res["umps"].items()}
     # "unsplit" rows are already inside bat / review, kept only to count how many PAs were estimated.
     total_raw = (sum(t[k]["raw"] for t in teams.values() for k in ("bat", "pitch"))
@@ -227,7 +348,8 @@ def summarize(res: dict) -> dict:
     total_act = (sum(t[k]["act"] for t in teams.values() for k in ("bat", "pitch"))
                  + sum(u["review"]["act"] + u["relay"]["act"] for u in umps.values()))
     return {"teams": teams, "umps": umps, "total_raw": total_raw, "total_act": total_act,
-            "n_pa": res["n_pa"], "turnaround": res["turnaround"], "start": res["start"], "end": res["end"]}
+            "n_pa": res["n_pa"], "turnaround": res["turnaround"], "start": res["start"], "end": res["end"],
+            "open": op, "autos": res.get("autos", {})}
 
 
 def fmt_dur(seconds: float) -> str:
@@ -244,7 +366,26 @@ def fmt_dur(seconds: float) -> str:
     return f"{d}d{h:02d}h"
 
 
+def open_note(s: dict) -> str:
+    """Subtitle fragment for a running clock, e.g. ', incl. 2h10m open (HOU pitching)'; empty when nothing is open."""
+    op = s.get("open")
+    if not op:
+        return ""
+    who = {"wait": f"{op['owner']} pitching", "hit": f"{op['owner']} batting", "ump": "ump"}[op["kind"]]
+    return f", incl. {fmt_dur(op['raw'])} open ({who})"
+
+
 # ------------------------------------------------------------- game window + report
+
+def is_live(g: dict, now: datetime | None = None) -> bool:
+    """A game still being played. The games row can't say so through end_time / win_team (a live game carries a rolling
+    end_time, ~5h early, and its current leader); a finished game is the one with a winning pitcher or player of the game.
+    A game whose last play is over 14 days old is treated as stale, not live."""
+    if g.get("winning_pitcher") or g.get("player_of_game"):
+        return False
+    end = parse_ts(g.get("end_time"))
+    return end is None or ((now or datetime.now(timezone.utc)) - end).days < 14
+
 
 def parse_ts(value) -> datetime | None:
     """A games-table timestamp ('2026-10-21T12:00:00+00:00') or the sheet's raw '10/21/2026 12:00:00' as an aware datetime, or None."""
@@ -367,8 +508,12 @@ def merge_results(results: list[tuple[dict, str]], ours: str, opp: str = "OPP") 
     is folded into `opp`, and umpires are pooled by name."""
     teams = {ours: {"bat": [], "pitch": [], "unsplit": []}, opp: {"bat": [], "pitch": [], "unsplit": []}}
     umps: dict[str, dict] = {}
+    autos = {ours: {"bat": 0, "pitch": 0}, opp: {"bat": 0, "pitch": 0}}
     n_pa, starts, ends = 0, [], []
     for res, us in results:
+        for t, v in res.get("autos", {}).items():
+            for k in ("bat", "pitch"):
+                autos[ours if t == us else opp][k] += v[k]
         for t, v in res["teams"].items():
             dst = teams[ours if t == us else opp]
             for k in ("bat", "pitch", "unsplit"):
@@ -380,7 +525,7 @@ def merge_results(results: list[tuple[dict, str]], ours: str, opp: str = "OPP") 
         n_pa += res["n_pa"]
         starts.append(res["start"])
         ends.append(res["end"])
-    return {"teams": teams, "umps": umps, "n_pa": n_pa, "turnaround": (0.0, 0.0),
+    return {"teams": teams, "umps": umps, "autos": autos, "n_pa": n_pa, "turnaround": (0.0, 0.0),
             "start": min((s for s in starts if s), default=None), "end": max((e for e in ends if e), default=None)}
 
 
@@ -400,11 +545,11 @@ def adjust_for_volume(s: dict, a: str, h: str) -> dict[str, dict]:
 
 PA_COLUMNS = ["season", "game_code", "matchup", "pa_seq", "inning", "half", "outs", "runners", "score_away", "score_home",
               "batting_team", "fielding_team", "batter", "batter_pos", "pitcher", "ump", "pinch_hit_swaps",
-              "pitch", "swing", "diff", "result", "swing_posted",
+              "pitch", "swing", "diff", "result", "auto", "swing_posted",
               "ping_central", "swing_central", "result_central",
               "hit_raw_min", "hit_active_min", "ump_review_raw_min", "ump_review_active_min",
               "pitch_gap_raw_min", "pitch_gap_active_min", "ump_relay_est_raw_min", "ump_relay_est_active_min",
-              "pitching_raw_min", "pitching_active_min", "pa_total_raw_min"]
+              "pitching_raw_min", "pitching_active_min", "pa_total_raw_min", "ump_handled", "no_ping", "original_batter", "result_corrected"]
 
 
 def _min(x: float | None) -> float | str:
@@ -424,15 +569,23 @@ def pa_rows(pas: list[dict], game: dict) -> list[dict]:
         if not p["result"]:
             continue
         fielding = next((o for o in teams if o != p["team"]), "")
-        total = _sec(p["ping"], p["result"])
-        if p["swing"]:
+        noping = bool(p.get("noping"))
+        total = None if noping else _sec(p["ping"], p["result"])
+        hit = review = None
+        if noping:
+            pass
+        elif p["swing"]:
             hit, review = _sec(p["ping"], p["swing"]), _sec(p["swing"], p["result"])
+        elif auto_side(p) == "bat":
+            hit, review = total, (0.0, 0.0)
         else:
             ur, ua = min(total[0], t_raw), min(total[1], t_act)
             hit, review = (total[0] - ur, total[1] - ua), (ur, ua)
         gap = relay = pitching = None
         since = pas[i - 1]["result"] if i > 0 else p.get("opened")
-        if since:
+        if since and noping:
+            gap = pitching = _sec(since, p["result"])   # no ping: the whole stretch is the pitching side's
+        elif since:
             gap = _sec(since, p["ping"])
             relay = (min(gap[0], t_raw), min(gap[1], t_act))
             pitching = (gap[0] - relay[0], gap[1] - relay[1])
@@ -456,19 +609,41 @@ def pa_rows(pas: list[dict], game: dict) -> list[dict]:
             "batting_team": p["team"], "fielding_team": fielding, "batter": p.get("batter", ""),
             "batter_pos": p.get("batter_pos", ""), "pitcher": p.get("pitcher", ""), "ump": p["ump"] or "",
             "pinch_hit_swaps": p["subs"], "pitch": p["pitch"], "swing": p["swing_value"], "diff": diff,
-            "result": p["outcome"], "swing_posted": bool(p["swing"]),
+            "result": p["outcome"], "auto": auto_side(p) or "", "swing_posted": bool(p["swing"]),
             "ping_central": local(p["ping"]), "swing_central": local(p["swing"]), "result_central": local(p["result"]),
             "hit_raw_min": pair(hit)[0], "hit_active_min": pair(hit)[1],
             "ump_review_raw_min": pair(review)[0], "ump_review_active_min": pair(review)[1],
             "pitch_gap_raw_min": pair(gap)[0], "pitch_gap_active_min": pair(gap)[1],
             "ump_relay_est_raw_min": pair(relay)[0], "ump_relay_est_active_min": pair(relay)[1],
             "pitching_raw_min": pair(pitching)[0], "pitching_active_min": pair(pitching)[1],
-            "pa_total_raw_min": _min(total[0]),
+            "pa_total_raw_min": _min(total[0]) if total else "",
+            "ump_handled": not noping and not p["swing"] and auto_side(p) != "bat", "no_ping": noping,
+            "original_batter": p.get("first_batter") or "", "result_corrected": bool(p.get("corrected")),
         })
     return rows
 
 
-def half_innings(pas: list[dict]) -> list[dict]:
+def scenarios(pas: list[dict]) -> list[dict]:
+    """The PAs whose timing rests on a judgement call (no swing post, a pinch-hit re-ping, a corrected result, a result with
+    no ping), as {"inning", "half", "batter", "pitcher", "tags", "bat", "pitch", "ump"} with active seconds allocated
+    the way analyze() allocates them."""
+    out = []
+    for r in pa_rows(pas, {"game_code": ""}):
+        tags = [t for t, on in (("ump-handled", r["ump_handled"]), ("pinch-hit re-ping", r["pinch_hit_swaps"]),
+                                ("result corrected", r["result_corrected"]), ("no ping", r["no_ping"])) if on]
+        if not tags:
+            continue
+        sec = lambda *k: sum(float(r[x]) for x in k if r[x] != "") * 60.0
+        batter = r["batter"]
+        if r["original_batter"] and r["original_batter"] != batter:
+            batter = f"{batter} (for {r['original_batter']})"
+        out.append({"inning": r["inning"], "half": r["half"], "batter": "" if r["no_ping"] else batter,
+                    "pitcher": r["pitcher"], "tags": ", ".join(tags), "bat": sec("hit_active_min"),
+                    "pitch": sec("pitching_active_min"), "ump": sec("ump_review_active_min", "ump_relay_est_active_min")})
+    return out
+
+
+def half_innings(pas: list[dict], now: datetime | None = None) -> list[dict]:
     """One block per half inning for the inning rows: {"inning", "half", "team", "fielding", "segs", "act", "n"}.
     segs is the half's stretches in order as (kind, owner, active seconds): "wait" (the fielding team's pitching),
     "hit" (the batting team) and "ump", split like analyze() splits them."""
@@ -477,7 +652,7 @@ def half_innings(pas: list[dict]) -> list[dict]:
     turn = statistics.median(turns) if turns else 0.0
     blocks: list[dict] = []
     for i, p in enumerate(pas):
-        if not p["result"]:
+        if not p["result"] and not (now and i == len(pas) - 1):
             continue
         fielding = next((o for o in teams if o != p["team"]), "")
         key = (p.get("inning"), p.get("half"))
@@ -487,20 +662,52 @@ def half_innings(pas: list[dict]) -> list[dict]:
         b = blocks[-1]
         since = pas[i - 1]["result"] if i > 0 else p.get("opened")
         segs = []
-        if since:
-            gap = _sec(since, p["ping"])[1]
-            relay = min(gap, turn)
-            segs += [("wait", fielding, gap - relay), ("ump", "", relay)]
-        if p["swing"]:
+        own_from = 0
+        if p.get("noping"):
+            if since:
+                segs.append(("wait", fielding, _sec(since, p["result"])[1]))   # all of it the pitching side's
+        else:
+            if since:
+                gap = _sec(since, p["ping"])[1]
+                relay = min(gap, turn)
+                segs += [("wait", fielding, gap - relay), ("ump", "", relay)]
+            own_from = len(segs)      # the PA's own stretch (ping -> result) starts here; an auto is marked over it
+        if p.get("noping") or not p["result"]:
+            pass   # the open last PA: only the finished wait before its ping; the open stretch is added below
+        elif p["swing"]:
             segs += [("hit", p["team"], _sec(p["ping"], p["swing"])[1]), ("ump", "", _sec(p["swing"], p["result"])[1])]
+        elif auto_side(p) == "bat":
+            segs.append(("hit", p["team"], _sec(p["ping"], p["result"])[1]))
         else:
             total = _sec(p["ping"], p["result"])[1]
             segs += [("hit", p["team"], total - min(total, turn)), ("ump", "", min(total, turn))]
+        off0 = b["act"] + sum(sec for _, _, sec in segs[:own_from])
         for kind, owner, sec in segs:
             if b["segs"] and b["segs"][-1][0] == kind and b["segs"][-1][1] == owner:
                 b["segs"][-1] = (kind, owner, b["segs"][-1][2] + sec)
             else:
                 b["segs"].append((kind, owner, sec))
             b["act"] += sec
-        b["n"] += 1
+        b["n"] += 1 if p["result"] else 0
+        if p["result"] and auto_side(p):
+            b.setdefault("autos", []).append((off0, b["act"], auto_side(p)))
+    op = open_stretch(pas, now)
+    if op:
+        # the open stretch closes the last half shown, unless the last result ended the half: then the wait belongs to
+        # the next half (as a finished wait would), so that half gets its own row
+        last = pas[-1]
+        if blocks and op["flip"] and last.get("inning") is not None:
+            top = last.get("half") == "top"
+            blocks.append({"inning": last["inning"] + (0 if top else 1), "half": "bottom" if top else "top",
+                           "team": next((t for t in teams if t != op["owner"]), ""), "fielding": op["owner"],
+                           "segs": [], "act": 0.0, "n": 0})
+        if blocks:
+            b = blocks[-1]
+            parts = [(op["kind"], op["owner"], op["act"])]
+            if op["kind"] == "wait":   # it will end up split like a finished wait: ump relay first, then the pitching side
+                relay = min(op["act"], turn)
+                parts = [("ump", "", relay), ("wait", op["owner"], op["act"] - relay)]
+            for kind, owner, sec in parts:
+                b["segs"].append(("open_" + kind, owner, sec))
+                b["act"] += sec
     return blocks

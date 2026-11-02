@@ -559,8 +559,12 @@ def _apart(a: tuple[int, int, int], b: tuple[int, int, int]) -> tuple[int, int, 
 
 
 def _rounded_fill(img: Image.Image, x0: float, y0: float, x1: float, y1: float, radius: float,
-                  segs: list[tuple[float, float, tuple[int, int, int]]]) -> None:
-    """One rounded rectangle filled left to right by (from_x, to_x, colour) stretches, 1px background seams between."""
+                  segs: list[tuple[float, float, tuple[int, int, int]]],
+                  hatch: list[tuple[float, float, tuple[int, int, int]]] | None = None,
+                  cross: list[tuple[float, float]] | None = None) -> None:
+    """One rounded rectangle filled left to right by (from_x, to_x, colour) stretches, 1px background seams between.
+    hatch: (from_x, to_x, colour) stretches that also get diagonal stripes, clipped to the same rounded shape.
+    cross: (from_x, to_x) stretches that get fine light stripes leaning the other way (autos)."""
     box = (_px(x0), _px(y0), _px(x1), _px(y1))
     w, h = box[2] - box[0], box[3] - box[1]
     if w <= 0:
@@ -569,8 +573,30 @@ def _rounded_fill(img: Image.Image, x0: float, y0: float, x1: float, y1: float, 
     ld = ImageDraw.Draw(layer)
     for i, (sx0, sx1, col) in enumerate(segs):
         ld.rectangle((_px(sx0) - box[0], 0, _px(sx1) - box[0], h), fill=col)
-        if i:
+        if i and _px(sx1) - _px(sx0) > 2 * _S:   # a stretch no wider than its own seam would be painted over entirely
             ld.rectangle((_px(sx0) - box[0], 0, _px(sx0) - box[0] + _S - 1, h), fill=_BG)
+    for hx0, hx1, col in hatch or []:
+        lo, hi = max(_px(hx0) - box[0], 0), min(_px(hx1) - box[0], w)
+        stripes = Image.new("L", (w, h), 0)
+        sd = ImageDraw.Draw(stripes)
+        for k in range(lo - h, hi, 6 * _S):             # 45 degree stripes, 6px apart
+            sd.line((k, h, k + h, 0), fill=255, width=_S)
+        if lo > 0:                                      # keep them inside this stretch
+            sd.rectangle((0, 0, lo - 1, h), fill=0)
+        if hi < w:
+            sd.rectangle((hi, 0, w, h), fill=0)
+        layer.paste(Image.new("RGB", (w, h), col), (0, 0), stripes)
+    for cx0, cx1 in cross or []:
+        lo, hi = max(_px(cx0) - box[0], 0), min(_px(cx1) - box[0], w)
+        stripes = Image.new("L", (w, h), 0)
+        sd = ImageDraw.Draw(stripes)
+        for k in range(lo, hi + h, 4 * _S):             # fine stripes leaning left, translucent white
+            sd.line((k, h, k - h, 0), fill=120, width=_S)
+        if lo > 0:
+            sd.rectangle((0, 0, lo - 1, h), fill=0)
+        if hi < w:
+            sd.rectangle((hi, 0, w, h), fill=0)
+        layer.paste(Image.new("RGB", (w, h), (255, 255, 255)), (0, 0), stripes)
     mask = Image.new("L", (w, h), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=_px(radius), fill=255)
     img.paste(layer, (box[0], box[1]), mask)
@@ -600,11 +626,14 @@ def _pace_bar(img: Image.Image, d: ImageDraw.ImageDraw, x: float, y: float, w: f
 
 
 def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, timeline: list[dict] | None = None,
-                trend: list[tuple[str, float, float, float, str | None]] | None = None) -> io.BytesIO:
+                trend: list[tuple[str, str, float, float, float, str | None]] | None = None,
+                trend_title: str = "TOTAL GAME TIME, PA/BF ADJ, BY GAME",
+                scenarios: list[dict] | None = None) -> io.BytesIO:
     """Pace-of-play card. s is pace.summarize(); away / home are {"abbrev", "color"} (abbrev as the feed writes it).
     timeline is pace.half_innings(): when given, one row per inning (away bats left, home bats right) leads the card.
-    trend (a season card) is one (label, away active, ump active, home active, home hex) per game, oldest first: each
-    becomes a PA/BF-adjusted total-game-time bar at the very top, the home side in that game's own colour when given."""
+    trend (a season card) is one (left label, home-side name, away active, ump active, home active, home hex) per game or
+    season, oldest first: each becomes a PA/BF-adjusted total-game-time bar at the very top, the home side in its own
+    colour when given."""
     import pace
     W, pad, gutter, bar_h = 760, 20, 78, 26
     bar_x, bar_w = pad + gutter, W - 2 * pad - gutter
@@ -636,14 +665,14 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
                 ("BF adj", [(ta["pitch"]["avg_act"] * ref_pitch, a_col, a),
                             (th["pitch"]["avg_act"] * ref_pitch, h_col, h)])])]
     umps = sorted(s["umps"].items(), key=lambda kv: -kv[1]["review"]["raw"])
-    n_un = sum(v["unsplit"]["n"] for v in T.values())
 
     row_h, row_gap = 15, 5
     trend_h, trend_gap = 20, 6
     tr_h = 22 + len(trend) * (trend_h + trend_gap) + 14 if trend else 0
+    timeline = [b for b in timeline or [] if b["inning"] is not None] or None   # feeds without a scorebug carry no inning
     innings = sorted({b["inning"] for b in timeline}) if timeline else []
     tl_h = 22 + 18 + 18 + len(innings) * (row_h + row_gap) + 12 if timeline else 0
-    H = 74 + tr_h + tl_h + len(panels) * (22 + 2 * (bar_h + 8) + 14) + 22 + 20 + 2 * 26 + 12 + 22 + len(umps) * 44 + 6 + 15 * 7 + 16
+    H = 74 + tr_h + tl_h + len(panels) * (22 + 2 * (bar_h + 8) + 14) + 22 + 20 + 2 * 26 + 12 + 22 + len(umps) * 44 + 6 + 15 * 7 + 16 + (15 * (len(scenarios) + 1) + 6 if scenarios else 0)
     img = Image.new("RGB", (W * _S, H * _S), _BG)
     d = ImageDraw.Draw(img)
     d.text((_px(pad), _px(26)), title, font=_font(20, True), fill=_TEXT, anchor="lm")
@@ -651,15 +680,15 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
 
     y = 74
     if trend:
-        _panel_title(d, pad, y + 8, "TOTAL GAME TIME, PA/BF ADJ, BY GAME")
+        _panel_title(d, pad, y + 8, trend_title)
         y += 22
-        for label, va, vu, vh, hx in trend:
+        for label, name, va, vu, vh, hx in trend:
             whole = va + vu + vh
             row_col = _apart(a_col, _hex(hx)) if hx else h_col
-            d.text((_px(pad), _px(y + trend_h / 2)), label.split()[0], font=_font(12), fill=_MUTED, anchor="lm")
+            d.text((_px(pad), _px(y + trend_h / 2)), label, font=_font(12), fill=_MUTED, anchor="lm")
             _pace_bar(img, d, bar_x, y, bar_w, trend_h,
                       [(va, a_col, f"{a} {pct(va, whole)}%"), (vu, _UMP_GRAY, f"{pct(vu, whole)}%"),
-                       (vh, row_col, f"{label.split()[-1]} {pct(vh, whole)}%")])
+                       (vh, row_col, f"{name} {pct(vh, whole)}%")])
             y += trend_h + trend_gap
         y += 14
     if timeline:
@@ -671,6 +700,13 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
             d.rounded_rectangle((_px(lx), _px(y + 3), _px(lx + 12), _px(y + 13)), radius=_px(3), fill=col)
             d.text((_px(lx + 17), _px(y + 8)), text, font=_font(11), fill=_MUTED, anchor="lm")
             lx += 17 + int(d.textlength(text, font=_font(11)) / _S) + 18
+        if s.get("open"):
+            d.rounded_rectangle((_px(lx), _px(y + 3), _px(lx + 12), _px(y + 13)), radius=_px(3), outline=_MUTED, width=_S)
+            d.text((_px(lx + 17), _px(y + 8)), "open (running now)", font=_font(11), fill=_MUTED, anchor="lm")
+        if any(b.get("autos") for b in timeline):
+            lx += 140 if s.get("open") else 0
+            _rounded_fill(img, lx, y + 3, lx + 12, y + 13, 3, [(lx, lx + 12, _UMP_GRAY)], None, [(lx, lx + 12)])
+            d.text((_px(lx + 17), _px(y + 8)), "auto", font=_font(11), fill=_MUTED, anchor="lm")
         gx, side_w = pad + 26, (W - 2 * pad - 26 - 10) / 2
         owner_col = {a: a_col, h: h_col, "": _UMP_GRAY}
         longest = max(b["act"] for b in timeline) or 1.0
@@ -694,17 +730,19 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
             d.text((_px(pad + 8), _px(y + row_h / 2)), str(inn), font=_font(11), fill=_MUTED, anchor="mm")
             for cx, half in ((gx, "top"), (gx + side_w + 10, "bottom")):
                 b = by.get((inn, half))
-                if not b:
-                    d.rounded_rectangle((_px(cx), _px(y), _px(cx + side_w), _px(y + row_h)), radius=_px(row_h / 2.5),
-                                        outline=_ROW_A, width=_S)
+                if not b:   # a half that hasn't been played stays blank
                     continue
-                spans, sx = [], cx
+                spans, hatch, sx = [], [], cx
                 for kind, owner, sec in b["segs"]:
                     sw = side_w * sec / longest
                     if sw > 0:
-                        spans.append((sx, sx + sw, owner_col.get(owner, _UMP_GRAY)))
+                        col = owner_col.get(owner, _UMP_GRAY)
+                        spans.append((sx, sx + sw, col))
+                    if kind.startswith("open_") and sw > 0:
+                        hatch.append((sx, sx + sw, _mix(col, (0, 0, 0), 0.35)))
                     sx += sw
-                _rounded_fill(img, cx, y, sx, y + row_h, row_h / 2.5, spans)
+                cross = [(cx + side_w * o0 / longest, cx + side_w * o1 / longest) for o0, o1, _w in b.get("autos", [])]
+                _rounded_fill(img, cx, y, sx, y + row_h, row_h / 2.5, spans, hatch, cross)
             y += row_h + row_gap
         y += 12
     for name, rows in panels:
@@ -718,7 +756,7 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
         y += 14
 
     # per PA (hitting) and per BF (pitching): each cell "avg | median", active time
-    _panel_title(d, pad, y + 8, "PER PA (HITTING) AND PER BF (PITCHING)   active, avg | median")
+    _panel_title(d, pad, y + 8, "PER PA (HITTING) AND PER BF (PITCHING)   active, avg | median, autos")
     y += 22
     x_pa, x_bf, x0, cw = pad + 60, pad + 106, pad + 200, 230
     heads = (("Hitting", "bat"), ("Pitching", "pitch"))
@@ -737,8 +775,11 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
         for ci, (_, key) in enumerate(heads):
             st = (T.get(t) or {}).get(key)
             if st and st["n"]:
-                d.text((_px(x0 + ci * cw), _px(y + 12)), f"{pace.fmt_dur(st['avg_act'])} | {pace.fmt_dur(st['med_act'])}",
-                       font=_font(12), fill=_TEXT, anchor="lm")
+                txt = f"{pace.fmt_dur(st['avg_act'])} | {pace.fmt_dur(st['med_act'])}"
+                d.text((_px(x0 + ci * cw), _px(y + 12)), txt, font=_font(12), fill=_TEXT, anchor="lm")
+            n_auto = ((s.get("autos") or {}).get(t) or {}).get(key, 0)
+            d.text((_px(x0 + ci * cw + 120), _px(y + 12)), f"{n_auto} auto", font=_font(12),
+                   fill=_TEXT if n_auto else _MUTED, anchor="lm")
         y += 26
     y += 12
 
@@ -759,15 +800,388 @@ def render_pace(s: dict, title: str, subtitle: str, away: dict, home: dict, time
             "per-BF times are re-weighted to the same number of PAs and BFs (the two teams' average); ump time is unchanged.",
             "Ump bar = swing → result plus an estimated relay (their median turnaround, carved out of result → next ping);",
             "pitching is the rest of that gap."]
-    if n_un:
-        foot.append(f"{n_un} PA had no swing post (conditional / ump-handled): ump credited their median turnaround, rest to hitting.")
     y += 6
     for line in foot:
         d.text((_px(pad), _px(y + 6)), line, font=_font(10), fill=_MUTED, anchor="lm")
         y += 15
+    if scenarios:
+        # the judgement-call PAs, one per line: half + inning, who, the reason, and the active time given to each side
+        y += 6
+        f10 = _font(10)
+        d.text((_px(pad), _px(y + 6)), "Judgement calls (conditional swings, corrections, no-ping results):", font=f10,
+               fill=_MUTED, anchor="lm")
+        y += 15
+        for sc in scenarios:
+            if sc["inning"] not in ("", None):
+                tx, ty = pad + 4, y + 6
+                tri = [(tx, ty + 3), (tx + 8, ty + 3), (tx + 4, ty - 3)] if sc["half"] == "top" else                       [(tx, ty - 3), (tx + 8, ty - 3), (tx + 4, ty + 3)]
+                d.polygon([(_px(px), _px(py)) for px, py in tri], fill=_MUTED)
+                d.text((_px(pad + 16), _px(y + 6)), str(sc["inning"]), font=f10, fill=_TEXT, anchor="lm")
+            right = (f"{sc['tags']}   bat {pace.fmt_dur(sc['bat'])} | pit {pace.fmt_dur(sc['pitch'])} | "
+                     f"ump {pace.fmt_dur(sc['ump'])}")
+            d.text((_px(W - pad), _px(y + 6)), right, font=f10, fill=_MUTED, anchor="rm")
+            room = W - 2 * pad - 30 - d.textlength(right, font=f10) / _S - 12
+            who = f"{sc['batter']} vs {sc['pitcher']}" if sc["batter"] else f"{sc['pitcher']} pitching"
+            while d.textlength(who, font=f10) / _S > room and len(who) > 4:
+                who = who[:-2].rstrip() + "…"
+            d.text((_px(pad + 30), _px(y + 6)), who, font=f10, fill=_TEXT, anchor="lm")
+            y += 15
 
     img = img.crop((0, 0, W * _S, _px(y + 12)))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+# --------------------------------------------------------- draft tiebreak write-up
+
+_STEP_NAME = {"head-to-head": "Head-to-head vs the tied teams", "division record": "Division record",
+              "league record": "League record", "win % vs .500+": "Win % vs .500+ teams",
+              "league run differential": "League run differential", "run differential": "Run differential (season)",
+              "record vs other league": "Record vs other league", "unresolved (home run derby)": "Unresolved - home run derby"}
+
+
+def _tie_panel(tie: dict, W: int = 760, pad: int = 16) -> Image.Image:
+    """One tie, teams listed best first. Three or more teams get the head-to-head grid and the games behind it; two teams
+    skip that (a 2x2 grid says nothing) and get just the games on one line when head-to-head was in play. Then each
+    tiebreaker applied with every team's number and how it split them, and the resulting order."""
+    order = list(tie["teams"])
+    n = len(order)
+    compact = n == 2
+    cw, lw, rh = 46, 46, 20
+    games = sorted(tie["games"], key=lambda g: (g["session"] or 0))
+    h2h_used = any(e["label"] == "head-to-head" for e in tie["events"])
+
+    def result_text(g: dict) -> str:
+        away_won = g["away_score"] > g["home_score"]
+        w, l = (g["away"], g["home"]) if away_won else (g["home"], g["away"])
+        ws, ls = (g["away_score"], g["home_score"]) if away_won else (g["home_score"], g["away_score"])
+        return f"S{g['session']}  {w} {ws} - {l} {ls}"
+
+    gcols = 2 if len(games) > 7 else 1
+    gl_rows = -(-len(games) // gcols) if games else 0
+    top_h = 0 if compact else max((n + 1) * rh, 18 + gl_rows * 15 if games else 0)
+    ev = tie["events"]
+    gline = 18 if compact and h2h_used and games else 0
+    H = 10 + 22 + 8 + (0 if compact else top_h + 14) + (len(ev) + 1) * rh + 8 + gline + 24 + 8
+    img = Image.new("RGB", (W * _S, H * _S), _BG)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((_px(0), _px(0), _px(W - 1), _px(H - 1)), radius=_px(8), fill=_ROW_A)
+    f12, f11, f10 = _font(12), _font(11), _font(10)
+    d.text((_px(pad), _px(20)), tie["title"], font=_font(14, True), fill=_TEXT, anchor="lm")
+    y = 40
+    if not compact:
+        # head-to-head grid, rows = this team's record against the column team
+        for j, b in enumerate(order):
+            d.text((_px(pad + lw + j * cw + cw / 2), _px(y + rh / 2)), b, font=f11, fill=_MUTED, anchor="mm")
+        won = {}
+        for g in games:
+            w, l = (g["away"], g["home"]) if g["away_score"] > g["home_score"] else (g["home"], g["away"])
+            won[(w, l)] = won.get((w, l), 0) + 1
+        for i, a in enumerate(order):
+            ry = y + (i + 1) * rh
+            d.text((_px(pad), _px(ry + rh / 2)), a, font=_font(11, True), fill=_TEXT, anchor="lm")
+            for j, b in enumerate(order):
+                cx = pad + lw + j * cw
+                if i == j:
+                    d.rectangle((_px(cx + 2), _px(ry + 1), _px(cx + cw - 2), _px(ry + rh - 1)), fill=_ROW_B)
+                    continue
+                w_, l_ = won.get((a, b), 0), won.get((b, a), 0)
+                txt = f"{w_}-{l_}" if w_ + l_ else "-"
+                col = _POS if w_ > l_ else _NEG if w_ < l_ else _MUTED
+                d.text((_px(cx + cw / 2), _px(ry + rh / 2)), txt, font=f11, fill=col, anchor="mm")
+        # the games behind it, winner first
+        gx0 = pad + lw + n * cw + 24
+        colw = (W - pad - gx0) / gcols
+        d.text((_px(gx0), _px(y + 6)), "Games between them", font=f10, fill=_MUTED, anchor="lm")
+        for k, g in enumerate(games):
+            col, row = divmod(k, gl_rows)
+            d.text((_px(gx0 + col * colw), _px(y + 20 + row * 15 + 6)), result_text(g), font=f10, fill=_TEXT, anchor="lm")
+        if not games:
+            d.text((_px(gx0), _px(y + 26)), "no games played between them", font=f10, fill=_MUTED, anchor="lm")
+        y += top_h + 14
+    # the tiebreakers, in the order they were applied
+    sw = 220
+    d.text((_px(pad), _px(y + rh / 2)), "Tiebreaker", font=f10, fill=_MUTED, anchor="lm")
+    for j, b in enumerate(order):
+        d.text((_px(pad + sw + j * 50 + 25), _px(y + rh / 2)), b, font=f10, fill=_MUTED, anchor="mm")
+    d.text((_px(pad + sw + n * 50 + 16), _px(y + rh / 2)), "Result", font=f10, fill=_MUTED, anchor="lm")
+    for e in ev:
+        y += rh
+        sub = " (restarted for " + ", ".join(e["group"]) + ")" if len(e["group"]) < n else ""
+        d.text((_px(pad), _px(y + rh / 2)), _STEP_NAME.get(e["label"], e["label"]) + sub, font=f10, fill=_TEXT, anchor="lm")
+        # green = the best value at this step, red = the worst (neutral in between, or when nothing separated them)
+        best = set(e["parts"][0]) if len(e["parts"]) > 1 else set()
+        worst = set(e["parts"][-1]) if len(e["parts"]) > 1 else set()
+        for j, b in enumerate(order):
+            if b in e["vals"]:
+                d.text((_px(pad + sw + j * 50 + 25), _px(y + rh / 2)), e["vals"][b], font=_font(10, b in best | worst),
+                       fill=_POS if b in best else _NEG if b in worst else _TEXT, anchor="mm")
+            else:
+                d.text((_px(pad + sw + j * 50 + 25), _px(y + rh / 2)), "-", font=f10, fill=_OFF_STROKE, anchor="mm")
+        d.text((_px(pad + sw + n * 50 + 16), _px(y + rh / 2)), " | ".join("=".join(p) for p in e["parts"]), font=f10,
+               fill=_MUTED, anchor="lm")
+    y += rh + 8
+    if gline:
+        d.text((_px(pad), _px(y + 8)), "Games: " + "   ".join(result_text(g) for g in games), font=f10, fill=_MUTED,
+               anchor="lm")
+        y += gline
+    d.text((_px(pad), _px(y + 12)), "Order, best first: " + ", ".join(order), font=_font(12, True), fill=_TEXT, anchor="lm")
+    return img
+
+
+def render_draft_tiebreaks(ties: list[dict], title: str, max_page_h: int = 1500) -> list[io.BytesIO]:
+    """The tiebreak write-up as one or more PNG pages (one panel per tie, stacked, a new page past max_page_h)."""
+    W, gap, head = 760, 10, 74
+    panels = [_tie_panel(t, W) for t in ties]
+    pages: list[list[Image.Image]] = [[]]
+    used = head
+    for p in panels:
+        h = p.height // _S
+        if pages[-1] and used + h > max_page_h:
+            pages.append([])
+            used = head
+        pages[-1].append(p)
+        used += h + gap
+    out = []
+    for k, group in enumerate(pages):
+        total = head + sum(p.height // _S + gap for p in group)
+        img = Image.new("RGB", (W * _S, total * _S), _BG)
+        d = ImageDraw.Draw(img)
+        d.text((_px(16), _px(22)), title + (f" ({k + 1}/{len(pages)})" if len(pages) > 1 else ""), font=_font(16, True),
+               fill=_TEXT, anchor="lm")
+        d.text((_px(16), _px(42)), "Teams are listed best first. The draft takes the reverse order within each group.",
+               font=_font(11), fill=_MUTED, anchor="lm")
+        d.text((_px(16), _px(58)), "Tiebreaker table: green is the best value at that step, red the worst. Grid: green means "
+               "that team won the series against the column team.", font=_font(11), fill=_MUTED, anchor="lm")
+        y = head
+        for p in group:
+            img.paste(p, (0, _px(y)))
+            y += p.height // _S + gap
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        out.append(buf)
+    return out
+
+
+def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "") -> io.BytesIO:
+    """The playoff bracket as of the current standings: two leagues (first league left, second right) each with a wild card
+    round (1v4, 2v3), a league championship round, and the ToOS between them. bracket maps a league name to its four teams
+    in seed order, each {"seed", "abbrev", "record", "logo_path" or None}; the top team of a game is the home team."""
+    W, H, bw, rh = 1120, 362, 180, 30
+    xs = [16, 236, 470, 704, 924]            # wild card, LCR, ToOS, LCR, wild card; the ToOS box is centred between the LCR boxes
+    img = Image.new("RGB", (W * _S, H * _S), _BG)
+    d = ImageDraw.Draw(img)
+    d.text((_px(W / 2), _px(20)), title, font=_font(16, True), fill=_TEXT, anchor="mm")
+    if subtitle:
+        d.text((_px(W / 2), _px(40)), subtitle, font=_font(11), fill=_MUTED, anchor="mm")
+    logos: dict[str, Image.Image | None] = {}
+
+    def team_row(x: float, y: float, t: dict | None, label: str = "", home: bool = False, edge=_OFF_STROKE) -> None:
+        d.rectangle((_px(x), _px(y), _px(x + bw), _px(y + rh)), fill=_ROW_B if home else _ROW_A, outline=edge)
+        if t is None:
+            d.text((_px(x + 10), _px(y + rh / 2)), label, font=_font(11), fill=_MUTED, anchor="lm")
+            return
+        d.text((_px(x + 14), _px(y + rh / 2)), str(t["seed"]), font=_font(11, True), fill=_MUTED, anchor="mm")
+        path = t.get("logo_path")
+        if path and path not in logos:
+            logos[path] = Image.open(path).convert("RGBA")
+        if path:
+            sz = _px(rh - 6)
+            lg = logos[path].copy()
+            lg.thumbnail((sz, sz), Image.LANCZOS)
+            img.paste(lg, (_px(x + 26) + (sz - lg.width) // 2, _px(y + 3) + (sz - lg.height) // 2), lg)
+        d.text((_px(x + 26 + rh), _px(y + rh / 2)), t["abbrev"], font=_font(12, True), fill=_TEXT, anchor="lm")
+        d.text((_px(x + bw - 8), _px(y + rh / 2)), t["record"], font=_font(10), fill=_MUTED, anchor="rm")
+
+    def game(x: float, y: float, top: dict | None, bot: dict | None, labels: tuple[str, str] = ("", ""),
+             edge=_OFF_STROKE) -> None:
+        team_row(x, y, top, labels[0], home=top is not None, edge=edge)
+        team_row(x, y + rh, bot, labels[1], edge=edge)
+
+    ys = [112, 212]
+    mid = (ys[0] + ys[1] + 2 * rh) / 2 - rh        # the LCR / ToOS box sits between the two wild card games
+    for k, label in enumerate(("Wild Card", "League Championship", "Trophy of Objective Superiority", "League Championship", "Wild Card")):
+        d.text((_px(xs[k] + bw / 2), _px(94)), label, font=_font(10, True), fill=_MUTED, anchor="mm")
+    leagues = list(bracket.items())
+    for side, (name, seeds) in enumerate(leagues):
+        wc_x, lcr_x = (xs[0], xs[1]) if side == 0 else (xs[4], xs[3])
+        primary, accent = LEAGUE_COLORS.get(name, (_BG, _OFF_STROKE))
+        for (a, b), y in zip(((0, 3), (1, 2)), ys):
+            game(wc_x, y, seeds[a], seeds[b], edge=accent)
+        game(lcr_x, mid, None, None, (f"Winner {seeds[0]['seed']} v {seeds[3]['seed']}",
+                                      f"Winner {seeds[1]['seed']} v {seeds[2]['seed']}"), edge=accent)
+        # the league pill sits above the round names, centred between the wild card and LCR columns
+        px, ly = (wc_x + lcr_x + bw) / 2, 68
+        d.rounded_rectangle((_px(px - 44), _px(ly - 11), _px(px + 44), _px(ly + 11)), radius=_px(6), fill=primary,
+                            outline=accent, width=_S)
+        d.text((_px(px), _px(ly)), _LEAGUE_SHORT.get(name, name), font=_font(11, True), fill=_TEXT, anchor="mm")
+        edge_from, edge_to = (wc_x + bw, lcr_x) if side == 0 else (wc_x, lcr_x + bw)
+        # connectors: each wild card game's midline to the matching LCR row
+        for y, ty in ((ys[0] + rh, mid + rh / 2), (ys[1] + rh, mid + rh + rh / 2)):
+            jx = (edge_from + edge_to) / 2
+            for seg in ((edge_from, y, jx, y), (jx, y, jx, ty), (jx, ty, edge_to, ty)):
+                d.line([_px(seg[0]), _px(seg[1]), _px(seg[2]), _px(seg[3])], fill=_OFF_STROKE, width=_S * 2)
+    cx = xs[2]
+    names = [n for n, _ in leagues] + ["", ""]
+    game(cx, mid, None, None, (f"{_LEAGUE_SHORT.get(names[0], names[0])} champion",
+                           f"{_LEAGUE_SHORT.get(names[1], names[1])} champion"))
+    for ex, edge in ((xs[1] + bw, cx), (xs[3], cx + bw)):
+        y = mid + rh
+        d.line([_px(ex), _px(y), _px(edge), _px(y)], fill=_OFF_STROKE, width=_S * 2)
+    d.text((_px(16), _px(H - 22)), "Each round is one winner-take-all game. The top team of a game hosts: division winners in the Wild Card "
+           "round, the highest remaining seed in the LCR,", font=_font(10), fill=_MUTED, anchor="lm")
+    d.text((_px(16), _px(H - 8)), "the better record in the ToOS. Seeds 1-2 are division winners, 3-4 wild cards.", font=_font(10),
+           fill=_MUTED, anchor="lm")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+# ------------------------------------------------------------- standings and wild card tables
+
+_NAVY = (18, 28, 52)
+_TEAL = (60, 150, 170)
+_GREEN_A = (36, 66, 48)
+_GREEN_B = (42, 76, 56)
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+_LOGO_CACHE: dict[str, Image.Image] = {}
+_LEAGUE_SHORT = {"GL": "Galactic", "LL": "Liberty"}
+# (primary, secondary) per league: the primary fills table headers, the secondary is the rule beneath them
+LEAGUE_COLORS = {"GL": (_hex("#351c75"), _hex("#d9d2e9")), "LL": (_hex("#741b47"), _hex("#ead1dc"))}
+
+
+def team_info(teams: list[dict], result: dict) -> dict[str, dict]:
+    """Per-team display data for the standings tables: name, W-L, run totals, a local logo path, the playoff seed label
+    ("1 DW" .. "4 WC", "" if out) and whether a tiebreaker placed the team in its division or wild card race."""
+    seeds = result.get("seeds", {})
+    tied = {a for t in result.get("ties", []) if not t["what"].startswith("draft") for a in t["teams"]}
+    out = {}
+    for t in teams:
+        a, logo = t["abbrev"], t.get("logo_url")
+        path = os.path.join(_REPO_ROOT, "docs", logo) if logo and not logo.startswith("http") else None
+        out[a] = {"name": t.get("full_team") or a, "w": t.get("wins") or 0, "l": t.get("losses") or 0,
+                  "rs": t.get("runs_scored") or 0, "ra": t.get("runs_allowed") or 0,
+                  "logo": path if path and os.path.isfile(path) else None,
+                  "seed": f"{seeds[a]} {'DW' if seeds[a] <= 2 else 'WC'}" if a in seeds else "", "tie": a in tied}
+    return out
+
+
+def _gb(ref: dict, t: dict) -> str:
+    """Games behind ref ("+n" when ahead, "-" when level); half games print as 1.5."""
+    g = ((ref["w"] - t["w"]) + (t["l"] - ref["l"])) / 2
+    return "-" if g == 0 else f"+{abs(g):g}" if g < 0 else f"{g:g}"
+
+
+def _pct(t: dict) -> str:
+    n = t["w"] + t["l"]
+    return f"{t['w'] / n:.3f}".lstrip("0") if n else ".000"
+
+
+def _standings_table(img: Image.Image, d: ImageDraw.ImageDraw, x: float, y: float, w: float, title: str,
+                     heads: list[tuple[str, int]], rows: list[dict], chip: bool = False, hl: int = 0,
+                     cut: int | None = None, colors: tuple = (_NAVY, _TEAL)) -> float:
+    """One table: navy header (title + column labels), a teal rule, then alternating team rows. Each row is {"info",
+    "chip", "cells" (one string per head)}; the first hl rows read green and a dashed red line follows row cut.
+    Returns the y under the table."""
+    rh = 30
+    primary, accent = colors
+    d.rectangle((_px(x), _px(y), _px(x + w), _px(y + rh)), fill=primary)
+    d.text((_px(x + 10), _px(y + rh / 2)), title.upper(), font=_font(11, True), fill=_TEXT, anchor="lm")
+    right = x + w
+    xs = []
+    for label, cw in reversed(heads):
+        xs.append(right - 8)
+        d.text((_px(right - 8), _px(y + rh / 2)), label, font=_font(10, True), fill=accent, anchor="rm")
+        right -= cw
+    xs.reverse()
+    d.rectangle((_px(x), _px(y + rh), _px(x + w), _px(y + rh + 2)), fill=accent)
+    y += rh + 2
+    logo_x = x + (34 if chip else 8)
+    name_x = logo_x + 30
+    name_w = right - name_x - 6
+    f = _font(12, True)
+    for i, r in enumerate(rows):
+        yy = y + i * rh
+        fill = (_GREEN_A if i % 2 == 0 else _GREEN_B) if i < hl else (_ROW_A if i % 2 == 0 else _ROW_B)
+        d.rectangle((_px(x), _px(yy), _px(x + w), _px(yy + rh)), fill=fill)
+        if chip and r.get("chip"):
+            d.text((_px(x + 18), _px(yy + rh / 2)), r["chip"], font=_font(9, True),
+                   fill=_POS if r["chip"].endswith("DW") else _BASE_ON, anchor="mm")
+        info = r["info"]
+        if info["logo"]:
+            if info["logo"] not in _LOGO_CACHE:
+                _LOGO_CACHE[info["logo"]] = Image.open(info["logo"]).convert("RGBA")
+            sz = _px(rh - 8)
+            lg = _LOGO_CACHE[info["logo"]].copy()
+            lg.thumbnail((sz, sz), Image.LANCZOS)
+            img.paste(lg, (_px(logo_x) + (sz - lg.width) // 2, _px(yy + 4) + (sz - lg.height) // 2), lg)
+        name, mark = info["name"], (" †" if info["tie"] else "")
+        while d.textlength(name + mark, font=f) > _px(name_w) and len(name) > 4:
+            name = name[:-2]
+        d.text((_px(name_x), _px(yy + rh / 2)), name + mark, font=f, fill=_TEXT, anchor="lm")
+        for cx, cell in zip(xs, r["cells"]):
+            d.text((_px(cx), _px(yy + rh / 2)), cell, font=_font(12), fill=_TEXT, anchor="rm")
+        if cut is not None and i == cut:
+            ly = _px(yy + rh)
+            for sx in range(_px(x), _px(x + w), _px(10)):
+                d.line([sx, ly, min(sx + _px(6), _px(x + w)), ly], fill=_OUT_ON, width=_S * 2)
+    return y + len(rows) * rh
+
+
+def _finish(img: Image.Image) -> io.BytesIO:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def render_standings(layout: dict, info: dict[str, dict], league_names: dict[str, str], title: str) -> io.BytesIO:
+    """The four division tables, first league on the left and second on the right, each team with its playoff seed."""
+    cw, gap, pad = 560, 16, 16
+    leagues = sorted({lg for lg, _, _ in layout["divisions"]})
+    heads = [("W", 36), ("L", 36), ("PCT", 52), ("GB", 40), ("RS", 40), ("RA", 40), ("RD", 48)]
+    H = 36 + 2 * (62 + 120) + 10 + 22
+    img = Image.new("RGB", ((2 * cw + gap + 2 * pad) * _S, H * _S), _BG)
+    d = ImageDraw.Draw(img)
+    d.text((_px(pad), _px(18)), title, font=_font(16, True), fill=_TEXT, anchor="lm")
+    for col, lg in enumerate(leagues):
+        y = 36.0
+        for lg2, div, ranked in layout["divisions"]:
+            if lg2 != lg:
+                continue
+            lead = info[ranked[0]]
+            rows = [{"info": info[a], "chip": info[a]["seed"], "cells": [
+                str(info[a]["w"]), str(info[a]["l"]), _pct(info[a]), _gb(lead, info[a]), str(info[a]["rs"]),
+                str(info[a]["ra"]), _fmt(info[a]["rs"] - info[a]["ra"], 0)]} for a in ranked]
+            y = _standings_table(img, d, pad + col * (cw + gap), y, cw, f"{league_names.get(lg, lg)} · {div}", heads,
+                                 rows, chip=True, colors=LEAGUE_COLORS.get(lg, (_NAVY, _TEAL))) + gap
+    d.text((_px(pad), _px(H - 12)), "Seed: DW division winner, WC wild card.  † placed by a tiebreaker (see the tiebreak "
+           "pages).", font=_font(10), fill=_MUTED, anchor="lm")
+    return _finish(img)
+
+
+def render_wildcard(layout: dict, info: dict[str, dict], league_names: dict[str, str], title: str) -> io.BytesIO:
+    """The wild card race per league: every team that isn't leading a division, the top two highlighted with a dashed
+    cut line under them. GB is measured from the last wild card spot ("+" for a team ahead of it)."""
+    cw, gap, pad = 520, 16, 16
+    leagues = sorted(layout["wildcard"])
+    heads = [("W", 36), ("L", 36), ("PCT", 52), ("GB", 44), ("RD", 48)]
+    n = max(len(v) for v in layout["wildcard"].values())
+    H = 36 + 32 + 30 * n + 30
+    img = Image.new("RGB", ((len(leagues) * cw + (len(leagues) - 1) * gap + 2 * pad) * _S, H * _S), _BG)
+    d = ImageDraw.Draw(img)
+    d.text((_px(pad), _px(18)), title, font=_font(16, True), fill=_TEXT, anchor="lm")
+    for col, lg in enumerate(leagues):
+        ranked = layout["wildcard"][lg]
+        ref = info[ranked[1]]
+        rows = [{"info": info[a], "cells": [str(info[a]["w"]), str(info[a]["l"]), _pct(info[a]), _gb(ref, info[a]),
+                                            _fmt(info[a]["rs"] - info[a]["ra"], 0)]} for a in ranked]
+        _standings_table(img, d, pad + col * (cw + gap), 36, cw, f"{league_names.get(lg, lg)} wild card race", heads, rows,
+                         hl=2, cut=1, colors=LEAGUE_COLORS.get(lg, (_NAVY, _TEAL)))
+    d.text((_px(pad), _px(H - 12)), "Top two (green) make the playoffs as seeds 3 and 4.  GB is measured from the last wild "
+           "card spot; + means ahead of it.  † placed by a tiebreaker.", font=_font(10), fill=_MUTED, anchor="lm")
+    return _finish(img)

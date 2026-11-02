@@ -914,8 +914,16 @@ def radial_gif_bytes(anim: go.Figure, width: int = 640, scale: float = 1.5, fram
     import kaleido
     from PIL import Image
 
+    meta = anim.layout.meta if isinstance(anim.layout.meta, dict) else {}
+    gaps, pitch_ms = meta.get("frame_gaps"), meta.get("pitch_ms", frame_ms)
+    n_frames = len(anim.frames)
+    # pitches between each frame and the newest one (the last frame is the live chart): the gaps are pitches advanced to
+    # reach each frame, so what is left after frame k is how many pitches old it is
+    ago = [sum(gaps[k + 1:]) for k in range(n_frames)] if gaps and len(gaps) == n_frames else [None] * n_frames
+    pad_b = 24                                    # room under the disc so the bottom "500" label is not clipped
+    height = int(anim.layout.height or 390) + pad_b
     figs = []
-    for f in anim.frames:
+    for k, f in enumerate(anim.frames):
         data = list(anim.data)
         for i, tr in zip(f.traces, f.data):
             data[i] = tr
@@ -923,19 +931,35 @@ def radial_gif_bytes(anim: go.Figure, width: int = 640, scale: float = 1.5, fram
         apply_dark_theme(g)
         # the "Latest pitch" / model-dot legend sits on the dark page: give it a light backing so its dark ring reads
         g.update_layout(legend=dict(bgcolor="rgba(240,240,240,0.95)", font=dict(color="#1f1f1f"), borderwidth=0))
+        m = anim.layout.margin
+        g.update_layout(margin=dict(l=m.l if m.l is not None else 30, r=m.r if m.r is not None else 30,
+                                    t=m.t if m.t is not None else 36, b=(m.b if m.b is not None else 10) + pad_b))
+        if ago[k] is not None:
+            # top-right tag: how stale this frame is, since a GIF cannot show the live chart's own "now"
+            live = ago[k] == 0
+            text = "Newest pitch" if live else f"{ago[k]} pitch{'es' if ago[k] != 1 else ''} ago"
+            g.add_annotation(xref="paper", yref="paper", x=1.0, y=1.0, xanchor="right", yanchor="bottom", yshift=2,
+                             text=f"<b>{text}</b>", showarrow=False, font=dict(size=15, color="#ffffff"),
+                             bgcolor="#1f7a3a" if live else DARK_SECONDARY_BG, borderpad=6,
+                             bordercolor="#2ca02c" if live else DARK_GRID, borderwidth=1.5)
         figs.append(g)
-    height = int(anim.layout.height or 390)
     with KALEIDO_LOCK:
         kaleido.start_sync_server(n=1)
         try:
             pngs = [g.to_image(format="png", width=width, height=height, scale=scale) for g in figs]
         finally:
             kaleido.stop_sync_server()
-    ims = [Image.open(io.BytesIO(b)).convert("RGB").quantize(colors=128, method=Image.Quantize.FASTOCTREE,
-                                                              dither=Image.Dither.NONE) for b in pngs]
+    rgb = [Image.open(io.BytesIO(b)).convert("RGB") for b in pngs]
+    # One shared 256-colour palette for every frame (built from a montage of evenly spaced frames). Quantizing each frame
+    # on its own gave every frame slightly different pastels / colorbar shades, which flickered and banded.
+    sample = [rgb[round(i * (len(rgb) - 1) / 5)] for i in range(6)] if len(rgb) > 6 else rgb
+    w0, h0 = rgb[0].size
+    sheet = Image.new("RGB", (w0, h0 * len(sample)))
+    for i, im in enumerate(sample):
+        sheet.paste(im, (0, i * h0))
+    palette = sheet.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    ims = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in rgb]
     out = io.BytesIO()
-    meta = anim.layout.meta if isinstance(anim.layout.meta, dict) else {}
-    gaps, pitch_ms = meta.get("frame_gaps"), meta.get("pitch_ms", frame_ms)
     if gaps and len(gaps) == len(ims):
         # each frame is held for as many pitches as it advances to the next one, so the pace is one pitch per pitch_ms
         durations = [int(gaps[k + 1] * pitch_ms) for k in range(len(ims) - 1)] + [hold_ms]
@@ -1227,7 +1251,7 @@ def batter_last2_digit_radial_fig(df: pd.DataFrame) -> go.Figure:
 # itself was drawn with - column 3 ("") is left blank on purpose, reserved
 # as a slot for the team logo pasted in after rendering (go.Table cells are
 # text-only, no inline images).
-DRAFT_ORDER_COL_WIDTHS = [46, 52, 62, 30, 190, 230, 62, 55]
+DRAFT_ORDER_COL_WIDTHS = [46, 52, 62, 30, 190, 55, 330, 215, 62, 55, 55]
 DRAFT_ORDER_LOGO_COL = 3
 DRAFT_ORDER_ROW_HEIGHT = 20
 DRAFT_ORDER_HEADER_HEIGHT = 30
@@ -1240,8 +1264,9 @@ def _fmt_run_diff(rs: int, ra: int) -> str:
     return f"+{diff}" if diff > 0 else str(diff)
 
 
-def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: str = "Draft Order") -> go.Figure:
-    """Styled Round/Pick/Overall/Team/Notes/Record/Diff table for
+def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: str = "Draft Order",
+                    footnotes: list[str] | None = None) -> go.Figure:
+    """Styled Round/Pick/Overall/Team/Notes/Record/Diff/Chg table for
     draft_order.compute_draft_order's output - one row per pick, matching
     every other table this bot sends (see strategy_table_fig). Team name text
     only; discord_bot.py pastes each row's logo into the blank column after
@@ -1255,44 +1280,61 @@ def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: s
     n = len(rows)
     team_name = lambda ab: (teams_by_abbrev.get(ab) or {}).get("full_team") or ab
 
-    def _record(ab: str) -> str:
-        t = teams_by_abbrev.get(ab) or {}
+    def _record(r: dict) -> str:
+        t = teams_by_abbrev.get(r["original_team"]) or {}
         return f"{t.get('wins') or 0}-{t.get('losses') or 0}"
 
     def _diff(ab: str) -> str:
         t = teams_by_abbrev.get(ab) or {}
         return _fmt_run_diff(t.get("runs_scored") or 0, t.get("runs_allowed") or 0)
 
-    header_vals = ["Rd", "Pick", "Overall", "", "Team", "Notes", "Record", "Diff"]
+    def _move(m):
+        return "" if m is None else "-" if m == 0 else f"{'▲' if m > 0 else '▼'}{abs(m)}"
+
+    def _move_color(m):
+        return DARK_TEXT if not m else "#3fb950" if m > 0 else "#f85149"
+
+    header_vals = ["Rd", "Pick", "Overall", "", "Team", "Seed", "Tiebreak", "Notes", "Record", "Diff", "Chg"]
     cell_vals = [
         [str(r["round"]) for r in rows],
         [str(r["pick"]) for r in rows],
         [str(r["overall"]) for r in rows],
         [""] * n,
         [team_name(r["team"]) for r in rows],
+        [r.get("seed") or "" for r in rows],
+        [r.get("tiebreak") or "" for r in rows],
         [r["notes"] for r in rows],
-        [_record(r["original_team"]) for r in rows],
+        [_record(r) for r in rows],
         [_diff(r["original_team"]) for r in rows],
+        [_move(r.get("move")) for r in rows],
     ]
-    align = ["center", "center", "center", "center", "left", "left", "center", "center"]
+    font_colors = [DARK_TEXT] * (len(cell_vals) - 1) + [[_move_color(r.get("move")) for r in rows]]
+    font_colors[7] = ["#f2c94c" if r.get("conditional") else DARK_TEXT for r in rows]   # a conditional pick reads amber
+    align = ["center", "center", "center", "center", "left", "center", "left", "left", "center", "center", "center"]
     row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
 
     fig = go.Figure(data=[go.Table(
         columnwidth=DRAFT_ORDER_COL_WIDTHS,
-        header=dict(values=header_vals, fill_color="#085d05", font=dict(color=DARK_TEXT, size=12), align=align,
-                    height=DRAFT_ORDER_HEADER_HEIGHT, line_color="#085d05"),
+        header=dict(values=header_vals, fill_color="#061a2e", font=dict(color=DARK_TEXT, size=12), align=align,
+                    height=DRAFT_ORDER_HEADER_HEIGHT, line_color="#061a2e"),
         cells=dict(values=cell_vals, fill_color=[row_colors] * len(cell_vals), align=align,
-                   font=dict(size=11, color=DARK_TEXT), height=DRAFT_ORDER_ROW_HEIGHT, line_color=DARK_GRID),
+                   font=dict(size=11, color=font_colors), height=DRAFT_ORDER_ROW_HEIGHT, line_color=DARK_GRID),
     )])
 
-    width = sum(DRAFT_ORDER_COL_WIDTHS) + DRAFT_ORDER_MARGIN["l"] + DRAFT_ORDER_MARGIN["r"]
-    height = (DRAFT_ORDER_MARGIN["t"] + DRAFT_ORDER_HEADER_HEIGHT
-              + DRAFT_ORDER_ROW_HEIGHT * n + DRAFT_ORDER_MARGIN["b"])
+    # tiebreak footnotes sit under the table, in the (taller) bottom margin
+    foot_h = 14 * len(footnotes) + 10 if footnotes else 0
+    margin = dict(DRAFT_ORDER_MARGIN, b=DRAFT_ORDER_MARGIN["b"] + foot_h)
+    width = sum(DRAFT_ORDER_COL_WIDTHS) + margin["l"] + margin["r"]
+    height = margin["t"] + DRAFT_ORDER_HEADER_HEIGHT + DRAFT_ORDER_ROW_HEIGHT * n + margin["b"]
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),
-        margin=DRAFT_ORDER_MARGIN,
+        margin=margin,
         width=width, height=height,
     )
+    if footnotes:
+        fig.add_annotation(xref="paper", yref="paper", x=0, y=0, xanchor="left", yanchor="top", showarrow=False,
+                           align="left", text="<br>".join(footnotes), font=dict(size=10, color="#9aa0a6"),
+                           yshift=-6)
     return fig
 
 

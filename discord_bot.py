@@ -13,7 +13,8 @@ Live Matchup" mode drives its dropdowns but still allows a manual override:
      channel, so there's no per-channel/per-user state to track).
 
 Requires DISCORD_BOT_TOKEN, plus the SUPABASE_URL / SUPABASE_KEY env vars
-database.py already reads for non-Streamlit (CLI) contexts.
+database.py already reads for non-Streamlit (CLI) contexts. All of them can live
+in the gitignored .env next to this file (loaded at startup; real env vars win).
 """
 from __future__ import annotations
 
@@ -33,7 +34,24 @@ import scouting_data
 import sync_plays
 import utils
 
-TOKEN = os.environ["DISCORD_BOT_TOKEN"]
+def _load_dotenv(path: str = ".env") -> None:
+    """KEY=VALUE lines from a (gitignored) .env next to this file, so the token
+    doesn't have to be re-set in every terminal. Real env vars win."""
+    full = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    if not os.path.exists(full):
+        return
+    for line in open(full, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+if not TOKEN:
+    raise SystemExit("DISCORD_BOT_TOKEN is not set. Put DISCORD_BOT_TOKEN=... in a .env file next to "
+                     "discord_bot.py (or set it in the environment).")
 # Optional: set this to your test server's id for instant command sync while
 # developing (global sync can take up to an hour to show up). Leave unset for
 # the real deployment, where commands should be available in any server.
@@ -1148,9 +1166,9 @@ async def manager_strategy(interaction: discord.Interaction, game_code: int | No
 
 # ── league ───────────────────────────────────────────────────────────────────
 
-@league_group.command(name="draftorder",
-                       description="Project next season's MLN draft order from current standings, with pick trades applied")
-async def league_draft_order(interaction: discord.Interaction) -> None:
+@league_group.command(name="postseason",
+                      description="Playoff bracket, projected draft order and how every tie was broken, from current standings")
+async def league_postseason(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
 
     def _build():
@@ -1162,10 +1180,14 @@ async def league_draft_order(interaction: discord.Interaction) -> None:
         if len(teams) != draft_order.TEAMS_PER_ROUND:
             return "bad_team_count", len(teams)
 
-        rows = draft_order.compute_draft_order(teams)
+        # Chg = picks each slot moved since the standings before the latest finished session
+        finals = [g for g in utils.read_mln_games_from_sheet(sync_plays._MLN_SHEET_ID) if utils.game_is_final(g)]
+        result = draft_order.compute_draft_order(teams, finals, draft_order.games_before_last_session(finals))
+        rows = result["rows"]
         teams_by_abbrev = {t["abbrev"]: t for t in teams}
         next_season = sync_plays._CURRENT_MLN_SEASON + 1
-        fig = bot_charts.draft_order_fig(rows, teams_by_abbrev, title=f"Season {next_season} Draft Order")
+        fig = bot_charts.draft_order_fig(rows, teams_by_abbrev, title=f"Season {next_season} Draft Order",
+                                         footnotes=[draft_order.conditional_legend(), *draft_order.TIEBREAK_LEGEND])
         bot_charts.apply_dark_theme(fig)
         w, h = fig.layout.width, fig.layout.height
         raw_buf = io.BytesIO()
@@ -1173,14 +1195,32 @@ async def league_draft_order(interaction: discord.Interaction) -> None:
         png = bot_charts.composite_draft_order_logos(raw_buf.getvalue(), rows, teams_by_abbrev)
         buf = io.BytesIO(png)
         buf.seek(0)
-        return "ok", buf
+        # a second image (or a few) walking through every tie that set a pick, a division title or a seed
+        import pioball_render
+        pages = (pioball_render.render_draft_tiebreaks(
+            result["ties"], f"Season {next_season} Playoff Seeding - Tiebreaker Resolution") if result["ties"] else [])
+        by_seed = {lg: [{"seed": i, "abbrev": a, "logo_path": bot_charts._local_logo_path(teams_by_abbrev[a].get("logo_url")),
+                         "record": f"{teams_by_abbrev[a].get('wins') or 0}-{teams_by_abbrev[a].get('losses') or 0}"}
+                        for i, a in enumerate(abbrevs, start=1)] for lg, abbrevs in result["bracket"].items()}
+        bracket_buf = pioball_render.render_bracket(by_seed, f"Season {sync_plays._CURRENT_MLN_SEASON} playoff bracket",
+                                                    "Projected from current standings")
+        info = pioball_render.team_info(teams, result)
+        names = {"GL": "Galactic League", "LL": "Liberty League"}
+        season = sync_plays._CURRENT_MLN_SEASON
+        standings_buf = pioball_render.render_standings(result["layout"], info, names, f"Season {season} Standings")
+        wildcard_buf = pioball_render.render_wildcard(result["layout"], info, names, f"Season {season} Wild Card Standings")
+        return "ok", (buf, pages, [bracket_buf, standings_buf, wildcard_buf])
 
     status, payload = await asyncio.to_thread(_build)
     if status == "bad_team_count":
         await interaction.followup.send(
             f"Expected {draft_order.TEAMS_PER_ROUND} rows in the MLN Teams tab, found {payload}.", ephemeral=True)
         return
-    await interaction.followup.send(file=discord.File(payload, filename="draft_order.png"))
+    buf, pages, leading = payload
+    files = [discord.File(f, filename=n) for f, n in zip(leading, ("playoff_bracket.png", "standings.png", "wildcard.png"))]
+    files.append(discord.File(buf, filename="draft_order.png"))
+    files += [discord.File(p, filename=f"tiebreaks_{i}.png") for i, p in enumerate(pages[:6], start=1)]
+    await interaction.followup.send(files=files)
 
 
 bot.tree.add_command(pitcher_group)

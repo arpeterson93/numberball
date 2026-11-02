@@ -303,8 +303,9 @@ async def game(interaction: discord.Interaction, game_code: str | None = None) -
 
 
 @bot.tree.command(name="pace", description="Pace of play for a game: team and ump time, from the results feed timestamps")
-@app_commands.describe(game_code="Numberball game code (default: the live Pioneers game)")
-async def pace_command(interaction: discord.Interaction, game_code: str | None = None) -> None:
+@app_commands.describe(game_code="Numberball game code (default: the live Pioneers game)",
+                       include_open="Count the stretch still running right now (default yes; only applies to unfinished games)")
+async def pace_command(interaction: discord.Interaction, game_code: str | None = None, include_open: bool = True) -> None:
     await interaction.response.defer()
     g = await asyncio.to_thread(database.get_game_by_code, int(game_code)) if game_code else await _live_game()
     if not g:
@@ -318,14 +319,16 @@ async def pace_command(interaction: discord.Interaction, game_code: str | None =
     if start is None:
         await interaction.followup.send(f"Game `{g['game_code']}` has no start time on file.")
         return
-    end = pace.parse_ts(g.get("end_time")) or datetime.now(timezone.utc)
+    live = pace.is_live(g)   # a live game's end_time lags the feed (and runs ~5h early), so read right up to now
+    end = datetime.now(timezone.utc) if live else pace.parse_ts(g.get("end_time")) or datetime.now(timezone.utc)
     channel = bot.get_channel(RESULTS_CHANNEL_ID) or await bot.fetch_channel(RESULTS_CHANNEL_ID)
     msgs = [{"ts": m.created_at, "text": _message_text(m)}
             async for m in channel.history(limit=None, after=start - timedelta(hours=12),
                                            before=end + timedelta(hours=8), oldest_first=True)]
     msgs = pace.trim_to_game(msgs, g["game_code"])
     pas = pace.build_pas(msgs)
-    s = pace.summarize(pace.analyze(pas))
+    now = datetime.now(timezone.utc) if include_open and live else None
+    s = pace.summarize(pace.analyze(pas, now))
     if s["n_pa"] < 2:
         await interaction.followup.send(f"Not enough timed plate appearances in the feed for game `{g['game_code']}`.")
         return
@@ -333,11 +336,11 @@ async def pace_command(interaction: discord.Interaction, game_code: str | None =
     sides = pace.game_sides(g, looks, list(s["teams"]))
     title = f"Pace of play - {g.get('away_team')} @ {g.get('home_team')}"
     subtitle = (f"S{g.get('season')} | game {g['game_code']} | {s['n_pa']} plate appearances | {pace.fmt_dur(s['total_raw'])} "
-                f"on the clock, {pace.fmt_dur(s['total_act'])} active")
+                f"on the clock, {pace.fmt_dur(s['total_act'])} active{pace.open_note(s)}")
     try:
         sides = [{"abbrev": x["abbrev"], "color": pioball_render._hex(x["hex"])} for x in sides]
         buf = await asyncio.to_thread(pioball_render.render_pace, s, title, subtitle, sides[0], sides[1],
-                                     pace.half_innings(pas))
+                                     pace.half_innings(pas, now), scenarios=pace.scenarios(pas))
         await interaction.followup.send(file=discord.File(buf, filename="pace.png"))
     except Exception as e:  # fall back to the text report rather than say nothing
         print(f"pace image failed, sending text: {e!r}")
