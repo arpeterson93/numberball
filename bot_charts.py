@@ -1312,9 +1312,16 @@ def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: s
     font_colors[7] = ["#f2c94c" if r.get("conditional") else DARK_TEXT for r in rows]   # a conditional pick reads amber
     align = ["center", "center", "center", "center", "left", "center", "left", "left", "center", "center", "center"]
     row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
+    widths = list(DRAFT_ORDER_COL_WIDTHS)
+    if any(r.get("finish") for r in rows):     # playoff games have been played: add where each team finished
+        header_vals.insert(6, "Finish")
+        cell_vals.insert(6, [r.get("finish") or "" for r in rows])
+        font_colors.insert(6, [DARK_TEXT] * n)
+        align.insert(6, "center")
+        widths.insert(6, 80)
 
     fig = go.Figure(data=[go.Table(
-        columnwidth=DRAFT_ORDER_COL_WIDTHS,
+        columnwidth=widths,
         header=dict(values=header_vals, fill_color="#061a2e", font=dict(color=DARK_TEXT, size=12), align=align,
                     height=DRAFT_ORDER_HEADER_HEIGHT, line_color="#061a2e"),
         cells=dict(values=cell_vals, fill_color=[row_colors] * len(cell_vals), align=align,
@@ -1324,7 +1331,7 @@ def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: s
     # tiebreak footnotes sit under the table, in the (taller) bottom margin
     foot_h = 14 * len(footnotes) + 10 if footnotes else 0
     margin = dict(DRAFT_ORDER_MARGIN, b=DRAFT_ORDER_MARGIN["b"] + foot_h)
-    width = sum(DRAFT_ORDER_COL_WIDTHS) + margin["l"] + margin["r"]
+    width = sum(widths) + margin["l"] + margin["r"]
     height = margin["t"] + DRAFT_ORDER_HEADER_HEIGHT + DRAFT_ORDER_ROW_HEIGHT * n + margin["b"]
     fig.update_layout(
         title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14)),

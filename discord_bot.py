@@ -1166,28 +1166,47 @@ async def manager_strategy(interaction: discord.Interaction, game_code: int | No
 
 # ── league ───────────────────────────────────────────────────────────────────
 
+# MLN archive sheet: the Teams and Games tabs for seasons 1-12 (the live sheet only holds the current season)
+_MLN_ARCHIVE_SHEET_ID = "1H9ES_TL9nC0x-Q3auM6jtLcb6bII--eu4MtcAPoFcqg"
+
+
 @league_group.command(name="postseason",
-                      description="Playoff bracket, projected draft order and how every tie was broken, from current standings")
-async def league_postseason(interaction: discord.Interaction) -> None:
+                      description="Playoff bracket, standings, projected draft order and how every tie was broken")
+@app_commands.describe(season="Season to show (default: the current season, from live standings)")
+async def league_postseason(interaction: discord.Interaction, season: int | None = None) -> None:
+    current = sync_plays._CURRENT_MLN_SEASON
+    if season is not None and not 1 <= season <= current:
+        await interaction.response.send_message(f"Pick a season from 1 to {current}.", ephemeral=True)
+        return
     await interaction.response.defer()
+    season = season or current
+    live = season == current
 
     def _build():
-        # Reads the MLN Teams tab straight off the live Export Tables sheet -
-        # no Supabase sync/round-trip, so this is always current as of
-        # whenever the sheet itself last updated, and doesn't need a bot
-        # restart to pick up code changes elsewhere in the sync path.
-        teams = utils.read_mln_teams_from_sheet(sync_plays._MLN_SHEET_ID)
+        # Reads the MLN Teams and Games tabs straight off the sheet (the live Export Tables sheet for the current season,
+        # the archive sheet for past ones) - no Supabase sync/round-trip, so this is always current as of whenever the
+        # sheet itself last updated, and doesn't need a bot restart to pick up code changes elsewhere in the sync path.
+        sheet = sync_plays._MLN_SHEET_ID if live else _MLN_ARCHIVE_SHEET_ID
+        teams = utils.read_mln_teams_from_sheet(sheet)
+        games = utils.read_mln_games_from_sheet(sheet)
+        if not live:
+            teams = [t for t in teams if t.get("season") == season]
+            games = [g for g in games if g.get("season") == season]
         if len(teams) != draft_order.TEAMS_PER_ROUND:
             return "bad_team_count", len(teams)
 
-        # Chg = picks each slot moved since the standings before the latest finished session
-        finals = [g for g in utils.read_mln_games_from_sheet(sync_plays._MLN_SHEET_ID) if utils.game_is_final(g)]
-        result = draft_order.compute_draft_order(teams, finals, draft_order.games_before_last_session(finals))
+        finals = [g for g in games if utils.game_is_final(g)]
+        regular = [g for g in finals if g.get("type") != "Post"]
+        # Chg = picks each slot moved since the standings before the latest finished session; pick trades are for the
+        # draft being run now, so a past season shows the untraded order
+        playoff_games = [g for g in finals if g.get("type") == "Post"]
+        result = draft_order.compute_draft_order(teams, regular, draft_order.games_before_last_session(regular), trades=live,
+                                                 playoffs=playoff_games)
         rows = result["rows"]
         teams_by_abbrev = {t["abbrev"]: t for t in teams}
-        next_season = sync_plays._CURRENT_MLN_SEASON + 1
-        fig = bot_charts.draft_order_fig(rows, teams_by_abbrev, title=f"Season {next_season} Draft Order",
-                                         footnotes=[draft_order.conditional_legend(), *draft_order.TIEBREAK_LEGEND])
+        footnotes = ([draft_order.conditional_legend()] if live else []) + draft_order.TIEBREAK_LEGEND
+        fig = bot_charts.draft_order_fig(rows, teams_by_abbrev, footnotes=footnotes,
+                                         title=f"Season {season + 1} Draft Order" + ("" if live else " (no pick trades applied)"))
         bot_charts.apply_dark_theme(fig)
         w, h = fig.layout.width, fig.layout.height
         raw_buf = io.BytesIO()
@@ -1198,15 +1217,19 @@ async def league_postseason(interaction: discord.Interaction) -> None:
         # a second image (or a few) walking through every tie that set a pick, a division title or a seed
         import pioball_render
         pages = (pioball_render.render_draft_tiebreaks(
-            result["ties"], f"Season {next_season} Playoff Seeding - Tiebreaker Resolution") if result["ties"] else [])
+            result["ties"], f"Season {season} Playoff Seeding - Tiebreaker Resolution") if result["ties"] else [])
         by_seed = {lg: [{"seed": i, "abbrev": a, "logo_path": bot_charts._local_logo_path(teams_by_abbrev[a].get("logo_url")),
                          "record": f"{teams_by_abbrev[a].get('wins') or 0}-{teams_by_abbrev[a].get('losses') or 0}"}
                         for i, a in enumerate(abbrevs, start=1)] for lg, abbrevs in result["bracket"].items()}
-        bracket_buf = pioball_render.render_bracket(by_seed, f"Season {sync_plays._CURRENT_MLN_SEASON} playoff bracket",
-                                                    "Projected from current standings")
+        played = draft_order.bracket_results(result["bracket"], finals)
+        any_played = any(g for k in ("wc", "lcr") for v in played[k].values() for g in (v if isinstance(v, list) else [v]))             or played["toos"]
+        subtitle = ("Seeds from the regular season; playoff results as played" if any_played else
+                    "Projected from current standings" if live else "Seeds from the final regular-season standings")
+        if played["unmatched"]:
+            subtitle += f" ({played['unmatched']} playoff game(s) don't fit the projected field)"
+        bracket_buf = pioball_render.render_bracket(by_seed, f"Season {season} Playoff Bracket", subtitle, results=played)
         info = pioball_render.team_info(teams, result)
         names = {"GL": "Galactic League", "LL": "Liberty League"}
-        season = sync_plays._CURRENT_MLN_SEASON
         standings_buf = pioball_render.render_standings(result["layout"], info, names, f"Season {season} Standings")
         wildcard_buf = pioball_render.render_wildcard(result["layout"], info, names, f"Season {season} Wild Card Standings")
         return "ok", (buf, pages, [bracket_buf, standings_buf, wildcard_buf])
@@ -1214,7 +1237,7 @@ async def league_postseason(interaction: discord.Interaction) -> None:
     status, payload = await asyncio.to_thread(_build)
     if status == "bad_team_count":
         await interaction.followup.send(
-            f"Expected {draft_order.TEAMS_PER_ROUND} rows in the MLN Teams tab, found {payload}.", ephemeral=True)
+            f"Expected {draft_order.TEAMS_PER_ROUND} teams for season {season}, found {payload}.", ephemeral=True)
         return
     buf, pages, leading = payload
     files = [discord.File(f, filename=n) for f, n in zip(leading, ("playoff_bracket.png", "standings.png", "wildcard.png"))]

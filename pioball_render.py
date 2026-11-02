@@ -966,10 +966,13 @@ def render_draft_tiebreaks(ties: list[dict], title: str, max_page_h: int = 1500)
     return out
 
 
-def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "") -> io.BytesIO:
-    """The playoff bracket as of the current standings: two leagues (first league left, second right) each with a wild card
-    round (1v4, 2v3), a league championship round, and the ToOS between them. bracket maps a league name to its four teams
-    in seed order, each {"seed", "abbrev", "record", "logo_path" or None}; the top team of a game is the home team."""
+def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "", results: dict | None = None) -> io.BytesIO:
+    """The playoff bracket: two leagues (first league left, second right) each with a wild card round (1v4, 2v3), a league
+    championship round, and the ToOS between them. bracket maps a league name to its four teams in seed order, each
+    {"seed", "abbrev", "record", "logo_path" or None}; the top team of a wild card game is the home team. results
+    (draft_order.bracket_results) fills in the games already played: scores replace the records, losers dim, winners
+    advance into the next round and the ToOS line."""
+    res = results or {}
     W, H, bw, rh = 1120, 362, 180, 30
     xs = [16, 236, 470, 704, 924]            # wild card, LCR, ToOS, LCR, wild card; the ToOS box is centred between the LCR boxes
     img = Image.new("RGB", (W * _S, H * _S), _BG)
@@ -978,12 +981,16 @@ def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "
     if subtitle:
         d.text((_px(W / 2), _px(40)), subtitle, font=_font(11), fill=_MUTED, anchor="mm")
     logos: dict[str, Image.Image | None] = {}
+    t_of = {t["abbrev"]: t for seeds in bracket.values() for t in seeds}
 
-    def team_row(x: float, y: float, t: dict | None, label: str = "", home: bool = False, edge=_OFF_STROKE) -> None:
+    def team_row(x: float, y: float, t: dict | None, label: str = "", home: bool = False, edge=_OFF_STROKE,
+                 game: dict | None = None) -> None:
         d.rectangle((_px(x), _px(y), _px(x + bw), _px(y + rh)), fill=_ROW_B if home else _ROW_A, outline=edge)
         if t is None:
             d.text((_px(x + 10), _px(y + rh / 2)), label, font=_font(11), fill=_MUTED, anchor="lm")
             return
+        won = None if not game else game["winner"] == t["abbrev"]
+        ink = _MUTED if won is False else _TEXT
         d.text((_px(x + 14), _px(y + rh / 2)), str(t["seed"]), font=_font(11, True), fill=_MUTED, anchor="mm")
         path = t.get("logo_path")
         if path and path not in logos:
@@ -992,27 +999,36 @@ def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "
             sz = _px(rh - 6)
             lg = logos[path].copy()
             lg.thumbnail((sz, sz), Image.LANCZOS)
+            if won is False:
+                lg.putalpha(lg.getchannel("A").point(lambda a: a * 0.45))
             img.paste(lg, (_px(x + 26) + (sz - lg.width) // 2, _px(y + 3) + (sz - lg.height) // 2), lg)
-        d.text((_px(x + 26 + rh), _px(y + rh / 2)), t["abbrev"], font=_font(12, True), fill=_TEXT, anchor="lm")
-        d.text((_px(x + bw - 8), _px(y + rh / 2)), t["record"], font=_font(10), fill=_MUTED, anchor="rm")
-
-    def game(x: float, y: float, top: dict | None, bot: dict | None, labels: tuple[str, str] = ("", ""),
-             edge=_OFF_STROKE) -> None:
-        team_row(x, y, top, labels[0], home=top is not None, edge=edge)
-        team_row(x, y + rh, bot, labels[1], edge=edge)
+        d.text((_px(x + 26 + rh), _px(y + rh / 2)), t["abbrev"], font=_font(12, True), fill=ink, anchor="lm")
+        if game:
+            d.text((_px(x + bw - 8), _px(y + rh / 2)), str(game["scores"].get(t["abbrev"], "")), font=_font(13, True),
+                   fill=ink, anchor="rm")
+        else:
+            d.text((_px(x + bw - 8), _px(y + rh / 2)), t["record"], font=_font(10), fill=_MUTED, anchor="rm")
 
     ys = [112, 212]
-    mid = (ys[0] + ys[1] + 2 * rh) / 2 - rh        # the LCR / ToOS box sits between the two wild card games
+    mid = (ys[0] + ys[1] + 2 * rh) / 2 - rh        # the LCR box sits between the two wild card games
     for k, label in enumerate(("Wild Card", "League Championship", "Trophy of Objective Superiority", "League Championship", "Wild Card")):
         d.text((_px(xs[k] + bw / 2), _px(94)), label, font=_font(10, True), fill=_MUTED, anchor="mm")
     leagues = list(bracket.items())
     for side, (name, seeds) in enumerate(leagues):
         wc_x, lcr_x = (xs[0], xs[1]) if side == 0 else (xs[4], xs[3])
         primary, accent = LEAGUE_COLORS.get(name, (_BG, _OFF_STROKE))
-        for (a, b), y in zip(((0, 3), (1, 2)), ys):
-            game(wc_x, y, seeds[a], seeds[b], edge=accent)
-        game(lcr_x, mid, None, None, (f"Winner {seeds[0]['seed']} v {seeds[3]['seed']}",
-                                      f"Winner {seeds[1]['seed']} v {seeds[2]['seed']}"), edge=accent)
+        wc_games = (res.get("wc") or {}).get(name) or [None, None]
+        for (a, b), y, g in zip(((0, 3), (1, 2)), ys, wc_games):
+            team_row(wc_x, y, seeds[a], home=True, edge=accent, game=g)
+            team_row(wc_x, y + rh, seeds[b], edge=accent, game=g)
+        # the LCR rows line up with the wild card game that feeds them: its winner, or "Winner 1 v 4" until it's played
+        winners = (res.get("winners") or {}).get(name) or [None, None]
+        lcr_game = (res.get("lcr") or {}).get(name)
+        known = [t_of.get(w) for w in winners]
+        for i, ((a, b), t) in enumerate(zip(((0, 3), (1, 2)), known)):
+            home = bool(t and known[0] and known[1] and t["seed"] < known[1 - i]["seed"])
+            team_row(lcr_x, mid + i * rh, t, f"Winner {seeds[a]['seed']} v {seeds[b]['seed']}", home=home, edge=accent,
+                     game=lcr_game)
         # the league pill sits above the round names, centred between the wild card and LCR columns
         px, ly = (wc_x + lcr_x + bw) / 2, 68
         d.rounded_rectangle((_px(px - 44), _px(ly - 11), _px(px + 44), _px(ly + 11)), radius=_px(6), fill=primary,
@@ -1024,11 +1040,25 @@ def render_bracket(bracket: dict[str, list[dict]], title: str, subtitle: str = "
             jx = (edge_from + edge_to) / 2
             for seg in ((edge_from, y, jx, y), (jx, y, jx, ty), (jx, ty, edge_to, ty)):
                 d.line([_px(seg[0]), _px(seg[1]), _px(seg[2]), _px(seg[3])], fill=_OFF_STROKE, width=_S * 2)
-    cx = xs[2]
-    names = [n for n, _ in leagues] + ["", ""]
-    game(cx, mid, None, None, (f"{_LEAGUE_SHORT.get(names[0], names[0])} champion",
-                           f"{_LEAGUE_SHORT.get(names[1], names[1])} champion"))
-    for ex, edge in ((xs[1] + bw, cx), (xs[3], cx + bw)):
+    # the ToOS: one line, since neither finalist (or their record) is known until the LCRs are played
+    names = [n for n, _ in leagues]
+    champs = [(res.get("champ") or {}).get(n) for n in names]
+    toos = res.get("toos")
+    side_txt = [c or f"{_LEAGUE_SHORT.get(n, n)} champion" for c, n in zip(champs, names)]
+    if toos:
+        line = f"{side_txt[0]} {toos['scores'].get(champs[0], '')} - {side_txt[1]} {toos['scores'].get(champs[1], '')}"
+    else:
+        line = f"{side_txt[0]}  vs  {side_txt[1]}"
+    f = _font(12, bool(toos))
+    tw = min(250, max(bw, d.textlength(line, font=f) / _S + 28))
+    cx0 = xs[2] + bw / 2 - tw / 2
+    ty = mid + rh / 2
+    d.rectangle((_px(cx0), _px(ty), _px(cx0 + tw), _px(ty + rh)), fill=_ROW_A, outline=_OFF_STROKE)
+    d.text((_px(xs[2] + bw / 2), _px(ty + rh / 2)), line, font=f, fill=_TEXT if (toos or any(champs)) else _MUTED, anchor="mm")
+    if toos:
+        d.text((_px(xs[2] + bw / 2), _px(ty + rh + 16)), f"ToOS champion: {toos['winner']}", font=_font(11, True),
+               fill=_POS, anchor="mm")
+    for ex, edge in ((xs[1] + bw, cx0), (xs[3], cx0 + tw)):
         y = mid + rh
         d.line([_px(ex), _px(y), _px(edge), _px(y)], fill=_OFF_STROKE, width=_S * 2)
     d.text((_px(16), _px(H - 22)), "Each round is one winner-take-all game. The top team of a game hosts: division winners in the Wild Card "

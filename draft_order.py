@@ -192,16 +192,21 @@ def _order(bk: _Book, group: list[str], ties: list[dict], what: str) -> list[str
     return out
 
 
-def draft_slots(teams: list[dict], games: list[dict]) -> tuple[list[str], list[dict], dict[str, int], dict]:
+def draft_slots(teams: list[dict], games: list[dict], playoffs: list[dict] | None = None) -> tuple[list[str], list[dict], dict[str, int], dict]:
     """The 1-16 draft slot order (first pick first) and the tiebreaks that decided it.
 
     Seeding follows Section 5: per league, the two division winners are seeds 1-2 and the next two best records are the
-    wild cards, seeds 3-4. The playoffs are taken to finish by seed, so the eight teams out of the playoffs pick first
-    (worst record first), then the two seed 4s, the two 3s, the 2s and the 1s - the worse record of each pair first, the
-    leagues mingling by the ToOS tiebreakers. ties lists every tie that set a slot or a seed:
+    wild cards, seeds 3-4. The eight teams out of the playoffs pick first (worst record first). Teams the playoffs
+    have already eliminated come next, a round at a time (wild card round, league championship, the ToOS loser), and
+    teams still alive after them are taken to finish by seed: the two seed 4s, the two 3s, the 2s and the 1s - the worse
+    record of each group first, the leagues mingling by the ToOS tiebreakers; a decided champion picks last. playoffs is
+    the finished Post games: a team's round is how many it has played, and with all eight teams known they are the field.
+    ties lists every tie that set a slot or a seed:
     {"what", "teams" (best first), "record", "trail" ({team: the criteria applied to it, with its numbers}), "events", "games" (the games the tied
     teams played each other), "title"}; the playoff seed (1-4) of each team that made the playoffs; and the
-    standings layout {"divisions": [(league, division, teams best first)], "wildcard": {league: non-division-winners best first}}."""
+    standings layout {"divisions": [(league, division, teams best first)], "wildcard": {league: non-division-winners best first},
+    "field": the playoff teams, "finish": {team: "Missed" / "Lost WC" / "Lost LCR" / "Lost ToOS" / "Champion" / "Alive"},
+    empty until a playoff game has been played}."""
     bk = _Book(teams, games)
     ties: list[dict] = []
     seeds: dict[str, int] = {}
@@ -220,18 +225,47 @@ def draft_slots(teams: list[dict], games: list[dict]) -> tuple[list[str], list[d
         wild = wild_all[:2]
         for seed, a in enumerate(winners + wild, start=1):
             seeds[a] = seed
-    out_of_playoffs = [a for a in bk.team if a not in seeds]
-    order: list[str] = []
-    for what, group in (("draft, out of the playoffs", out_of_playoffs),):
-        order += _order(bk, group, ties, what)[::-1]
+    # what the playoffs have settled so far: a team's round is how many playoff games it has played, so the loser of
+    # its game went out in that round; the winner of a round-3 game is the champion
+    played: dict[str, int] = {}
+    lost: dict[int, list[str]] = {1: [], 2: [], 3: []}
+    champion = None
+    for g in sorted((g for g in (playoffs or []) if g.get("type") == "Post" and g.get("away_score") is not None
+                     and g.get("home_score") is not None), key=lambda g: str(g.get("game_code") or "")):
+        a, h = g["away_team"], g["home_team"]
+        if a not in bk.team or h not in bk.team:
+            continue
+        for t in (a, h):
+            played[t] = played.get(t, 0) + 1
+        win, lose = (a, h) if g["away_score"] > g["home_score"] else (h, a)
+        lost[min(played[lose], 3)].append(lose)
+        if played[win] >= 3:
+            champion = win
+    field = set(played) if len(played) == 8 else set(seeds)
+    out_of_playoffs = [a for a in bk.team if a not in field]
+    order: list[str] = _order(bk, out_of_playoffs, ties, "draft, out of the playoffs")[::-1]
+    for rnd, label in ((1, "the Wild Card round"), (2, "the League Championship"), (3, "the ToOS")):
+        order += _order(bk, lost[rnd], ties, f"draft, eliminated in {label}")[::-1]
+    alive = [a for a in field if a not in order and a != champion]
     for seed in (4, 3, 2, 1):
-        order += _order(bk, [a for a, s in seeds.items() if s == seed], ties, f"draft, seed {seed}")[::-1]
+        order += _order(bk, [a for a in alive if seeds.get(a) == seed], ties, f"draft, seed {seed}")[::-1]
+    order += _order(bk, [a for a in alive if a not in seeds], ties, "draft, unseeded")[::-1]     # a field my seeds missed
+    order += [champion] if champion else []
+    layout["field"] = field
+    layout["finish"] = {}
+    if played:
+        names = {1: "Lost WC", 2: "Lost LCR", 3: "Lost ToOS"}
+        layout["finish"] = {a: ("Missed" if a not in field else "Champion" if a == champion else "Alive") for a in bk.team}
+        for rnd, group in lost.items():
+            layout["finish"].update({a: names[rnd] for a in group})
     kept = [t for t in ties if t["what"].startswith("draft") or any(a in seeds for a in t["teams"])]
     for t in kept:
         what = t["what"]
         if what.startswith("draft"):
             slots = [order.index(a) + 1 for a in t["teams"]]
-            group = "Non-Playoff Teams" if "out of" in what else f"Seed {what[-1]} Finish"
+            group = ("Non-Playoff Teams" if "out of" in what else
+                     "Eliminated in " + what.split("eliminated in ")[1] if "eliminated in" in what else
+                     "Unseeded Playoff Teams" if "unseeded" in what else f"Seed {what[-1]} Finish")
             t["title"] = f"{group} (Picks {min(slots)}-{max(slots)})"
         elif what.endswith("division"):
             t["title"] = what[:-len("division")] + "Division Race"
@@ -285,7 +319,8 @@ def games_before_last_session(games: list[dict]) -> list[dict]:
     return [g for g in games if g["session_number"] != last]
 
 
-def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[dict] | None = None) -> dict:
+def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[dict] | None = None,
+                        trades: bool = True, playoffs: list[dict] | None = None) -> dict:
     """teams: the 16 teams of the season being drafted off of (abbrev, sub_league, division); games: that season's
     finished games (regular season only is counted; see draft_slots for the seeding and tiebreak rules).
 
@@ -297,10 +332,13 @@ def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[d
       (positive: an earlier pick than before; negative: later; 0: unchanged). The slot belongs to the original team, so
       a traded pick carries its original team's move. ties = draft_slots' tiebreak log, and tiebreak = tie_label for
       this row's original team, seed = its playoff seed ("1 DW" .. "4 WC") or "Out"; conditional marks the pick that CONDITIONAL_FIRST moved.
+    playoffs = the finished playoff (Post) games: teams already eliminated pick in the order they went out (see draft_slots),
+    and each row gets finish ("Missed", "Lost WC", ..., "Champion", "Alive"; "" before any playoff game).
+    trades=False skips PICK_TRADES and CONDITIONAL_FIRST (they are for the season being drafted now, not a past one).
     """
     if len(teams) != TEAMS_PER_ROUND:
         raise ValueError(f"Expected {TEAMS_PER_ROUND} teams, got {len(teams)}")
-    order, ties, seeds, layout = draft_slots(teams, games)
+    order, ties, seeds, layout = draft_slots(teams, games, playoffs)
     prev_order = draft_slots(teams, prev_games)[0] if prev_games is not None else []
     prev_slot = {a: i for i, a in enumerate(prev_order, start=1)}
 
@@ -310,10 +348,11 @@ def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[d
     # or rebranded abbrev fails loudly here instead of silently never matching
     # (key side) or rendering a bare-string team with no logo/full name
     # (value side).
+    pick_trades = PICK_TRADES if trades else {}
     current_abbrevs = set(order)
     bad = sorted({
         f"({rnd}, {orig!r}) -> {holder!r}"
-        for (rnd, orig), holder in PICK_TRADES.items()
+        for (rnd, orig), holder in pick_trades.items()
         if orig not in current_abbrevs or holder not in current_abbrevs
     })
     if bad:
@@ -323,7 +362,7 @@ def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[d
     rows = []
     for rnd in range(1, ROUNDS + 1):
         for slot, original in enumerate(order, start=1):
-            holder = PICK_TRADES.get((rnd, original), original)
+            holder = pick_trades.get((rnd, original), original)
             notes = f"Originally {original}'s pick" if holder != original else ""
             rows.append({
                 "round": rnd,
@@ -334,9 +373,12 @@ def compute_draft_order(teams: list[dict], games: list[dict], prev_games: list[d
                 "notes": notes,
                 "move": prev_slot[original] - slot if original in prev_slot else None,
                 "tiebreak": tie_label(ties, original),
-                "seed": (f"{seeds[original]} {'DW' if seeds[original] <= 2 else 'WC'}" if original in seeds else "Out"),
+                "finish": layout["finish"].get(original, ""),
+                "seed": (f"{seeds[original]} {'DW' if seeds[original] <= 2 else 'WC'}" if original in seeds else
+                         "PO" if original in layout["field"] else "Out"),
             })
-    _apply_conditional_trade(rows, seeds)
+    if trades:
+        _apply_conditional_trade(rows, layout["field"])
     return {"rows": rows, "ties": ties, "bracket": bracket(teams, seeds), "layout": layout, "seeds": seeds}
 
 
@@ -347,15 +389,49 @@ def bracket(teams: list[dict], seeds: dict[str, int]) -> dict[str, list[str]]:
             for lg in sorted({t["sub_league"] for t in teams})}
 
 
-def _apply_conditional_trade(rows: list[dict], seeds: dict[str, int]) -> None:
+def _apply_conditional_trade(rows: list[dict], field: set[str]) -> None:
     """The S14 MIA -> SMD conditional first (see CONDITIONAL_FIRST): SMD gets the later of MIA's first-round picks when MIA
     misses the playoffs or Guidooooo retires, the earlier one when MIA makes them."""
     c = CONDITIONAL_FIRST
     pool = [r for r in rows if r["round"] == c["round"] and r["team"] == c["from"]]
     if not pool:
         raise ValueError(f"CONDITIONAL_FIRST: {c['from']} holds no round {c['round']} pick")
-    later = c["retires"] or c["from"] not in seeds
+    later = c["retires"] or c["from"] not in field
     pick = max(pool, key=lambda r: r["overall"]) if later else min(pool, key=lambda r: r["overall"])
     pick["team"] = c["to"]
     pick["notes"] = f"{pick['original_team']}'s pick via {c['from']}, conditional"
     pick["conditional"] = True
+
+
+def bracket_results(bracket: dict[str, list[str]], games: list[dict]) -> dict:
+    """The playoff games already played, placed on bracket (league -> its four teams in seed order): the wild card games
+    (1v4, 2v3), each league's championship game between their winners, and the ToOS between the league champions.
+    games: finished games, of which the "Post" ones count. Returns {"wc": {league: [game, game]}, "winners": {league: [the
+    two wild card winners, None until known]}, "lcr": {league: game}, "champ": {league: team}, "toos": game, "unmatched": how
+    many playoff games fit none of those pairings}, each game {"scores": {team: runs}, "winner"} or None."""
+    by_pair = {}
+    for g in sorted((g for g in games if g.get("type") == "Post" and g.get("away_score") is not None
+                     and g.get("home_score") is not None), key=lambda g: str(g.get("game_code") or "")):
+        by_pair[frozenset((g["away_team"], g["home_team"]))] = g
+    used: set = set()
+
+    def find(a, b):
+        g = by_pair.get(frozenset((a, b))) if a and b else None
+        if not g:
+            return None
+        used.add(frozenset((a, b)))
+        away_won = g["away_score"] > g["home_score"]
+        return {"scores": {g["away_team"]: g["away_score"], g["home_team"]: g["home_score"]},
+                "winner": g["away_team"] if away_won else g["home_team"]}
+
+    out: dict = {"wc": {}, "winners": {}, "lcr": {}, "champ": {}}
+    for lg, ab in bracket.items():
+        wc = [find(ab[0], ab[3]), find(ab[1], ab[2])]
+        win = [r["winner"] if r else None for r in wc]
+        lcr = find(*win)
+        out["wc"][lg], out["winners"][lg], out["lcr"][lg] = wc, win, lcr
+        out["champ"][lg] = lcr["winner"] if lcr else None
+    champs = list(out["champ"].values())
+    out["toos"] = find(*champs) if len(champs) == 2 else None
+    out["unmatched"] = len(by_pair) - len(used)
+    return out
