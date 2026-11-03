@@ -1878,6 +1878,16 @@ def inning_label(inning: int, half: str) -> str:
     return f"{prefix}{int(inning)}"
 
 
+def _drop_zero_rolls(df: pd.DataFrame, cols: tuple[str, ...]) -> pd.DataFrame:
+    """Scouting ignores autos: a play whose pitch/swing (or throw/steal) is 0 was never rolled - intentional walks,
+    AutoK/AutoBB/bAuto/AutoSB, pAuto/cAuto, balks, a mis-logged walk - so it is dropped before any scouting stat."""
+    bad = pd.Series(False, index=df.index)
+    for c in cols:
+        if c in df.columns:
+            bad |= pd.to_numeric(df[c], errors="coerce").eq(0)
+    return df[~bad]
+
+
 def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     """Add diff, zone, res_category, FP flags, delta, and inning label columns."""
     if df.empty:
@@ -1885,6 +1895,9 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "play_type" in df.columns:
         df = df[df["play_type"].str.lower() != "steal"]
+    if df.empty:
+        return df
+    df = _drop_zero_rolls(df, ("pitch", "swing"))
     if df.empty:
         return df
     df["half"] = df["half"].fillna("top")
@@ -2026,6 +2039,9 @@ def enrich_catcher_df(df: pd.DataFrame) -> pd.DataFrame:
     if "play_type" not in df.columns:
         return df.iloc[0:0]
     df = df[df["play_type"].str.lower() == "steal"]
+    if df.empty:
+        return df
+    df = _drop_zero_rolls(df, ("throw_num", "steal_num"))
     if df.empty:
         return df
     df["half"] = df["half"].fillna("top")

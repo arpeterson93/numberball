@@ -618,8 +618,12 @@
     return '<div class="scoring-line">' + escapeHtml(text) + "</div>";
   }
 
+  // A diff only exists when both the pitch and the swing were real numbers: autos, steals and intentional
+  // walks carry 0/0 (older seasons) or blanks, and their stored 0 diff is not a perfect swing.
+  function hasRealDiff(m) { return m.pitch != null && m.swing != null && m.pitch !== 0 && m.swing !== 0; }
+
   function diffPill(m) {
-    if (m.diff === 0) return '<span class="diff-pill zero">0 Diff</span>';
+    if (m.diff === 0 && hasRealDiff(m)) return '<span class="diff-pill zero">0 Diff</span>';
     if (m.diff === 500) return '<span class="diff-pill five">500 Diff</span>';
     return "";
   }
@@ -643,7 +647,7 @@
         (isFav ? "★" : "☆") + "</button>"
       : "";
     var levText = m.leverage != null ? "<span>Leverage " + m.leverage.toFixed(1) + "</span>" : "";
-    var why = (m.tags || []).map(function (t) {
+    var why = (m.tags || []).filter(function (t) { return t !== "zero_diff" || hasRealDiff(m); }).map(function (t) {
       return '<span class="why-tag">' + escapeHtml(labels[t] || t) + "</span>";
     }).join("");
     // On-deck has no result yet - "Now Batting" in the same blue pill a real

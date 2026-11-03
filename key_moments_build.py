@@ -851,7 +851,8 @@ def moment_tags(state: dict) -> list[str]:
         tags.append("double_play")
     if result in TRIPLE_PLAY_CODES:
         tags.append("triple_play")
-    if diff == 0:
+    # a 0 diff only counts when both numbers were real: autos, steals and the odd mis-logged walk store 0/0
+    if diff == 0 and play.get("pitch") and play.get("swing"):
         tags.append("zero_diff")
     if diff == 500:
         tags.append("five_hundred_diff")
@@ -1989,7 +1990,7 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
                     _bump(b, "gidp")
                 _bump(b, "rbi", runs)
                 # an intentional walk or auto has no real pitch or swing (logged as 0/0/0), so it is not a diff
-                if m.get("diff") is not None and result not in NO_DIFF_CODES:
+                if m.get("diff") is not None and m.get("pitch") and m.get("swing") and result not in NO_DIFF_CODES:
                     _bump(b, "ds", m["diff"])
                     _bump(b, "dn")
 
@@ -2057,7 +2058,7 @@ def _session_stats(rows: list[dict], session: int, season: int, ref: dict, game_
             # a caught-stealing mid-at-bat is still a real out the pitcher's
             # team gets credit for (mirrors app.js's buildPitchingStints).
             _bump(p, "outs", max(0, (m["outs_after"] or 0) - (m["outs_before"] or 0)))
-            if result not in NON_TURN_CODES and result not in NO_DIFF_CODES and m.get("diff") is not None:
+            if result not in NON_TURN_CODES and result not in NO_DIFF_CODES and m.get("diff") is not None                     and m.get("pitch") and m.get("swing"):
                 _bump(p, "ds", m["diff"])
                 _bump(p, "dn")
             if lob:
