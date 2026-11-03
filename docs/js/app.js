@@ -620,7 +620,10 @@
 
   // A diff only exists when both the pitch and the swing were real numbers: autos, steals and intentional
   // walks carry 0/0 (older seasons) or blanks, and their stored 0 diff is not a perfect swing.
-  function hasRealDiff(m) { return m.pitch != null && m.swing != null && m.pitch !== 0 && m.swing !== 0; }
+  function hasRealDiff(m) {
+    return (m.pitch != null && m.swing != null && m.pitch !== 0 && m.swing !== 0) ||
+      (!!m.throw_num && !!m.steal_num);   // a steal attempt's diff is the throw against the steal roll
+  }
 
   function diffPill(m) {
     if (m.diff === 0 && hasRealDiff(m)) return '<span class="diff-pill zero">0 Diff</span>';
@@ -13764,11 +13767,48 @@
     return live ? getJSON(url) : getJSONCached(url);
   }
 
+  /* The replay draws team logos/colours and player names from data.meta / data.players, which belong to the
+     ACTIVE season. A play from another season (All-Time rows) needs that season's own teams (LPJ is not a
+     current team) and roster, so while such a replay is open data.meta.teams / data.players are widened with
+     those seasons' (closeReplay puts the active season's own back). */
+  var crossCtx = null;
+
+  function restoreSeasonContext() {
+    if (!crossCtx) return;
+    data.meta = crossCtx.meta;
+    data.players = crossCtx.players;
+    playerLastNameById = null;
+    crossCtx = null;
+  }
+
+  function useSeasonContext(seasons) {
+    restoreSeasonContext();
+    var need = seasons.filter(function (n, i) { return n !== season.active && seasons.indexOf(n) === i; });
+    if (!need.length) return Promise.resolve();
+    return Promise.all(need.map(function (n) {
+      var dir = (n === season.current ? "data/" : "data/s" + pad2(n) + "/");
+      var get = n === season.current ? getJSON : getJSONCached;
+      return Promise.all([get(dir + "meta.json"), get(dir + "players.json")]);
+    })).then(function (res) {
+      restoreSeasonContext();
+      crossCtx = { meta: data.meta, players: data.players };
+      var teams = Object.assign({}, data.meta.teams || {});
+      var players = (data.players || []).slice();
+      res.forEach(function (r) {
+        Object.assign(teams, r[0].teams || {});
+        players = r[1].concat(players);
+      });
+      data.meta = Object.assign({}, data.meta, { teams: teams });
+      data.players = players;
+      playerLastNameById = null;
+    });
+  }
+
   /* One play from the All-Time table, opened as its game's replay right where
      the table is - no season switch, so the All-Time view is still there
      (and still sorted) when the replay closes. */
   function openCrossSeasonPlay(ref) {
-    return fetchSessionPlays(ref.s, ref.n).then(function (rows) {
+    return useSeasonContext([ref.s]).then(function () { return fetchSessionPlays(ref.s, ref.n); }).then(function (rows) {
       var plays = rows.filter(function (p) { return p.game_code === ref.g; })
         .sort(function (a, b) { return a.play_num - b.play_num; });
       if (!plays.length) { toast("No plays recorded for that game yet."); return; }
@@ -13794,9 +13834,11 @@
     if (!refs.length) { toast("No plays to show."); return Promise.resolve(); }
     var need = {};
     refs.forEach(function (r) { need[r.s + "|" + r.n] = [r.s, r.n]; });
-    return Promise.all(Object.keys(need).map(function (k) {
-      return fetchSessionPlays(need[k][0], need[k][1]).then(function (rows) { return [k, rows]; });
-    })).then(function (pairs) {
+    return useSeasonContext(refs.map(function (r) { return r.s; })).then(function () {
+      return Promise.all(Object.keys(need).map(function (k) {
+        return fetchSessionPlays(need[k][0], need[k][1]).then(function (rows) { return [k, rows]; });
+      }));
+    }).then(function (pairs) {
       var by = {};
       pairs.forEach(function (p) { by[p[0]] = p[1]; });
       var slides = [];
@@ -14026,6 +14068,7 @@
   }
 
   function closeReplay() {
+    restoreSeasonContext();
     clearReplayTimer();
     replay.paused = false;
     exitFullscreenIfActive();

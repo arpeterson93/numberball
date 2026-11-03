@@ -494,8 +494,10 @@ def main() -> None:
                 cols["ru"].append(m.get("runs") or 0)
                 cols["w"].append(int(round((m.get("wpa") or 0) * 1000)))
                 cols["lv"].append(int(round((m.get("leverage") or 0) * 100)))
-                cols["pt"].append(m["pitch"] if m.get("pitch") is not None else -1)
-                cols["sw"].append(m["swing"] if m.get("swing") is not None else -1)
+                # a steal attempt shows the catcher's throw / runner's steal roll where a swing play has pitch / swing
+                is_steal = not (m.get("pitch") and m.get("swing")) and m.get("throw_num") and m.get("steal_num")
+                cols["pt"].append(m["throw_num"] if is_steal else (m["pitch"] if m.get("pitch") is not None else -1))
+                cols["sw"].append(m["steal_num"] if is_steal else (m["swing"] if m.get("swing") is not None else -1))
                 cols["km"].append(1 if m.get("is_key_moment") else 0)
                 cols["po"].append(1 if session in post else 0)
                 # who the play favours: featured/counterpart ids, whether the featured player is on offense, rookie bits

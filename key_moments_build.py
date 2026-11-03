@@ -194,7 +194,7 @@ RESULT_LABELS = {
     "DP21": "Double Play",
     "DP31": "Double Play",
     "DPH1": "Double Play at Home",
-    "DPRun": "Double Play (Runner)",
+    "DPRun": "Double Play (Run Scores)",
     "LODP": "Lineout Double Play",
     "TP": "Triple Play",
     "LOTP": "Triple Play",
@@ -1423,6 +1423,10 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         swing = int(swing) if swing is not None else None
         p["pitch"], p["swing"] = pitch, swing
         p["diff"] = utils.circular_diff(pitch, swing) if pitch is not None and swing is not None else None
+        # A steal attempt has no pitch/swing (0/0 in the older seasons, blank in the newer): its diff is the
+        # catcher's throw against the runner's steal roll, the same pair utils.enrich_catcher_df uses.
+        if not (pitch and swing) and p.get("throw_num") and p.get("steal_num"):
+            p["diff"] = utils.circular_diff(int(p["throw_num"]), int(p["steal_num"]))
         by_game.setdefault(p["game_code"], []).append(p)
 
     # See _detect_archive_score_convention's docstring - the archive sheet's
