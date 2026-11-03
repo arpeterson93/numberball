@@ -994,7 +994,7 @@
   // Baseball-Reference still shows. Left unmodified for MLN's 6-inning
   // games (Alex's call) - always a whole number, unlike batting's gsc.
   var STATS_PITCHING_COLS = [
-    ["gsc", "GSc"], ["wpa", "WPA", 1], ["dpa", "DPA", 1], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"], ["lob", "LOB"],
+    ["gsc", "GSc"], ["wpa", "WPA", 1], ["dpa", "DBF", 1], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"], ["lob", "LOB"],
   ];
 
   // Which sub-tab is showing, and the current sort per sub-tab (persists
@@ -1871,7 +1871,7 @@
       return;
     }
     var rows = sorted(pool().filter(matches));
-    $("moments").innerHTML = rows.map(card).join("");
+    $("moments").innerHTML = rows.map(function (m) { return card(m); }).join("");
     $("empty-state").hidden = rows.length > 0;
     $("empty-state").textContent = filters.keyMomentsOnly
       ? (filters.favoritesOnly

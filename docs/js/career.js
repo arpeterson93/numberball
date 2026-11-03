@@ -127,7 +127,7 @@
   var AGG_PIT_COLS = [
     ["team", "Team"], ["g", "G"], ["w", "W"], ["l", "L"], ["sv", "SV"], ["hd", "HD"], ["ip", "IP"], ["h", "H"],
     ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"], ["lob", "LOB"], ["era", "ER6", 2], ["whip", "WHIP", 2],
-    ["dpa", "DPA", 1], ["wpa", "WPA", 1],
+    ["dpa", "DBF", 1], ["wpa", "WPA", 1],
   ].concat(swingCols("pit"));
 
   /* Rows for the Stats table: season = one season's totals, else the career
@@ -287,7 +287,7 @@
     return out;
   }
 
-  function dxChart(kind, bins, lg, dpa, lgdpa) {
+  function dxChart(kind, bins, lg, dpa, lgdpa, mkLabel) {
     // Sized to the panel (so the labels stay a readable size at any width): up to 1000px wide on a big screen.
     var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
     // The DPA / League labels get their own band above the plot (two rows when they have to stack), so they
@@ -336,7 +336,7 @@
     }
     // The two markers: the league's (dotted, grey) and the player's DPA.
     var marks = [[lgdpa, "dx-mk-lg", "League " + (lgdpa == null ? "" : Math.round(lgdpa))],
-      [dpa, "dx-mk", "DPA " + (dpa == null ? "" : Math.round(dpa))]].filter(function (m) { return m[0] != null; });
+      [dpa, "dx-mk", (mkLabel || "DPA") + " " + (dpa == null ? "" : Math.round(dpa))]].filter(function (m) { return m[0] != null; });
     marks.sort(function (a, b) { return a[0] - b[0]; });
     var xOfD = function (v) { return L + (v / 500) * pw; };
     marks.forEach(function (m) {
@@ -400,7 +400,7 @@
     if (!n) body = '<div class="stats-empty">No modelled swings here.</div>';
     else {
       body = '<div class="xt-sub">Diff Distribution <span class="xt-hint">' + n.toLocaleString() + " swings, 20-wide buckets</span></div>" +
-        '<div class="dx-chart">' + dxChart("count", bins, null, line.dpa, leagueDpa(d, side)) + "</div>" + legend;
+        '<div class="dx-chart">' + dxChart("count", bins, null, line.dpa, leagueDpa(d, side), side === "pit" ? "DBF" : "DPA") + "</div>" + legend;
     }
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
   }
@@ -714,7 +714,7 @@
     var snums = Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; });
     var seasonCols = side === "bat"
       ? cols.concat([["avg", "AVG", 3], ["obp", "OBP", 3], ["slg", "SLG", 3], ["ops", "OPS", 3], ["dpa", "DPA", 1], ["wpa", "WPA", 1]].concat(swingCols("bat")))
-      : [["w", "W"], ["l", "L"], ["sv", "SV"], ["hd", "HD"]].concat(cols).concat([["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DPA", 1], ["wpa", "WPA", 1]]).concat(swingCols("pit"));
+      : [["w", "W"], ["l", "L"], ["sv", "SV"], ["hd", "HD"]].concat(cols).concat([["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DBF", 1], ["wpa", "WPA", 1]]).concat(swingCols("pit"));
     var allSeasonCols = [["s", "Season"], ["team", "Team"], ["g", "G"]].concat(seasonCols);
     var srows = snums.map(function (sn) {
       var rows = seasons[sn], line = lineFrom(rows, side);
@@ -741,7 +741,7 @@
     var shown = all.filter(function (r) { return pm.season === "all" || String(r.s) === pm.season; });
     // GSc and WPA sit right after Opp, then the decision (pitchers), the counting stats, DPA and the swing columns.
     var gcols = [["d", "Date"], ["sn", "Sn"], ["awr", "Awards"], ["o", "Opp"], ["gsc", "GSc", side === "bat" ? 1 : null], ["wpa", "WPA", 1]]
-      .concat(side === "pit" ? [["dec", "Dec"]] : []).concat(cols).concat([["dpa", "DPA", 1]]).concat(swingCols(side));
+      .concat(side === "pit" ? [["dec", "Dec"]] : []).concat(cols).concat([["dpa", side === "pit" ? "DBF" : "DPA", 1]]).concat(swingCols(side));
     var grows = shown.map(function (r) {
       var rr = withGaps(Object.assign({}, r, { sn: r.s * 100 + r.n, dpa: r.dn ? (r.ds || 0) / r.dn : null,
         awr: (r.aw === "player" ? 40 : r.aw ? 30 : 0) + (r.ga === "potg" ? 2 : r.ga ? 1 : 0) }));
@@ -798,7 +798,7 @@
     ["bb", "BB"], ["k", "K"], ["sb", "SB"], ["cs", "CS"], ["gidp", "GIDP"], ["lob", "LOB"], ["avg", "AVG", 3], ["obp", "OBP", 3], ["slg", "SLG", 3],
     ["ops", "OPS", 3], ["dpa", "DPA", 1], ["wpa", "WPA", 1]].concat(swingCols("bat"));
   var REC_PIT = [["g", "G"], ["ip", "IP"], ["h", "H"], ["er", "ER"], ["bb", "BB"], ["k", "K"], ["hr", "HR"], ["dp", "DP"], ["lob", "LOB"],
-    ["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DPA", 1], ["wpa", "WPA", 1]].concat(swingCols("pit"));
+    ["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DBF", 1], ["wpa", "WPA", 1]].concat(swingCols("pit"));
 
   function teamName(season, abbr) {
     if (rec.allTime && at.fr && at.fr[abbr]) return at.fr[abbr].name;      // All-Time shows a team as it is called today
