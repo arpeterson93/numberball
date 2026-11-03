@@ -1126,7 +1126,13 @@
     var loaded = data.playsBySession[session];
     if (!loaded) return null;
     var plays = loaded.filter(function (p) {
-      return p.result != null && (p.batter_id === playerId || p.pitcher_id === playerId);
+      if (p.result == null) return false;
+      // A steal attempt belongs to the runner (the one credited with the SB/CS), not to the batter at the plate or
+      // the pitcher on the mound.
+      if (STEAL_SAFE_CODES[p.result] || p.result === "AutoSB" || (STEAL_CAUGHT_CODES[p.result] && p.result !== "KCS")) {
+        return p.runner_id === playerId;
+      }
+      return p.batter_id === playerId || p.pitcher_id === playerId;
     });
     // Oldest first (Alex's ask) - same timestamp-then-play_num comparator
     // the main feed's own "chrono" sort uses (sorted() above), just always
@@ -3099,7 +3105,7 @@
   // bigger jump on the catcher," for free, no separate mechanism needed).
   var WHEEL_PACE_MIN = 0.5;
   function stealWheelPace(m) {
-    var isSteal = m.pitch == null && m.steal_num != null && m.throw_num != null;
+    var isSteal = !(m.pitch && m.swing) && m.steal_num != null && m.throw_num != null;   // S1-S12 steals log pitch/swing as 0, not blank
     if (!isSteal) return 1;
     var diff = Math.abs(signedCirc(m.steal_num, m.throw_num, 1000));
     return WHEEL_PACE_MIN + (1 - WHEEL_PACE_MIN) * (diff / 500);
@@ -12013,7 +12019,7 @@
   // show (a walk/strikeout still has a real DIFF pair, but no HZ - no
   // batted ball to swing at).
   function sceneWheelDiffHtml(m, flight) {
-    var isSteal = m.pitch == null && m.steal_num != null && m.throw_num != null;
+    var isSteal = !(m.pitch && m.swing) && m.steal_num != null && m.throw_num != null;   // S1-S12 steals log pitch/swing as 0, not blank
     if (!(m.pitch != null && m.swing != null || isSteal)) return "";
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     if (isSteal) {
