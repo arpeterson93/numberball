@@ -3103,9 +3103,15 @@
   // which is what actually gives the runner - who still breaks on the pitch
   // itself, runnerSeqDelay, entirely unaffected by this - Alex's own "a
   // bigger jump on the catcher," for free, no separate mechanism needed).
+  // A steal attempt by result type (S1-S12 log its pitch/swing as 0, S13 as blank, so those can't identify it);
+  // KCS is a strikeout with a real pitch and swing, so it keeps the pitch/swing wheel.
+  function isStealAttempt(m) {
+    return !!(STEAL_SAFE_CODES[m.result] || (STEAL_CAUGHT_CODES[m.result] && m.result !== "KCS"));
+  }
+
   var WHEEL_PACE_MIN = 0.5;
   function stealWheelPace(m) {
-    var isSteal = !(m.pitch && m.swing) && m.steal_num != null && m.throw_num != null;   // S1-S12 steals log pitch/swing as 0, not blank
+    var isSteal = isStealAttempt(m) && m.steal_num != null && m.throw_num != null;
     if (!isSteal) return 1;
     var diff = Math.abs(signedCirc(m.steal_num, m.throw_num, 1000));
     return WHEEL_PACE_MIN + (1 - WHEEL_PACE_MIN) * (diff / 500);
@@ -12019,7 +12025,7 @@
   // show (a walk/strikeout still has a real DIFF pair, but no HZ - no
   // batted ball to swing at).
   function sceneWheelDiffHtml(m, flight) {
-    var isSteal = !(m.pitch && m.swing) && m.steal_num != null && m.throw_num != null;   // S1-S12 steals log pitch/swing as 0, not blank
+    var isSteal = isStealAttempt(m) && m.steal_num != null && m.throw_num != null;
     if (!(m.pitch != null && m.swing != null || isSteal)) return "";
     var wasOut = (m.outs_after || 0) > (m.outs_before || 0);
     if (isSteal) {
