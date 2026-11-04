@@ -1157,6 +1157,19 @@ def _advance_base_occupants(occupants: dict[str, dict], m: dict) -> dict[str, di
     return next_occ
 
 
+def _lineup_pitcher_id(ref: dict, game_lineup_rows: list[dict], team_abbrev: str) -> int | None:
+    """The team's pitcher per the Lineups tab: its latest "P" row, or None when
+    there is none (or the name does not resolve to a player). Used for an
+    on-deck placeholder whose defense has no play of its own to read a pitcher
+    from yet - the game-start slide and the first time the home team bats."""
+    starter = None
+    for r in game_lineup_rows:
+        if r.get("team") == team_abbrev and r.get("pos") == "P" and r.get("player_name"):
+            if starter is None or (r.get("row") or -1) > (starter.get("row") or -1):
+                starter = r
+    return ref["name_to_id"].get(starter["player_name"]) if starter else None
+
+
 def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
                          last_moment: dict, game_lineup_rows: list[dict],
                          game_moments: list[dict]) -> dict | None:
@@ -1229,11 +1242,14 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
     # team_plays above (the offense team's own past at-bats) was pitched by
     # the defense - that's what "defense" means for that half - so its
     # pitcher_id is exactly the defense team's current pitcher. Empty only at
-    # a game's very first half-inning turnover, when the team now on defense
-    # has never pitched yet in this data (no lineup/starting-pitcher source
-    # plumbed in here to guess from) - None rather than last_moment's
-    # pitcher_id, which would belong to the team now AT BAT, not pitching.
+    # a game's very first half-inning turnover (the home team's first
+    # at-bat), when the team now on defense has never pitched yet in this
+    # data - then its pitcher is the Lineups tab's "P" row, same as the
+    # game-start slide uses. Never last_moment's pitcher_id, which would
+    # belong to the team now AT BAT, not pitching.
     cur_pitcher_id = team_plays[-1].get("pitcher_id") if team_plays else None
+    if cur_pitcher_id is None:
+        cur_pitcher_id = _lineup_pitcher_id(ref, game_lineup_rows, deff["abbrev"])
     pitcher_view = _player_view(ref, cur_pitcher_id)
 
     # Situational leverage of the at-bat that's about to happen, computed
@@ -1330,12 +1346,7 @@ def _game_start_on_deck_moment(ref: dict, game: dict, game_lineup_rows: list[dic
     if next_up is None:
         return None
     next_batter_view = _player_view(ref, next_up["player_id"])
-    starter = None
-    for r in game_lineup_rows:
-        if r.get("team") == deff["abbrev"] and r.get("pos") == "P" and r.get("player_name"):
-            if starter is None or (r.get("row") or -1) > (starter.get("row") or -1):
-                starter = r
-    pitcher_view = _player_view(ref, ref["name_to_id"].get(starter["player_name"]) if starter else None)
+    pitcher_view = _player_view(ref, _lineup_pitcher_id(ref, game_lineup_rows, deff["abbrev"]))
     play_num = utils.make_play_num(game_code, 1)
 
     return {
