@@ -568,8 +568,24 @@
       card.style.setProperty("--acc-ink", l > 0.6 ? "#161715" : "#fff");
       return true;
     });
-    if (acc) card.style.setProperty("--red", "#" + acc);
-    else { card.style.removeProperty("--red"); card.style.removeProperty("--acc-ink"); }
+    // --accent is what the site's tabs / pills / sliders read (the Settings colour theme sets it on <html>), and a
+    // var() alias resolves where it is declared, so overriding --red here no longer reaches it: set both. --navy
+    // (filled badges, selected chips) follows the team's primary the same way, skipped where it would vanish
+    // against the card (near-white, or near-black in dark mode).
+    var navyHex = t && /^[0-9a-f]{6}$/i.test(t.c1 || "") ? t.c1 : "";
+    var nl = navyHex ? (0.299 * parseInt(navyHex.slice(0, 2), 16) + 0.587 * parseInt(navyHex.slice(2, 4), 16) + 0.114 * parseInt(navyHex.slice(4, 6), 16)) / 255 : 1;
+    var dark = document.documentElement.getAttribute("data-theme") === "dark";
+    ["--navy", "--navy-2", "--on-navy", "--accent", "--on-accent"].forEach(function (k) { card.style.removeProperty(k); });
+    if (navyHex && nl <= 0.8 && !(dark && nl < 0.2)) {
+      card.style.setProperty("--navy", "#" + navyHex);
+      card.style.setProperty("--navy-2", "#" + navyHex);
+      card.style.setProperty("--on-navy", nl > 0.6 ? "#161715" : "#fff");
+    }
+    if (acc) {
+      card.style.setProperty("--red", "#" + acc);
+      card.style.setProperty("--accent", "#" + acc);
+      card.style.setProperty("--on-accent", card.style.getPropertyValue("--acc-ink"));
+    } else { card.style.removeProperty("--red"); card.style.removeProperty("--acc-ink"); }
     if (t && t.logo) { logo.src = t.logo; logo.alt = t.name || ""; logo.hidden = false; } else logo.hidden = true;
     var ps = h ? h.pos.filter(Boolean) : [];
     pos.innerHTML = ps.map(function (x) { return '<span class="ph-pill">' + esc(x) + "</span>"; }).join("");
