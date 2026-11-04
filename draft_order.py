@@ -47,6 +47,7 @@ PICK_TRADES: dict[tuple[int, str], str] = {
     (1, "MIA"): "REK",
     (2, "MIA"): "REK",
     (1, "POR"): "SMD",
+    (2, "SUN"): "BBEG",
 }
 
 
@@ -97,9 +98,10 @@ class _Book:
         return _pct(self.w[a], self.l[a])
 
     def vs500(self, a: str) -> float:
+        # ".500+" opponents include teams at exactly .500 (the S11 wild card tie only resolves that way)
         w = l = 0
         for (x, y), (xw, xl) in self.h2h.items():
-            if x == a and self.pct(y) > 0.5:
+            if x == a and self.pct(y) >= 0.5:
                 w, l = w + xw, l + xl
         return _pct(w, l)
 
