@@ -17643,7 +17643,11 @@
     var openBtn = $("settings-btn");
     if (!modal || !openBtn) return;
     function closeSettings() { modal.hidden = true; }
-    openBtn.addEventListener("click", function () { modal.hidden = false; });
+    openBtn.addEventListener("click", function () {
+      // The season's teams feed the color-preset dropdown (theme.js); cheap to redo each open.
+      if (window.KMTheme && data && data.meta && data.meta.teams) window.KMTheme.setTeams(data.meta.teams);
+      modal.hidden = false;
+    });
     $("settings-close").addEventListener("click", closeSettings);
     modal.addEventListener("click", function (e) { if (e.target === modal) closeSettings(); });
     // Favorites' own click handler (favorites.js) opens #fav-modal on this

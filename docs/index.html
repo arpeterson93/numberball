@@ -311,6 +311,37 @@
           </svg>
         </button>
       </div>
+      <!-- Color overrides: theme.js owns every control in here (team preset,
+           swatches, hex box, native picker, reset) and stores the picks in
+           localStorage like the theme itself. Accent = active tabs/chips/
+           sliders; Secondary = the navy used for banners, badges, selected
+           tiles. app.js hands the season's team list to KMTheme.setTeams. -->
+      <div class="settings-colors">
+        <div class="settings-row">
+          <span>Color theme</span>
+          <select id="color-team" aria-label="Color theme"><option value="">Default</option></select>
+        </div>
+        <div class="settings-row" id="color-accent">
+          <span>Accent</span>
+          <div class="color-ctl">
+            <span class="color-swatches"></span>
+            <input type="color" aria-label="Accent color picker">
+            <input type="text" maxlength="7" placeholder="#c8102e" aria-label="Accent hex" spellcheck="false">
+          </div>
+        </div>
+        <div class="settings-row" id="color-navy">
+          <span>Secondary</span>
+          <div class="color-ctl">
+            <span class="color-swatches"></span>
+            <input type="color" aria-label="Secondary color picker">
+            <input type="text" maxlength="7" placeholder="#0f2238" aria-label="Secondary hex" spellcheck="false">
+          </div>
+        </div>
+        <div class="settings-row">
+          <span></span>
+          <button type="button" class="chip" id="color-reset">Reset colors</button>
+        </div>
+      </div>
       <!-- Slideshow speed moved to its own toggle button inside each
            slideshow's own control bar (Alex's ask) - one live control next to
            the thing it affects, instead of a setting buried in a separate
