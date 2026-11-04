@@ -306,7 +306,7 @@
     const curS = selS(), curV = selV();
     const W = Math.max(320, el.clientWidth);
     const ml = m === 'rec' ? 44 : 104, mt = 40, mr = 6, mb = 6;
-    const colsN = m === 'rec' ? S + 1 : S, rowsN = m === 'rec' ? S : GB[m].hi - GB[m].lo + 1;
+    const colsN = S, rowsN = m === 'rec' ? S + 1 : GB[m].hi - GB[m].lo + 1;
     const cw = (W - ml - mr) / colsN, ch = m === 'rec' ? 25 : 26, H = mt + rowsN * ch + mb;
     const svg = svgIn(el, W, H);
     const gid = 'lxramp';
@@ -329,14 +329,15 @@
       .on('mousemove', (ev) => tip.show(ev, [`${rowName(v, s, m)} ${whenName(s)}`.trim(), a ? `${a.n} teams` : 'no teams', a ? `${a.m} made the playoffs (${pctF(a.m / a.n)})` : '']))
       .on('mouseleave', () => tip.hide());
     if (m === 'rec') {
-      svg.append('text').attr('x', ml).attr('y', 11).text('Wins so far →');
-      svg.append('text').attr('x', 2).attr('y', mt - 6).text('After');
-      for (let w = 0; w <= S; w++) svg.append('text').attr('x', ml + w * cw + cw / 2).attr('y', mt - 6).attr('text-anchor', 'middle').text(w);
-      for (let s = 1; s <= S; s++) svg.append('text').attr('x', ml - 8).attr('y', mt + (s - 1) * ch + ch / 2 + 4).attr('text-anchor', 'end').text(s);
-      svg.append('path').attr('d', d3.line()(d3.range(1, S + 1).map((s) => [ml + (s / 2) * cw + cw / 2, mt + (s - 1) * ch + ch / 2])))
+      // wins down the side (most at the top, like the other tabs), sessions across
+      svg.append('text').attr('x', ml).attr('y', 11).text('After session →');
+      svg.append('text').attr('x', 2).attr('y', mt - 6).text('Wins');
+      for (let s = 1; s <= S; s++) svg.append('text').attr('x', ml + (s - 1) * cw + cw / 2).attr('y', mt - 6).attr('text-anchor', 'middle').text(s);
+      for (let w = 0; w <= S; w++) svg.append('text').attr('x', ml - 8).attr('y', mt + (S - w) * ch + ch / 2 + 4).attr('text-anchor', 'end').text(w);
+      svg.append('path').attr('d', d3.line()(d3.range(1, S + 1).map((s) => [ml + (s - 1) * cw + cw / 2, mt + (S - s / 2) * ch + ch / 2])))
         .style('fill', 'none').style('stroke', 'var(--cds-chart-reference)').style('stroke-dasharray', '3 4');
       for (let s = 1; s <= S; s++) for (let w = 0; w <= s; w++) {
-        const g = svg.append('g'); paint(g, ml + w * cw, mt + (s - 1) * ch, agg.get(s + '|' + w), curS === s && curV === w);
+        const g = svg.append('g'); paint(g, ml + (s - 1) * cw, mt + (S - w) * ch, agg.get(s + '|' + w), curS === s && curV === w);
         hover(g, w, s, agg.get(s + '|' + w));
       }
     } else {
@@ -366,7 +367,7 @@
     el.append(mk('div', 'lx-big', m === 'rec' ? `After starting ${v}-${s - v}` : detailTitle(v, s, m)));
     if (!c.n) el.append(mk('p', 'lx-muted', 'No team in these seasons was there at that point.'));
     else {
-      el.append(mk('p', '', `${c.n} teams. ${c.made} made the playoffs (${pctF(c.made / c.n)}).`));
+      el.append(mk('p', '', `${c.made}/${c.n} teams made the playoffs (${pctF(c.made / c.n)}).`));
       const by = d3.rollup(c.m, (x) => x.length, (r) => r.finish);
       const stack = mk('div', 'lx-stack');
       for (const f of [...FIN].reverse()) if (by.get(f)) { const sp = mk('span'); sp.style.width = (100 * by.get(f) / c.n) + '%'; sp.style.background = finColor(f); sp.title = `${FL[f]}: ${by.get(f)}`; stack.append(sp); }
