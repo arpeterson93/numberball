@@ -20,6 +20,7 @@
   --text: #1a1d24;
   --muted: #6b7280;
   --green: #1e7d32;
+  --field-green: #55c47a;       /* hit/safe/score marks painted on the field: the light-theme --green is nearly the grass (#367b44), so both themes use the dark-theme green */
   --gold: #d9a300;
   --orange: #c05a00;            /* scorecard: thrown-out-on-the-bases fill */
   --slate: #5b6472;             /* fielding-chart tab: ball-in-play-out fill */
@@ -1136,7 +1137,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .dm-base.steal-safe{animation:baseStealSafe calc(260ms / var(--play-speed,1)) ease calc(var(--sflash,0s) / var(--play-speed,1)) both;}
 @keyframes baseStealSafe{
   0%{fill:#f2f0e6;stroke:#9aa1ab;}
-  40%{fill:var(--green);stroke:var(--green);}
+  40%{fill:var(--field-green);stroke:var(--field-green);}
   100%{fill:var(--gold);stroke:var(--gold);}
 }
 .dm-base.steal-out{animation:baseStealOut calc(260ms / var(--play-speed,1)) ease calc(var(--sflash,0s) / var(--play-speed,1)) both;}
@@ -1224,8 +1225,8 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    the ball itself was caught. .ball-body's border is `color`-driven now (see
    its own rule above); .ball-trail is a plain stroked <path>, unrelated to
    that icon, so it still just takes `stroke` directly. */
-.ball.hit .ball-body{color:var(--green);}
-.ball-trail.hit{stroke:var(--green);}
+.ball.hit .ball-body{color:var(--field-green);}
+.ball-trail.hit{stroke:var(--field-green);}
 .ball.out .ball-body{color:var(--red);}
 .ball-trail.out{stroke:var(--red);}
 /* A ground ball out specifically goes neutral grey instead - the throw
@@ -1363,7 +1364,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   stroke-dasharray:6 5;
 }
 .throw-line.throw-out{stroke:var(--red);}
-.throw-line.throw-safe{stroke:var(--green);}
+.throw-line.throw-safe{stroke:var(--field-green);}
 .throw-clip-rect{
   animation:throwClipGrow calc(var(--draw,180ms) / var(--play-speed,1)) linear calc(var(--delay) / var(--play-speed,1)) both;
 }
@@ -1462,7 +1463,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    its own at all now. An out-bound batter token was never affected by this -
    the out-choreography rules below win the cascade for those regardless
    (see the comment above them). */
-.rn.score circle{fill:var(--green);}
+.rn.score circle{fill:var(--field-green);}
 /* Flash on arrival, so the delay is however long the run itself took (plus
    the shared lead-off delay the runner started from). */
 .rn.score .rn-inner{animation:rnScore calc(460ms / var(--play-speed,1)) ease calc((var(--rdelay,0s) + var(--dur)) / var(--play-speed,1)) both;}
