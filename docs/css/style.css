@@ -7,6 +7,7 @@
   color-scheme: light;
   --navy: #0f2238;
   --navy-2: #16233a;
+  --navy-base: #0f2238;         /* the stock navy, never overridden by Settings: leverage meter, ball, runner dots, WP ribbon dot, scorecard pitch-change color 0 */
   --red: #c8102e;
   --red-dark: #a10d26;
   /* UI chrome (active tabs/chips, sliders) reads --accent so Settings can recolor it; --red stays the fixed 'out' color. theme.js overrides these. */
@@ -68,6 +69,7 @@
   color-scheme: dark;
   --navy: #3f6699;
   --navy-2: #32527a;
+  --navy-base: #3f6699;
   --red: #c8102e;
   --red-dark: #ff8494;
   --blue: #6ea8f0;
@@ -1182,7 +1184,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    already exactly one layer wide - so its color comes from `color`/
    currentColor here rather than a `stroke` override, and there's no
    separate outline on top of it to double up against. */
-.ball-body{color:var(--navy);}
+.ball-body{color:var(--navy-base);}
 .ball-trail{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3;opacity:0.6;}
 .ball.air, .ball.ground, .ball.land, .ball.clear{
   animation:ballFly calc(var(--dur) / var(--play-speed,1)) ease-out forwards,
@@ -1409,7 +1411,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    and a flash. Tokens sit at their DESTINATION by default so the end state is
    what shows when the animation is skipped (reduced motion) or has finished. */
 .rn{transform:translate(var(--tx),var(--ty));}
-.rn circle{fill:var(--rn-fill,var(--navy));stroke:var(--card);stroke-width:2;}
+.rn circle{fill:var(--rn-fill,var(--navy-base));stroke:var(--card);stroke-width:2;}
 /* Dark mode's card stroke is nearly the same value as the field fill, so the
    token has no visible edge there - a lighter ring, scoped to dark mode only,
    fixes contrast without touching the team-colour fill. */
@@ -1525,7 +1527,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   calc(var(--outat, var(--rdelay,0s)) / var(--play-speed,1)) forwards;}
 .rn.out-to-first circle, .rn.out-to-base circle{animation:rnTurnRed calc(250ms / var(--play-speed,1)) ease
   calc(var(--outat, calc(var(--rdelay,0s) + 3333ms)) / var(--play-speed,1)) forwards;}
-@keyframes rnTurnRed{from{fill:var(--rn-fill,var(--navy));}to{fill:var(--red);}}
+@keyframes rnTurnRed{from{fill:var(--rn-fill,var(--navy-base));}to{fill:var(--red);}}
 .rn.out-walk .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
   calc((var(--outat, var(--rdelay,0s)) + 500ms) / var(--play-speed,1)) forwards;}
 .rn.out-to-first .rn-inner, .rn.out-to-base .rn-inner{animation:rnFadeOut calc(400ms / var(--play-speed,1)) ease
@@ -1676,7 +1678,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    4-stop gradient across the gauge's full width - deep blue (calm) through
    light blue, light red, to a vivid red (hot) - so intensity reads
    continuously as the bar grows rather than flipping once at the threshold. */
-.mt-stop-cold{stop-color:var(--navy);}
+.mt-stop-cold{stop-color:var(--navy-base);}
 .mt-stop-cool{stop-color:var(--blue);}
 .mt-stop-warm{stop-color:var(--tint-red-border);}
 .mt-stop-hot{stop-color:var(--red);}
@@ -1837,7 +1839,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
    color. stroke-width is ~5x the target final thickness (0.4) - declared in
    the icon's own pre-scale coordinate space (wheelRunnerIconSvg's
    transform), same as the path data itself. */
-.wheel-dot-runner{color:var(--navy);}
+.wheel-dot-runner{color:var(--navy-base);}
 /* Solid team-coloured backing (Alex's ask - swapped from the first pass,
    which had these two the other way around: white outline shape over a
    team-coloured backing) behind the white outline path, showing through its
@@ -2060,7 +2062,7 @@ html[data-km-debug="1"] .km-tuning-panel{
   background:var(--card);border-radius:50%;padding:1.5px;
 }
 .rb-marker-dot{
-  width:11px;height:11px;border-radius:50%;background:var(--navy);
+  width:11px;height:11px;border-radius:50%;background:var(--navy-base);
   box-shadow:0 0 0 2px var(--card);
 }
 .rb-readout{
@@ -3138,7 +3140,7 @@ html[data-km-debug="1"] .km-tuning-panel{
    bleeding into .sc-cell's own plain gray border-right/border-bottom
    gridlines on every pitch-change cell (Alex's report: a stray red/etc
    border on cells that had nothing to do with that color otherwise). */
-.sc-box.pitch-color-0{border-top-color:var(--navy) !important;}
+.sc-box.pitch-color-0{border-top-color:var(--navy-base) !important;}
 .sc-box.pitch-color-1{border-top-color:var(--red-dark) !important;}
 .sc-box.pitch-color-2{border-top-color:var(--gold) !important;}
 .sc-box.pitch-color-3{border-top-color:var(--green) !important;}
