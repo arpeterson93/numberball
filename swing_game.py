@@ -791,7 +791,8 @@ def stats(scope: str, game_code: str | None = None, season: int | None = None, b
                         u[k] += mine[k]
     rows = [{"user_id": uid, "name": u["name"], **_slash(u["results"]), "RV": u["rv"], "RE24": u["re24"],
              "WPA": u["wpa"] * 100,  # win-% points
-             "DPA": sum(u["diffs"]) / len(u["diffs"]) if u["diffs"] else None}
+             "DPA": sum(u["diffs"]) / len(u["diffs"]) if u["diffs"] else None,
+             "ZERO": sum(d == 0 for d in u["diffs"])}  # exact reads (0 diff), for the bullseye badge
             for uid, u in by_user.items()]
     key = {"rv": "RV", "re24": "RE24", "wpa": "WPA"}.get(by)
     if key:

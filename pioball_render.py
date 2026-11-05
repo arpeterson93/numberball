@@ -133,6 +133,16 @@ def _flame(d: ImageDraw.ImageDraw, cx: float, cy: float, h: float = 22) -> None:
     shape([(0, -2), (2, 1), (4, 4), (3, 7), (0, 9), (-3, 7), (-4, 4), (-2, 1)], (255, 200, 60))
 
 
+def _bullseye(d: ImageDraw.ImageDraw, cx: float, cy: float, count: int, r: float = 19) -> None:
+    """The 0-diff badge: a gold-rimmed dartboard bullseye, with "x2" etc. to its right
+    when there is more than one (nothing extra for a single one)."""
+    for rad, col in ((r, (245, 190, 40)), (r - 3, (214, 40, 57)), (r * 0.66, (255, 255, 255)),
+                     (r * 0.44, (214, 40, 57)), (r * 0.22, (255, 255, 255))):
+        d.ellipse((_px(cx - rad), _px(cy - rad), _px(cx + rad), _px(cy + rad)), fill=col)
+    if count > 1:
+        d.text((_px(cx + r + 8), _px(cy)), f"x{count}", font=_font(26, True), fill=(255, 255, 255), anchor="lm")
+
+
 def _table(title: str, subtitle: str | None, p: dict | None, cols: list[dict], rows: list[dict],
            footer_h: int = 0, footer=None, as_image: bool = False):
     """cols: {label, w, align: l|r|c, kind: text|rank|chip|signed}. rows: {cells, bg?, bold?}.
@@ -477,6 +487,9 @@ def render_player(name: str, card: dict) -> io.BytesIO:
         banner = (0, 78, 146)
     d.rectangle((0, 0, _px(W), _px(banner_h)), fill=banner)
     d.text((_px(pad), _px(banner_h / 2)), name, font=_font(40, True), fill=(255, 255, 255), anchor="lm")
+    zero = ((card["scopes"].get("all") or {}).get("ZERO") or 0)
+    if zero:
+        _bullseye(d, pad + d.textlength(name, font=_font(40, True)) / _S + 30, banner_h / 2, zero)
     logo = _logo(brand.get("logo_url"))
     if logo:
         lh = banner_h - 16
