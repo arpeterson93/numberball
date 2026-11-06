@@ -109,7 +109,7 @@ def _encode(src: pathlib.Path, dst: pathlib.Path, ss: float, dur: float, crop: t
     codec = (["-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-preset", "veryfast"]
              if kind == "mp4" else ["-c:v", "libvpx", "-auto-alt-ref", "0"])
     cmd = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-ss", f"{ss:.2f}", "-t", f"{dur:.2f}", "-vf", vf,
-           *codec, "-b:v", f"{kbps}k", "-an", str(dst)]
+           *codec, "-b:v", f"{kbps}k", "-g", "25", "-fps_mode", "cfr", "-r", "25", "-an", str(dst)]   # steady 25 fps: Playwright's timestamps are irregular
     subprocess.run(cmd, check=True, timeout=120)
 
 
