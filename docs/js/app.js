@@ -14322,6 +14322,10 @@
   // no inference needed. `seq` here is that row's own "as of this play"
   // marker, directly comparable to a play's own seq (splitPlayNum).
   function liveBattingOrderFromRows(teamAbbr, lineupRows) {
+    // The Lineups rows carry names only; the scorecard's name-click needs the
+    // player id, which the completed-game order gets from the plays instead.
+    var idByName = {};
+    (data.players || []).forEach(function (p) { if (p.name && idByName[p.name] == null) idByName[p.name] = p.id; });
     var slots = [];
     for (var i = 0; i < BATTING_SLOTS; i++) slots.push([]);
     var bySlot = {};
@@ -14336,7 +14340,8 @@
       slots[slot - 1] = rows.map(function (r, i) {
         var next = rows[i + 1];
         return {
-          name: r.player_name, startSeq: r.seq == null ? 0 : r.seq,
+          name: r.player_name, playerId: idByName[r.player_name] != null ? idByName[r.player_name] : null,
+          startSeq: r.seq == null ? 0 : r.seq,
           endSeq: next && next.seq != null ? next.seq : Infinity,
           posStart: r.pos, posEnd: r.pos,
         };
