@@ -2133,6 +2133,11 @@ html[data-km-debug="1"] .km-tuning-panel{
   .play-scene .result-pill{font-size:14px;padding:4px 13px;}
 }
 
+/* PioBall bot recordings (?clip=1, app.js parseDeepLinkGame): the replay without the win-probability ribbon, and the
+   field (with its two wheels, which are percentages of it) grown into the space the ribbon freed. Replay modal only. */
+html.clip-mode #replay-modal .scene-ribbon{display:none;}
+html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250px) * 1.2),640px);}
+
 .catchup-pause-hint{
   flex:0 0 auto;text-align:center;padding:8px 12px 12px;
   font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.3px;

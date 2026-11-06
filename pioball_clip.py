@@ -44,8 +44,9 @@ class ClipStalled(RuntimeError):
 _one_at_a_time = None                # asyncio.Semaphore(1): one browser at a time, results can arrive in bursts
 
 
-def deep_link(game_code, play_n: int) -> str:
-    return f"{SITE}?game={int(game_code):06d}&play={int(play_n)}"
+def deep_link(game_code, play_n: int, clip: bool = False) -> str:
+    """clip=True is the recording layout (no win-probability ribbon, bigger field); the link people tap stays the normal one."""
+    return f"{SITE}?game={int(game_code):06d}&play={int(play_n)}" + ("&clip=1" if clip else "")
 
 
 def play_n_of(game_code, play_num) -> int:
@@ -162,7 +163,7 @@ def record_clip(game_code, play_n: int, speed: float = SPEED, expect_batter: str
     checked on screen and the clip is refused if it isn't the one showing."""
     from playwright.sync_api import sync_playwright
     ff, kind = _ffmpeg()
-    url = deep_link(game_code, play_n)
+    url = deep_link(game_code, play_n, clip=True)
     work = pathlib.Path(tempfile.mkdtemp(prefix="pioclip_"))
     try:
         with sync_playwright() as p:

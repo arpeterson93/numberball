@@ -17946,3 +17946,5 @@
     boot();
   }
 })();
+    // &clip=1 is the PioBall bot's recording layout (style.css, html.clip-mode): no win-probability ribbon, bigger field
+    if (params.get("clip") === "1") document.documentElement.classList.add("clip-mode");
