@@ -26,7 +26,7 @@ import time
 import urllib.request
 
 SITE = os.environ.get("GAMEDAY_URL", "https://mlngameday.com/").rstrip("/") + "/"
-SPEED = float(os.environ.get("PIOBALL_CLIP_SPEED", "1.5"))   # Gameday playback speed: 0.5 / 1 / 1.5 / 2
+SPEED = float(os.environ.get("PIOBALL_CLIP_SPEED", "1.0"))   # Gameday playback speed: 0.5 / 1 / 1.5 / 2
 THEME = os.environ.get("PIOBALL_CLIP_THEME", "dark")          # Gameday theme: dark / light
 VIEW_W, VIEW_H = 900, 720            # the replay card is 828 wide inside this
 MAX_PLAY_S = 40.0                    # wall-clock cap on one play (at 1x a home run runs ~25s)

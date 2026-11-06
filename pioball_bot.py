@@ -305,7 +305,7 @@ async def game(interaction: discord.Interaction, game_code: str | None = None) -
 
 @bot.tree.command(name="clip", description="Play back MLN Gameday's animation of a play from its play id")
 @app_commands.describe(play_id="Play id: the game code then the play number, e.g. 131020001 (play 1 of game 131020)",
-                       speed="Playback speed (default 1.5x)")
+                       speed="Playback speed (default 1x)")
 @app_commands.choices(speed=[app_commands.Choice(name=f"{s}x", value=s) for s in (1.0, 1.5, 2.0)])
 async def clip_command(interaction: discord.Interaction, play_id: str, speed: app_commands.Choice[float] | None = None) -> None:
     digits = re.sub(r"\D", "", play_id)
