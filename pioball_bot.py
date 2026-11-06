@@ -57,9 +57,42 @@ RESULTS_CHANNEL_ID = int(os.environ.get("PIOBALL_RESULTS_CHANNEL_ID") or 0)
 
 # message_content is a privileged intent - only used to recognise Pioneers
 # pitches in the results thread (see on_message).
+# Supabase reuses pooled HTTP/2 connections, and the server (or a network blip) can drop one while it sits idle; postgrest only
+# retries on 503/520 responses, so the next request died with "Server disconnected" (a /guess left on "thinking"). Retry a
+# dropped connection once on a fresh one, for every Supabase call this process makes.
+import httpx
+import postgrest._sync.request_builder as _pgrst
+
+_send_with_retry = _pgrst.send_with_retry
+
+
+def _send_retrying_dropped_connection(req):
+    try:
+        return _send_with_retry(req)
+    except httpx.TransportError as e:
+        print(f"supabase connection dropped ({e!r}), retrying once")
+        return _send_with_retry(req)
+
+
+_pgrst.send_with_retry = _send_retrying_dropped_connection
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+@bot.tree.error
+async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    """A command that fails after deferring would otherwise sit on "thinking" forever: say so, so people can retry."""
+    print(f"command {getattr(interaction.command, 'name', '?')} failed: {error!r}")
+    msg = "Something went wrong on my end - nothing was saved. Please try again."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception as e:
+        print(f"could not report the command error: {e!r}")
 
 _game_override: str | None = None
 _batting_team: str | None = None   # from the feed's "Batter Up!" (e.g. "CAR"); None until seen
