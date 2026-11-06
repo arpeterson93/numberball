@@ -38,7 +38,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The schedule and the 10-minute dispatch fire whether or not anything changed, and every deploy queues behind the last one
+  # (the `pages` group above), so the long ones stack up. This gate hashes the sheet tabs the build reads (a few seconds,
+  # standard library only) and skips the build and the deploy when they match the live site's - see tools/should_deploy.py.
+  # Pushes always build; so does an hourly heartbeat, so the page's "updated" time never goes stale for long.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.gate.outputs.deploy }}
+      state: ${{ steps.gate.outputs.state }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/should_deploy.py
+          sparse-checkout-cone-mode: false
+
+      - name: Has the sheet changed?
+        id: gate
+        run: python3 tools/should_deploy.py
+
   build:
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -66,6 +88,12 @@ jobs:
       # generated here only, like the rest of docs/data.
       - name: Build career, records and search data
         run: python -u career_build.py
+
+      # What the gate compared against next time: the sheet's hash and when this deploy happened (ships with the site)
+      - name: Record the build hash
+        env:
+          STATE: ${{ needs.gate.outputs.state }}
+        run: printf '%s' "$STATE" > docs/data/build_hash.json
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
