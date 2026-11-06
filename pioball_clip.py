@@ -35,6 +35,7 @@ MAX_BYTES = 8 * 1024 * 1024          # stay under Discord's attachment limit
 MOTION = 10                          # changed pixels between two samples that count as the picture moving
 BURST = 1000                         # changed pixels above which a frame is a slide transition, not the ball / runners
 STILL_S = 1.2                        # seconds of stillness after the action that mark the play as over
+PRE_ROLL_S = 0.3                     # seconds of the opening modal kept before the play starts, so the clip never begins mid-play
 HOLD_S = 0.5                         # seconds of the settled picture kept at the end of the clip
 class ClipStalled(RuntimeError):
     """The browser was starved of CPU and the recording stalled."""
@@ -176,6 +177,7 @@ def record_clip(game_code, play_n: int, speed: float = SPEED, expect_batter: str
             page.goto(url, wait_until="domcontentloaded")
             page.wait_for_selector("#replay-modal:not([hidden]) #replay-slide .catchup-slide, #replay-modal:not([hidden]) #replay-slide *",
                                    timeout=45000)
+            t_start = time.time() - t0           # the slide is mounting NOW: stamp it before any other call (each can take a while under load)
             _boost_browser()                     # the renderer processes exist by now
             # the modal's chrome (progress label, speed / repeat / close buttons, prev / next arrows) stays out of the clip
             page.add_style_tag(content="#replay-card > :not(#replay-slide){visibility:hidden !important}")
@@ -191,7 +193,6 @@ def record_clip(game_code, play_n: int, speed: float = SPEED, expect_batter: str
             if expect_batter and expect_batter.lower() not in page.inner_text("#replay-slide").lower():
                 raise RuntimeError(f"replay opened on a different play than {expect_batter!r} (play not on the site?)")
             first = index()
-            t_start = time.time() - t0           # the slide is mounted; its animation starts now
             limit = MAX_PLAY_S / max(speed, 0.25)
             # no screenshots while recording (each one flickers a frame into the video): just wait for Gameday to move on
             # to the next play (or the cap), then trim the held, settled tail from the recording itself
@@ -205,7 +206,7 @@ def record_clip(game_code, play_n: int, speed: float = SPEED, expect_batter: str
             src = pathlib.Path(video.path())
             browser.close()
         crop = (round(box["width"]), round(box["height"]), round(box["x"]), round(box["y"]))
-        ss = max(0.0, t_start - 0.2)
+        ss = max(0.0, t_start - PRE_ROLL_S)
         last, stalled = _last_motion(src, ff, ss, t_end - ss, crop, work)
         if stalled > MAX_STALL or last < 1.0:
             raise ClipStalled(f"recording stalled ({stalled:.0%} repeated frames, {last:.1f}s of motion)")
