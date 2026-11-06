@@ -27,6 +27,7 @@ from discord.ext import commands, tasks
 
 import database
 import pace
+import pioball_clip
 import pioball_render
 import swing_game
 import swing_model
@@ -302,6 +303,31 @@ async def game(interaction: discord.Interaction, game_code: str | None = None) -
         f"Pinned to game `{game_code}`." if game_code else "Back on auto-detect.", ephemeral=True)
 
 
+@bot.tree.command(name="clip", description="Play back MLN Gameday's animation of a play from its play id")
+@app_commands.describe(play_id="Play id: the game code then the play number, e.g. 131020001 (play 1 of game 131020)",
+                       speed="Playback speed (default 1.5x)")
+@app_commands.choices(speed=[app_commands.Choice(name=f"{s}x", value=s) for s in (1.0, 1.5, 2.0)])
+async def clip_command(interaction: discord.Interaction, play_id: str, speed: app_commands.Choice[float] | None = None) -> None:
+    digits = re.sub(r"\D", "", play_id)
+    if len(digits) < 7:
+        await interaction.response.send_message("Give the play id as the game code then the play number, e.g. `131020001`.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    code, n = int(digits) // 1000, int(digits) % 1000
+    rows = await asyncio.to_thread(pioball_clip.site_plays, code)
+    row = next((r for r in rows if int(r["play_num"]) == int(digits)), None)
+    if not row:
+        await interaction.followup.send(f"Play `{digits}` isn't on MLN Gameday (yet) - the site updates about every 10 minutes.")
+        return
+    out = await pioball_clip.clip_for(code, n, speed.value if speed else pioball_clip.SPEED, expect_batter=row.get("batter_name"))
+    if not out:
+        await interaction.followup.send("Couldn't record that play - the clip recorder isn't available or failed (see the bot log).")
+        return
+    data, kind, _ = out
+    await interaction.followup.send(f"[Watch this play on MLN Gameday](<{pioball_clip.deep_link(code, n)}>)",
+                                    file=discord.File(io.BytesIO(data), filename=f"play_{digits}.{kind}"))
+
+
 @bot.tree.command(name="pace", description="Pace of play for a game: team and ump time, from the results feed timestamps")
 @app_commands.describe(game_code="Numberball game code (default: the live Pioneers game)",
                        include_open="Count the stretch still running right now (default yes; only applies to unfinished games)")
@@ -351,11 +377,67 @@ async def pace_command(interaction: discord.Interaction, game_code: str | None =
             await interaction.followup.send(f"```\n{body}\n```")
 
 
+CLIPS_ON = os.environ.get("PIOBALL_CLIPS") == "1"   # needs playwright + chromium on this machine (pioball_clip.py)
+_clip_tasks: set = set()
+_clipped: set[int] = set()   # play_nums already clipped, so a repeated pitch/swing pair can't pick the same play twice
+
+
+def _start_clip(coro) -> None:
+    task = asyncio.create_task(coro)
+    _clip_tasks.add(task)               # keep a reference so the task isn't collected mid-run
+    task.add_done_callback(_clip_tasks.discard)
+
+
+async def _make_clip(code, pitch, swing, floor, send, caption=None) -> None:
+    """Wait for MLN Gameday to have the play (it only rebuilds about every 10 minutes), record its animation, and hand the clip
+    to send(text, file). A failure just means no clip."""
+    try:
+        if not pitch or swing is None:
+            return                          # an auto (no pitch / swing to match on)
+        row = await pioball_clip.wait_until_published(code, pitch, swing, floor, _clipped)
+        if not row:
+            print(f"play clip skipped: game {code} pitch {pitch} swing {swing} not on Gameday after the wait")
+            return
+        _clipped.add(int(row["play_num"]))
+        n = pioball_clip.play_n_of(code, row["play_num"])
+        out = await pioball_clip.clip_for(code, n, expect_batter=row.get("batter_name"))
+        if not out:
+            return
+        data, kind, _ = out
+        text = (caption(row) + chr(10) if caption else "") + f"[Watch this play on MLN Gameday](<{pioball_clip.deep_link(code, n)}>)"
+        await send(text, discord.File(io.BytesIO(data), filename=f"play.{kind}"))
+    except Exception as e:
+        print(f"play clip not posted: {e!r}")
+
+
+async def _post_clip(msg, g: dict) -> None:
+    """Our at-bat: reply to the graded results image with the play's clip."""
+    p = g["pitch_row"]
+    await _make_clip(p.get("game_code"), g.get("pitch"), (g.get("actual") or {}).get("swing"), p.get("after_play_num"),
+                     lambda text, f: msg.reply(text, file=f, mention_author=False))
+
+
+async def _post_pitching_clip(code, parsed: dict) -> None:
+    """The opponent's at-bat (our pitching): no PioBall result image to reply to, so the clip goes to the results channel."""
+    last = await asyncio.to_thread(swing_game._last_play, code)
+    floor = max(0, int(last["play_num"]) - 5) if last else 0        # the sheet already holds this play; a margin covers it
+
+    async def send(text, f):
+        channel = bot.get_channel(_post_channel or RESULTS_CHANNEL_ID) or await bot.fetch_channel(_post_channel or RESULTS_CHANNEL_ID)
+        await channel.send(text, file=f)
+
+    def caption(r):
+        return f"**{r.get('batter_name')}** ({r.get('off_team_abbr')}) vs **{r.get('pitcher_name')}**: {r.get('result')}"
+    await _make_clip(code, parsed["pitch"], parsed.get("swing"), floor, send, caption)
+
+
 async def _post_graded(channel, g: dict) -> None:
     """Results table as an image (closest guess first); plain text if rendering fails."""
     try:
         buf = await asyncio.to_thread(pioball_render.render_graded_table, g)
-        await channel.send(file=discord.File(buf, filename="pioball_results.png"))
+        msg = await channel.send(file=discord.File(buf, filename="pioball_results.png"))
+        if CLIPS_ON:
+            _start_clip(_post_clip(msg, g))
     except Exception as e:
         print(f"results image failed, sending text: {e!r}")
         try:
@@ -502,7 +584,10 @@ async def _handle_feed(message: discord.Message) -> None:
             await asyncio.to_thread(swing_game.open_for_batter_up, live)
         return
     if _batting_team not in (None, swing_game.TEAM_ABBREV):
-        return  # swing notices and results for the opponent's at-bats aren't ours
+        # swing notices and results for the opponent's at-bats aren't ours to grade; with clips on, a result still gets its play clip
+        if CLIPS_ON and parsed["kind"] == "result" and seen_in:
+            _start_clip(_post_pitching_clip(seen_in["game_code"], parsed))
+        return
     live = await _live_game()
     if not live:
         print(f"feed {parsed['kind']} ignored: no live Pioneers game found")
