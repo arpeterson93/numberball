@@ -426,19 +426,24 @@ async def _make_clip(code, pitch, swing, floor, send, caption=None) -> None:
     to send(text, file). A failure just means no clip."""
     try:
         if not pitch or swing is None:
+            print(f"play clip: game {code} result has no pitch/swing (an auto?), no clip")
             return                          # an auto (no pitch / swing to match on)
+        print(f"play clip: game {code} pitch {pitch} swing {swing} - waiting for MLN Gameday to have the play (checks every minute)")
+        t0 = time.time()
         row = await pioball_clip.wait_until_published(code, pitch, swing, floor, _clipped)
         if not row:
             print(f"play clip skipped: game {code} pitch {pitch} swing {swing} not on Gameday after the wait")
             return
         _clipped.add(int(row["play_num"]))
         n = pioball_clip.play_n_of(code, row["play_num"])
+        print(f"play clip: play {n} is on Gameday after {time.time() - t0:.0f}s, recording")
         out = await pioball_clip.clip_for(code, n, expect_batter=row.get("batter_name"))
         if not out:
             return
         data, kind, _ = out
         text = (caption(row) + chr(10) if caption else "") + f"[Watch this play on MLN Gameday](<{pioball_clip.deep_link(code, n)}>)"
         await send(text, discord.File(io.BytesIO(data), filename=f"play.{kind}"))
+        print(f"play clip: posted play {n} ({len(data) / 1024:.0f} KB {kind}, {time.time() - t0:.0f}s after the result)")
     except Exception as e:
         print(f"play clip not posted: {e!r}")
 
@@ -636,6 +641,7 @@ async def _handle_feed(message: discord.Message) -> None:
 
 @bot.event
 async def on_ready() -> None:
+    print(f"play clips {'ON' if CLIPS_ON else 'OFF (set PIOBALL_CLIPS=1)'}")
     if not grade_loop.is_running():
         grade_loop.start()
     if not model_loop.is_running():
