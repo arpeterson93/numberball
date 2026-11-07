@@ -17688,7 +17688,17 @@
     // top-level modal, same as Settings/Favorites) otherwise - which is
     // every open from Settings, since #replay-modal is always hidden there.
     var replayHome = modal.parentNode;
-    function closeMethodology() { modal.hidden = true; }
+    // Set when the ball-flight explainer was opened from the About list, so closing it returns there.
+    var methodologyFromAbout = false;
+    function closeMethodology() {
+      modal.hidden = true;
+      if (methodologyFromAbout) {
+        methodologyFromAbout = false;
+        showAboutList();
+        var aboutModal = $("about-modal");
+        if (aboutModal) aboutModal.hidden = false;
+      }
+    }
     // Four wheel-example spots, each filled by its own generator - keyed by
     // element id so adding/removing a spot later is a one-line change here.
     var WHEEL_SECTIONS = {
@@ -17724,11 +17734,97 @@
         // modals stacked on top of each other.
         var settingsModal = $("settings-modal");
         if (settingsModal) settingsModal.hidden = true;
-        openMethodology();
+        showAboutList();
+        var aboutModal = $("about-modal");
+        if (aboutModal) aboutModal.hidden = false;
       });
     }
+    wireAbout(function () { methodologyFromAbout = true; openMethodology(); });
     $("methodology-close").addEventListener("click", closeMethodology);
     modal.addEventListener("click", function (e) { if (e.target === modal) closeMethodology(); });
+  }
+
+  // ── Settings > About: list of explainers ─────────────────────────────────
+  // Article bodies are static HTML; the formulas mirror key_moments_build.py's _session_stats
+  // (_finish_batting / _finish_pitching), so change both together.
+  var ABOUT_ARTICLES = {
+    bgsc: {
+      title: "Batting Game Score (GSc)",
+      html:
+        '<p>One number for how much a hitter did in a game. League average is 27.</p>' +
+        '<div class="about-formula">' + aboutLedger("GSc =", [
+          ["", "25", "", ""], ["+", "8", "&times;", "RC"], ["+", "3", "&times;", "R"],
+          ["+", "3", "&times;", "RBI"], ["&minus;", "2.5", "&times;", "Outs"]
+        ]) + '</div>' +
+        '<ul>' +
+          '<li><b>RC</b> is Runs Created, Bill James&rsquo; &ldquo;2002&rdquo; version (below).</li>' +
+          '<li><b>Outs</b> is the outs the batter is responsible for: plate appearances that did not reach base safely, with a double play counting as 2. That is PA &minus; (H + BB) + GIDP.</li>' +
+        '</ul>' +
+        '<h4>Runs Created</h4>' +
+        '<div class="about-formula">' +
+          '<div class="about-line">A = H + BB &minus; CS &minus; GIDP</div>' +
+          aboutLedger("B =", [
+            ["", "1.125", "&times;", "1B"], ["+", "1.69", "&times;", "2B"], ["+", "3.02", "&times;", "3B"],
+            ["+", "3.73", "&times;", "HR"], ["+", "0.29", "&times;", "(BB &minus; IBB)"],
+            ["+", "0.492", "&times;", "(SB + SH + SF)"], ["&minus;", "0.04", "&times;", "K"]
+          ]) +
+          '<div class="about-line">C = AB + BB + SH + SF</div>' +
+          '<div class="about-rc"><span>RC =</span>' +
+            '<span class="about-frac"><span>(2.4C + A)(3C + B)</span><span>9C</span></span>' +
+            '<span>&minus; 0.9C</span></div>' +
+        '</div>'
+    },
+    pgsc: {
+      title: "Pitching Game Score (GSc)",
+      html:
+        '<p>One number for how well a pitcher did in a game. League average is 41.</p>' +
+        '<div class="about-formula">' + aboutLedger("GSc =", [
+          ["", "40", "", ""], ["+", "2", "&times;", "Outs"], ["+", "1", "&times;", "K"],
+          ["&minus;", "2", "&times;", "BB"], ["&minus;", "2", "&times;", "H"],
+          ["&minus;", "3", "&times;", "ER"], ["&minus;", "6", "&times;", "HR"]
+        ]) + '</div>' +
+        '<p class="about-note">This is Tom Tango&rsquo;s Game Score v2.0 (FanGraphs&rsquo; &ldquo;GSv2&rdquo;), not the older Bill James 1988 version.</p>'
+    }
+  };
+
+  // Ledger block: a head line, then one row per term (sign, coefficient, x, stat) so each coefficient sits
+  // beside the value it multiplies. A row with no stat is a bare constant (the baseline).
+  function aboutLedger(head, rows) {
+    return '<div class="about-line">' + head + '</div>' + rows.map(function (r) {
+      return '<div class="about-row"><span class="al-op">' + r[0] + '</span><span class="al-coef">' + r[1] +
+        '</span><span class="al-x">' + r[2] + '</span><span class="al-stat">' + r[3] + '</span></div>';
+    }).join("");
+  }
+
+  function showAboutList() {
+    var list = $("about-list"), art = $("about-article"), title = $("about-title");
+    if (list) list.hidden = false;
+    if (art) { art.hidden = true; art.innerHTML = ""; }
+    if (title) title.textContent = "About";
+  }
+
+  // openFlight: opens the existing ball-flight explainer (wireMethodology owns it).
+  function wireAbout(openFlight) {
+    var modal = $("about-modal");
+    if (!modal) return;
+    function closeAbout() { modal.hidden = true; showAboutList(); }
+    $("about-close").addEventListener("click", closeAbout);
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) { closeAbout(); return; }
+      if (e.target.closest("[data-about-back]")) { showAboutList(); return; }
+      var item = e.target.closest("[data-about]");
+      if (!item) return;
+      var key = item.getAttribute("data-about");
+      if (key === "flight") { modal.hidden = true; openFlight(); return; }
+      var a = ABOUT_ARTICLES[key];
+      if (!a) return;
+      $("about-list").hidden = true;
+      $("about-title").textContent = a.title;
+      var art = $("about-article");
+      art.innerHTML = '<button type="button" class="link-btn about-back" data-about-back>&lsaquo; Back</button>' + a.html;
+      art.hidden = false;
+      modal.querySelector(".modal-body").scrollTop = 0;
+    });
   }
 
   // ── boot ────────────────────────────────────────────────────────────────────

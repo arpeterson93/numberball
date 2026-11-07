@@ -375,6 +375,32 @@
   </div>
 </div>
 
+<!-- About hub (Settings > About): a list of explainers. The ball-flight one is the
+     existing #methodology-modal (app.js's wireMethodology); the rest render into
+     #about-article here with a Back link to the list. -->
+<div class="modal" id="about-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <strong id="about-title">About</strong>
+      <button type="button" class="link-btn" id="about-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div id="about-list" class="about-list">
+        <button type="button" class="about-item" data-about="flight">
+          <span>From pitch/swing to ball flight</span><span class="about-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+        <button type="button" class="about-item" data-about="bgsc">
+          <span>Batting Game Score (GSc)</span><span class="about-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+        <button type="button" class="about-item" data-about="pgsc">
+          <span>Pitching Game Score (GSc)</span><span class="about-chev" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+      <div id="about-article" class="about-article" hidden></div>
+    </div>
+  </div>
+</div>
+
 <!-- Favorites panel -->
 <div class="modal" id="fav-modal" hidden>
   <div class="modal-card">
@@ -507,7 +533,7 @@
   <div class="modal" id="methodology-modal" hidden>
     <div class="modal-card">
       <div class="modal-head">
-        <strong>How is pitch/swing turned into ball flight?</strong>
+        <strong>From pitch/swing to ball flight</strong>
         <button type="button" class="link-btn" id="methodology-close">Close</button>
       </div>
       <div class="modal-body">
