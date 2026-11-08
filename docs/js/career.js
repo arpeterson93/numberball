@@ -49,6 +49,7 @@
   // ── stat math (shared by the Stats tab's aggregate scopes, total rows and the player panel) ──
 
   var BAT_SUM = ["pa", "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "k", "sb", "cs", "gidp", "lob", "sf", "ds", "dn"];
+  var DEC_KEY = { W: "w", L: "l", SV: "sv", H: "hd" };
   var PIT_SUM = ["outs", "h", "hr", "bb", "k", "dp", "er", "lob", "w", "l", "sv", "hd", "ds", "dn"];
   var RATE_KEYS = { avg: 1, obp: 1, slg: 1, ops: 1 };
 
@@ -655,7 +656,12 @@
 
   function lineFrom(rows, side) {
     var s = {};
-    rows.forEach(function (r) { addInto(s, r, side === "bat" ? BAT_SUM : PIT_SUM); });
+    rows.forEach(function (r) {
+      addInto(s, r, side === "bat" ? BAT_SUM : PIT_SUM);
+      // A pitcher's game row carries its decision as "dec" (W / L / SV / H), not as w / l / sv / hd counts.
+      var dk = side === "pit" && DEC_KEY[r.dec];
+      if (dk) s[dk] = (s[dk] || 0) + 1;
+    });
     s.g = rows.length;
     return side === "bat" ? withBatRates(s) : withPitRates(s);
   }
