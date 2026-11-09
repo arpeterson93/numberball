@@ -1080,51 +1080,51 @@ def filter_by_prior_context(
 
     if prev_pitch_bucket is not None:
         lo, hi = prev_pitch_bucket
-        keep &= pd.to_numeric(d[pitch_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[pitch_col], errors="coerce").shift(1), lo, hi)
 
     if prev_pitch_bucket2 is not None:
         lo, hi = prev_pitch_bucket2
-        keep &= pd.to_numeric(d[pitch_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[pitch_col], errors="coerce").shift(2), lo, hi)
 
     if prev_delta_bucket is not None:
         lo, hi = prev_delta_bucket
-        keep &= pd.to_numeric(d[delta_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[delta_col], errors="coerce").shift(1), lo, hi)
 
     if prev_delta_bucket2 is not None:
         lo, hi = prev_delta_bucket2
-        keep &= pd.to_numeric(d[delta_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[delta_col], errors="coerce").shift(2), lo, hi)
 
     if prev_delta2_bucket is not None:
         lo, hi = prev_delta2_bucket
-        keep &= pd.to_numeric(d[delta2_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[delta2_col], errors="coerce").shift(1), lo, hi)
 
     if prev_delta2_bucket2 is not None:
         lo, hi = prev_delta2_bucket2
-        keep &= pd.to_numeric(d[delta2_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[delta2_col], errors="coerce").shift(2), lo, hi)
 
     if prev_shadow_delta_bucket is not None:
         lo, hi = prev_shadow_delta_bucket
-        keep &= pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(1), lo, hi)
 
     if prev_shadow_delta_bucket2 is not None:
         lo, hi = prev_shadow_delta_bucket2
-        keep &= pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[shadow_delta_col], errors="coerce").shift(2), lo, hi)
 
     if prev_team_swing_delta_bucket is not None:
         lo, hi = prev_team_swing_delta_bucket
-        keep &= pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(1), lo, hi)
 
     if prev_team_swing_delta_bucket2 is not None:
         lo, hi = prev_team_swing_delta_bucket2
-        keep &= pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[team_swing_delta_col], errors="coerce").shift(2), lo, hi)
 
     if prev_est_delta_bucket is not None:
         lo, hi = prev_est_delta_bucket
-        keep &= pd.to_numeric(d[est_delta_col], errors="coerce").shift(1).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[est_delta_col], errors="coerce").shift(1), lo, hi)
 
     if prev_est_delta_bucket2 is not None:
         lo, hi = prev_est_delta_bucket2
-        keep &= pd.to_numeric(d[est_delta_col], errors="coerce").shift(2).between(lo, hi)
+        keep &= _in_bucket(pd.to_numeric(d[est_delta_col], errors="coerce").shift(2), lo, hi)
 
     if prev_result_cat is not None:
         prev_cat = d["result"].shift(max(1, int(prev_result_lag))).map(lambda r: result_category_fn(r) if pd.notna(r) else None)
@@ -1490,10 +1490,39 @@ def _centered_match_interval(center, bucket_size, domain_hi=500, domain_lo=0):
     the shipped span of 2 * (bucket_size // 2) + 1 integers (half = bucket_size // 2);
     callers replace the `|v - center| <= half` mask with `series.between(lo, hi)`.
     When 2 * half >= domain_hi - domain_lo (e.g. a 500-wide bucket) the interval is
-    the whole domain, i.e. unchanged behavior."""
+    the whole domain, i.e. unchanged behavior.
+
+    Circular domains (a pitch on 1-1000, a signed delta on -500..500 - anything a full
+    1000-wide wheel wide) wrap instead of shifting: a window that runs past one end
+    continues from the other, returned as lo > hi, meaning "value >= lo or value <= hi"
+    (see _in_bucket). e.g. a delta of -498 with width 100 gives (452, -448). Linear
+    domains (|delta| on 0..500, etc.) keep the shift."""
     half = bucket_size // 2
+    if domain_hi - domain_lo >= 999:
+        period = 1000
+        if 2 * half + 1 >= period:
+            return int(domain_lo), int(domain_hi)
+        lo, hi = center - half, center + half
+        if lo < domain_lo:
+            lo += period
+        elif hi > domain_hi:
+            hi -= period
+        return int(lo), int(hi)
     lo, hi = _shift_to_domain(center - half, center + half, domain_lo, domain_hi)
     return int(lo), int(hi)
+
+
+def _in_bucket(series: pd.Series, lo: int, hi: int) -> pd.Series:
+    """Mask of values inside a _centered_match_interval bucket: lo <= v <= hi, or - for a
+    wrapped bucket (lo > hi) - v >= lo or v <= hi. NaN is never in the bucket."""
+    if lo <= hi:
+        return series.between(lo, hi)
+    return (series >= lo) | (series <= hi)
+
+
+def fmt_bucket(lo: int, hi: int) -> str:
+    """Label text for a bucket: "lo-hi", or "lo to hi" when it wraps past the end of the wheel."""
+    return f"{lo}-{hi}" if lo <= hi else f"{lo} to {hi}"
 
 
 def _circ_dist_vec(series: pd.Series, ref: int) -> pd.Series:

@@ -2080,42 +2080,42 @@ with tab_p:
             _cf_pitch_v_pre  = int(st.session_state.get(f"ctx_pitch_v_p_{tab_p_pitcher}", _cf_pitch_def_p))
             _cf_pitch_lo_pre, _cf_pitch_hi_pre = utils._centered_match_interval(
                 _cf_pitch_v_pre, _cf_pitch_w_pre, domain_hi=1000, domain_lo=1)
-            _cf_pitch_lbl_p  = f"Prev pitch ({_cf_pitch_lo_pre}-{_cf_pitch_hi_pre})"
+            _cf_pitch_lbl_p  = f"Prev pitch ({utils.fmt_bucket(_cf_pitch_lo_pre, _cf_pitch_hi_pre)})"
 
             _cf_delta_def_p  = _pf_delta_p[-1] if _pf_delta_p else 100
             _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_p", 100)
             _cf_delta_v_pre  = int(st.session_state.get(f"ctx_delta_v_p_{tab_p_pitcher}", _cf_delta_def_p))
             _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
                 _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_delta_lbl_p  = f"Prev Δ ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
+            _cf_delta_lbl_p  = f"Prev Δ ({utils.fmt_bucket(_cf_delta_lo_pre, _cf_delta_hi_pre)})"
 
             _cf_delta2_def_p = _pf_delta2_p[-1] if _pf_delta2_p else 100
             _cf_delta2_w_pre = st.session_state.get("ctx_delta2_w_p", 100)
             _cf_delta2_v_pre = int(st.session_state.get(f"ctx_delta2_v_p_{tab_p_pitcher}", _cf_delta2_def_p))
             _cf_delta2_lo_pre, _cf_delta2_hi_pre = utils._centered_match_interval(
                 _cf_delta2_v_pre, _cf_delta2_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_delta2_lbl_p = f"Prev Δ² ({_cf_delta2_lo_pre}-{_cf_delta2_hi_pre})"
+            _cf_delta2_lbl_p = f"Prev Δ² ({utils.fmt_bucket(_cf_delta2_lo_pre, _cf_delta2_hi_pre)})"
 
             _cf_shadow_delta_def_p = _pf_shadow_delta_p[-1] if _pf_shadow_delta_p else 100
             _cf_shadow_delta_w_pre = st.session_state.get("ctx_shadow_delta_w_p", 100)
             _cf_shadow_delta_v_pre = int(st.session_state.get(f"ctx_shadow_delta_v_p_{tab_p_pitcher}", _cf_shadow_delta_def_p))
             _cf_shadow_delta_lo_pre, _cf_shadow_delta_hi_pre = utils._centered_match_interval(
                 _cf_shadow_delta_v_pre, _cf_shadow_delta_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_shadow_delta_lbl_p = f"Prev Shadow Δ ({_cf_shadow_delta_lo_pre}-{_cf_shadow_delta_hi_pre})"
+            _cf_shadow_delta_lbl_p = f"Prev Shadow Δ ({utils.fmt_bucket(_cf_shadow_delta_lo_pre, _cf_shadow_delta_hi_pre)})"
 
             _cf_team_swing_def_p = _pf_team_swing_delta_p[-1] if _pf_team_swing_delta_p else 100
             _cf_team_swing_w_pre = st.session_state.get("ctx_team_swing_w_p", 100)
             _cf_team_swing_v_pre = int(st.session_state.get(f"ctx_team_swing_v_p_{tab_p_pitcher}", _cf_team_swing_def_p))
             _cf_team_swing_lo_pre, _cf_team_swing_hi_pre = utils._centered_match_interval(
                 _cf_team_swing_v_pre, _cf_team_swing_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_team_swing_lbl_p = f"Prev Team Swing Δ ({_cf_team_swing_lo_pre}-{_cf_team_swing_hi_pre})"
+            _cf_team_swing_lbl_p = f"Prev Team Swing Δ ({utils.fmt_bucket(_cf_team_swing_lo_pre, _cf_team_swing_hi_pre)})"
 
             _cf_est_def_p = _pf_est_delta_p[-1] if _pf_est_delta_p else 100
             _cf_est_w_pre = st.session_state.get("ctx_est_w_p", 100)
             _cf_est_v_pre = int(st.session_state.get(f"ctx_est_v_p_{tab_p_pitcher}", _cf_est_def_p))
             _cf_est_lo_pre, _cf_est_hi_pre = utils._centered_match_interval(
                 _cf_est_v_pre, _cf_est_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_est_lbl_p = f"Prev Est. Δ ({_cf_est_lo_pre}-{_cf_est_hi_pre})"
+            _cf_est_lbl_p = f"Prev Est. Δ ({utils.fmt_bucket(_cf_est_lo_pre, _cf_est_hi_pre)})"
 
             _cf_result_def_p = (utils.seq_result_category(_pf_results_p[-1])
                                 if _pf_results_p else utils.SEQ_RESULT_CATEGORIES[2])
@@ -4864,14 +4864,14 @@ with tab_c:
             _cf_throw_v_pre  = int(st.session_state.get(f"ctx_throw_v_c_{tab_c_catcher}", _cf_throw_def_c))
             _cf_throw_lo_pre, _cf_throw_hi_pre = utils._centered_match_interval(
                 _cf_throw_v_pre, _cf_throw_w_pre, domain_hi=1000, domain_lo=1)
-            _cf_throw_lbl_c  = f"Prev throw ({_cf_throw_lo_pre}-{_cf_throw_hi_pre})"
+            _cf_throw_lbl_c  = f"Prev throw ({utils.fmt_bucket(_cf_throw_lo_pre, _cf_throw_hi_pre)})"
 
             _cf_delta_def_c  = _cf_delta_c[-1] if _cf_delta_c else 100
             _cf_delta_w_pre  = st.session_state.get("ctx_delta_w_c", 100)
             _cf_delta_v_pre  = int(st.session_state.get(f"ctx_delta_v_c_{tab_c_catcher}", _cf_delta_def_c))
             _cf_delta_lo_pre, _cf_delta_hi_pre = utils._centered_match_interval(
                 _cf_delta_v_pre, _cf_delta_w_pre, domain_hi=500, domain_lo=-500)
-            _cf_delta_lbl_c  = f"Prev Δ ({_cf_delta_lo_pre}-{_cf_delta_hi_pre})"
+            _cf_delta_lbl_c  = f"Prev Δ ({utils.fmt_bucket(_cf_delta_lo_pre, _cf_delta_hi_pre)})"
 
             _cf_result_def_c = (utils.steal_result_category(_cf_results_c[-1])
                                 if _cf_results_c else utils.STEAL_RESULT_CATEGORIES[1])
