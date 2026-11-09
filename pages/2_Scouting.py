@@ -2146,6 +2146,7 @@ with tab_p:
                 _cf_pitch_on_p = st.toggle(_cf_pitch_lbl_p, key="ctx_pitch_on_p", value=False)
                 _cf_pitch_bucket_p = None
                 _cf_pitch_bucket2_p = None
+                _cf_pitch_dir_p = None
                 if _cf_pitch_on_p:
                     _cf_pitch_w_p = st.select_slider("Bucket size", options=[50, 100, 125, 200, 250, 500],
                                                       value=100, key="ctx_pitch_w_p")
@@ -2153,6 +2154,12 @@ with tab_p:
                         "Previous pitch value", min_value=1, max_value=1000, value=_cf_pitch_def_p,
                         step=1, key=f"ctx_pitch_v_p_{tab_p_pitcher}",
                     )
+                    _cf_pitch_dir_label_p = st.radio(
+                        "Δ into the previous pitch", ["Any", "Negative", "Positive"], horizontal=True,
+                        key="ctx_pitch_dir_p",
+                        help="Only keep sequences where the move INTO that previous pitch was downward "
+                             "(negative Δ) or upward (positive Δ). Any (default) ignores how it got there.")
+                    _cf_pitch_dir_p = {"Any": None, "Negative": "neg", "Positive": "pos"}[_cf_pitch_dir_label_p]
                     _cf_pitch_bucket_p = utils._centered_match_interval(
                         int(_cf_pitch_val_p), _cf_pitch_w_p, domain_hi=1000, domain_lo=1)
                     _cf_pitch_seq3_on_p = st.toggle(
@@ -2460,6 +2467,7 @@ with tab_p:
                     _df_ctx_p,
                     prev_pitch_bucket=_cf_pitch_bucket_p,
                     prev_pitch_bucket2=_cf_pitch_bucket2_p,
+                    prev_pitch_delta_dir=_cf_pitch_dir_p,
                     prev_result_cat=_cf_result_cat_p,
                     prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,

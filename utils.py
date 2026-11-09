@@ -1003,6 +1003,7 @@ def filter_by_prior_context(
     df: pd.DataFrame,
     prev_pitch_bucket: tuple[int, int] | None = None,
     prev_pitch_bucket2: tuple[int, int] | None = None,
+    prev_pitch_delta_dir: str | None = None,
     prev_delta_bucket: tuple[int, int] | None = None,
     prev_delta_bucket2: tuple[int, int] | None = None,
     prev_delta2_bucket: tuple[int, int] | None = None,
@@ -1036,6 +1037,12 @@ def filter_by_prior_context(
     on ("the distribution k pitches after a <category> result"). Rows in id
     order, so like every other prev_* condition here it can cross a game or
     PA boundary; rows without that many predecessors are dropped.
+
+    prev_pitch_delta_dir ("neg" / "pos"; None = any) narrows the previous pitch to the ones
+    that were reached by a negative / positive signed delta (delta_col one row back - the move
+    INTO that previous pitch), so a previous-pitch window of 250-350 can be split into "came
+    down into it" and "came up into it". A zero delta, or no delta at all (an appearance's
+    first pitch), matches neither direction.
 
     prev_pitch_bucket/prev_delta_bucket/prev_delta2_bucket/prev_shadow_delta_bucket/
     prev_result_cat look at the row immediately BEFORE each one (what the
@@ -1085,6 +1092,10 @@ def filter_by_prior_context(
     if prev_pitch_bucket2 is not None:
         lo, hi = prev_pitch_bucket2
         keep &= _in_bucket(pd.to_numeric(d[pitch_col], errors="coerce").shift(2), lo, hi)
+
+    if prev_pitch_delta_dir in ("neg", "pos"):
+        into_prev = pd.to_numeric(d[delta_col], errors="coerce").shift(1)
+        keep &= (into_prev < 0) if prev_pitch_delta_dir == "neg" else (into_prev > 0)
 
     if prev_delta_bucket is not None:
         lo, hi = prev_delta_bucket
