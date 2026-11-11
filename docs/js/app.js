@@ -17997,6 +17997,7 @@
       tagLabels: function () { return (data.meta && data.meta.tag_labels) || {}; },
       isFavorite: function (id) { return isFavoritedId(id); },
       playSlideshow: openCrossSeasonSlideshow,
+      nameDisplay: statsPlayerNameDisplay,   // full name up to 18 chars, else last name, else 15 chars + an ellipsis
       awardBadges: function (award, gameAward) { return statsAwardBadgeHtml(award) + statsGameAwardBadgeHtml(gameAward); },
       openPlay: openCrossSeasonPlay,
       copyLink: copyLinkToClipboard,
@@ -18071,4 +18072,3 @@
     boot();
   }
 })();
-      nameDisplay: statsPlayerNameDisplay,   // full name up to 18 chars, else last name, else 15 chars + an ellipsis
