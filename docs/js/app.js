@@ -18071,3 +18071,4 @@
     boot();
   }
 })();
+      nameDisplay: statsPlayerNameDisplay,   // full name up to 18 chars, else last name, else 15 chars + an ellipsis

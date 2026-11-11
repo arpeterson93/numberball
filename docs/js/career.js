@@ -222,13 +222,18 @@
       if (pv) { pm.view = pv.getAttribute("data-pview"); renderPlayer(); return; }
       var ssn = e.target.closest("[data-pseason]");
       if (ssn) { var sv = ssn.getAttribute("data-pseason"); pm.season = pm.season === sv ? "all" : sv; renderPlayer(); return; }
+      var dxb = e.target.closest("[data-pdx]");
+      if (dxb) { openDiffModal(dxb.getAttribute("data-pdx"), dxb.getAttribute("data-s")); return; }
+      var who = e.target.closest("[data-pacc]");
+      if (who) { e.preventDefault(); e.stopPropagation(); openAcc(who.getAttribute("data-pacc")); return; }
+      var sl = e.target.closest("[data-pslide]");
+      if (sl && sl.getAttribute("data-pslide")) { playAccSlides(sl, stacked() ? "over-stack" : "over-player"); return; }
       var g = e.target.closest("[data-pgame]");
       if (g) {
-        // the game replays on top of this panel, so the player's log is still here when it closes
         // the game replays on top of this panel, so the player's log is still here when it closes; the player modal
         // normally sits above the replay (a player opened from one), so lift the replay for this open only
         var rp = $("replay-modal");
-        if (rp) rp.classList.add("over-player");
+        if (rp) rp.classList.add(stacked() ? "over-stack" : "over-player");
         B.openPlay({ s: Number(g.getAttribute("data-s")), n: Number(g.getAttribute("data-n")), g: g.getAttribute("data-pgame") });
       }
     });
@@ -514,9 +519,19 @@
 
   // Closing walks back over the entry opening pushed; a panel that was landed on (shared link) has nothing behind it,
   // so its params are stripped from the address bar instead. fromPop: the browser already moved, only hide.
+  // A player opened from the Accomplishments modal sits above it (stack = the player underneath it, if any). The one
+  // player modal is reused, so closing the top player puts the one that was under it back, still below the modal.
+  var stack = null;
+  function stacked() { var m = $("career-modal"); return !!(m && !m.hidden && m.classList.contains("acc-stack")); }
+
   function closePlayer(fromPop) {
     var m = $("career-modal");
     if (!m || m.hidden) return;
+    if (m.classList.contains("acc-stack")) {
+      m.classList.remove("acc-stack");
+      var under = stack; stack = null;
+      if (under && fromPop !== true) { openPlayer(under.id, under.name, under.opts); return; }
+    }
     m.hidden = true;
     if (fromPop === true) { pushed = false; return; }
     if (pushed) { pushed = false; try { window.history.back(); } catch (e) { /* ignore */ } return; }
@@ -670,9 +685,10 @@
       pm.side = d.pit.length > d.bat.length || (!batPA && d.pit.length) ? "pit" : "bat";
       // a shared link can ask for a side / view, honoured when this player has rows for it
       if (opts && opts.side && d[opts.side] && d[opts.side].length) pm.side = opts.side;
+      if (opts && opts.side === "awd" && awardsFor(d).any) pm.side = "awd";
       if (opts && (opts.view === "diffs" || opts.view === "gsc")) pm.view = opts.view;
-      if (opts.gt === "reg" || (opts.gt === "post" && d[pm.side].some(function (r) { return r.po; }))) pm.gt = opts.gt;
-      if (opts.season && d[pm.side].some(function (r) { return String(r.s) === String(opts.season); })) pm.season = String(opts.season);
+      if (opts.gt === "reg" || (opts.gt === "post" && (d[pm.side] || []).some(function (r) { return r.po; }))) pm.gt = opts.gt;
+      if (opts.season && (d[pm.side] || []).some(function (r) { return String(r.s) === String(opts.season); })) pm.season = String(opts.season);
       $("career-title").textContent = d.name;
       styleHead(d);
       fitCard();
@@ -735,6 +751,240 @@
 
   var NULLABLE = { wpa: 1, gsc: 1, dpa: 1, rv: 1, xr: 1, rvx: 1, wp: 1, xw: 1, wvx: 1 };
 
+  // ── Awards tab: the player's trophy case ──────────────────────────────────
+  // Season-long awards come from the player file's "awd" ([season, award, league, team, pos, detail], from the awards
+  // sheet); session awards (aw) and Player of the Game / Honorable Mention (ga) ride on the game rows already here.
+  var AW_SEASON = [  // [key, title, shape, tone]
+    ["mvp", "MVP", "cup", "gold"], ["cy_young", "Cy Young", "cup", "gold"],
+    ["roy", "Rookie", "cup", "silver"], ["reliever_of_year", "Reliever", "cup", "silver"],
+    ["most_improved", "Most Improved", "cup", "bronze"], ["gm_of_year", "GM", "cup", "gold"],
+    ["person_of_year", "MLN Person", "cup", "gold"]
+  ];
+  var AW_LEAGUE = { GL: "Galactic League", LL: "Liberty League" };
+  var AW_TONE = { gold: ["#e6b93a", "#9a6f0c"], silver: ["#c3ccd6", "#6b7886"], bronze: ["#cf9460", "#7a4a1d"] };
+  var AW_POS = { C: "Catcher", "1B": "First base", "2B": "Second base", "3B": "Third base", SS: "Shortstop", OF: "Outfield",
+    LF: "Left field", CF: "Center field", RF: "Right field", DH: "Designated hitter", P: "Pitcher", SP: "Starting pitcher", RP: "Relief pitcher" };
+  var AW_SESSION = [["player", "Player of the Session", "gold"], ["hitter", "Hitter of the Session", "silver"], ["pitcher", "Pitcher of the Session", "silver"]];
+  var AW_GAME = [["potg", "Player of the Game", "gold"], ["hm", "Honorable Mention", "bronze"]];
+  // Accomplishments (accomplishments_build.py), in the order set in the editor: [key, title, group, tooltip, side].
+  // Groups: season (league leader titles), game (a feat across a whole game: stat line shown), play (one act: the
+  // play is shown). side "pit" = the stat line comes from the pitching row, otherwise the batting row.
+  var AW_ACC_GROUPS = [["season", "Season"], ["game", "Game"], ["play", "Moments"]];
+  var AW_ACC = [
+    ["lead_dpa", "DPA Leader", "season", "Lowest average diff per PA in MLN for the season (qualified)"],
+    ["lead_dbf", "DBF Leader", "season", "Highest average diff per batter faced in MLN for the season (qualified)"],
+    ["lead_wpa_bat", "Batting WPA Leader", "season", "Most batting WPA in MLN for the season"],
+    ["lead_wpa_pit", "Pitching WPA Leader", "season", "Most pitching WPA in MLN for the season"],
+    ["lead_er6", "ER6 Leader", "season", "Lowest earned runs per 6 innings in MLN for the season (qualified: 1 IP per team game)"],
+    ["lead_whip", "WHIP Leader", "season", "Lowest WHIP in MLN for the season (qualified: 1 IP per team game)"],
+    ["lead_k", "K Leader", "season", "Most strikeouts by a pitcher in MLN for the season"],
+    ["lead_h", "Hits Leader", "season", "Most hits in MLN for the season"],
+    ["lead_hr", "HR Leader", "season", "Most home runs in MLN for the season"],
+    ["lead_rbi", "RBI Leader", "season", "Most RBI in MLN for the season"],
+    ["lead_sb", "SB Leader", "season", "Most stolen bases in MLN for the season"],
+    ["perfect_game", "Perfect Game", "game", "Complete game, nobody reached base", "pit"],
+    ["no_hitter", "No-hitter", "game", "Complete game, no hits allowed", "pit"],
+    ["cycle", "Cycle", "game", "Single, double, triple and home run in one game"],
+    ["multi_hr_2plus", "Multi-HR Game", "game", "Two or more home runs in a game"],
+    ["cg_shutout", "Complete Game Shutout", "game", "Pitched the whole game, no runs allowed", "pit"],
+    ["reached_5plus", "Reached Base 5+", "game", "Hits plus walks, five or more in a game"],
+    ["hits_4plus", "4+ Hit Game", "game", "Four or more hits in a game"],
+    ["rbi_5plus", "5+ RBI Game", "game", "Five or more RBI in a game"],
+    ["k_10plus", "10+ K Game", "game", "Ten or more strikeouts by a pitcher in a game (auto strikeouts count)", "pit"],
+    ["sb_3plus", "3+ SB Game", "game", "Three or more steals in a game"],
+    ["golden_sombrero", "Golden Sombrero", "game", "Four or more strikeouts in a game (auto strikeouts count)"],
+    ["grand_slam", "Grand Slam", "play", "Home run with the bases loaded"],
+    ["walk_off", "Walk-off", "play", "The plate appearance that won the game in the last at-bat (hit, walk, sacrifice, GORA, anything that scored the winning run)"],
+    ["immaculate_inning", "Immaculate Inning", "play", "Three batters faced, three strikeouts, no auto strikeouts"],
+    ["zero_diff_bat", "0 Diff (Batter)", "play", "Swing exactly matched the pitch"],
+    ["five_hundred_pit", "500 Diff (Pitcher)", "play", "Pitch landed the maximum 500 away from the swing"],
+    ["five_hundred_bat", "500 Diff Against (Batter)", "play", "Swing was the maximum 500 from the pitch"],
+    ["zero_diff_pit", "0 Diff Allowed (Pitcher)", "play", "Gave up a 0-diff"]
+  ];
+
+  function awardsFor(d) {
+    var sess = {}, game = {};
+    ["bat", "pit"].forEach(function (side) {
+      d[side].forEach(function (r) {
+        if (r.aw) {
+          var sk = r.aw + "|" + r.s + "|" + r.n;
+          var e = sess[sk] || (sess[sk] = { k: r.aw, s: r.s, n: r.n, rows: { bat: [], pit: [] } });
+          e.rows[side].push(r);
+        }
+        if (r.ga) game[r.ga + "|" + r.g] = { k: r.ga, s: r.s, n: r.n, g: r.g, d: r.d, o: r.o, pr: r.pr, pl: r.pl, rows: { bat: side === "bat" ? [r] : [], pit: side === "pit" ? [r] : [] } };
+      });
+    });
+    var seasonal = (d.awd || []).map(function (a) { return { s: a[0], k: a[1], lg: a[2], t: a[3], pos: a[4], x: a[5] }; });
+    var sl = Object.keys(sess).map(function (k) { return sess[k]; }), gl = Object.keys(game).map(function (k) { return game[k]; });
+    // [key, season, game, detail, opponent, play numbers to replay]; the build writes each game feat's stat line as its detail
+    var acc = (d.acc || []).map(function (a) { return { k: a[0], s: a[1], g: a[2], x: a[3], o: a[4], pns: a[5] || [] }; });
+    return { season: seasonal, sess: sl, game: gl, acc: acc, any: !!(seasonal.length || sl.length || gl.length || acc.length) };
+  }
+
+  // The stat line the slideshow shows beside a player in a matchup: a batter's H-AB plus whichever of HR / 3B / 2B / BB /
+  // RBI / SB / CS / K / DP are nonzero; a pitcher's IP, then H / ER / K / BB / DP when nonzero. A count of one is bare.
+  function awStatLine(item) {
+    return ["bat", "pit"].map(function (side) {
+      var rows = item.rows[side];
+      if (!rows.length) return "";
+      var t = {};
+      rows.forEach(function (r) {
+        ["ab", "h", "2b", "3b", "hr", "bb", "rbi", "sb", "cs", "k", "gidp", "outs", "er", "dp"].forEach(function (k) { t[k] = (t[k] || 0) + (r[k] || 0); });
+      });
+      var parts = [];
+      var cnt = function (n, label) { if (n > 0) parts.push(n === 1 ? label : n + " " + label); };
+      if (side === "bat") {
+        parts.push(t.h + "-" + t.ab);
+        cnt(t.hr, "HR"); cnt(t["3b"], "3B"); cnt(t["2b"], "2B"); cnt(t.bb, "BB"); cnt(t.rbi, "RBI");
+        cnt(t.sb, "SB"); cnt(t.cs, "CS"); cnt(t.k, "K"); cnt(t.gidp, "DP");
+      } else {
+        parts.push(Math.floor(t.outs / 3) + "." + (t.outs % 3) + " IP");
+        cnt(t.h, "H"); cnt(t.er, "ER"); cnt(t.k, "K"); cnt(t.bb, "BB"); cnt(t.dp, "DP");
+      }
+      return parts.join(", ");
+    }).filter(Boolean).join(" | ");
+  }
+
+  // Inline SVG: a cup (the big awards), a ribbon medal, or a star, in gold / silver / bronze with the team accent on ribbons.
+  function awSvg(shape, tone, size, etch) {
+    var c = AW_TONE[tone] || AW_TONE.gold;
+    // the season, engraved in the darker tone of the metal
+    var cut = function (y, fs) {
+      return etch ? '<text x="32" y="' + y + '" text-anchor="middle" font-size="' + fs + '" font-weight="800" fill="' + c[1] + '" opacity="0.85" font-family="inherit">' + etch + "</text>" : "";
+    };
+    var open = '<svg class="aw-svg" viewBox="0 0 64 64" width="' + size + '" height="' + size + '" aria-hidden="true">';
+    if (shape === "cup") {
+      return open + '<path d="M17 12H8c0 9 4 14 11 15M47 12h9c0 9-4 14-11 15" fill="none" stroke="' + c[1] + '" stroke-width="3.2" stroke-linecap="round"/>' +
+        '<path d="M16 7h32v15c0 10-7 17-16 17S16 32 16 22z" fill="' + c[0] + '" stroke="' + c[1] + '" stroke-width="2.4"/>' +
+        '<rect x="28" y="39" width="8" height="9" fill="' + c[0] + '" stroke="' + c[1] + '" stroke-width="2"/>' +
+        '<path d="M19 48h26l3 6H16z" fill="' + c[0] + '" stroke="' + c[1] + '" stroke-width="2.2" stroke-linejoin="round"/>' +
+        '<rect x="14" y="54" width="36" height="5" rx="1.5" fill="' + c[1] + '"/>' + cut(27, etch && etch.length > 2 ? 11 : 13) + "</svg>";
+    }
+    if (shape === "star") {
+      // the stem runs up behind the star and down into the base, so neither joint shows a gap
+      return open + '<rect x="29" y="36" width="6" height="18" fill="' + c[1] + '"/><g transform="translate(5.12 3) scale(0.84)"><path d="M32 5l7.6 16 17.4 2.3-12.8 12.2 3.2 17.3L32 44l-15.4 8.8 3.2-17.3L7 23.3 24.4 21z" fill="' + c[0] + '" stroke="' + c[1] + '" stroke-width="2.6" stroke-linejoin="round"/>' + cut(36, 15) + "</g>" +
+        '<path d="M19 52h26l3 7H16z" fill="' + c[1] + '"/></svg>';
+    }
+    return open + '<path d="M18 3h12l6 22H24zM46 3H34l-6 22h12z" fill="var(--accent)"/>' +
+      '<circle cx="32" cy="40" r="19" fill="' + c[0] + '" stroke="' + c[1] + '" stroke-width="2.6"/>' +
+      '<circle cx="32" cy="40" r="14.5" fill="none" stroke="' + c[1] + '" stroke-width="1.2" opacity="0.7"/>' + cut(44, etch && etch.length > 2 ? 11 : 13) + "</svg>";
+  }
+
+  // One trophy / medal / star per award instance (no grouping). Trophies stand on a shelf with their label above them
+  // (bottom-aligned so every trophy in a row stands level); the All-Star stars have no shelf and keep it below.
+  function awItem(shape, tone, caption, line2, title, size, etch) {
+    return '<div class="aw-item"' + (title ? ' title="' + esc(title) + '"' : "") + '><div class="aw-lab">' +
+      (caption ? '<div class="aw-cap">' + esc(caption) + "</div>" : "") + (line2 ? '<div class="aw-cap2">' + esc(line2) + "</div>" : "") +
+      '</div><div class="aw-cell">' + awSvg(shape, tone, size, etch) + "</div></div>";
+  }
+
+  // opts: cell = shelf height in px; mixed = keep the title's casing.
+  function awShelf(title, cards, opts) {
+    opts = opts || {};
+    return '<div class="xt-sub aw-head' + (opts.mixed ? " aw-mixed" : "") + '">' + esc(title) + "</div>" +
+      '<div class="aw-shelf"' + (opts.cell ? ' style="--cell:' + opts.cell + 'px"' : "") + ">" + cards + "</div>";
+  }
+
+  // Session / game honours: one row per award with the total; open it for each session / game and the stat line from it.
+  function awTally(kinds, items, rowFn) {
+    return kinds.map(function (k) {
+      var mine = items.filter(function (i) { return i.k === k[0]; });
+      if (!mine.length) return "";
+      mine.sort(function (a, b) { return a.s - b.s || a.n - b.n; });
+      return '<details class="aw-det"><summary><span class="aw-ico aw-sm">' + awSvg("medal", k[2], 30) + "</span>" +
+        '<span class="aw-dname">' + esc(k[1]) + '</span><span class="aw-total">&times;' + mine.length + "</span></summary>" +
+        '<div class="aw-list">' + mine.map(rowFn).join("") + "</div></details>";
+    }).join("");
+  }
+
+  // Two people, filled, to sit in the same round badge as the replay play button (.play-jump-btn / .play-profile-btn)
+  var AW_WHO_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"></circle><path d="M2.5 19c0-3.6 2.9-5.6 6.5-5.6s6.5 2 6.5 5.6z"></path>' +
+    '<circle cx="17" cy="9.5" r="2.5"></circle><path d="M16.6 13.6c2.9-.2 5 1.5 5 4.4h-4.2c0-1.8-.3-3.2-.8-4.4z"></path></svg>';
+
+  // One expanded line. A season title is a plain row (season + value). A game feat or a one-act accomplishment opens a
+  // replay of just the plays involved: the player's plays in that game, or the single play (an inning's three strikeouts).
+  function accRow(i, group) {
+    if (group === "season") {
+      // DPA / DBF titles open that season's diff distribution in a modal on top of this one, so the Awards tab keeps its place
+      var dx = i.k === "lead_dpa" ? "bat" : i.k === "lead_dbf" ? "pit" : "";
+      var inner = '<span class="aw-lbl">S' + i.s + '</span><span class="aw-stats">' + esc(i.x || "") + "</span>";
+      return dx ? '<button type="button" class="aw-row" data-pdx="' + dx + '" data-s="' + i.s + '">' + inner + "</button>" : '<div class="aw-row">' + inner + "</div>";
+    }
+    var n = Number(String(i.g).slice(2, 4));
+    var lbl = "S" + i.s + " &middot; SN" + n + (i.o ? " vs " + esc(i.o) : "");
+    var stat = i.x || "";
+    return '<button type="button" class="aw-row" data-pslide="' + i.pns.join(",") + '" data-pgame="' + esc(i.g) + '" data-s="' + i.s + '" data-n="' + n + '"><span class="aw-lbl">' + lbl +
+      '</span><span class="aw-stats">' + esc(stat) + "</span></button>";
+  }
+
+  function awardsCase(aw) {
+    var html = "", hToos = "", hSeason = "", hStars = "", hSeries = "";
+    var byYear = function (x, y) { return x.s - y.s; };
+    var champs = aw.season.filter(function (a) { return a.k === "toos"; }).sort(byYear);
+    if (champs.length) {
+      hToos += awShelf("ToOS", champs.map(function (a) {
+        return awItem("cup", "gold", a.t || "", "", "", 56, "S" + a.s);
+      }).join(""), { cell: 56, mixed: true });
+    }
+    var cards = "";
+    AW_SEASON.forEach(function (m) {
+      aw.season.filter(function (a) { return a.k === m[0]; }).sort(byYear).forEach(function (a) {
+        cards += awItem(m[2], m[3], m[1], (a.lg || "") + (a.lg && a.t ? " \u00b7 " : "") + (a.t || ""), "", 56, "S" + a.s);
+      });
+    });
+    if (cards) hSeason += awShelf("Season awards", cards, { cell: 56 });
+    var stars = aw.season.filter(function (a) { return a.k === "all_star"; }).sort(byYear);
+    if (stars.length) {
+      var TONE = { starter: "gold", reserve: "silver", replacement: "bronze" };
+      var ROLE = { starter: "Starter", reserve: "Reserve", replacement: "Replacement" };
+      hStars += awShelf("All-Stars", stars.map(function (a) {
+        var role = ROLE[a.x] || "Reserve";
+        return awItem("star", TONE[a.x] || "silver", role, "S" + a.s + " \u00b7 " + a.pos,
+          "All-Star, Season " + a.s + " \u00b7 " + (AW_POS[a.pos] || a.pos) + " \u00b7 " + role.toLowerCase() + (a.x === "replacement" ? " (championship game)" : "") +
+          (a.lg ? " (" + AW_LEAGUE[a.lg] + ")" : ""), 56, a.lg || "");
+      }).join(""), { cell: 56 });
+    }
+    // Player of the Game in a championship game (ToOS MVP, gold) or a semifinal (LCS MVP, silver, with its league)
+    var series = aw.game.filter(function (i) { return i.k === "potg" && i.pr; }).sort(function (x, y) { return x.s - y.s || (x.pr === "lcs" ? -1 : 1); });
+    if (series.length) {
+      hSeries += awShelf("Postseason MVP", series.map(function (i) {
+        return i.pr === "toos" ? awItem("cup", "gold", "ToOS MVP", "", "", 56, "S" + i.s)
+          : awItem("cup", "silver", (i.pl || "L") + "CS MVP", "", "", 56, "S" + i.s);   // GLCS / LLCS: the league's championship series
+      }).join(""), { cell: 56 });
+    }
+    // every shelf sits in the one case, the All-Stars last (that bottom shelf is the case's base)
+    var shelves = hSeason + hToos + hSeries + hStars;
+    html += shelves ? '<div class="aw-vitrine">' + shelves + "</div>" : "";
+    if (aw.sess.length) {
+      html += '<div class="xt-sub aw-head">Session awards</div><div class="aw-dets">' +
+        awTally(AW_SESSION, aw.sess, function (i) {
+          return '<div class="aw-row"><span class="aw-lbl">S' + i.s + " &middot; SN" + i.n + '</span><span class="aw-stats">' + esc(awStatLine(i)) + "</span></div>";
+        }) + "</div>";
+    }
+    if (aw.game.length) {
+      html += '<div class="xt-sub aw-head">Game honors</div><div class="aw-dets">' +
+        awTally(AW_GAME, aw.game, function (i) {
+          return '<button type="button" class="aw-row' + (i.pr === "toos" ? " aw-gold" : i.pr === "lcs" ? " aw-silver" : "") + '" data-pgame="' + esc(i.g) + '" data-s="' + i.s + '" data-n="' + i.n + '"><span class="aw-lbl">S' + i.s +
+            " &middot; SN" + i.n + (i.o ? " vs " + esc(i.o) : "") + '</span><span class="aw-stats">' + esc(awStatLine(i)) + "</span></button>";
+        }) + "</div>";
+    }
+    if (aw.acc.length) {
+      var grp = AW_ACC_GROUPS.map(function (G) {
+        var kinds = AW_ACC.filter(function (m) { return m[2] === G[0]; }).map(function (m) {
+          var mine = aw.acc.filter(function (i) { return i.k === m[0]; });
+          if (!mine.length) return "";
+          mine.sort(function (a, b) { return a.s - b.s || String(a.g).localeCompare(String(b.g)); });
+          return '<details class="aw-det"><summary title="' + esc(m[3]) + '"><span class="aw-dname">' + esc(m[1]) + '</span><span class="aw-total">&times;' + mine.length + "</span>" +
+            '<button type="button" class="play-jump-btn play-profile-btn aw-who" data-pacc="' + m[0] + '" title="Everyone with this accomplishment" aria-label="Everyone with ' + esc(m[1]) + '">' + AW_WHO_SVG + "</button></summary>" +
+            '<div class="aw-list">' + mine.map(function (i) { return accRow(i, G[0]); }).join("") + "</div></details>";
+        }).join("");
+        return kinds ? '<div class="aw-subgroup">' + esc(G[1]) + "</div>" + kinds : "";
+      }).join("");
+      html += '<div class="xt-sub aw-head">Accomplishments</div><div class="aw-dets">' + grp + "</div>";
+    }
+    return '<div class="aw-case">' + html + "</div>";
+  }
+
   function renderPlayer() {
     renderPlayerBody();
     syncPlayerUrl();
@@ -744,17 +994,22 @@
     var d = pm.data;
     if (!d) return;
     var side = pm.side;
+    var aw = awardsFor(d);
+    // Batting / Pitching / Awards are the top-level tabs (only what this player has); Stats / Diffs sit under the first two.
+    var sideTabs = ["bat", "pit"].filter(function (s) { return d[s].length; }).concat(aw.any ? ["awd"] : []);
+    var topTabs = sideTabs.length ? '<div class="view-tabs xt-ptop">' + sideTabs.map(function (s) {
+      return '<button type="button" class="view-tab' + (side === s ? " active" : "") + '" data-pside="' + s + '">' +
+        (s === "bat" ? "Batting" : s === "pit" ? "Pitching" : "Awards") + "</button>";
+    }).join("") + LINK_BTN + "</div>" : "";
+    $("career-body").classList.toggle("aw-on", side === "awd");
+    $("career-body").classList.remove("pm-stats");   // set again below, only for the Stats view
+    if (side === "awd") { $("career-body").innerHTML = topTabs + awardsCase(aw); return; }
     var everything = d[side];
     var all = everything.filter(function (r) { return gtOk(pm.gt, r.po); });
     var cols = side === "bat" ? PBAT : PPIT;
     var hasPost = d.bat.concat(d.pit).some(function (r) { return r.po; });
 
-    // Batting / Pitching are the top-level tabs (only the sides this player has played); Stats / Diffs sit under them.
-    var sideTabs = ["bat", "pit"].filter(function (s) { return d[s].length; });
-    var tabs = (sideTabs.length ? '<div class="view-tabs xt-ptop">' + sideTabs.map(function (s) {
-      return '<button type="button" class="view-tab' + (side === s ? " active" : "") + '" data-pside="' + s + '">' +
-        (s === "bat" ? "Batting" : "Pitching") + "</button>";
-    }).join("") + LINK_BTN + "</div>" : "") +
+    var tabs = topTabs +
       '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
         return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
       }).join("") + (sideTabs.length ? "" : LINK_BTN) + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
@@ -834,11 +1089,29 @@
       return "<td>" + cell(tl[k] == null ? (NULLABLE[k] ? null : 0) : tl[k], c[2], k) + "</td>";
     }).join("") + "</tr>";
 
+    $("career-body").classList.add("pm-stats");
     $("career-body").innerHTML = tabs +
       '<div class="xt-sub">By season <span class="xt-hint">click a season to filter the game log, click it again to clear</span></div>' + seasonTable +
       '<div class="xt-sub">Game log' + (pm.season === "all" ? "" : " \u00B7 S" + esc(pm.season)) + '<span class="xt-hint">click a game to open it</span></div>' +
       '<div class="stats-table-wrap xt-table xt-scroll"><table class="stats-table xt-plain"><thead><tr>' + ghead +
       "</tr></thead><tbody>" + gbody + "</tbody><tfoot>" + gfoot + "</tfoot></table></div>";
+    capGameLog();
+  }
+
+  // The Game log shows 10 rows (the header and the Total row come on top) and scrolls past that; with fewer games the
+  // table is just as tall as its rows, so its bottom border sits right under them.
+  var GAME_LOG_ROWS = 10;
+  function capGameLog() {
+    var wrap = $("career-body").querySelector(".xt-scroll");
+    if (!wrap) return;
+    wrap.style.maxHeight = "";
+    var rows = wrap.querySelectorAll("tbody tr");
+    if (rows.length <= GAME_LOG_ROWS) return;
+    var h = 0, i;
+    for (i = 0; i < GAME_LOG_ROWS; i++) h += rows[i].offsetHeight;
+    var head = wrap.querySelector("thead"), foot = wrap.querySelector("tfoot");
+    h += (head ? head.offsetHeight : 0) + (foot ? foot.offsetHeight : 0) + 2;   // + the wrapper's own border
+    wrap.style.maxHeight = h + "px";
   }
 
   // ── Stats tab: team / game / league lines, and every player-session line All-Time ──────────────
@@ -1178,7 +1451,7 @@
   function playerLinkUrl() {
     var u = baseUrl();
     u.searchParams.set("player", String(pm.id));
-    if (pm.side === "pit") u.searchParams.set("side", "pit");
+    if (pm.side === "pit" || pm.side === "awd") u.searchParams.set("side", pm.side);
     if (pm.view !== "stats") u.searchParams.set("pview", pm.view);
     if (pm.season !== "all") u.searchParams.set("season", pm.season);
     if (pm.gt !== "all") u.searchParams.set("gt", pm.gt);
@@ -1701,6 +1974,155 @@
     document.addEventListener("click", function (e) {
       if (!box.hidden && !box.contains(e.target) && !btn.contains(e.target)) setOpen(false);
     });
+  }
+
+  // ── Diff distribution modal: one season's chart for the player whose Awards tab is open ───
+  // Stacks above the player modal (the same chart as the Diffs tab, with the season and game type pinned), so
+  // the player modal underneath keeps its place. The chart helpers read pm.season / pm.gt, so those are set for the
+  // draw and put back straight after.
+  function ensureDiffModal() {
+    if ($("dx-modal")) return;
+    var m = document.createElement("div");
+    m.className = "modal"; m.id = "dx-modal"; m.hidden = true;
+    m.innerHTML = '<div class="modal-card"><div class="modal-head"><strong id="dx-title">Diff distribution</strong>' +
+      '<button type="button" class="ph-x" id="dx-close" aria-label="Close">&times;</button></div><div class="modal-body" id="dx-body"></div></div>';
+    document.body.appendChild(m);
+    var close = function () { m.hidden = true; };
+    $("dx-close").addEventListener("click", close);
+    m.addEventListener("click", function (e) { if (e.target === m) close(); });
+    document.addEventListener("keydown", function (e) {
+      var rm = $("replay-modal");
+      if (e.key === "Escape" && !m.hidden && !(rm && !rm.hidden)) { close(); e.stopImmediatePropagation(); }
+    }, true);
+  }
+
+  function openDiffModal(side, season) {
+    var d = pm.data;
+    if (!d) return;
+    ensureDiffModal();
+    $("dx-modal").classList.toggle("over-stack", stacked());
+    $("dx-title").textContent = d.name + " · S" + season + " " + (side === "pit" ? "DBF" : "DPA") + " · diff distribution";
+    $("dx-body").innerHTML = '<p class="modal-note">Loading&hellip;</p>';
+    $("dx-modal").hidden = false;
+    var draw = function () {
+      var keepS = pm.season, keepG = pm.gt, html;
+      pm.season = String(season); pm.gt = "reg";
+      try {
+        var bins = dxBins(d, side), n = 0, c, b;
+        for (c = 0; c < bins.length; c++) for (b = 0; b < 25; b++) n += bins[c][b];
+        var rows = d[side].filter(function (r) { return String(r.s) === String(season) && !r.po; });
+        var line = lineFrom(rows, side);
+        html = n ? '<div class="xt-sub">Diff Distribution <span class="xt-hint">' + n.toLocaleString() + " swings, 20-wide buckets</span></div>" +
+          '<div class="dx-chart">' + dxChart("count", bins, null, line.dpa, leagueDpa(d, side), side === "pit" ? "DBF" : "DPA", { w: Math.max(300, Math.min(600, window.innerWidth - 80)) }) + "</div>" + dxLegend()
+          : '<div class="stats-empty">No modelled swings here.</div>';
+      } finally { pm.season = keepS; pm.gt = keepG; }
+      $("dx-body").innerHTML = html;
+    };
+    if (modelData) draw();
+    else getJ("data/career/model.json").then(function (m) { modelData = m; draw(); }, function () { $("dx-body").innerHTML = '<p class="modal-note">Could not load the diff model.</p>'; });
+  }
+
+  // ── Accomplishments modal: everyone who has one, league wide ────────────────────────────
+  // Opened from the little people icon on an accomplishment row in the player's Awards tab. Reads
+  // data/accomplishments.json (accomplishments_build.py): [key, player id, season, game, detail, opponent, play numbers].
+  var acc = { rows: null, key: null, view: "list" };
+
+  // Replays just the plays an accomplishment row names; `lift` is the class that puts the replay above whichever panel
+  // it was opened from (the player modal, or this one).
+  function playAccSlides(el, lift) {
+    var pns = el.getAttribute("data-pslide").split(",").map(Number), s = Number(el.getAttribute("data-s"));
+    var n = Number(el.getAttribute("data-n")), g = el.getAttribute("data-pgame");
+    var rp = $("replay-modal");
+    if (rp) { rp.classList.remove("over-player", "over-acc", "over-stack"); rp.classList.add(lift); }
+    B.playSlideshow(pns.map(function (pn) { return { s: s, n: n, g: g, pn: pn }; }));
+  }
+
+  function ensureAccModal() {
+    if ($("acc-modal")) return;
+    var m = document.createElement("div");
+    m.className = "modal"; m.id = "acc-modal"; m.hidden = true;
+    m.innerHTML = '<div class="modal-card"><div class="modal-head"><strong>Accomplishments</strong>' +
+      '<button type="button" class="ph-x" id="acc-close" aria-label="Close">&times;</button></div>' +
+      '<div class="modal-body" id="acc-body"></div></div>';
+    document.body.appendChild(m);
+    var close = function () { m.hidden = true; m.classList.remove("over-stack"); };
+    $("acc-close").addEventListener("click", close);
+    m.addEventListener("click", function (e) {
+      if (e.target === m) { close(); return; }
+      var v = e.target.closest("[data-accview]");
+      if (v) { acc.view = v.getAttribute("data-accview"); renderAcc(); return; }
+      var p = e.target.closest("[data-accp]");
+      if (p) {
+        var pid = Number(p.getAttribute("data-accp")), cm = $("career-modal");
+        if (cm && !cm.hidden && !stacked() && pm.id) {
+          // keep the Accomplishments modal open: the new player goes on top and the current one comes back when it closes
+          stack = { id: pm.id, name: pm.data && pm.data.name, opts: { side: pm.side, view: pm.view, season: pm.season === "all" ? null : pm.season, gt: pm.gt, fromNav: true } };
+          cm.classList.add("acc-stack");
+          openPlayer(pid, nameOf(pid));
+        } else { close(); openPlayer(pid, nameOf(pid)); }
+        return;
+      }
+      var sl = e.target.closest("[data-pslide]");
+      if (sl && sl.getAttribute("data-pslide")) playAccSlides(sl, "over-acc");
+    });
+    m.addEventListener("change", function (e) {
+      if (e.target.id === "acc-kind") { acc.key = e.target.value; renderAcc(); }
+    });
+    // capture phase, so the player modal on top (which closes itself on Escape) is still seen as open here
+    document.addEventListener("keydown", function (e) {
+      var rm = $("replay-modal");
+      if (e.key === "Escape" && !m.hidden && !(rm && !rm.hidden) && !stacked()) { close(); e.stopImmediatePropagation(); }   // only the top panel closes
+    }, true);
+  }
+
+  function openAcc(key) {
+    ensureAccModal();
+    $("acc-modal").classList.toggle("over-stack", stacked());
+    acc.key = key; acc.view = "list";
+    $("acc-modal").hidden = false;
+    $("acc-body").innerHTML = '<p class="modal-note">Loading&hellip;</p>';
+    Promise.all([acc.rows ? acc.rows : getJ("data/accomplishments.json"), loadNames()]).then(function (r) {
+      acc.rows = r[0]; renderAcc();
+    }, function () { $("acc-body").innerHTML = '<p class="modal-note">Could not load the accomplishments.</p>'; });
+  }
+
+  function renderAcc() {
+    var meta = {}, sel = AW_ACC_GROUPS.map(function (G) {
+      return '<optgroup label="' + esc(G[1]) + '">' + AW_ACC.filter(function (m) { return m[2] === G[0]; }).map(function (m) {
+        meta[m[0]] = m;
+        return '<option value="' + m[0] + '"' + (m[0] === acc.key ? " selected" : "") + ">" + esc(m[1]) + "</option>";
+      }).join("") + "</optgroup>";
+    }).join("");
+    var m = meta[acc.key];
+    var rows = (acc.rows || []).filter(function (r) { return r[0] === acc.key; });
+    var per = {};
+    rows.forEach(function (r) { per[r[1]] = (per[r[1]] || 0) + 1; });
+    var body = "", count;
+    // A long name falls back to the last name, then to 15 characters and an ellipsis (the Stats table's rule); the full
+    // name stays in the title.
+    var shortName = function (id) { var n = nameOf(id); return B && B.nameDisplay ? B.nameDisplay(Number(id), n) : n; };
+    var who = function (id) { return '<span class="xt-link" data-accp="' + id + '" role="link" tabindex="0" title="' + esc(nameOf(id)) + '">' + esc(shortName(id)) + "</span>"; };
+    if (acc.view === "players") {
+      count = Object.keys(per).length + (Object.keys(per).length === 1 ? " player" : " players");
+      body = '<table class="acc-table acc-players"><tbody>' + Object.keys(per).sort(function (a, b) { return per[b] - per[a] || nameOf(a).localeCompare(nameOf(b)); }).map(function (id) {
+        return '<tr class="acc-click" data-accp="' + id + '"><td class="acc-pl">' + who(id) + '</td><td class="acc-n">&times;' + per[id] + "</td></tr>";
+      }).join("") + "</tbody></table>";
+    } else {
+      count = rows.length + (rows.length === 1 ? " instance" : " instances");
+      body = '<div class="acc-scroll"><table class="acc-table"><thead><tr><th>When</th><th>Player</th><th>Context</th></tr></thead><tbody>' +
+        rows.slice().sort(function (a, b) { return b[2] - a[2] || String(b[3]).localeCompare(String(a[3])); }).map(function (r) {
+          var n = Number(String(r[3]).slice(2, 4));
+          var ctx = [r[5] ? "vs " + esc(r[5]) : "", r[4] ? esc(r[4]) : ""].filter(Boolean).join(" &middot; ");
+          var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + n + '"' : "";
+          if (!r[3]) click += ' class="acc-season"';   // a season title: just a value, so it can share the player's line on a phone
+          return "<tr" + click + '><td class="acc-when">S' + r[2] + (r[3] ? " &middot; SN" + n : "") + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + ctx + "</td></tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+    $("acc-body").innerHTML = '<select id="acc-kind" class="acc-kind" aria-label="Accomplishment">' + sel + "</select>" +
+      (m ? '<p class="modal-note">' + esc(m[3]) + "</p>" : "") +
+      '<div class="acc-views"><button type="button" class="chip' + (acc.view === "list" ? " active" : "") + '" data-accview="list">Every time</button>' +
+      '<button type="button" class="chip' + (acc.view === "players" ? " active" : "") + '" data-accview="players">By player</button></div>' +
+      (rows.length ? '<div class="acc-count">' + count + "</div>" + body : '<p class="modal-note">Nobody yet.</p>');
   }
 
   // ── public ──────────────────────────────────────────────────────────────────────

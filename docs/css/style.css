@@ -3297,6 +3297,12 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .modal-card.wide .modal-body{overflow:hidden;min-height:0;flex:1 1 auto;}
 #career-body .xt-season{max-height:30vh;overflow:auto;}
 #career-body .xt-scroll{flex:1 1 0;min-height:150px;max-height:none;overflow:auto;}
+/* Stats view: the By season table shows every row, the Game log is capped at 10 rows, and when the two do not fit the
+   panel scrolls as a whole */
+#career-body.pm-stats{overflow-y:auto;}
+#career-body.pm-stats > *{flex-shrink:0;}
+#career-body.pm-stats .xt-season{max-height:none;overflow-y:hidden;}
+#career-body.pm-stats .xt-scroll{flex:0 0 auto;min-height:0;}   /* as tall as its rows, capped to 10 by career.js */
 .xt-plain tfoot td{background:var(--card);}
 .xt-q{padding:6px 10px;min-width:150px;}
 .xt-min{width:70px;padding:5px 8px;}
@@ -3369,6 +3375,110 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 #replay-modal{z-index:25;}
 #replay-modal.over-player{z-index:27;}   /* opened from the player modal (z 26): sit on top of it */
 .xt-ptop{margin:0 0 4px;}
+/* Player modal > Awards: the trophy case (career.js awardsCase). */
+.aw-case{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;}
+.aw-head{margin-top:12px;}
+.aw-mixed{text-transform:none;}
+/* the shelves share one glass-front trophy case: polished wood frame, a dark spot-lit back panel, wooden shelves, a faint glass glare */
+.aw-vitrine{position:relative;margin-top:12px;border:9px solid transparent;border-bottom:0;border-radius:10px 10px 4px 4px;overflow:hidden;
+  background:radial-gradient(ellipse 85% 55% at 50% 0%,rgba(255,226,160,0.30),rgba(255,226,160,0) 72%) padding-box,
+    linear-gradient(#2d241c,#1a1511) padding-box,
+    linear-gradient(135deg,#c9a06a 0%,#8f6a3f 38%,#b8894f 62%,#7a5733 100%) border-box;
+  box-shadow:0 3px 10px rgba(0,0,0,0.35),inset 0 0 0 1px rgba(0,0,0,0.45),inset 0 10px 18px rgba(0,0,0,0.35);}
+.aw-vitrine::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:3;
+  background:linear-gradient(112deg,rgba(255,255,255,0) 22%,rgba(255,255,255,0.09) 30%,rgba(255,255,255,0) 40%,rgba(255,255,255,0) 58%,rgba(255,255,255,0.05) 63%,rgba(255,255,255,0) 69%);}
+.aw-vitrine .aw-head{width:fit-content;margin:10px 12px 0;padding:2px 10px;border-radius:2px;color:#3b2a0e;text-shadow:0 1px 0 rgba(255,255,255,0.35);
+  background:linear-gradient(#ecd08a,#b78d41 55%,#d8b064);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.35),0 1px 3px rgba(0,0,0,0.6);}   /* brass nameplate */
+.aw-vitrine .aw-cap{padding:1px 6px;margin-bottom:3px;border-radius:2px;color:#3b2a0e;background:linear-gradient(#ecd08a,#b78d41 55%,#d8b064);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3),0 1px 2px rgba(0,0,0,0.55);}
+.aw-vitrine .aw-cap + .aw-cap2{margin-top:0;}
+.aw-vitrine .aw-cap2{color:#e3d2ac;}
+/* glass shelves: a bright top edge, a pale body, a darker lower edge. Opaque on purpose: every trophy's cell paints the full-width bar, so
+   translucent layers would stack and make a shelf with more trophies look brighter. The surface sits exactly at the trophies' feet. */
+.aw-vitrine .aw-cell::before{bottom:-6px;background:linear-gradient(to bottom,rgba(0,0,0,0) calc(100% - 6px),#e9f2f5 calc(100% - 6px),#e9f2f5 calc(100% - 5px),#566a72 calc(100% - 5px),#566a72 calc(100% - 1px),#3d4f57 calc(100% - 1px));border-bottom:0;}
+/* the bottom shelf is the case's wooden base */
+.aw-vitrine > .aw-shelf:last-child{position:relative;}
+.aw-vitrine > .aw-shelf:last-child::after{content:"";position:absolute;left:0;right:0;bottom:6px;height:8px;z-index:-1;background:linear-gradient(to bottom,#d1a96f,#a67c47 45%,#6d4d2a);}   /* wood base under the last row only */
+.aw-vitrine .aw-shelf{padding-top:10px;}
+.aw-vitrine > .aw-shelf:last-child{margin-bottom:-6px;}   /* the last shelf's bar is the bottom of the case */
+.aw-shelf{display:flex;flex-wrap:wrap;justify-content:center;overflow:hidden;isolation:isolate;}
+.aw-item{display:flex;flex-direction:column;align-items:center;flex:1 0 62px;max-width:84px;padding-bottom:14px;}
+.aw-lab{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:3px;}
+.aw-cell{box-sizing:border-box;width:100%;height:var(--cell);position:relative;display:flex;align-items:flex-end;justify-content:center;}
+/* every cell paints the shelf out past both sides; the shelf's overflow:hidden trims it, so each row reads as one full-width shelf */
+.aw-cell::before{content:"";position:absolute;left:-100vw;right:-100vw;top:0;bottom:-8px;z-index:-1;background:var(--tint);border-bottom:8px solid var(--aw-wood,#a07f56);}
+.aw-cell .aw-svg{position:relative;margin-bottom:-4px;}
+.aw-ico{display:inline-flex;}
+.aw-svg{display:block;}
+.aw-cap{margin-top:0;font-size:10.5px;font-weight:800;line-height:1.15;text-align:center;}
+.aw-cap + .aw-cap2{margin-top:3px;}
+.aw-cap2{margin-top:0;font-size:10px;font-weight:700;line-height:1.2;color:var(--text);text-align:center;font-variant-numeric:tabular-nums;}
+.aw-dets{display:flex;flex-direction:column;gap:6px;}
+.aw-det{border:1px solid var(--border);border-radius:8px;background:var(--card);}
+.aw-det summary{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;list-style:none;}
+.aw-det summary::-webkit-details-marker{display:none;}
+.aw-det summary::after{content:"\203a";margin-left:auto;font-size:18px;color:var(--muted);transition:transform .15s;}
+.aw-det[open] summary::after{transform:rotate(90deg);}
+.aw-dname{font-size:13px;font-weight:800;}
+.aw-total{font-size:12px;font-weight:800;color:var(--navy);}
+.aw-list{display:flex;flex-direction:column;border-top:1px solid var(--border);}
+.aw-subgroup{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:8px;}
+.aw-subgroup:first-child{margin-top:0;}
+.aw-who{margin-left:6px;}
+.aw-who svg{width:12px;height:12px;fill:currentColor;}
+#acc-modal,#dx-modal{z-index:27;}   /* above the player modal (26) they are opened from */
+/* the close x, same as the player modal's: no box, soft grey wash on hover */
+#acc-modal .ph-x,#dx-modal .ph-x{border:none;background:transparent;color:inherit;opacity:0.8;font-size:22px;line-height:1;padding:2px 8px;margin:-4px -8px -4px 0;cursor:pointer;border-radius:6px;}
+#acc-modal .ph-x:hover,#dx-modal .ph-x:hover{opacity:1;background:rgba(127,127,127,0.25);}
+#replay-modal.over-acc{z-index:28;}
+#career-modal.acc-stack{z-index:29;}   /* a player opened from the Accomplishments modal sits on top of it */
+#replay-modal.over-stack,#acc-modal.over-stack,#dx-modal.over-stack{z-index:30;}
+.acc-kind{align-self:stretch;width:100%;max-width:100%;box-sizing:border-box;height:42px;line-height:normal;font-family:inherit;font-size:14px;font-weight:700;padding:0 34px 0 10px;border:1px solid var(--border);border-radius:8px;background-color:var(--card);color:var(--text);
+  -webkit-appearance:none;appearance:none;   /* the phone's own select drew the text taller than the box and clipped it */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:11px 7px;}
+.acc-views{display:flex;gap:6px;}
+.acc-count{font-size:12px;font-weight:700;color:var(--muted);}
+.acc-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:8px;}
+.acc-players{border:1px solid var(--border);border-radius:8px;}
+.acc-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.acc-scroll .acc-table{min-width:470px;}
+.acc-table th{position:sticky;top:0;background:var(--card);text-align:left;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.acc-table td{padding:6px 10px;white-space:nowrap;border-top:1px solid var(--border);}
+.acc-table thead + tbody tr:first-child td,.acc-players tr:first-child td{border-top:0;}
+.acc-when{width:1%;color:var(--muted);font-variant-numeric:tabular-nums;}
+.acc-pl .xt-link{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
+.acc-ctx{color:var(--muted);}
+.acc-n{width:1%;text-align:right;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
+.acc-click{cursor:pointer;}
+.acc-click:hover td{background:var(--tint);}
+/* Small screens: each row stacks, season/session and player on the first line, the context and stat line under them */
+@media (max-width:600px){
+  .acc-scroll .acc-table,.acc-scroll .acc-table tbody{display:block;min-width:0;}
+  .acc-scroll .acc-table thead{display:none;}
+  .acc-scroll .acc-table tr{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;padding:7px 10px;border-top:1px solid var(--border);}
+  .acc-scroll .acc-table tbody tr:first-child{border-top:0;}
+  .acc-scroll .acc-table td{display:block;padding:0;border:0;width:auto;}
+  .acc-scroll .acc-table .acc-ctx{grid-column:1 / -1;white-space:normal;}
+  .acc-scroll .acc-pl .xt-link{max-width:100%;}
+  .acc-scroll .acc-table tr.acc-season{grid-template-columns:auto minmax(0,1fr) auto;}
+  .acc-scroll .acc-table tr.acc-season .acc-ctx{grid-column:auto;white-space:nowrap;text-align:right;font-weight:700;}
+}
+#acc-modal .modal-card,#dx-modal .modal-card{max-width:640px;}
+/* the modal body is a flex column that scrolls: without this its children shrink when a long list (173 rows) overflows it,
+   which squeezed the dropdown shorter than it is for a short list */
+#acc-modal .modal-body > *,#dx-modal .modal-body > *{flex-shrink:0;}
+#acc-modal .xt-link{cursor:pointer;font-weight:700;}
+.aw-row{box-sizing:border-box;display:grid;grid-template-columns:136px 1fr;align-items:baseline;gap:2px 0;width:100%;padding:5px 12px;font:inherit;font-size:12.5px;text-align:left;color:var(--text);background:none;border:0;}
+.aw-row + .aw-row{border-top:1px solid var(--border);}
+button.aw-row{cursor:pointer;}
+button.aw-row:hover,button.aw-row:focus-visible{background:var(--tint);}
+button.aw-row.aw-gold{background:rgba(230,185,58,0.2);box-shadow:inset 3px 0 0 #e6b93a;}
+button.aw-row.aw-silver{background:rgba(160,172,186,0.24);box-shadow:inset 3px 0 0 #9aa6b4;}
+button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96);}
+.aw-lbl{font-weight:700;white-space:nowrap;}
+.aw-stats{color:var(--muted);font-variant-numeric:tabular-nums;}
+#career-body.aw-on{overflow-y:auto;}
+/* wide screens: slots 84 -> 98px, so about 1.5x the space between neighbouring trophies (phones keep the tight 5-across fit) */
+@media (min-width:700px){.aw-item{max-width:98px;}}
 
 /* RK: a narrow rank column at the far left of every Stats table; Player (when there is one) sticks right after it. */
 .stats-table th.stats-rk,.stats-table td.stats-rk{width:34px;min-width:34px;padding-left:8px;padding-right:4px;text-align:center;color:var(--muted);font-weight:700;}
