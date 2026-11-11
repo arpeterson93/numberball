@@ -1,0 +1,5 @@
+/* Notifications panel (push.js): team grid with a Plays and a Game end checkbox per team */
+.push-grid{width:100%;margin-top:8px;}
+.push-grid th,.push-grid td{text-align:center;padding:6px 8px;}
+.push-grid th:first-child,.push-grid td.push-team{text-align:left;position:static;}
+.push-grid input[type=checkbox]{width:18px;height:18px;}

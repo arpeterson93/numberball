@@ -20,6 +20,7 @@
      paint, so a dark-mode visitor never sees a light flash. -->
 <script src="js/theme.js"></script>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/push.css">
 </head>
 <body>
 <!-- Fielder glove icon sprite (Alex's asset, exported from Illustrator) - defined once here, referenced by every fielder token via <use href="#fielder-glove">
@@ -305,6 +306,10 @@
         <!-- Keeps the id favorites.js already wires its open-panel click
              handler to directly - works unchanged wherever this button lives. -->
         <button type="button" class="chip" id="favorites-btn">Manage favorites</button>
+      </div>
+      <div class="settings-row" id="push-row" hidden>
+        <span>Notifications</span>
+        <button type="button" class="chip" id="push-btn">Set up alerts</button>
       </div>
       <div class="settings-row">
         <span>Appearance</span>
@@ -613,6 +618,7 @@
 <script src="js/scrolllock.js"></script>
 <script src="js/config.js"></script>
 <script src="js/favorites.js"></script>
+<script src="js/push.js"></script>
 <script src="js/trajectory.js"></script>
 <script src="js/career.js"></script>
 <script src="js/app.js"></script>

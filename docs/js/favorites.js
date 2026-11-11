@@ -331,6 +331,8 @@
     toggle: toggle,
     count: function () { return state.ids.size; },
     name: function () { return state.name; },
+    key: function () { return state.key || ""; },   // the name slug (push.js stores it with the subscription)
+    ids: function () { return Array.from(state.ids); },
     hasName: function () { return !!state.key; },
     refreshList: function () { renderList((document.getElementById("fav-search") || {}).value); },
     openPanel: function () { if (openPanelRef) openPanelRef(); },
