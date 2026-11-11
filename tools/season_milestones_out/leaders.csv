@@ -1,0 +1,366 @@
+season,stat,side,value,player_id,player_name
+1,HR,b,6,1121,Vandalia Halen
+1,HR,b,6,1187,Brandon Blade
+1,RBI,b,12,1153,AALarry Longshot
+1,RBI,b,12,1007,Chris Robin
+1,Hits,b,21,1119,Willie Mays Hayes
+1,Runs,b,11,1121,Vandalia Halen
+1,SB,b,5,1180,War Hamster
+1,BB,b,9,1054,Steve Hofbardozzi Jr. Jr. Jr.
+1,Doubles,b,7,1035,Chip Otle
+1,Triples,b,2,1144,Jake Wilson
+1,Triples,b,2,1094,Sleve McDichael
+1,Triples,b,2,1014,Saoirse O Sullibhian
+1,Triples,b,2,1002,Garitek
+1,Total bases,b,35,1119,Willie Mays Hayes
+1,WPA (bat),b,139.5,1090,James Pablano
+1,AVG,b,0.6,1119,Willie Mays Hayes
+1,OBP,b,0.632,1119,Willie Mays Hayes
+1,SLG,b,1.133,1121,Vandalia Halen
+1,OPS,b,1.648,1121,Vandalia Halen
+1,DPA (low),b,166.0,1119,Willie Mays Hayes
+1,Wins,p,5,1085,Ed Turner
+1,Wins,p,5,1110,Boaty McBoatface
+1,K (pit),p,32,1111,Ronald Eagle V
+1,Saves,p,4,1083,Tony Smehrik
+1,Saves,p,4,1060,Jay Bedia
+1,IP,p,31.0,1110,Boaty McBoatface
+1,WPA (pit),p,152.2,1152,Hans Ali
+1,ERA,p,0.643,1060,Jay Bedia
+1,WHIP,p,0.5,1060,Jay Bedia
+1,K/9,p,12.122,1009,Andrew Peters
+1,DBF (high),p,305.711,1060,Jay Bedia
+2,HR,b,9,2057,Jack Alpha
+2,RBI,b,20,1156,Thomas Thompson III
+2,Hits,b,23,1156,Thomas Thompson III
+2,Runs,b,12,2057,Jack Alpha
+2,SB,b,9,1090,James Pablano
+2,BB,b,9,1186,Francis Herman Swagger
+2,Doubles,b,8,1137,Jimmy Johns
+2,Triples,b,3,1119,Willie Mays Hayes
+2,Triples,b,3,2012,Burgess Whitehead
+2,Total bases,b,55,1156,Thomas Thompson III
+2,WPA (bat),b,190.6,1156,Thomas Thompson III
+2,AVG,b,0.548,1156,Thomas Thompson III
+2,OBP,b,0.558,1156,Thomas Thompson III
+2,SLG,b,1.31,1156,Thomas Thompson III
+2,OPS,b,1.868,1156,Thomas Thompson III
+2,DPA (low),b,177.837,1156,Thomas Thompson III
+2,Wins,p,5,1141,Geno Scaramucci
+2,Wins,p,5,1079,Babatunde Oladotun
+2,K (pit),p,60,1079,Babatunde Oladotun
+2,Saves,p,6,1150,Ricky Vaughn
+2,IP,p,54.0,1079,Babatunde Oladotun
+2,WPA (pit),p,176.8,1061,Hudson Hildebrandt
+2,ERA,p,1.059,2075,Copenhagen Black
+2,WHIP,p,0.894,2078,Rascal Alex
+2,K/9,p,12.169,1010,Madis Mickelson
+2,DBF (high),p,279.197,2081,Cal Lidous
+3,HR,b,5,1029,Lefty Louis
+3,HR,b,5,1151,Lance Lummoxx
+3,HR,b,5,2074,Jobert Maclin
+3,RBI,b,17,1021,Q Kimbrel
+3,Hits,b,20,1137,Jimmy Johns
+3,Runs,b,10,1099,Baron Samedi
+3,Runs,b,10,2067,Riles McGiles
+3,Runs,b,10,3035,Max Power
+3,SB,b,6,1082,Basebally McBaseballface Jr.
+3,SB,b,6,1180,War Hamster
+3,BB,b,9,2067,Riles McGiles
+3,Doubles,b,6,1180,War Hamster
+3,Doubles,b,6,1206,Meerkat Preller
+3,Triples,b,3,1102,Graham Otherie
+3,Total bases,b,34,1029,Lefty Louis
+3,Total bases,b,34,1021,Q Kimbrel
+3,WPA (bat),b,160.7,1021,Q Kimbrel
+3,AVG,b,0.514,3017,Bob Dunagee
+3,OBP,b,0.55,3017,Bob Dunagee
+3,SLG,b,1.0,1029,Lefty Louis
+3,OPS,b,1.526,1029,Lefty Louis
+3,DPA (low),b,184.686,2034,Fortuk Monmouth
+3,Wins,p,6,2081,Cal Lidous
+3,K (pit),p,37,1061,Hudson Hildebrandt
+3,K (pit),p,37,1008,Atlas Quin
+3,Saves,p,10,1150,Ricky Vaughn
+3,IP,p,33.667,2078,Rascal Alex
+3,WPA (pit),p,189.2,2070,Billy Winters
+3,ERA,p,1.174,2070,Billy Winters
+3,WHIP,p,1.043,2070,Billy Winters
+3,K/9,p,13.745,2049,Brian MacDonald
+3,DBF (high),p,283.318,1026,Angel Leon
+4,HR,b,5,1154,Kyle Corbett
+4,HR,b,5,3079,Isaac Snowbender
+4,RBI,b,14,3037,Doc Holliday
+4,Hits,b,21,1137,Jimmy Johns
+4,Runs,b,10,3077,Derek Bongiovanni
+4,Runs,b,10,3007,Salvatore De Luca
+4,SB,b,5,1073,Juan Diego De Las Rosas Jr.
+4,SB,b,5,1137,Jimmy Johns
+4,SB,b,5,1006,Smitty Hoppenscotch
+4,BB,b,8,1133,Hank Murphy
+4,BB,b,8,1192,Larry Slack
+4,BB,b,8,2014,Shovel Bryant
+4,Doubles,b,6,1136,Mason Spurs
+4,Doubles,b,6,3043,Keyo
+4,Triples,b,3,2086,Anna De Neko
+4,Triples,b,3,3051,Jackie Daytona
+4,Total bases,b,34,1082,Basebally McBaseballface Jr.
+4,WPA (bat),b,138.9,3069,Wallace Grommet
+4,AVG,b,0.515,2057,Jack Alpha
+4,AVG,b,0.515,3069,Wallace Grommet
+4,OBP,b,0.581,2014,Shovel Bryant
+4,SLG,b,1.0,3069,Wallace Grommet
+4,OPS,b,1.556,3069,Wallace Grommet
+4,DPA (low),b,190.486,2057,Jack Alpha
+4,Wins,p,5,1158,Master Cashier
+4,K (pit),p,34,4008,LaCarpetron Dukemarriot II
+4,Saves,p,5,1150,Ricky Vaughn
+4,IP,p,32.667,4008,LaCarpetron Dukemarriot II
+4,WPA (pit),p,155.5,1205,Stephen Sondheim
+4,ERA,p,1.709,1122,Finkle Sparkles
+4,WHIP,p,1.063,1122,Finkle Sparkles
+4,K/9,p,14.625,4003,Callie Braden
+4,DBF (high),p,279.972,1205,Stephen Sondheim
+5,HR,b,5,3051,Jackie Daytona
+5,HR,b,5,4022,Adonis Sinoda
+5,RBI,b,17,4022,Adonis Sinoda
+5,Hits,b,20,3011,December Beckett
+5,Runs,b,11,3084,Ryan Tyburn
+5,SB,b,7,2108,Arm N. Hammer
+5,BB,b,8,4000,King Kruul
+5,Doubles,b,8,5005,Narancia Ghirga
+5,Triples,b,3,1082,Basebally McBaseballface Jr.
+5,Triples,b,3,2094,JZ (but not the rapper)
+5,Triples,b,3,3050,Annie Campbell
+5,Triples,b,3,5018,Brian Taylor
+5,Total bases,b,36,1089,Jefferson Steelflex
+5,WPA (bat),b,119.9,3019,Will The Thrill
+5,AVG,b,0.562,5018,Brian Taylor
+5,OBP,b,0.571,5018,Brian Taylor
+5,SLG,b,1.031,5018,Brian Taylor
+5,OPS,b,1.603,5018,Brian Taylor
+5,DPA (low),b,182.657,5018,Brian Taylor
+5,Wins,p,5,2081,Cal Lidous
+5,K (pit),p,34,2081,Cal Lidous
+5,Saves,p,5,4008,LaCarpetron Dukemarriot II
+5,IP,p,40.0,2078,Rascal Alex
+5,WPA (pit),p,156.7,4008,LaCarpetron Dukemarriot II
+5,ERA,p,2.348,5025,Doc Wingduck
+5,WHIP,p,1.125,3049,Ferda Bois
+5,K/9,p,12.309,3063,Threefinger Jansen III
+5,DBF (high),p,278.098,5025,Doc Wingduck
+6,HR,b,6,1063,Alex Yaxley
+6,RBI,b,14,6009,Hannibal Bligh
+6,Hits,b,20,6017,Ohtani But Wide
+6,Runs,b,12,6007,Damien Anderson
+6,SB,b,9,3079,Isaac Snowbender
+6,BB,b,9,2101,Duwan Anonly
+6,Doubles,b,7,1054,Steve Hofbardozzi Jr. Jr. Jr.
+6,Triples,b,3,5041,Papa Longstroke
+6,Total bases,b,38,6017,Ohtani But Wide
+6,WPA (bat),b,127.2,2055,Harry Peritestes
+6,AVG,b,0.5,6017,Ohtani But Wide
+6,OBP,b,0.543,3082,Basethony Balltano
+6,SLG,b,0.95,6017,Ohtani But Wide
+6,OPS,b,1.485,6017,Ohtani But Wide
+6,DPA (low),b,195.686,4081,Toppo Thamornin
+6,Wins,p,5,6022,VI
+6,K (pit),p,36,5025,Doc Wingduck
+6,Saves,p,5,2029,Lois Whip
+6,IP,p,38.0,5025,Doc Wingduck
+6,WPA (pit),p,173.4,2096,Adam Croft
+6,ERA,p,1.286,1122,Finkle Sparkles
+6,WHIP,p,1.022,2096,Adam Croft
+6,K/9,p,12.273,3005,Pablo Sanchez
+6,DBF (high),p,277.367,5030,Dirk Digglet
+7,HR,b,5,1201,Mylo Grams
+7,RBI,b,18,1201,Mylo Grams
+7,Hits,b,19,3039,Bob Winn
+7,Runs,b,13,3039,Bob Winn
+7,SB,b,9,1153,AALarry Longshot
+7,BB,b,7,7006,Pel OQuinn
+7,Doubles,b,7,7022,Meat Wad
+7,Triples,b,4,5041,Papa Longstroke
+7,Total bases,b,34,6047,Crimson Chin
+7,WPA (bat),b,151.2,1052,Zed Leona
+7,AVG,b,0.548,1034,Jack Marnette
+7,OBP,b,0.611,1034,Jack Marnette
+7,SLG,b,1.0,6047,Crimson Chin
+7,OPS,b,1.514,1034,Jack Marnette
+7,DPA (low),b,176.175,3039,Bob Winn
+7,Wins,p,5,1061,Hudson Hildebrandt
+7,Wins,p,5,2078,Rascal Alex
+7,K (pit),p,39,3027,Diego Medina
+7,Saves,p,4,4008,LaCarpetron Dukemarriot II
+7,IP,p,36.667,4011,Mitch Meanmug
+7,WPA (pit),p,153.6,4011,Mitch Meanmug
+7,ERA,p,0.761,1083,Tony Smehrik
+7,WHIP,p,0.845,1083,Tony Smehrik
+7,K/9,p,15.0,2036,Sandy Collazo
+7,DBF (high),p,291.81,1083,Tony Smehrik
+8,HR,b,7,1108,Conor Sexton
+8,HR,b,7,2080,Junebug Wray
+8,RBI,b,20,2080,Junebug Wray
+8,Hits,b,23,1108,Conor Sexton
+8,Runs,b,13,1012,Reservoir Butler
+8,SB,b,8,1153,AALarry Longshot
+8,BB,b,8,2108,Arm N. Hammer
+8,BB,b,8,6031,Captain Rex
+8,BB,b,8,8006,Gnome Chomsky
+8,Doubles,b,7,8010,Swan Kelly
+8,Triples,b,3,1157,JP Panik
+8,Triples,b,3,2082,Dixon Uraz
+8,Triples,b,3,7025,Rocco Rudnikov
+8,Total bases,b,47,1108,Conor Sexton
+8,WPA (bat),b,166.7,2080,Junebug Wray
+8,AVG,b,0.543,1012,Reservoir Butler
+8,OBP,b,0.59,1012,Reservoir Butler
+8,SLG,b,1.111,2080,Junebug Wray
+8,OPS,b,1.649,1108,Conor Sexton
+8,DPA (low),b,192.844,1108,Conor Sexton
+8,Wins,p,6,1140,Bartholomew Crumblepuff
+8,Wins,p,6,1122,Finkle Sparkles
+8,K (pit),p,39,4078,Sleve McDichael
+8,Saves,p,5,1141,Geno Scaramucci
+8,IP,p,39.0,6049,NoodleArmBigPowerODoyleetc
+8,WPA (pit),p,125.0,2032,Kali McSuntas
+8,ERA,p,1.543,2032,Kali McSuntas
+8,WHIP,p,0.932,1033,Daz Butivegotthirtytwocharacters
+8,K/9,p,13.814,6035,Tommy Tightpants
+8,DBF (high),p,282.587,1033,Daz Butivegotthirtytwocharacters
+9,HR,b,5,1099,Baron Samedi
+9,HR,b,5,2085,Lloyd Gross
+9,HR,b,5,4048,Mike Fruitstand
+9,HR,b,5,5016,LeBarn James
+9,HR,b,5,6009,Hannibal Bligh
+9,RBI,b,15,1149,Garrett Evans
+9,Hits,b,19,5011,Mo Mo
+9,Hits,b,19,6029,Scherbie Fully-Loaded
+9,Runs,b,13,2066,Talon Wingdiver
+9,SB,b,9,6047,Crimson Chin
+9,BB,b,8,1041,Barney Summers
+9,Doubles,b,8,1002,Garitek
+9,Triples,b,2,7022,Meat Wad
+9,Triples,b,2,8007,Wally Wellbutrin
+9,Triples,b,2,8014,Turn Page
+9,Triples,b,2,8008,Guy Gilwater
+9,Triples,b,2,8049,Kries Von Kriestalhauser
+9,Triples,b,2,9017,Joe Yoshi
+9,Triples,b,2,9001,Harvey Burton
+9,Total bases,b,32,5017,Makesiondon Kelkboom
+9,Total bases,b,32,6009,Hannibal Bligh
+9,Total bases,b,32,9017,Joe Yoshi
+9,WPA (bat),b,104.3,9014,Jimmy Payne
+9,AVG,b,0.562,7017,Juan Sexton
+9,OBP,b,0.6,7017,Juan Sexton
+9,SLG,b,0.97,5017,Makesiondon Kelkboom
+9,OPS,b,1.436,5011,Mo Mo
+9,DPA (low),b,199.943,7017,Juan Sexton
+9,Wins,p,6,1217,Johnny Dickshot
+9,K (pit),p,45,9010,Brent Chillwater
+9,Saves,p,4,3072,Tucker Doubt
+9,Saves,p,4,5030,Dirk Digglet
+9,IP,p,39.667,2078,Rascal Alex
+9,WPA (pit),p,126.2,1033,Daz Butivegotthirtytwocharacters
+9,ERA,p,1.2,3072,Tucker Doubt
+9,WHIP,p,1.0,3072,Tucker Doubt
+9,K/9,p,13.745,9012,Epto Bismol
+9,DBF (high),p,275.67,9009,Jamal Fyre
+10,HR,b,5,1063,Alex Yaxley
+10,HR,b,5,9044,Strawberry Jones
+10,HR,b,5,10071,Bobert Hideyoshi
+10,RBI,b,17,10003,BANNED PLAYER
+10,Hits,b,23,10005,Chef Cook
+10,Runs,b,13,10005,Chef Cook
+10,SB,b,8,5002,Guidooooo
+10,BB,b,8,8014,Turn Page
+10,Doubles,b,7,5022,Franz Lisztpitcher
+10,Doubles,b,7,10003,BANNED PLAYER
+10,Triples,b,3,7045,Jimmy Pop
+10,Triples,b,3,7039,Mr Plow
+10,Triples,b,3,10071,Bobert Hideyoshi
+10,Total bases,b,41,10005,Chef Cook
+10,WPA (bat),b,127.6,10005,Chef Cook
+10,AVG,b,0.639,10005,Chef Cook
+10,OBP,b,0.641,10005,Chef Cook
+10,SLG,b,1.139,10005,Chef Cook
+10,OPS,b,1.78,10005,Chef Cook
+10,DPA (low),b,175.744,10005,Chef Cook
+10,Wins,p,6,7027,Kevin James
+10,K (pit),p,39,10008,Eldritch Dancer
+10,Saves,p,4,8048,Captain Trash
+10,IP,p,36.667,10008,Eldritch Dancer
+10,WPA (pit),p,164.6,6013,Lane Drew
+10,ERA,p,2.667,10045,Jordan Kurdi
+10,WHIP,p,0.963,10045,Jordan Kurdi
+10,K/9,p,11.912,1217,Johnny Dickshot
+10,DBF (high),p,300.01,10045,Jordan Kurdi
+11,HR,b,7,9031,Bob Nutting Jr
+11,RBI,b,19,9031,Bob Nutting Jr
+11,Hits,b,23,1051,Superbone Threefinger
+11,Runs,b,16,1051,Superbone Threefinger
+11,SB,b,5,6049,NoodleArmBigPowerODoyleetc
+11,SB,b,5,7039,Mr Plow
+11,BB,b,8,9025,Bryce Parker
+11,BB,b,8,10078,Jerk McGurkin
+11,BB,b,8,10002,Pokey Fleece
+11,Doubles,b,7,9001,Harvey Burton
+11,Triples,b,3,3061,Trog Smash
+11,Triples,b,3,7045,Jimmy Pop
+11,Triples,b,3,9036,O'R'lyeh Auto Parts
+11,Triples,b,3,9023,Jihmih Elsher
+11,Triples,b,3,9044,Strawberry Jones
+11,Total bases,b,44,1051,Superbone Threefinger
+11,WPA (bat),b,155.7,7022,Meat Wad
+11,AVG,b,0.553,9036,O'R'lyeh Auto Parts
+11,OBP,b,0.578,1051,Superbone Threefinger
+11,SLG,b,1.053,9036,O'R'lyeh Auto Parts
+11,OPS,b,1.625,1051,Superbone Threefinger
+11,DPA (low),b,190.0,7022,Meat Wad
+11,Wins,p,5,8050,Damon Razor
+11,K (pit),p,39,9010,Brent Chillwater
+11,Saves,p,4,8051,James St. Louis
+11,Holds,p,1,4011,Mitch Meanmug
+11,Holds,p,1,7027,Kevin James
+11,Holds,p,1,8002,Trevor Rose
+11,Holds,p,1,8051,James St. Louis
+11,Holds,p,1,9016,Virgil Aegis-Gunther
+11,IP,p,37.667,8048,Captain Trash
+11,WPA (pit),p,141.7,3011,December Beckett
+11,ERA,p,2.359,3011,December Beckett
+11,WHIP,p,1.118,1206,Meerkat Preller
+11,K/9,p,12.629,4078,Sleve McDichael
+11,DBF (high),p,273.03,3011,December Beckett
+12,HR,b,6,1156,Thomas Thompson III
+12,RBI,b,15,1156,Thomas Thompson III
+12,Hits,b,20,1108,Conor Sexton
+12,Runs,b,13,3072,Tucker Doubt
+12,SB,b,9,5022,Franz Lisztpitcher
+12,BB,b,7,10023,Rex McStrange
+12,Doubles,b,7,4069,Hot Dog Jeopardy
+12,Triples,b,3,7022,Meat Wad
+12,Triples,b,3,9038,John McDonald Jr.
+12,Total bases,b,38,11047,Swiftie ESPN
+12,WPA (bat),b,112.6,11047,Swiftie ESPN
+12,AVG,b,0.562,11047,Swiftie ESPN
+12,OBP,b,0.595,11047,Swiftie ESPN
+12,SLG,b,1.188,11047,Swiftie ESPN
+12,OPS,b,1.782,11047,Swiftie ESPN
+12,DPA (low),b,188.278,3010,Jarey Butts
+12,Wins,p,7,9039,Mama Luigi
+12,K (pit),p,38,9039,Mama Luigi
+12,Saves,p,4,5034,Haloick Oasis
+12,Saves,p,4,12017,K Junk
+12,Saves,p,4,12010,R'lyeh R'ivy
+12,Holds,p,1,1140,Bartholomew Crumblepuff
+12,Holds,p,1,4045,Dakota Carolina Montana
+12,Holds,p,1,4011,Mitch Meanmug
+12,Holds,p,1,5034,Haloick Oasis
+12,Holds,p,1,10082,Sterling Turlington
+12,Holds,p,1,12047,Chunky Menthol
+12,IP,p,38.0,9039,Mama Luigi
+12,WPA (pit),p,218.1,9039,Mama Luigi
+12,ERA,p,0.711,12010,R'lyeh R'ivy
+12,WHIP,p,0.947,9039,Mama Luigi
+12,K/9,p,14.58,1026,Angel Leon
+12,DBF (high),p,281.875,12010,R'lyeh R'ivy

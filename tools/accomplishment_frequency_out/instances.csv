@@ -1,0 +1,3100 @@
+accomplishment,player_id,player_name,season,game_code,detail
+cg_shutout,1024,Jordan Peppers,1,010505,
+cg_shutout,1111,Ronald Eagle V,1,010605,
+cg_shutout,1069,Rub A. Chikin,1,010902,
+cg_shutout,1152,Hans Ali,1,011106,
+cg_shutout,1178,William Hatchet,1,011202,
+cg_shutout,1051,Superbone Threefinger,2,020205,
+cg_shutout,2006,Caleb Miller,2,020301,
+cg_shutout,1188,Teddy Ballinger,2,020302,
+cg_shutout,1111,Ronald Eagle V,2,020401,
+cg_shutout,2033,Guillermo Caruthers,2,020402,
+cg_shutout,1178,William Hatchet,2,020403,
+cg_shutout,2056,Huge Yakman,2,020407,
+cg_shutout,2045,Tanner Hendrix,2,020501,
+cg_shutout,1010,Madis Mickelson,2,020503,
+cg_shutout,1112,Miss Bats,2,020504,
+cg_shutout,1188,Teddy Ballinger,2,020602,
+cg_shutout,1027,Thomas Nova,2,020705,
+cg_shutout,2045,Tanner Hendrix,2,020805,
+cg_shutout,1140,Bartholomew Crumblepuff,2,020806,
+cg_shutout,2078,Rascal Alex,2,020904,
+cg_shutout,1079,Babatunde Oladotun,2,020906,
+cg_shutout,1079,Babatunde Oladotun,2,021004,
+cg_shutout,1061,Hudson Hildebrandt,2,021103,
+cg_shutout,2087,Patrick Mahomes,2,021307,
+cg_shutout,2075,Copenhagen Black,2,021506,
+cg_shutout,2029,Lois Whip,2,021602,
+cg_shutout,1112,Miss Bats,3,030102,
+cg_shutout,1140,Bartholomew Crumblepuff,3,030204,
+cg_shutout,1024,Jordan Peppers,3,030404,
+cg_shutout,1188,Teddy Ballinger,3,030406,
+cg_shutout,2045,Tanner Hendrix,3,030408,
+cg_shutout,1141,Geno Scaramucci,3,030501,
+cg_shutout,1024,Jordan Peppers,3,030701,
+cg_shutout,1061,Hudson Hildebrandt,3,030707,
+cg_shutout,1140,Bartholomew Crumblepuff,3,030802,
+cg_shutout,2070,Billy Winters,3,030907,
+cg_shutout,3009,Bull Dozer,3,031008,
+cg_shutout,1051,Superbone Threefinger,3,031103,
+cg_shutout,2078,Rascal Alex,3,031106,
+cg_shutout,3015,"Jason ""Dead"" Redd",3,031201,
+cg_shutout,2060,LaPrince Frye,3,031308,
+cg_shutout,1079,Babatunde Oladotun,3,031403,
+cg_shutout,2078,Rascal Alex,3,031407,
+cg_shutout,2059,Daraya Jonjet,3,031408,
+cg_shutout,1079,Babatunde Oladotun,4,040203,
+cg_shutout,1008,Atlas Quin,4,040308,
+cg_shutout,4008,LaCarpetron Dukemarriot II,4,040607,
+cg_shutout,2000,Jerry Jingles,4,040706,
+cg_shutout,3089,Joey Wheeler,4,040806,
+cg_shutout,4023,Vinny Vega,4,040906,
+cg_shutout,4008,LaCarpetron Dukemarriot II,4,041007,
+cg_shutout,1112,Miss Bats,4,041202,
+cg_shutout,2075,Copenhagen Black,4,041304,
+cg_shutout,4078,Sleve McDichael,4,041403,
+cg_shutout,1122,Finkle Sparkles,4,041501,
+cg_shutout,2104,Bobby Portis,5,050106,
+cg_shutout,1113,Cookie Mongster,5,050302,
+cg_shutout,3042,Joanna McMartinez,5,050306,
+cg_shutout,1208,Bace Ventura,5,050402,
+cg_shutout,1027,Thomas Nova,5,050605,
+cg_shutout,1079,Babatunde Oladotun,5,050606,
+cg_shutout,1074,Donked McToad,5,050705,
+cg_shutout,3015,"Jason ""Dead"" Redd",5,050803,
+cg_shutout,2049,Brian MacDonald,5,050807,
+cg_shutout,1061,Hudson Hildebrandt,5,050906,
+cg_shutout,1208,Bace Ventura,5,051002,
+cg_shutout,4050,Calvin Guerensk,5,051006,
+cg_shutout,5025,Doc Wingduck,5,051104,
+cg_shutout,1194,Tuck,5,051203,
+cg_shutout,2081,Cal Lidous,5,051502,
+cg_shutout,2032,Kali McSuntas,6,060201,
+cg_shutout,1083,Tony Smehrik,6,060501,
+cg_shutout,3027,Diego Medina,6,060508,
+cg_shutout,5025,Doc Wingduck,6,060703,
+cg_shutout,6044,Matthew Longballo,6,060704,
+cg_shutout,1122,Finkle Sparkles,6,060802,
+cg_shutout,1205,Stephen Sondheim,6,060803,
+cg_shutout,3063,Threefinger Jansen III,6,061208,
+cg_shutout,1135,Ryan Gastings,6,061301,
+cg_shutout,5014,Sheridan Blackstone,6,061406,
+cg_shutout,1107,petra sabor,6,061501,
+cg_shutout,3056,Donatello Chalupa,7,070203,
+cg_shutout,3089,Joey Wheeler,7,070308,
+cg_shutout,1174,Mad Monty,7,070505,
+cg_shutout,1083,Tony Smehrik,7,070508,
+cg_shutout,5014,Sheridan Blackstone,7,070601,
+cg_shutout,3053,XxFAZE Jun1 RaWrXDxXx,7,070605,
+cg_shutout,1140,Bartholomew Crumblepuff,7,070606,
+cg_shutout,1135,Ryan Gastings,7,070701,
+cg_shutout,3027,Diego Medina,7,070705,
+cg_shutout,2036,Sandy Collazo,7,070707,
+cg_shutout,6044,Matthew Longballo,7,070805,
+cg_shutout,4011,Mitch Meanmug,7,070906,
+cg_shutout,4004,R'lyeh Reid,7,071105,
+cg_shutout,1079,Babatunde Oladotun,7,071201,
+cg_shutout,3042,Joanna McMartinez,7,071205,
+cg_shutout,3043,Keyo,7,071502,
+cg_shutout,6026,B.A. Dickey,8,080105,
+cg_shutout,2036,Sandy Collazo,8,080108,
+cg_shutout,6022,VI,8,080402,
+cg_shutout,7007,Kenny Powers,8,080406,
+cg_shutout,1107,petra sabor,8,080503,
+cg_shutout,8011,Vis Pacifiera,8,080506,
+cg_shutout,2104,Bobby Portis,8,080805,
+cg_shutout,2078,Rascal Alex,8,081006,
+cg_shutout,1033,Daz Butivegotthirtytwocharacters,8,081105,
+cg_shutout,1122,Finkle Sparkles,8,081202,
+cg_shutout,1122,Finkle Sparkles,8,081402,
+cg_shutout,2104,Bobby Portis,8,081504,
+cg_shutout,1122,Finkle Sparkles,9,090101,
+cg_shutout,1140,Bartholomew Crumblepuff,9,090305,
+cg_shutout,4078,Sleve McDichael,9,090306,
+cg_shutout,7014,Doc Dockerson,9,090705,
+cg_shutout,3015,"Jason ""Dead"" Redd",9,090808,
+cg_shutout,6013,Lane Drew,9,090904,
+cg_shutout,7030,Jimmy Kalkowski,9,091002,
+cg_shutout,3069,Wallace Grommet,9,091102,
+cg_shutout,1217,Johnny Dickshot,9,091205,
+cg_shutout,5030,Dirk Digglet,9,091307,
+cg_shutout,7034,G Baby,9,091403,
+cg_shutout,2078,Rascal Alex,9,091408,
+cg_shutout,3015,"Jason ""Dead"" Redd",9,091501,
+cg_shutout,3015,"Jason ""Dead"" Redd",10,100104,
+cg_shutout,1140,Bartholomew Crumblepuff,10,100108,
+cg_shutout,9010,Brent Chillwater,10,100203,
+cg_shutout,2032,Kali McSuntas,10,100206,
+cg_shutout,7027,Kevin James,10,100208,
+cg_shutout,1174,Mad Monty,10,100302,
+cg_shutout,1008,Atlas Quin,10,100308,
+cg_shutout,10045,Jordan Kurdi,10,100401,
+cg_shutout,1140,Bartholomew Crumblepuff,10,100502,
+cg_shutout,4073,CJ Brandonson,10,100503,
+cg_shutout,10007,Henry Atombomb,10,100504,
+cg_shutout,6013,Lane Drew,10,100506,
+cg_shutout,9039,Mama Luigi,10,100701,
+cg_shutout,1026,Angel Leon,10,100805,
+cg_shutout,1140,Bartholomew Crumblepuff,10,101101,
+cg_shutout,10007,Henry Atombomb,10,101104,
+cg_shutout,4073,CJ Brandonson,10,101305,
+cg_shutout,9011,Lightning Volt,10,101307,
+cg_shutout,1122,Finkle Sparkles,10,101408,
+cg_shutout,1217,Johnny Dickshot,10,101502,
+cg_shutout,9011,Lightning Volt,11,110107,
+cg_shutout,2104,Bobby Portis,11,110208,
+cg_shutout,1140,Bartholomew Crumblepuff,11,110407,
+cg_shutout,1061,Hudson Hildebrandt,11,110408,
+cg_shutout,9011,Lightning Volt,11,110507,
+cg_shutout,3011,December Beckett,11,110708,
+cg_shutout,7023,Mickey May,11,110805,
+cg_shutout,7035,peachespeachespeaches,11,110806,
+cg_shutout,9010,Brent Chillwater,11,110906,
+cg_shutout,8048,Captain Trash,11,110907,
+cg_shutout,3011,December Beckett,11,110908,
+cg_shutout,10007,Henry Atombomb,11,111004,
+cg_shutout,1083,Tony Smehrik,11,111008,
+cg_shutout,6022,VI,11,111201,
+cg_shutout,11035,Nash Ellis,11,111401,
+cg_shutout,3005,Pablo Sanchez,11,111403,
+cg_shutout,8048,Captain Trash,12,120115,
+cg_shutout,3011,December Beckett,12,120216,
+cg_shutout,1140,Bartholomew Crumblepuff,12,120311,
+cg_shutout,2078,Rascal Alex,12,120416,
+cg_shutout,8048,Captain Trash,12,120514,
+cg_shutout,11007,Hubert Dubois,12,120815,
+cg_shutout,3011,December Beckett,12,121316,
+cg_shutout,9039,Mama Luigi,12,121410,
+cg_shutout,12034,Triscuit McBiskit,13,130219,
+cg_shutout,7014,Doc Dockerson,13,130523,
+cg_shutout,12049,Ant Man,13,130617,
+cg_shutout,3091,AAAAntilles Zelk,13,130619,
+cg_shutout,1140,Bartholomew Crumblepuff,13,130620,
+cg_shutout,12051,Fat Lever,13,130719,
+cg_shutout,3011,December Beckett,13,130924,
+cycle,10003,BANNED PLAYER,10,101003,
+five_hundred_bat,1101,Caleb VanVacter,1,010101,K
+five_hundred_bat,1011,El Duké Nukem,1,010704,K
+five_hundred_bat,1186,Francis Herman Swagger,1,010706,K
+five_hundred_bat,1052,Zed Leona,1,010803,K
+five_hundred_bat,1132,Steel Pipe Simpson,1,011002,K
+five_hundred_bat,1108,Conor Sexton,1,011106,DP
+five_hundred_bat,1048,Spike McBride,1,011204,K
+five_hundred_bat,1109,Dominus Nominus,2,020202,K
+five_hundred_bat,2035,Jhahn Tahmus,2,020307,K
+five_hundred_bat,2005,Kiger Wulf,2,020401,K
+five_hundred_bat,1160,Caleb Athen,2,020506,K
+five_hundred_bat,1077,Storm Johnson,2,020801,K
+five_hundred_bat,1184,Buzz Schwinghammer,2,020802,GO
+five_hundred_bat,1076,Fuzzy Dunlop,2,020901,K
+five_hundred_bat,1039,Clive Babineaux,2,021306,DP
+five_hundred_bat,1119,Willie Mays Hayes,2,021505,K
+five_hundred_bat,1074,Donked McToad,2,021505,DP
+five_hundred_bat,1180,War Hamster,2,021507,DP
+five_hundred_bat,1206,Meerkat Preller,3,030303,K
+five_hundred_bat,1022,Chuck McCluster,3,030304,K
+five_hundred_bat,1199,Boof Boog,3,030504,K
+five_hundred_bat,1091,Dougal McGoogol,3,030602,K
+five_hundred_bat,3059,Skel Etor,3,030606,DP
+five_hundred_bat,1074,Donked McToad,3,030808,DP
+five_hundred_bat,1174,Mad Monty,3,031103,DP
+five_hundred_bat,1013,Kaylee Stewart,3,031107,K
+five_hundred_bat,1153,AALarry Longshot,4,040102,K
+five_hundred_bat,3091,AAAAntilles Zelk,4,040207,DP
+five_hundred_bat,1089,Jefferson Steelflex,4,040402,DP
+five_hundred_bat,3039,Bob Winn,4,040704,K
+five_hundred_bat,1143,Viking Fishbird,4,040908,K
+five_hundred_bat,3039,Bob Winn,4,041005,DP31
+five_hundred_bat,1199,Boof Boog,4,041204,K
+five_hundred_bat,2055,Harry Peritestes,5,050107,DP
+five_hundred_bat,5006,Sticky Mickey Mantle,5,050701,K
+five_hundred_bat,1023,Dan Gerzone,5,050808,K
+five_hundred_bat,5011,Mo Mo,5,050908,DP31
+five_hundred_bat,5038,"Buster ""Striker"" Walker",5,051304,K
+five_hundred_bat,1137,Jimmy Johns,5,051401,K
+five_hundred_bat,2082,Dixon Uraz,5,051403,DP
+five_hundred_bat,5002,Guidooooo,5,051701,K
+five_hundred_bat,2108,Arm N. Hammer,6,060107,K
+five_hundred_bat,6014,Mattress,6,060408,K
+five_hundred_bat,1201,Mylo Grams,6,060408,K
+five_hundred_bat,1062,BB Bambino Jr.,6,060603,K
+five_hundred_bat,1186,Francis Herman Swagger,6,060606,K
+five_hundred_bat,5012,Ben Bramly,6,061002,K
+five_hundred_bat,3039,Bob Winn,6,061007,K
+five_hundred_bat,1043,Tyler Palmatier,6,061306,K
+five_hundred_bat,6008,Dottie,6,061306,K
+five_hundred_bat,1089,Jefferson Steelflex,6,061503,K
+five_hundred_bat,5019,Connor Morgan,7,070402,K
+five_hundred_bat,2094,JZ (but not the rapper),7,070508,DP
+five_hundred_bat,1209,Franz Joseph Hymen,7,070605,K
+five_hundred_bat,5002,Guidooooo,7,070802,DP
+five_hundred_bat,5024,Simba II,7,071103,K
+five_hundred_bat,6010,Homer Knocker,7,071105,K
+five_hundred_bat,1054,Steve Hofbardozzi Jr. Jr. Jr.,7,071208,K
+five_hundred_bat,5022,Franz Lisztpitcher,7,071402,K
+five_hundred_bat,5022,Franz Lisztpitcher,8,080102,K
+five_hundred_bat,7020,Sonar McDeuceski,8,080507,K
+five_hundred_bat,1151,Lance Lummoxx,8,080508,K
+five_hundred_bat,6040,Big Smoke Anderson,8,080603,LODP
+five_hundred_bat,3088,Yoel Roshi,8,080606,K
+five_hundred_bat,3079,Isaac Snowbender,8,080608,K
+five_hundred_bat,5007,Gas House Gorillas,8,080802,DP
+five_hundred_bat,1166,Ecliptic Astrum,8,080805,K
+five_hundred_bat,7042,Skimble Shanks,8,081004,K
+five_hundred_bat,1099,Baron Samedi,8,081005,K
+five_hundred_bat,1169,Jerome Garcia,8,081006,DP
+five_hundred_bat,3070,Ded Tanson,8,081108,DP
+five_hundred_bat,1156,Thomas Thompson III,8,081203,K
+five_hundred_bat,6004,Bony Skellinger,8,081207,DP31
+five_hundred_bat,8021,Otto Von Eirsmark,8,081301,LODP
+five_hundred_bat,7022,Meat Wad,8,081303,K
+five_hundred_bat,1194,Tuck,8,081402,K
+five_hundred_bat,1113,Cookie Mongster,8,081406,DP31
+five_hundred_bat,2097,Dirtbag Darrell,8,081407,K
+five_hundred_bat,1180,War Hamster,8,081502,K
+five_hundred_bat,2055,Harry Peritestes,9,090105,LODP
+five_hundred_bat,5022,Franz Lisztpitcher,9,090302,K
+five_hundred_bat,4021,Jeff Shagwell,9,090607,K
+five_hundred_bat,1023,Dan Gerzone,9,090607,K
+five_hundred_bat,8006,Gnome Chomsky,9,090803,K
+five_hundred_bat,1100,Antwan Zella,9,090808,K
+five_hundred_bat,1149,Garrett Evans,9,090905,DP31
+five_hundred_bat,7025,Rocco Rudnikov,9,091106,DP
+five_hundred_bat,1091,Dougal McGoogol,9,091401,K
+five_hundred_bat,2082,Dixon Uraz,9,091408,K
+five_hundred_bat,1208,Bace Ventura,10,100208,K
+five_hundred_bat,10048,Texan Two Gloves,10,100401,K
+five_hundred_bat,6031,Captain Rex,10,100702,K
+five_hundred_bat,1120,Johnny Hopkins,10,100802,K
+five_hundred_bat,1162,Nate Lewis,10,100803,K
+five_hundred_bat,3077,Derek Bongiovanni,10,101005,K
+five_hundred_bat,2072,Pull Ganger,10,101008,DP
+five_hundred_bat,9020,Nathanial Swenson,10,101501,K
+five_hundred_bat,9019,Tooth Heaven Won,10,101504,LODP
+five_hundred_bat,10003,BANNED PLAYER,11,110401,K
+five_hundred_bat,10002,Pokey Fleece,11,110406,K
+five_hundred_bat,8008,Guy Gilwater,11,110504,K
+five_hundred_bat,3079,Isaac Snowbender,11,110607,K
+five_hundred_bat,2002,Assassin Xekutioner,11,110804,K
+five_hundred_bat,9041,Himmy Proton,11,110905,K
+five_hundred_bat,5029,Peoples Champ,11,111102,K
+five_hundred_bat,1002,Garitek,11,111102,K
+five_hundred_bat,8046,Hunter Scott,11,111301,K
+five_hundred_bat,8008,Guy Gilwater,11,111301,K
+five_hundred_bat,1166,Ecliptic Astrum,11,111403,K
+five_hundred_bat,5030,Dirk Digglet,11,111504,K
+five_hundred_bat,8049,Kries Von Kriestalhauser,12,120114,K
+five_hundred_bat,9003,Cash Considerations,12,120209,DP
+five_hundred_bat,9033,Francesco Hardgust,12,120209,K
+five_hundred_bat,9019,Tooth Heaven Won,12,120414,K
+five_hundred_bat,12024,Zed Underhill,12,120509,K
+five_hundred_bat,9036,O'R'lyeh Auto Parts,12,120511,K
+five_hundred_bat,7004,Peter Hoomanawanui,12,120709,K
+five_hundred_bat,2094,JZ (but not the rapper),12,120716,K
+five_hundred_bat,1158,Master Cashier,12,120809,DP
+five_hundred_bat,9019,Tooth Heaven Won,12,120816,K
+five_hundred_bat,2094,JZ (but not the rapper),12,121013,K
+five_hundred_bat,4000,King Kruul,12,121111,K
+five_hundred_bat,12002,Tor Tilla,12,121409,DP
+five_hundred_bat,11036,Scoreson McCorkle,13,130120,K
+five_hundred_bat,4045,Dakota Carolina Montana,13,130122,K
+five_hundred_bat,2032,Kali McSuntas,13,130218,K
+five_hundred_bat,13028,Mikey Reynolds,13,130619,K
+five_hundred_bat,1032,Charlie Scott,13,130820,K
+five_hundred_bat,10030,Donny Dash,13,130823,DP31
+five_hundred_pit,1111,Ronald Eagle V,1,010101,K
+five_hundred_pit,1176,Ace Brasco,1,010704,K
+five_hundred_pit,1113,Cookie Mongster,1,010706,K
+five_hundred_pit,1128,S.A.R Dinka,1,010803,K
+five_hundred_pit,1061,Hudson Hildebrandt,1,011002,K
+five_hundred_pit,1152,Hans Ali,1,011106,DP
+five_hundred_pit,1117,Tim Burr,1,011204,K
+five_hundred_pit,1070,Tommy Foxconn,2,020202,K
+five_hundred_pit,1141,Geno Scaramucci,2,020307,K
+five_hundred_pit,1111,Ronald Eagle V,2,020401,K
+five_hundred_pit,1204,Syd Kidd,2,020506,K
+five_hundred_pit,1221,Mako Bierman,2,020801,K
+five_hundred_pit,1070,Tommy Foxconn,2,020802,GO
+five_hundred_pit,1217,Johnny Dickshot,2,020901,K
+five_hundred_pit,1140,Bartholomew Crumblepuff,2,021306,DP
+five_hundred_pit,1024,Jordan Peppers,2,021505,K
+five_hundred_pit,1150,Ricky Vaughn,2,021505,DP
+five_hundred_pit,1021,Q Kimbrel,2,021507,DP
+five_hundred_pit,2075,Copenhagen Black,3,030303,K
+five_hundred_pit,1024,Jordan Peppers,3,030304,K
+five_hundred_pit,1158,Master Cashier,3,030504,K
+five_hundred_pit,2036,Sandy Collazo,3,030602,K
+five_hundred_pit,1152,Hans Ali,3,030606,DP
+five_hundred_pit,2059,Daraya Jonjet,3,030808,DP
+five_hundred_pit,2083,Dylan Green,3,031103,DP
+five_hundred_pit,1140,Bartholomew Crumblepuff,3,031107,K
+five_hundred_pit,2047,Calvin Huff,4,040102,K
+five_hundred_pit,1061,Hudson Hildebrandt,4,040207,DP
+five_hundred_pit,1090,James Pablano,4,040402,DP
+five_hundred_pit,3009,Bull Dozer,4,040704,K
+five_hundred_pit,1141,Geno Scaramucci,4,040908,K
+five_hundred_pit,2078,Rascal Alex,4,041005,DP31
+five_hundred_pit,1024,Jordan Peppers,4,041204,K
+five_hundred_pit,4008,LaCarpetron Dukemarriot II,5,050107,DP
+five_hundred_pit,5010,Viktor Patterson,5,050701,K
+five_hundred_pit,3027,Diego Medina,5,050808,K
+five_hundred_pit,3083,Poop McGee,5,050908,DP31
+five_hundred_pit,1153,AALarry Longshot,5,051304,K
+five_hundred_pit,2096,Adam Croft,5,051401,K
+five_hundred_pit,3083,Poop McGee,5,051403,DP
+five_hundred_pit,1087,Foxx Dashington,5,051701,K
+five_hundred_pit,1153,AALarry Longshot,6,060107,K
+five_hundred_pit,2078,Rascal Alex,6,060408,K
+five_hundred_pit,3063,Threefinger Jansen III,6,060408,K
+five_hundred_pit,2090,Goro Shinoda,6,060603,K
+five_hundred_pit,1061,Hudson Hildebrandt,6,060606,K
+five_hundred_pit,6025,Hornot Hivez,6,061002,K
+five_hundred_pit,3042,Joanna McMartinez,6,061007,K
+five_hundred_pit,4042,Sarah Buntingsworth,6,061306,K
+five_hundred_pit,5042,Jay Emess,6,061306,K
+five_hundred_pit,3005,Pablo Sanchez,6,061503,K
+five_hundred_pit,5042,Jay Emess,7,070402,K
+five_hundred_pit,4011,Mitch Meanmug,7,070508,DP
+five_hundred_pit,3053,XxFAZE Jun1 RaWrXDxXx,7,070605,K
+five_hundred_pit,3043,Keyo,7,070802,DP
+five_hundred_pit,6022,VI,7,071103,K
+five_hundred_pit,1174,Mad Monty,7,071105,K
+five_hundred_pit,1008,Atlas Quin,7,071208,K
+five_hundred_pit,2081,Cal Lidous,7,071402,K
+five_hundred_pit,6049,NoodleArmBigPowerODoyleetc,8,080102,K
+five_hundred_pit,8030,Butter Man,8,080507,K
+five_hundred_pit,2096,Adam Croft,8,080508,K
+five_hundred_pit,1174,Mad Monty,8,080603,LODP
+five_hundred_pit,8030,Butter Man,8,080606,K
+five_hundred_pit,2104,Bobby Portis,8,080608,K
+five_hundred_pit,3027,Diego Medina,8,080802,DP
+five_hundred_pit,2104,Bobby Portis,8,080805,K
+five_hundred_pit,8016,R'lyeh Cultist C,8,081004,K
+five_hundred_pit,5030,Dirk Digglet,8,081005,K
+five_hundred_pit,8032,toronto mans,8,081006,DP
+five_hundred_pit,3015,"Jason ""Dead"" Redd",8,081108,DP
+five_hundred_pit,5014,Sheridan Blackstone,8,081203,K
+five_hundred_pit,1140,Bartholomew Crumblepuff,8,081207,DP31
+five_hundred_pit,1141,Geno Scaramucci,8,081301,LODP
+five_hundred_pit,1033,Daz Butivegotthirtytwocharacters,8,081303,K
+five_hundred_pit,8047,Pete Morris,8,081402,K
+five_hundred_pit,7025,Rocco Rudnikov,8,081406,DP31
+five_hundred_pit,3089,Joey Wheeler,8,081407,K
+five_hundred_pit,6022,VI,8,081502,K
+five_hundred_pit,9016,Virgil Aegis-Gunther,9,090105,LODP
+five_hundred_pit,9009,Jamal Fyre,9,090302,K
+five_hundred_pit,5032,Sander Entman,9,090607,K
+five_hundred_pit,1206,Meerkat Preller,9,090607,K
+five_hundred_pit,1061,Hudson Hildebrandt,9,090803,K
+five_hundred_pit,3015,"Jason ""Dead"" Redd",9,090808,K
+five_hundred_pit,7023,Mickey May,9,090905,DP31
+five_hundred_pit,6013,Lane Drew,9,091106,DP
+five_hundred_pit,1107,petra sabor,9,091401,K
+five_hundred_pit,3079,Isaac Snowbender,9,091408,K
+five_hundred_pit,7027,Kevin James,10,100208,K
+five_hundred_pit,10045,Jordan Kurdi,10,100401,K
+five_hundred_pit,10036,Kyuss Kosades,10,100702,K
+five_hundred_pit,3089,Joey Wheeler,10,100802,K
+five_hundred_pit,1061,Hudson Hildebrandt,10,100803,K
+five_hundred_pit,2094,JZ (but not the rapper),10,101005,K
+five_hundred_pit,7023,Mickey May,10,101008,DP
+five_hundred_pit,2032,Kali McSuntas,10,101501,K
+five_hundred_pit,3011,December Beckett,10,101504,LODP
+five_hundred_pit,1026,Angel Leon,11,110401,K
+five_hundred_pit,10045,Jordan Kurdi,11,110406,K
+five_hundred_pit,4045,Dakota Carolina Montana,11,110504,K
+five_hundred_pit,3089,Joey Wheeler,11,110607,K
+five_hundred_pit,10007,Henry Atombomb,11,110804,K
+five_hundred_pit,3053,XxFAZE Jun1 RaWrXDxXx,11,110905,K
+five_hundred_pit,10036,Kyuss Kosades,11,111102,K
+five_hundred_pit,3049,Ferda Bois,11,111102,K
+five_hundred_pit,7027,Kevin James,11,111301,K
+five_hundred_pit,1026,Angel Leon,11,111301,K
+five_hundred_pit,3005,Pablo Sanchez,11,111403,K
+five_hundred_pit,3073,Matt Himynamis,11,111504,K
+five_hundred_pit,11006,Spitty McSpit,12,120114,K
+five_hundred_pit,11035,Nash Ellis,12,120209,DP
+five_hundred_pit,11035,Nash Ellis,12,120209,K
+five_hundred_pit,11013,AJ Wolfe,12,120414,K
+five_hundred_pit,11035,Nash Ellis,12,120509,K
+five_hundred_pit,11011,Sock Monkey,12,120511,K
+five_hundred_pit,3049,Ferda Bois,12,120709,K
+five_hundred_pit,3011,December Beckett,12,120716,K
+five_hundred_pit,11035,Nash Ellis,12,120809,DP
+five_hundred_pit,11011,Sock Monkey,12,120816,K
+five_hundred_pit,8051,James St. Louis,12,121013,K
+five_hundred_pit,12010,R'lyeh R'ivy,12,121111,K
+five_hundred_pit,11035,Nash Ellis,12,121409,DP
+five_hundred_pit,8002,Trevor Rose,13,130120,K
+five_hundred_pit,11047,Swiftie ESPN,13,130122,K
+five_hundred_pit,1206,Meerkat Preller,13,130218,K
+five_hundred_pit,12018,Clifton McCullough,13,130619,K
+five_hundred_pit,12034,Triscuit McBiskit,13,130820,K
+five_hundred_pit,9011,Lightning Volt,13,130823,DP31
+game_winning_result,1120,Johnny Hopkins,1,010101,1BWH
+game_winning_result,1067,Austin Schwartz,1,010102,1BWH
+game_winning_result,1011,El Duké Nukem,1,010103,HR
+game_winning_result,1048,Spike McBride,1,010104,HR
+game_winning_result,1156,Thomas Thompson III,1,010105,HR
+game_winning_result,1137,Jimmy Johns,1,010106,2B
+game_winning_result,1118,Casey Jones,1,010201,1B
+game_winning_result,1007,Chris Robin,1,010202,GORA
+game_winning_result,1076,Fuzzy Dunlop,1,010203,1BWH
+game_winning_result,1134,Ornn Mistborn,1,010204,BB
+game_winning_result,1022,Chuck McCluster,1,010205,2BWH
+game_winning_result,1049,Dixie Wrecked,1,010206,1BWH
+game_winning_result,1006,Smitty Hoppenscotch,1,010301,1BWH
+game_winning_result,1055,Ozymandias Jones,1,010302,HR
+game_winning_result,1144,Jake Wilson,1,010303,2BWH
+game_winning_result,1182,Moonlight Graham,1,010304,2B
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,1,010305,HR
+game_winning_result,1090,James Pablano,1,010306,HR
+game_winning_result,1053,Lindsanity,1,010401,HR
+game_winning_result,1073,Juan Diego De Las Rosas Jr.,1,010402,1BWH
+game_winning_result,1007,Chris Robin,1,010403,HR
+game_winning_result,1157,JP Panik,1,010404,HR
+game_winning_result,1049,Dixie Wrecked,1,010405,HR
+game_winning_result,1087,Foxx Dashington,1,010406,HR
+game_winning_result,1019,AJ Preller,1,010501,BB
+game_winning_result,1053,Lindsanity,1,010502,1BWH
+game_winning_result,1132,Steel Pipe Simpson,1,010503,HR
+game_winning_result,1180,War Hamster,1,010504,1BWH
+game_winning_result,1036,Spike Suzuki,1,010505,HR
+game_winning_result,1048,Spike McBride,1,010506,2B
+game_winning_result,1055,Ozymandias Jones,1,010601,2BWH
+game_winning_result,1067,Austin Schwartz,1,010602,1BWH
+game_winning_result,1034,Jack Marnette,1,010603,GORA
+game_winning_result,1002,Garitek,1,010604,3B
+game_winning_result,1187,Brandon Blade,1,010605,HR
+game_winning_result,1164,Zin Martinez,1,010606,HR
+game_winning_result,1088,Stan Mann,1,010701,1B
+game_winning_result,1169,Jerome Garcia,1,010702,HR
+game_winning_result,1079,Babatunde Oladotun,1,010703,1B
+game_winning_result,1158,Master Cashier,1,010704,HR
+game_winning_result,1082,Basebally McBaseballface Jr.,1,010705,HR
+game_winning_result,1014,Saoirse O Sullibhian,1,010706,HR
+game_winning_result,1056,Henrik Omega,1,010801,HR
+game_winning_result,1076,Fuzzy Dunlop,1,010802,3B
+game_winning_result,1103,Blue Moon Barthelemy,1,010803,1B
+game_winning_result,1028,Mackenzie Haraldo,1,010804,1BWH
+game_winning_result,1134,Ornn Mistborn,1,010805,2B
+game_winning_result,1066,Brohei Brohtani,1,010806,FC
+game_winning_result,1072,Red Trapper,1,010901,1BWH
+game_winning_result,1208,Bace Ventura,1,010902,HR
+game_winning_result,1118,Casey Jones,1,010903,1B
+game_winning_result,1035,Chip Otle,1,010904,1B
+game_winning_result,1015,Leche Galletitas Cigarillas de Culo,1,010905,GORA
+game_winning_result,1041,Barney Summers,1,010906,1BWH
+game_winning_result,1011,El Duké Nukem,1,011001,HR
+game_winning_result,1076,Fuzzy Dunlop,1,011002,HR
+game_winning_result,1121,Vandalia Halen,1,011003,HR
+game_winning_result,1087,Foxx Dashington,1,011004,HR
+game_winning_result,1179,Casey Kelly,1,011005,FC
+game_winning_result,1158,Master Cashier,1,011006,HR
+game_winning_result,1205,Stephen Sondheim,1,011101,2B
+game_winning_result,1063,Alex Yaxley,1,011102,SacF
+game_winning_result,1170,William Wallace,1,011103,2BWH
+game_winning_result,1014,Saoirse O Sullibhian,1,011104,2BWH
+game_winning_result,1153,AALarry Longshot,1,011105,HR
+game_winning_result,1048,Spike McBride,1,011106,2B
+game_winning_result,1208,Bace Ventura,1,011201,HR
+game_winning_result,1206,Meerkat Preller,1,011202,2B
+game_winning_result,1077,Storm Johnson,1,011203,HR
+game_winning_result,1194,Tuck,1,011204,GORA
+game_winning_result,1183,Akhbar Reginald Geraldo Hughes,1,011205,HR
+game_winning_result,1196,Devin Arianna,1,011206,HR
+game_winning_result,1132,Steel Pipe Simpson,1,011301,1BWH
+game_winning_result,1034,Jack Marnette,1,011302,1BWH
+game_winning_result,1035,Chip Otle,1,011401,2B
+game_winning_result,1073,Juan Diego De Las Rosas Jr.,2,020101,1B
+game_winning_result,1068,Ben Grimm,2,020102,HR
+game_winning_result,1013,Kaylee Stewart,2,020103,2B
+game_winning_result,1075,Robin Reynolds,2,020104,HR
+game_winning_result,1034,Jack Marnette,2,020105,SacF
+game_winning_result,1011,El Duké Nukem,2,020106,HR
+game_winning_result,1036,Spike Suzuki,2,020107,1B
+game_winning_result,1209,Franz Joseph Hymen,2,020201,HR
+game_winning_result,2042,Skrunk Meinhoffer,2,020202,2B
+game_winning_result,1058,Catfish Champ,2,020203,1B
+game_winning_result,1082,Basebally McBaseballface Jr.,2,020204,HR
+game_winning_result,1219,Gottlieb Giannopoulos,2,020205,1B
+game_winning_result,2052,Sluddy Gonzalez,2,020206,HR
+game_winning_result,2001,Jimjon Jonjim,2,020207,1BWH
+game_winning_result,1155,Pretzels Poffenberger II,2,020301,HR
+game_winning_result,1068,Ben Grimm,2,020302,2BWH
+game_winning_result,1007,Chris Robin,2,020303,HR
+game_winning_result,1103,Blue Moon Barthelemy,2,020304,HR
+game_winning_result,2019,Ricky Calzone,2,020305,2B
+game_winning_result,2000,Jerry Jingles,2,020306,HR
+game_winning_result,1157,JP Panik,2,020307,HR
+game_winning_result,1189,Ethan Franklin,2,020401,2B
+game_winning_result,1102,Graham Otherie,2,020402,1BWH
+game_winning_result,2061,Dez Perado,2,020403,1BWH
+game_winning_result,1055,Ozymandias Jones,2,020404,2BWH
+game_winning_result,1166,Ecliptic Astrum,2,020405,HR
+game_winning_result,2042,Skrunk Meinhoffer,2,020406,1BWH
+game_winning_result,1186,Francis Herman Swagger,2,020407,SacF
+game_winning_result,1187,Brandon Blade,2,020501,2B
+game_winning_result,2057,Jack Alpha,2,020502,HR
+game_winning_result,1156,Thomas Thompson III,2,020503,HR
+game_winning_result,1090,James Pablano,2,020504,1BWH
+game_winning_result,2016,Super Talent,2,020505,HR
+game_winning_result,2019,Ricky Calzone,2,020506,HR
+game_winning_result,1206,Meerkat Preller,2,020507,HR
+game_winning_result,1169,Jerome Garcia,2,020601,HR
+game_winning_result,1068,Ben Grimm,2,020602,SacF
+game_winning_result,1194,Tuck,2,020603,HR
+game_winning_result,1102,Graham Otherie,2,020604,2B
+game_winning_result,2019,Ricky Calzone,2,020605,HR
+game_winning_result,1046,Rabbi Chase,2,020606,HR
+game_winning_result,1135,Ryan Gastings,2,020607,HR
+game_winning_result,1076,Fuzzy Dunlop,2,020701,3B
+game_winning_result,2057,Jack Alpha,2,020702,HR
+game_winning_result,1038,JimBob Cooter,2,020703,1B
+game_winning_result,2012,Burgess Whitehead,2,020704,3B
+game_winning_result,1194,Tuck,2,020705,HR
+game_winning_result,1086,George Ewell,2,020706,2BWH
+game_winning_result,1165,Dropov Andpicov,2,020707,1B
+game_winning_result,2040,Karrik Hammer,2,020801,2B
+game_winning_result,1201,Mylo Grams,2,020802,HR
+game_winning_result,1012,Reservoir Butler,2,020803,1B
+game_winning_result,1036,Spike Suzuki,2,020804,HR
+game_winning_result,1210,Berna Pozo,2,020805,2B
+game_winning_result,2072,Pull Ganger,2,020806,HR
+game_winning_result,1011,El Duké Nukem,2,020807,1B
+game_winning_result,1036,Spike Suzuki,2,020901,1BWH
+game_winning_result,1137,Jimmy Johns,2,020902,2B
+game_winning_result,1002,Garitek,2,020903,HR
+game_winning_result,2010,Skillz Simanek,2,020904,2BWH
+game_winning_result,1121,Vandalia Halen,2,020905,SacF
+game_winning_result,1102,Graham Otherie,2,020906,HR
+game_winning_result,2054,Woofie K9,2,020907,1BWH
+game_winning_result,1080,Whitt Bass,2,021001,GORA
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,2,021002,3B
+game_winning_result,1086,George Ewell,2,021003,1BWH
+game_winning_result,2003,Mr. Jim Business,2,021004,3B
+game_winning_result,1201,Mylo Grams,2,021005,HR
+game_winning_result,1199,Boof Boog,2,021006,HR
+game_winning_result,2073,Dom Emnic,2,021007,HR
+game_winning_result,1194,Tuck,2,021101,SacF
+game_winning_result,1007,Chris Robin,2,021102,HR
+game_winning_result,2077,Jared Fromsubway,2,021103,2B
+game_winning_result,2057,Jack Alpha,2,021104,HR
+game_winning_result,2032,Kali McSuntas,2,021105,HR
+game_winning_result,1134,Ornn Mistborn,2,021106,1BWH
+game_winning_result,2031,Joseph Jonah Wright,2,021107,1BWH
+game_winning_result,2055,Harry Peritestes,2,021201,2BWH
+game_winning_result,1113,Cookie Mongster,2,021202,1BWH
+game_winning_result,1006,Smitty Hoppenscotch,2,021203,3B
+game_winning_result,1206,Meerkat Preller,2,021204,2B
+game_winning_result,1039,Clive Babineaux,2,021205,HR
+game_winning_result,1014,Saoirse O Sullibhian,2,021206,3B
+game_winning_result,1022,Chuck McCluster,2,021207,1BWH
+game_winning_result,1071,Isaac Saffron,2,021301,2B
+game_winning_result,1199,Boof Boog,2,021302,HR
+game_winning_result,1098,Kegs Mabry,2,021303,IF1B
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,2,021304,1BWH
+game_winning_result,1119,Willie Mays Hayes,2,021305,3B
+game_winning_result,1042,Dallas Houston,2,021306,1B
+game_winning_result,2056,Huge Yakman,2,021307,SacF
+game_winning_result,2010,Skillz Simanek,2,021401,HR
+game_winning_result,2080,Junebug Wray,2,021402,HR
+game_winning_result,1098,Kegs Mabry,2,021403,HR
+game_winning_result,1087,Foxx Dashington,2,021404,1B
+game_winning_result,2042,Skrunk Meinhoffer,2,021405,SacF
+game_winning_result,2005,Kiger Wulf,2,021406,2B
+game_winning_result,1157,JP Panik,2,021407,2B
+game_winning_result,1144,Jake Wilson,2,021501,HR
+game_winning_result,1013,Kaylee Stewart,2,021502,HR
+game_winning_result,1108,Conor Sexton,2,021503,HR
+game_winning_result,2080,Junebug Wray,2,021504,HR
+game_winning_result,1034,Jack Marnette,2,021505,DP
+game_winning_result,2052,Sluddy Gonzalez,2,021506,1BWH
+game_winning_result,2069,Tygen Shinybeard,2,021507,HR
+game_winning_result,1023,Dan Gerzone,2,021601,HR
+game_winning_result,1038,JimBob Cooter,2,021602,1BWH
+game_winning_result,2057,Jack Alpha,2,021603,HR
+game_winning_result,2003,Mr. Jim Business,2,021604,2B
+game_winning_result,1035,Chip Otle,2,021605,2BWH
+game_winning_result,1042,Dallas Houston,2,021606,HR
+game_winning_result,1184,Buzz Schwinghammer,2,021607,2B
+game_winning_result,2072,Pull Ganger,2,021701,HR
+game_winning_result,1192,Larry Slack,2,021702,2B
+game_winning_result,2042,Skrunk Meinhoffer,2,021801,2BWH
+game_winning_result,1149,Garrett Evans,2,021802,HR
+game_winning_result,2072,Pull Ganger,2,021901,1B
+game_winning_result,3015,"Jason ""Dead"" Redd",3,030101,HR
+game_winning_result,1086,George Ewell,3,030102,HR
+game_winning_result,1087,Foxx Dashington,3,030103,HR
+game_winning_result,3008,Tyrone Lannister,3,030104,HR
+game_winning_result,1021,Q Kimbrel,3,030105,HR
+game_winning_result,1187,Brandon Blade,3,030106,2BWH
+game_winning_result,3044,Griffin Adell,3,030107,HR
+game_winning_result,1042,Dallas Houston,3,030108,HR
+game_winning_result,2106,Declan Archer,3,030201,2B
+game_winning_result,3028,Loghan O'Brien,3,030202,2B
+game_winning_result,2034,Fortuk Monmouth,3,030203,HR
+game_winning_result,1108,Conor Sexton,3,030204,2BWH
+game_winning_result,1120,Johnny Hopkins,3,030205,2B
+game_winning_result,1072,Red Trapper,3,030206,HR
+game_winning_result,1222,Justin Martin,3,030207,HR
+game_winning_result,1052,Zed Leona,3,030208,2B
+game_winning_result,3008,Tyrone Lannister,3,030301,HR
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,3,030302,2B
+game_winning_result,2066,Talon Wingdiver,3,030303,GORA
+game_winning_result,1184,Buzz Schwinghammer,3,030304,1BWH
+game_winning_result,1074,Donked McToad,3,030305,3B
+game_winning_result,1063,Alex Yaxley,3,030306,1BWH
+game_winning_result,1156,Thomas Thompson III,3,030307,HR
+game_winning_result,2086,Anna De Neko,3,030308,1BWH
+game_winning_result,1166,Ecliptic Astrum,3,030401,HR
+game_winning_result,3028,Loghan O'Brien,3,030402,1B
+game_winning_result,1108,Conor Sexton,3,030403,1B
+game_winning_result,3012,Rusty Nails,3,030404,3B
+game_winning_result,3042,Joanna McMartinez,3,030405,2BWH
+game_winning_result,1159,Clifton Outlaw,3,030406,HR
+game_winning_result,2010,Skillz Simanek,3,030407,HR
+game_winning_result,2054,Woofie K9,3,030408,2B
+game_winning_result,2072,Pull Ganger,3,030501,3B
+game_winning_result,3038,Lincoln Crawford,3,030502,1B
+game_winning_result,2068,Raphael Akias,3,030503,HR
+game_winning_result,3024,"Bill ""Bull"" Bison",3,030504,HR
+game_winning_result,1169,Jerome Garcia,3,030505,1B
+game_winning_result,1133,Hank Murphy,3,030506,1BWH
+game_winning_result,3046,Johnny Hendrix,3,030507,HR
+game_winning_result,1209,Franz Joseph Hymen,3,030508,HR
+game_winning_result,1211,Pete Jones,3,030601,1BWH
+game_winning_result,1137,Jimmy Johns,3,030602,HR
+game_winning_result,2037,Remi Renaldo,3,030603,1BWH
+game_winning_result,1108,Conor Sexton,3,030604,3B
+game_winning_result,2005,Kiger Wulf,3,030605,HR
+game_winning_result,2086,Anna De Neko,3,030606,3B
+game_winning_result,1218,Bofadeez Newtz,3,030607,HR
+game_winning_result,1192,Larry Slack,3,030608,1BWH
+game_winning_result,2068,Raphael Akias,3,030701,HR
+game_winning_result,1096,Justin Paglia,3,030702,HR
+game_winning_result,1184,Buzz Schwinghammer,3,030703,SacF
+game_winning_result,1029,Lefty Louis,3,030704,HR
+game_winning_result,1078,Lawrence Wiseman,3,030705,HR
+game_winning_result,1064,Dick Pole,3,030706,BB
+game_winning_result,2010,Skillz Simanek,3,030707,IF1B
+game_winning_result,1039,Clive Babineaux,3,030708,HR
+game_winning_result,3015,"Jason ""Dead"" Redd",3,030801,3B
+game_winning_result,1022,Chuck McCluster,3,030802,1B
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,3,030803,2B
+game_winning_result,2002,Assassin Xekutioner,3,030804,1B
+game_winning_result,2005,Kiger Wulf,3,030805,1BWH
+game_winning_result,1201,Mylo Grams,3,030806,HR
+game_winning_result,2048,Xavier Phoenix,3,030807,1BWH
+game_winning_result,3046,Johnny Hendrix,3,030808,1BWH
+game_winning_result,1100,Antwan Zella,3,030901,HR
+game_winning_result,1086,George Ewell,3,030902,1BWH
+game_winning_result,3042,Joanna McMartinez,3,030903,3B
+game_winning_result,3071,Jura Benjamin Juney,3,030904,HR
+game_winning_result,2034,Fortuk Monmouth,3,030905,HR
+game_winning_result,1206,Meerkat Preller,3,030906,2BWH
+game_winning_result,2082,Dixon Uraz,3,030907,1B
+game_winning_result,1211,Pete Jones,3,030908,1BWH
+game_winning_result,1212,Barney Turbo,3,031001,1BWH
+game_winning_result,3065,Robert Atech,3,031002,2BWH
+game_winning_result,2014,Shovel Bryant,3,031003,1BWH
+game_winning_result,1034,Jack Marnette,3,031004,1BWH
+game_winning_result,2034,Fortuk Monmouth,3,031005,2BWH
+game_winning_result,3012,Rusty Nails,3,031006,HR
+game_winning_result,1022,Chuck McCluster,3,031007,HR
+game_winning_result,2074,Jobert Maclin,3,031008,HR
+game_winning_result,3007,Salvatore De Luca,3,031101,1B
+game_winning_result,1099,Baron Samedi,3,031102,HR
+game_winning_result,1174,Mad Monty,3,031103,2BWH
+game_winning_result,1153,AALarry Longshot,3,031104,SacF
+game_winning_result,1210,Berna Pozo,3,031105,2BWH
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,3,031106,1B
+game_winning_result,1151,Lance Lummoxx,3,031107,GORA
+game_winning_result,1001,Crash Davis,3,031108,IF1B
+game_winning_result,3048,Ryan Sir-Wondery,3,031201,HR
+game_winning_result,2002,Assassin Xekutioner,3,031202,2BWH
+game_winning_result,3049,Ferda Bois,3,031203,1BWH
+game_winning_result,1184,Buzz Schwinghammer,3,031204,3B
+game_winning_result,1143,Viking Fishbird,3,031205,HR
+game_winning_result,1100,Antwan Zella,3,031206,1B
+game_winning_result,3052,Oni R1,3,031207,SacF
+game_winning_result,1206,Meerkat Preller,3,031208,HR
+game_winning_result,1027,Thomas Nova,3,031301,1B
+game_winning_result,1189,Ethan Franklin,3,031302,2B
+game_winning_result,1021,Q Kimbrel,3,031303,HR
+game_winning_result,3075,H.D. Dog,3,031304,3B
+game_winning_result,3042,Joanna McMartinez,3,031305,HR
+game_winning_result,1105,Grey Goose McGillicuddy,3,031306,2BWH
+game_winning_result,1023,Dan Gerzone,3,031307,2B
+game_winning_result,3059,Skel Etor,3,031308,HR
+game_winning_result,3084,Ryan Tyburn,3,031401,GORA
+game_winning_result,1035,Chip Otle,3,031402,SacF
+game_winning_result,1021,Q Kimbrel,3,031403,HR
+game_winning_result,1036,Spike Suzuki,3,031404,1BWH
+game_winning_result,1143,Viking Fishbird,3,031405,HR
+game_winning_result,1064,Dick Pole,3,031406,GORA
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,3,031407,HR
+game_winning_result,3074,Shoresy Twatterson,3,031408,HR
+game_winning_result,1154,Kyle Corbett,3,031501,HR
+game_winning_result,1027,Thomas Nova,3,031502,HR
+game_winning_result,1210,Berna Pozo,3,031503,HR
+game_winning_result,3017,Bob Dunagee,3,031504,HR
+game_winning_result,1035,Chip Otle,3,031601,1B
+game_winning_result,2005,Kiger Wulf,3,031602,1BWH
+game_winning_result,2002,Assassin Xekutioner,3,031701,HR
+game_winning_result,4034,Gargle Nutz,4,040101,1B
+game_winning_result,1096,Justin Paglia,4,040102,2B
+game_winning_result,3051,Jackie Daytona,4,040103,3B
+game_winning_result,3043,Keyo,4,040104,HR
+game_winning_result,1074,Donked McToad,4,040105,1BWH
+game_winning_result,1159,Clifton Outlaw,4,040106,HR
+game_winning_result,1220,Al Ternate,4,040107,1BWH
+game_winning_result,1222,Justin Martin,4,040108,HR
+game_winning_result,3048,Ryan Sir-Wondery,4,040201,HR
+game_winning_result,1035,Chip Otle,4,040202,GORA
+game_winning_result,1021,Q Kimbrel,4,040203,1BWH
+game_winning_result,1160,Caleb Athen,4,040204,2B
+game_winning_result,1173,Cure Moon,4,040205,HR
+game_winning_result,1063,Alex Yaxley,4,040206,HR
+game_winning_result,2082,Dixon Uraz,4,040207,2B
+game_winning_result,1023,Dan Gerzone,4,040208,2BWH
+game_winning_result,1002,Garitek,4,040301,HR
+game_winning_result,1166,Ecliptic Astrum,4,040302,3B
+game_winning_result,1036,Spike Suzuki,4,040303,2B
+game_winning_result,3060,Skye McDowell,4,040304,HR
+game_winning_result,1120,Johnny Hopkins,4,040305,HR
+game_winning_result,2101,Duwan Anonly,4,040306,2B
+game_winning_result,3066,AAAAAAAAAAThor,4,040307,HR
+game_winning_result,4021,Jeff Shagwell,4,040308,1BWH
+game_winning_result,3065,Robert Atech,4,040401,HR
+game_winning_result,1073,Juan Diego De Las Rosas Jr.,4,040402,1BWH2
+game_winning_result,2086,Anna De Neko,4,040403,3B
+game_winning_result,3068,Flick Maplethorpe,4,040404,HR
+game_winning_result,2044,Maud Nelson,4,040405,2BWH
+game_winning_result,4000,King Kruul,4,040406,HR
+game_winning_result,1149,Garrett Evans,4,040407,2B
+game_winning_result,1035,Chip Otle,4,040408,HR
+game_winning_result,3069,Wallace Grommet,4,040501,HR
+game_winning_result,1042,Dallas Houston,4,040502,2B
+game_winning_result,4000,King Kruul,4,040503,2BWH
+game_winning_result,3005,Pablo Sanchez,4,040504,1BWH
+game_winning_result,3023,Andy,4,040505,3B
+game_winning_result,1043,Tyler Palmatier,4,040506,SacF
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,4,040507,2B
+game_winning_result,3091,AAAAntilles Zelk,4,040508,HR
+game_winning_result,3084,Ryan Tyburn,4,040601,2B
+game_winning_result,1136,Mason Spurs,4,040602,2B
+game_winning_result,2044,Maud Nelson,4,040603,2B
+game_winning_result,4016,Shortpoleon Napsleeve,4,040604,HR
+game_winning_result,1119,Willie Mays Hayes,4,040605,HR
+game_winning_result,2010,Skillz Simanek,4,040606,2BWH
+game_winning_result,1151,Lance Lummoxx,4,040607,HR
+game_winning_result,1222,Justin Martin,4,040608,1BWH
+game_winning_result,1002,Garitek,4,040701,HR
+game_winning_result,4004,R'lyeh Reid,4,040702,HR
+game_winning_result,4033,Leonidas States,4,040703,1B
+game_winning_result,2104,Bobby Portis,4,040704,1BWH
+game_winning_result,2088,Dmitri Petrovich,4,040705,1BWH
+game_winning_result,1062,BB Bambino Jr.,4,040706,HR
+game_winning_result,4041,John Rhys Ealy,4,040707,1BWH
+game_winning_result,3082,Basethony Balltano,4,040708,HR
+game_winning_result,1082,Basebally McBaseballface Jr.,4,040801,3B
+game_winning_result,4012,Deku Matsui,4,040802,1B
+game_winning_result,2001,Jimjon Jonjim,4,040803,1BWH
+game_winning_result,1034,Jack Marnette,4,040804,2BWH
+game_winning_result,4021,Jeff Shagwell,4,040805,HR
+game_winning_result,1062,BB Bambino Jr.,4,040806,BB
+game_winning_result,2057,Jack Alpha,4,040807,3B
+game_winning_result,2088,Dmitri Petrovich,4,040808,3B
+game_winning_result,1006,Smitty Hoppenscotch,4,040901,3B
+game_winning_result,2088,Dmitri Petrovich,4,040902,1BWH
+game_winning_result,1034,Jack Marnette,4,040903,2BWH
+game_winning_result,2035,Jhahn Tahmus,4,040904,3B
+game_winning_result,2097,Dirtbag Darrell,4,040905,HR
+game_winning_result,1189,Ethan Franklin,4,040906,GORA
+game_winning_result,2068,Raphael Akias,4,040907,HR
+game_winning_result,1119,Willie Mays Hayes,4,040908,2B
+game_winning_result,3080,Jeff Dingerhitter,4,041001,HR
+game_winning_result,2042,Skrunk Meinhoffer,4,041002,1BWH
+game_winning_result,3075,H.D. Dog,4,041003,HR
+game_winning_result,2001,Jimjon Jonjim,4,041004,1BWH
+game_winning_result,1055,Ozymandias Jones,4,041005,2BWH
+game_winning_result,3079,Isaac Snowbender,4,041006,HR
+game_winning_result,4015,Plack Attack,4,041007,HR
+game_winning_result,2102,Oliver Yu,4,041008,HR
+game_winning_result,3079,Isaac Snowbender,4,041101,HR
+game_winning_result,1189,Ethan Franklin,4,041102,1BWH2
+game_winning_result,3037,Doc Holliday,4,041103,HR
+game_winning_result,3005,Pablo Sanchez,4,041104,1BWH
+game_winning_result,4042,Sarah Buntingsworth,4,041105,2BWH
+game_winning_result,2097,Dirtbag Darrell,4,041106,HR
+game_winning_result,2101,Duwan Anonly,4,041107,2B
+game_winning_result,1028,Mackenzie Haraldo,4,041108,HR
+game_winning_result,2106,Declan Archer,4,041201,1B
+game_winning_result,1189,Ethan Franklin,4,041202,2B
+game_winning_result,2042,Skrunk Meinhoffer,4,041203,HR
+game_winning_result,4072,R'lyeh Cultist 5,4,041204,1BWH
+game_winning_result,3035,Max Power,4,041205,1B
+game_winning_result,3080,Jeff Dingerhitter,4,041206,GORA
+game_winning_result,2010,Skillz Simanek,4,041207,HR
+game_winning_result,4015,Plack Attack,4,041208,HR
+game_winning_result,3069,Wallace Grommet,4,041301,HR
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,4,041302,2BWH
+game_winning_result,2107,Kalin Young,4,041303,2B
+game_winning_result,4048,Mike Fruitstand,4,041304,1B
+game_winning_result,3023,Andy,4,041305,1B
+game_winning_result,4004,R'lyeh Reid,4,041306,HR
+game_winning_result,3054,Paulie Wag,4,041307,3B
+game_winning_result,1098,Kegs Mabry,4,041308,2B
+game_winning_result,1035,Chip Otle,4,041401,HR
+game_winning_result,1174,Mad Monty,4,041402,HR
+game_winning_result,2074,Jobert Maclin,4,041403,HR
+game_winning_result,2042,Skrunk Meinhoffer,4,041404,HR
+game_winning_result,4077,Hunter Scott,4,041405,2BWH
+game_winning_result,1102,Graham Otherie,4,041406,HR
+game_winning_result,4040,Trogdor Fhqwhgads,4,041407,2B
+game_winning_result,1169,Jerome Garcia,4,041408,BB
+game_winning_result,3043,Keyo,4,041501,HR
+game_winning_result,2012,Burgess Whitehead,4,041502,HR
+game_winning_result,1206,Meerkat Preller,4,041503,HR
+game_winning_result,4041,John Rhys Ealy,4,041504,1BWH
+game_winning_result,3086,Nono Nones,4,041601,2BWH
+game_winning_result,1056,Henrik Omega,4,041602,1BWH
+game_winning_result,1184,Buzz Schwinghammer,4,041701,3B
+game_winning_result,1088,Stan Mann,5,050101,1BWH
+game_winning_result,1034,Jack Marnette,5,050102,HR
+game_winning_result,2094,JZ (but not the rapper),5,050103,HR
+game_winning_result,1191,Morris Deratt,5,050104,HR
+game_winning_result,5004,Leon Sandcastle,5,050105,HR
+game_winning_result,3017,Bob Dunagee,5,050106,HR
+game_winning_result,1220,Al Ternate,5,050107,BB
+game_winning_result,1149,Garrett Evans,5,050108,1BWH
+game_winning_result,2044,Maud Nelson,5,050201,HR
+game_winning_result,2106,Declan Archer,5,050202,2B
+game_winning_result,5007,Gas House Gorillas,5,050203,1B
+game_winning_result,5005,Narancia Ghirga,5,050204,2B
+game_winning_result,3077,Derek Bongiovanni,5,050205,2B
+game_winning_result,1063,Alex Yaxley,5,050206,HR
+game_winning_result,5011,Mo Mo,5,050207,1BWH
+game_winning_result,3091,AAAAntilles Zelk,5,050208,2B
+game_winning_result,4034,Gargle Nutz,5,050301,HR
+game_winning_result,2044,Maud Nelson,5,050302,HR
+game_winning_result,2085,Lloyd Gross,5,050303,1B
+game_winning_result,1036,Spike Suzuki,5,050304,1B
+game_winning_result,1099,Baron Samedi,5,050305,HR
+game_winning_result,5014,Sheridan Blackstone,5,050306,2B
+game_winning_result,5017,Makesiondon Kelkboom,5,050307,2B
+game_winning_result,1165,Dropov Andpicov,5,050308,3B
+game_winning_result,2035,Jhahn Tahmus,5,050401,HR
+game_winning_result,1166,Ecliptic Astrum,5,050402,2B
+game_winning_result,3069,Wallace Grommet,5,050403,HR
+game_winning_result,4069,Hot Dog Jeopardy,5,050404,HR
+game_winning_result,1136,Mason Spurs,5,050405,1BWH
+game_winning_result,4070,Ioe Torrent,5,050406,HR
+game_winning_result,1058,Catfish Champ,5,050407,2B
+game_winning_result,2109,Nate Duke,5,050408,HR
+game_winning_result,3012,Rusty Nails,5,050501,HR
+game_winning_result,1211,Pete Jones,5,050502,HR
+game_winning_result,2069,Tygen Shinybeard,5,050503,1BWH
+game_winning_result,3071,Jura Benjamin Juney,5,050504,3B
+game_winning_result,3066,AAAAAAAAAAThor,5,050505,2BWH
+game_winning_result,1102,Graham Otherie,5,050506,2B
+game_winning_result,3082,Basethony Balltano,5,050507,2B
+game_winning_result,1169,Jerome Garcia,5,050508,DSacF
+game_winning_result,1157,JP Panik,5,050601,HR
+game_winning_result,4024,Didja Naylor,5,050602,HR
+game_winning_result,4007,Reese Worthington,5,050603,1BWH
+game_winning_result,3005,Pablo Sanchez,5,050604,2B
+game_winning_result,1220,Al Ternate,5,050605,HR
+game_winning_result,3054,Paulie Wag,5,050606,2B
+game_winning_result,1042,Dallas Houston,5,050608,HR
+game_winning_result,5016,LeBarn James,5,050701,2B
+game_winning_result,1021,Q Kimbrel,5,050702,HR
+game_winning_result,1141,Geno Scaramucci,5,050703,HR
+game_winning_result,1035,Chip Otle,5,050704,HR
+game_winning_result,1072,Red Trapper,5,050705,HR
+game_winning_result,4010,Matthew Heskey,5,050706,1B
+game_winning_result,2097,Dirtbag Darrell,5,050707,HR
+game_winning_result,3011,December Beckett,5,050708,HR
+game_winning_result,1091,Dougal McGoogol,5,050801,HR
+game_winning_result,4016,Shortpoleon Napsleeve,5,050802,HR
+game_winning_result,1141,Geno Scaramucci,5,050803,2BWH
+game_winning_result,1034,Jack Marnette,5,050804,1B
+game_winning_result,5017,Makesiondon Kelkboom,5,050805,HR
+game_winning_result,1201,Mylo Grams,5,050806,3B
+game_winning_result,1064,Dick Pole,5,050807,HR
+game_winning_result,1012,Reservoir Butler,5,050808,2B
+game_winning_result,4067,Dogwood Maple,5,050901,1B
+game_winning_result,1099,Baron Samedi,5,050902,3B
+game_winning_result,5018,Brian Taylor,5,050903,3B
+game_winning_result,1159,Clifton Outlaw,5,050904,1B
+game_winning_result,1022,Chuck McCluster,5,050905,BB
+game_winning_result,1028,Mackenzie Haraldo,5,050906,HR
+game_winning_result,5019,Connor Morgan,5,050907,HR
+game_winning_result,2055,Harry Peritestes,5,050908,2BWH
+game_winning_result,1089,Jefferson Steelflex,5,051001,HR
+game_winning_result,1174,Mad Monty,5,051002,HR
+game_winning_result,1082,Basebally McBaseballface Jr.,5,051003,HR
+game_winning_result,1034,Jack Marnette,5,051004,2B
+game_winning_result,1136,Mason Spurs,5,051005,1B
+game_winning_result,5021,Kenny Kawaguchi,5,051006,2B
+game_winning_result,4021,Jeff Shagwell,5,051007,HR
+game_winning_result,2094,JZ (but not the rapper),5,051008,HR
+game_winning_result,2101,Duwan Anonly,5,051101,1BWH
+game_winning_result,4034,Gargle Nutz,5,051102,1B
+game_winning_result,3048,Ryan Sir-Wondery,5,051103,1BWH2
+game_winning_result,1051,Superbone Threefinger,5,051104,HR
+game_winning_result,5002,Guidooooo,5,051105,2B
+game_winning_result,4012,Deku Matsui,5,051106,HR
+game_winning_result,3060,Skye McDowell,5,051107,HR
+game_winning_result,4024,Didja Naylor,5,051108,GORA
+game_winning_result,2035,Jhahn Tahmus,5,051201,3B
+game_winning_result,4022,Adonis Sinoda,5,051202,HR
+game_winning_result,2082,Dixon Uraz,5,051203,2B
+game_winning_result,5013,Kirby Birch,5,051204,HR
+game_winning_result,1073,Juan Diego De Las Rosas Jr.,5,051205,HR
+game_winning_result,3038,Lincoln Crawford,5,051206,2B
+game_winning_result,3079,Isaac Snowbender,5,051207,1B
+game_winning_result,1006,Smitty Hoppenscotch,5,051208,1B
+game_winning_result,5016,LeBarn James,5,051301,HR
+game_winning_result,3069,Wallace Grommet,5,051302,IF1B
+game_winning_result,1108,Conor Sexton,5,051303,BB
+game_winning_result,1021,Q Kimbrel,5,051304,HR
+game_winning_result,3077,Derek Bongiovanni,5,051305,1B
+game_winning_result,1064,Dick Pole,5,051306,HR
+game_winning_result,5011,Mo Mo,5,051307,1BWH
+game_winning_result,1012,Reservoir Butler,5,051308,HR
+game_winning_result,5018,Brian Taylor,5,051401,HR
+game_winning_result,3053,XxFAZE Jun1 RaWrXDxXx,5,051402,2BWH
+game_winning_result,2094,JZ (but not the rapper),5,051403,HR
+game_winning_result,3060,Skye McDowell,5,051404,1BWH
+game_winning_result,1089,Jefferson Steelflex,5,051405,2B
+game_winning_result,1120,Johnny Hopkins,5,051406,1BWH
+game_winning_result,4079,Pedro Cerrano-Spaz,5,051407,2B
+game_winning_result,2088,Dmitri Petrovich,5,051408,GORA
+game_winning_result,1082,Basebally McBaseballface Jr.,5,051501,GORA
+game_winning_result,1051,Superbone Threefinger,5,051502,2B
+game_winning_result,5002,Guidooooo,5,051503,GORA
+game_winning_result,3011,December Beckett,5,051504,1B
+game_winning_result,2067,Riles McGiles,5,051601,3B
+game_winning_result,5041,Papa Longstroke,5,051602,HR
+game_winning_result,1158,Master Cashier,5,051701,1BWH
+game_winning_result,2035,Jhahn Tahmus,6,060101,HR
+game_winning_result,4041,John Rhys Ealy,6,060102,HR
+game_winning_result,6009,Hannibal Bligh,6,060103,2BWH
+game_winning_result,2002,Assassin Xekutioner,6,060104,1BWH
+game_winning_result,3011,December Beckett,6,060105,HR
+game_winning_result,5026,Freddie Huff,6,060106,BB
+game_winning_result,3091,AAAAntilles Zelk,6,060107,SacF
+game_winning_result,5041,Papa Longstroke,6,060108,2B
+game_winning_result,1164,Zin Martinez,6,060201,1B
+game_winning_result,1136,Mason Spurs,6,060202,HR
+game_winning_result,3051,Jackie Daytona,6,060203,HR
+game_winning_result,6002,Billy Dixon,6,060204,HR
+game_winning_result,4034,Gargle Nutz,6,060205,1BWH
+game_winning_result,3080,Jeff Dingerhitter,6,060206,HR
+game_winning_result,6018,Perry Platypus,6,060207,1BWH
+game_winning_result,2012,Burgess Whitehead,6,060208,2BWH
+game_winning_result,6027,Big Psyduck,6,060301,HR
+game_winning_result,4033,Leonidas States,6,060302,HR
+game_winning_result,2002,Assassin Xekutioner,6,060303,HR
+game_winning_result,3069,Wallace Grommet,6,060304,1BWH2
+game_winning_result,5039,Roidy Magoo,6,060305,1BWH
+game_winning_result,1149,Garrett Evans,6,060306,HR
+game_winning_result,6032,Johnny McFarland,6,060307,2B
+game_winning_result,3079,Isaac Snowbender,6,060308,HR
+game_winning_result,1137,Jimmy Johns,6,060401,3B
+game_winning_result,5007,Gas House Gorillas,6,060402,GORA
+game_winning_result,1141,Geno Scaramucci,6,060403,1B
+game_winning_result,6016,Mike Litoris,6,060404,HR
+game_winning_result,2055,Harry Peritestes,6,060405,1B
+game_winning_result,4066,Brusdar Powerade,6,060406,HR
+game_winning_result,1006,Smitty Hoppenscotch,6,060407,1B
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,6,060408,2BWH
+game_winning_result,3069,Wallace Grommet,6,060501,1BWH
+game_winning_result,3086,Nono Nones,6,060502,2B
+game_winning_result,4033,Leonidas States,6,060503,2BWH
+game_winning_result,2094,JZ (but not the rapper),6,060504,1B
+game_winning_result,1099,Baron Samedi,6,060505,HR
+game_winning_result,2082,Dixon Uraz,6,060506,SacF
+game_winning_result,1062,BB Bambino Jr.,6,060507,HR
+game_winning_result,3038,Lincoln Crawford,6,060508,HR
+game_winning_result,1091,Dougal McGoogol,6,060601,2B
+game_winning_result,1022,Chuck McCluster,6,060602,1BWH
+game_winning_result,1191,Morris Deratt,6,060603,HR
+game_winning_result,3012,Rusty Nails,6,060604,1B
+game_winning_result,1206,Meerkat Preller,6,060605,HR
+game_winning_result,2010,Skillz Simanek,6,060606,3B
+game_winning_result,4044,Ura Irons,6,060607,1B
+game_winning_result,1002,Garitek,6,060608,GORA
+game_winning_result,6040,Big Smoke Anderson,6,060701,HR
+game_winning_result,2085,Lloyd Gross,6,060702,HR
+game_winning_result,6026,B.A. Dickey,6,060703,2B
+game_winning_result,4007,Reese Worthington,6,060704,1BWH
+game_winning_result,1209,Franz Joseph Hymen,6,060705,HR
+game_winning_result,1063,Alex Yaxley,6,060706,HR
+game_winning_result,2082,Dixon Uraz,6,060707,SacF
+game_winning_result,6047,Crimson Chin,6,060708,1BWH
+game_winning_result,1091,Dougal McGoogol,6,060801,1B
+game_winning_result,3043,Keyo,6,060802,BB
+game_winning_result,1028,Mackenzie Haraldo,6,060803,HR
+game_winning_result,5032,Sander Entman,6,060804,HR
+game_winning_result,5040,Juju's Snorlax,6,060805,HR
+game_winning_result,6009,Hannibal Bligh,6,060806,HR
+game_winning_result,1073,Juan Diego De Las Rosas Jr.,6,060807,HR
+game_winning_result,6045,Finn Pinguson,6,060808,1BWH
+game_winning_result,1088,Stan Mann,6,060901,HR
+game_winning_result,1134,Ornn Mistborn,6,060902,HR
+game_winning_result,6036,Mad Jack,6,060903,2B
+game_winning_result,6031,Captain Rex,6,060904,HR
+game_winning_result,5012,Ben Bramly,6,060905,HR
+game_winning_result,6045,Finn Pinguson,6,060906,HR
+game_winning_result,1021,Q Kimbrel,6,060907,HR
+game_winning_result,6012,Kanye East,6,060908,HR
+game_winning_result,1036,Spike Suzuki,6,061001,1B
+game_winning_result,1099,Baron Samedi,6,061002,HR
+game_winning_result,1210,Berna Pozo,6,061003,HR
+game_winning_result,3082,Basethony Balltano,6,061004,1BWH
+game_winning_result,3078,Chakra Pilates,6,061005,1BWH
+game_winning_result,6011,Joe Pidgeon,6,061006,HR
+game_winning_result,3038,Lincoln Crawford,6,061007,GORA
+game_winning_result,1063,Alex Yaxley,6,061008,1BWH
+game_winning_result,5016,LeBarn James,6,061101,1BWH
+game_winning_result,6009,Hannibal Bligh,6,061102,HR
+game_winning_result,1082,Basebally McBaseballface Jr.,6,061103,1B
+game_winning_result,1071,Isaac Saffron,6,061104,HR
+game_winning_result,1012,Reservoir Butler,6,061105,2B
+game_winning_result,6045,Finn Pinguson,6,061106,HR
+game_winning_result,5041,Papa Longstroke,6,061107,3B
+game_winning_result,3038,Lincoln Crawford,6,061108,HR
+game_winning_result,1098,Kegs Mabry,6,061201,3B
+game_winning_result,3043,Keyo,6,061202,HR
+game_winning_result,6009,Hannibal Bligh,6,061203,2BWH
+game_winning_result,3069,Wallace Grommet,6,061204,1BWH
+game_winning_result,1072,Red Trapper,6,061205,1BWH
+game_winning_result,1162,Nate Lewis,6,061206,1BWH
+game_winning_result,5039,Roidy Magoo,6,061207,1B
+game_winning_result,2057,Jack Alpha,6,061208,1BWH
+game_winning_result,1091,Dougal McGoogol,6,061301,HR
+game_winning_result,4010,Matthew Heskey,6,061302,2BWH
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,6,061303,2B
+game_winning_result,1141,Geno Scaramucci,6,061304,HR
+game_winning_result,1042,Dallas Houston,6,061305,HR
+game_winning_result,2101,Duwan Anonly,6,061306,1BWH2
+game_winning_result,4044,Ura Irons,6,061307,HR
+game_winning_result,1012,Reservoir Butler,6,061308,1BWH
+game_winning_result,3082,Basethony Balltano,6,061401,1B
+game_winning_result,4010,Matthew Heskey,6,061402,2BWH
+game_winning_result,2106,Declan Archer,6,061403,HR
+game_winning_result,6011,Joe Pidgeon,6,061404,1BWH
+game_winning_result,2055,Harry Peritestes,6,061405,HR
+game_winning_result,3038,Lincoln Crawford,6,061406,1B
+game_winning_result,1222,Justin Martin,6,061407,2BWH
+game_winning_result,4015,Plack Attack,6,061408,1B
+game_winning_result,5035,Judge Reinhold,6,061501,1B
+game_winning_result,2012,Burgess Whitehead,6,061502,DSacF
+game_winning_result,1062,BB Bambino Jr.,6,061503,HR
+game_winning_result,1151,Lance Lummoxx,6,061504,HR
+game_winning_result,2075,Copenhagen Black,6,061601,HR
+game_winning_result,4021,Jeff Shagwell,6,061602,HR
+game_winning_result,6047,Crimson Chin,6,061701,HR
+game_winning_result,7007,Kenny Powers,7,070101,2BWH
+game_winning_result,4048,Mike Fruitstand,7,070102,3B
+game_winning_result,7023,Mickey May,7,070103,HR
+game_winning_result,7019,Bill Stokes,7,070104,2BWH
+game_winning_result,1089,Jefferson Steelflex,7,070105,HR
+game_winning_result,1120,Johnny Hopkins,7,070106,HR
+game_winning_result,1201,Mylo Grams,7,070107,HR
+game_winning_result,1051,Superbone Threefinger,7,070108,HR
+game_winning_result,5016,LeBarn James,7,070201,2B
+game_winning_result,1089,Jefferson Steelflex,7,070202,1BWH
+game_winning_result,2108,Arm N. Hammer,7,070203,1BWH2
+game_winning_result,1151,Lance Lummoxx,7,070204,HR
+game_winning_result,1201,Mylo Grams,7,070205,HR
+game_winning_result,6011,Joe Pidgeon,7,070206,1BWH
+game_winning_result,1162,Nate Lewis,7,070207,1BWH
+game_winning_result,1002,Garitek,7,070208,HR
+game_winning_result,1029,Lefty Louis,7,070301,IF1B
+game_winning_result,2072,Pull Ganger,7,070302,1BWH
+game_winning_result,6017,Ohtani But Wide,7,070303,HR
+game_winning_result,4007,Reese Worthington,7,070304,2B
+game_winning_result,3012,Rusty Nails,7,070305,HR
+game_winning_result,1052,Zed Leona,7,070306,2B
+game_winning_result,1042,Dallas Houston,7,070307,HR
+game_winning_result,3066,AAAAAAAAAAThor,7,070308,HR
+game_winning_result,3019,Will The Thrill,7,070401,2BWH
+game_winning_result,4079,Pedro Cerrano-Spaz,7,070402,1BWH
+game_winning_result,3061,Trog Smash,7,070403,2BWH
+game_winning_result,1002,Garitek,7,070404,1BWH
+game_winning_result,1072,Red Trapper,7,070405,HR
+game_winning_result,1087,Foxx Dashington,7,070406,2B
+game_winning_result,3082,Basethony Balltano,7,070407,3B
+game_winning_result,1149,Garrett Evans,7,070408,HR
+game_winning_result,5034,Haloick Oasis,7,070501,HR
+game_winning_result,1071,Isaac Saffron,7,070502,3B
+game_winning_result,6042,Daniel Martinez,7,070503,2B
+game_winning_result,7025,Rocco Rudnikov,7,070504,2BWH
+game_winning_result,1166,Ecliptic Astrum,7,070505,HR
+game_winning_result,6019,Phillip Dunphy,7,070506,1B
+game_winning_result,2010,Skillz Simanek,7,070507,1B
+game_winning_result,7022,Meat Wad,7,070508,3B
+game_winning_result,7006,Pel OQuinn,7,070601,BB
+game_winning_result,1108,Conor Sexton,7,070602,HR
+game_winning_result,6018,Perry Platypus,7,070603,HR
+game_winning_result,7003,Stumpy Malone,7,070604,HR
+game_winning_result,2057,Jack Alpha,7,070605,HR
+game_winning_result,6047,Crimson Chin,7,070606,2B
+game_winning_result,3058,Rotticus Scott Jr.,7,070607,2B
+game_winning_result,3077,Derek Bongiovanni,7,070608,1B
+game_winning_result,1119,Willie Mays Hayes,7,070701,2BWH
+game_winning_result,6046,Bradle Beamen,7,070702,2B
+game_winning_result,3039,Bob Winn,7,070703,3B
+game_winning_result,6005,Borg Torbjorgsson,7,070704,SacF
+game_winning_result,7024,Jethro McDungle,7,070705,2B
+game_winning_result,5024,Simba II,7,070706,HR
+game_winning_result,3070,Ded Tanson,7,070707,HR
+game_winning_result,1201,Mylo Grams,7,070708,2BWH
+game_winning_result,1220,Al Ternate,7,070801,2BWH
+game_winning_result,2072,Pull Ganger,7,070802,HR
+game_winning_result,7013,Pie In The Sky,7,070803,IF1B
+game_winning_result,7003,Stumpy Malone,7,070804,HR
+game_winning_result,7024,Jethro McDungle,7,070805,HR
+game_winning_result,7012,CJ Ayer,7,070806,2B
+game_winning_result,7020,Sonar McDeuceski,7,070807,1BWH
+game_winning_result,3007,Salvatore De Luca,7,070808,HR
+game_winning_result,7009,Micah Burgundy,7,070901,HR
+game_winning_result,1108,Conor Sexton,7,070902,1BWH
+game_winning_result,7013,Pie In The Sky,7,070903,HR
+game_winning_result,4025,Bast Fidgewidget,7,070904,2B
+game_winning_result,1052,Zed Leona,7,070905,1BWH
+game_winning_result,4070,Ioe Torrent,7,070906,HR
+game_winning_result,3066,AAAAAAAAAAThor,7,070907,2BWH
+game_winning_result,2104,Bobby Portis,7,070908,HR
+game_winning_result,7004,Peter Hoomanawanui,7,071001,2B
+game_winning_result,1033,Daz Butivegotthirtytwocharacters,7,071002,2B
+game_winning_result,2012,Burgess Whitehead,7,071003,2BWH
+game_winning_result,1034,Jack Marnette,7,071004,1BWH
+game_winning_result,1164,Zin Martinez,7,071005,HR
+game_winning_result,4040,Trogdor Fhqwhgads,7,071006,HR
+game_winning_result,1113,Cookie Mongster,7,071007,HR
+game_winning_result,6012,Kanye East,7,071008,1B
+game_winning_result,1157,JP Panik,7,071101,HR
+game_winning_result,1052,Zed Leona,7,071102,HR
+game_winning_result,1107,petra sabor,7,071103,SacF
+game_winning_result,5011,Mo Mo,7,071104,HR
+game_winning_result,2057,Jack Alpha,7,071105,HR
+game_winning_result,2104,Bobby Portis,7,071106,2BWH
+game_winning_result,1036,Spike Suzuki,7,071107,HR
+game_winning_result,3069,Wallace Grommet,7,071108,1B
+game_winning_result,1090,James Pablano,7,071201,1BWH
+game_winning_result,4000,King Kruul,7,071202,1BWH
+game_winning_result,3061,Trog Smash,7,071203,HR
+game_winning_result,6011,Joe Pidgeon,7,071204,HR
+game_winning_result,4069,Hot Dog Jeopardy,7,071205,1BWH
+game_winning_result,7021,Dutch Boggs,7,071206,BB
+game_winning_result,3066,AAAAAAAAAAThor,7,071207,1B
+game_winning_result,1052,Zed Leona,7,071208,1BWH
+game_winning_result,6051,Alexandra Shepard,7,071301,HR
+game_winning_result,4072,R'lyeh Cultist 5,7,071302,1BWH
+game_winning_result,1168,Release T. Kraken,7,071303,1B
+game_winning_result,1002,Garitek,7,071304,2B
+game_winning_result,1072,Red Trapper,7,071305,1BWH
+game_winning_result,7024,Jethro McDungle,7,071306,HR
+game_winning_result,1012,Reservoir Butler,7,071307,1B
+game_winning_result,1149,Garrett Evans,7,071308,HR
+game_winning_result,7036,Hank Braun,7,071401,HR
+game_winning_result,3086,Nono Nones,7,071402,HR
+game_winning_result,2044,Maud Nelson,7,071403,HR
+game_winning_result,7012,CJ Ayer,7,071404,HR
+game_winning_result,1072,Red Trapper,7,071405,3B
+game_winning_result,2104,Bobby Portis,7,071406,SacF
+game_winning_result,5041,Papa Longstroke,7,071407,1BWH
+game_winning_result,6047,Crimson Chin,7,071408,HR
+game_winning_result,1180,War Hamster,7,071501,HR
+game_winning_result,5022,Franz Lisztpitcher,7,071502,2BWH
+game_winning_result,1054,Steve Hofbardozzi Jr. Jr. Jr.,7,071503,1BWH
+game_winning_result,3079,Isaac Snowbender,7,071504,SacF
+game_winning_result,1022,Chuck McCluster,7,071601,SacF
+game_winning_result,1212,Barney Turbo,7,071602,HR
+game_winning_result,1022,Chuck McCluster,7,071701,HR
+game_winning_result,6040,Big Smoke Anderson,8,080101,1BWH
+game_winning_result,5029,Peoples Champ,8,080102,2B
+game_winning_result,1156,Thomas Thompson III,8,080103,1BWH
+game_winning_result,1098,Kegs Mabry,8,080104,HR
+game_winning_result,1089,Jefferson Steelflex,8,080105,2B
+game_winning_result,5034,Haloick Oasis,8,080106,SacF
+game_winning_result,1006,Smitty Hoppenscotch,8,080107,HR
+game_winning_result,1051,Superbone Threefinger,8,080108,SacF
+game_winning_result,2012,Burgess Whitehead,8,080201,HR
+game_winning_result,5022,Franz Lisztpitcher,8,080202,HR
+game_winning_result,7039,Mr Plow,8,080203,HR
+game_winning_result,6017,Ohtani But Wide,8,080204,1BWH
+game_winning_result,6029,Scherbie Fully-Loaded,8,080205,HR
+game_winning_result,4081,Toppo Thamornin,8,080206,HR
+game_winning_result,1034,Jack Marnette,8,080207,HR
+game_winning_result,7038,Raffy Benitez,8,080208,IF1B
+game_winning_result,8021,Otto Von Eirsmark,8,080301,HR
+game_winning_result,6011,Joe Pidgeon,8,080302,HR
+game_winning_result,8006,Gnome Chomsky,8,080303,1B
+game_winning_result,1180,War Hamster,8,080304,1BWH
+game_winning_result,1099,Baron Samedi,8,080305,HR
+game_winning_result,1023,Dan Gerzone,8,080306,1B
+game_winning_result,1069,Rub A. Chikin,8,080307,HR
+game_winning_result,3038,Lincoln Crawford,8,080308,HR
+game_winning_result,5007,Gas House Gorillas,8,080401,HR
+game_winning_result,7037,Doctor Ew,8,080402,2B
+game_winning_result,3007,Salvatore De Luca,8,080403,HR
+game_winning_result,7019,Bill Stokes,8,080404,HR
+game_winning_result,1071,Isaac Saffron,8,080405,SacF
+game_winning_result,6017,Ohtani But Wide,8,080406,1BWH
+game_winning_result,2097,Dirtbag Darrell,8,080407,HR
+game_winning_result,3066,AAAAAAAAAAThor,8,080408,1B
+game_winning_result,1157,JP Panik,8,080501,2B
+game_winning_result,1108,Conor Sexton,8,080502,HR
+game_winning_result,3051,Jackie Daytona,8,080503,HR
+game_winning_result,7042,Skimble Shanks,8,080504,HR
+game_winning_result,1014,Saoirse O Sullibhian,8,080505,2BWH
+game_winning_result,2080,Junebug Wray,8,080506,HR
+game_winning_result,7034,G Baby,8,080507,2B
+game_winning_result,1036,Spike Suzuki,8,080508,1BWH
+game_winning_result,2012,Burgess Whitehead,8,080601,HR
+game_winning_result,1156,Thomas Thompson III,8,080602,HR
+game_winning_result,4033,Leonidas States,8,080603,HR
+game_winning_result,5006,Sticky Mickey Mantle,8,080605,HR
+game_winning_result,8029,Todd Bonzalez,8,080606,1B
+game_winning_result,3010,Jarey Butts,8,080607,1B
+game_winning_result,7025,Rocco Rudnikov,8,080608,3B
+game_winning_result,8021,Otto Von Eirsmark,8,080701,BB
+game_winning_result,1108,Conor Sexton,8,080702,1BWH
+game_winning_result,7017,Juan Sexton,8,080703,1B
+game_winning_result,8024,Kram Fork,8,080704,HR
+game_winning_result,6017,Ohtani But Wide,8,080705,HR
+game_winning_result,3077,Derek Bongiovanni,8,080706,2BWH
+game_winning_result,3056,Donatello Chalupa,8,080707,HR
+game_winning_result,1028,Mackenzie Haraldo,8,080708,HR
+game_winning_result,3080,Jeff Dingerhitter,8,080801,HR
+game_winning_result,1108,Conor Sexton,8,080802,HR
+game_winning_result,8006,Gnome Chomsky,8,080803,HR
+game_winning_result,6050,Emerson Austin Jr.,8,080804,2B
+game_winning_result,5040,Juju's Snorlax,8,080805,1B
+game_winning_result,5021,Kenny Kawaguchi,8,080806,HR
+game_winning_result,5039,Roidy Magoo,8,080807,HR
+game_winning_result,5005,Narancia Ghirga,8,080808,HR
+game_winning_result,1034,Jack Marnette,8,080901,2BWH
+game_winning_result,1014,Saoirse O Sullibhian,8,080902,HR
+game_winning_result,5005,Narancia Ghirga,8,080903,2B
+game_winning_result,5021,Kenny Kawaguchi,8,080904,1B
+game_winning_result,1071,Isaac Saffron,8,080905,SacF
+game_winning_result,4040,Trogdor Fhqwhgads,8,080906,2B
+game_winning_result,3080,Jeff Dingerhitter,8,080907,HR
+game_winning_result,2080,Junebug Wray,8,080908,HR
+game_winning_result,1090,James Pablano,8,081001,HR
+game_winning_result,1136,Mason Spurs,8,081002,HR
+game_winning_result,7003,Stumpy Malone,8,081003,1BWH
+game_winning_result,1034,Jack Marnette,8,081004,2BWH
+game_winning_result,2055,Harry Peritestes,8,081005,BB
+game_winning_result,1069,Rub A. Chikin,8,081006,1BWH
+game_winning_result,4008,LaCarpetron Dukemarriot II,8,081007,IF1B
+game_winning_result,1012,Reservoir Butler,8,081008,HR
+game_winning_result,1071,Isaac Saffron,8,081101,HR
+game_winning_result,5007,Gas House Gorillas,8,081102,1BWH
+game_winning_result,6004,Bony Skellinger,8,081103,1BWH
+game_winning_result,8008,Guy Gilwater,8,081104,HR
+game_winning_result,2044,Maud Nelson,8,081105,1BWH
+game_winning_result,6012,Kanye East,8,081106,HR
+game_winning_result,6005,Borg Torbjorgsson,8,081107,2B
+game_winning_result,1133,Hank Murphy,8,081108,HR
+game_winning_result,7013,Pie In The Sky,8,081201,1BWH
+game_winning_result,2072,Pull Ganger,8,081202,1B
+game_winning_result,3078,Chakra Pilates,8,081203,HR
+game_winning_result,8053,Basil,8,081204,HR
+game_winning_result,1072,Red Trapper,8,081205,HR
+game_winning_result,8010,Swan Kelly,8,081206,2BWH
+game_winning_result,4021,Jeff Shagwell,8,081207,1B
+game_winning_result,1055,Ozymandias Jones,8,081208,2B
+game_winning_result,3019,Will The Thrill,8,081301,2B
+game_winning_result,7042,Skimble Shanks,8,081302,2B
+game_winning_result,1082,Basebally McBaseballface Jr.,8,081303,1BWH
+game_winning_result,5021,Kenny Kawaguchi,8,081304,HR
+game_winning_result,1099,Baron Samedi,8,081305,2BWH
+game_winning_result,2080,Junebug Wray,8,081306,3B
+game_winning_result,2010,Skillz Simanek,8,081307,2B
+game_winning_result,4021,Jeff Shagwell,8,081308,HR
+game_winning_result,6050,Emerson Austin Jr.,8,081401,HR
+game_winning_result,1136,Mason Spurs,8,081402,BB
+game_winning_result,4033,Leonidas States,8,081403,2B
+game_winning_result,5005,Narancia Ghirga,8,081404,1B
+game_winning_result,8026,Alexander West,8,081405,1B
+game_winning_result,2080,Junebug Wray,8,081406,HR
+game_winning_result,6029,Scherbie Fully-Loaded,8,081407,3B
+game_winning_result,1023,Dan Gerzone,8,081408,2B
+game_winning_result,1134,Ornn Mistborn,8,081501,HR
+game_winning_result,7039,Mr Plow,8,081502,HR
+game_winning_result,2075,Copenhagen Black,8,081503,1BWH
+game_winning_result,3038,Lincoln Crawford,8,081504,HR
+game_winning_result,1136,Mason Spurs,8,081601,1B
+game_winning_result,7025,Rocco Rudnikov,8,081602,HR
+game_winning_result,3017,Bob Dunagee,8,081701,HR
+game_winning_result,2108,Arm N. Hammer,9,090101,2BWH
+game_winning_result,9015,Ratryox,9,090102,1BWH
+game_winning_result,3061,Trog Smash,9,090103,HR
+game_winning_result,4000,King Kruul,9,090104,DSacF
+game_winning_result,7011,Derek Rasmussen,9,090105,HR
+game_winning_result,7028,Perome Jeterson,9,090106,2BWH
+game_winning_result,1149,Garrett Evans,9,090107,1BWH
+game_winning_result,1133,Hank Murphy,9,090108,1BWH2
+game_winning_result,4044,Ura Irons,9,090201,HR
+game_winning_result,5029,Peoples Champ,9,090202,HR
+game_winning_result,7031,Fatts Richard,9,090203,3B
+game_winning_result,8014,Turn Page,9,090204,2BWH
+game_winning_result,1058,Catfish Champ,9,090205,1BWH
+game_winning_result,5021,Kenny Kawaguchi,9,090206,2BWH
+game_winning_result,7028,Perome Jeterson,9,090207,HR
+game_winning_result,5017,Makesiondon Kelkboom,9,090208,1BWH
+game_winning_result,8031,Dick Nutter VI,9,090301,HR
+game_winning_result,8013,Johnny Drama,9,090302,3B
+game_winning_result,7019,Bill Stokes,9,090303,2B
+game_winning_result,6031,Captain Rex,9,090304,HR
+game_winning_result,1036,Spike Suzuki,9,090305,1B
+game_winning_result,1069,Rub A. Chikin,9,090306,HR
+game_winning_result,1120,Johnny Hopkins,9,090307,2BWH
+game_winning_result,3077,Derek Bongiovanni,9,090308,HR
+game_winning_result,4045,Dakota Carolina Montana,9,090401,HR
+game_winning_result,4048,Mike Fruitstand,9,090402,HR
+game_winning_result,1208,Bace Ventura,9,090403,HR
+game_winning_result,1186,Francis Herman Swagger,9,090404,HR
+game_winning_result,1123,Kurt Anger,9,090405,2BWH
+game_winning_result,7028,Perome Jeterson,9,090406,HR
+game_winning_result,6009,Hannibal Bligh,9,090407,HR
+game_winning_result,2010,Skillz Simanek,9,090408,1B
+game_winning_result,1123,Kurt Anger,9,090501,HR
+game_winning_result,2057,Jack Alpha,9,090502,HR
+game_winning_result,5040,Juju's Snorlax,9,090503,HR
+game_winning_result,9027,R'lyeh O'Brien,9,090504,2B
+game_winning_result,1036,Spike Suzuki,9,090505,HR
+game_winning_result,7021,Dutch Boggs,9,090506,HR
+game_winning_result,6029,Scherbie Fully-Loaded,9,090507,2BWH
+game_winning_result,1120,Johnny Hopkins,9,090508,SacF
+game_winning_result,1088,Stan Mann,9,090601,1B
+game_winning_result,8024,Kram Fork,9,090602,SacF
+game_winning_result,4072,R'lyeh Cultist 5,9,090603,1B
+game_winning_result,2047,Calvin Huff,9,090604,HR
+game_winning_result,3049,Ferda Bois,9,090605,GORA
+game_winning_result,8014,Turn Page,9,090606,3B
+game_winning_result,8020,Lazer Dave,9,090607,IF1B
+game_winning_result,3077,Derek Bongiovanni,9,090608,2BWH
+game_winning_result,1088,Stan Mann,9,090701,HR
+game_winning_result,2085,Lloyd Gross,9,090702,HR
+game_winning_result,3061,Trog Smash,9,090703,HR
+game_winning_result,7020,Sonar McDeuceski,9,090704,HR
+game_winning_result,9026,Billy Boi,9,090705,HR
+game_winning_result,9001,Harvey Burton,9,090706,3B
+game_winning_result,7033,kilo,9,090707,HR
+game_winning_result,6051,Alexandra Shepard,9,090708,2B
+game_winning_result,5016,LeBarn James,9,090801,3B
+game_winning_result,8020,Lazer Dave,9,090802,HR
+game_winning_result,2082,Dixon Uraz,9,090803,HR
+game_winning_result,9021,Moe Bambino,9,090804,2B
+game_winning_result,1208,Bace Ventura,9,090805,2B
+game_winning_result,1153,AALarry Longshot,9,090806,2BWH
+game_winning_result,3038,Lincoln Crawford,9,090807,SacF
+game_winning_result,8013,Johnny Drama,9,090808,IF1B
+game_winning_result,1186,Francis Herman Swagger,9,090901,2B
+game_winning_result,7017,Juan Sexton,9,090902,1B
+game_winning_result,7004,Peter Hoomanawanui,9,090903,1B
+game_winning_result,9004,Elvis Crushel,9,090904,HR
+game_winning_result,3038,Lincoln Crawford,9,090905,DP31
+game_winning_result,7031,Fatts Richard,9,090906,IF1B
+game_winning_result,4040,Trogdor Fhqwhgads,9,090907,1B
+game_winning_result,5011,Mo Mo,9,090908,2B
+game_winning_result,8046,Hunter Scott,9,091001,HR
+game_winning_result,7012,CJ Ayer,9,091002,2B
+game_winning_result,2085,Lloyd Gross,9,091003,HR
+game_winning_result,9027,R'lyeh O'Brien,9,091004,HR
+game_winning_result,3049,Ferda Bois,9,091005,HR
+game_winning_result,1100,Antwan Zella,9,091006,HR
+game_winning_result,1028,Mackenzie Haraldo,9,091007,HR
+game_winning_result,2075,Copenhagen Black,9,091008,1B
+game_winning_result,1157,JP Panik,9,091101,IF1B
+game_winning_result,1134,Ornn Mistborn,9,091102,1B
+game_winning_result,5034,Haloick Oasis,9,091103,1BWH
+game_winning_result,9014,Jimmy Payne,9,091104,IF1B
+game_winning_result,1100,Antwan Zella,9,091105,HR
+game_winning_result,7012,CJ Ayer,9,091106,2BWH
+game_winning_result,2002,Assassin Xekutioner,9,091107,HR
+game_winning_result,9017,Joe Yoshi,9,091108,HR
+game_winning_result,1136,Mason Spurs,9,091201,BB
+game_winning_result,7042,Skimble Shanks,9,091202,3B
+game_winning_result,3007,Salvatore De Luca,9,091203,HR
+game_winning_result,9032,Damion Knox,9,091204,HR
+game_winning_result,5017,Makesiondon Kelkboom,9,091205,2B
+game_winning_result,9028,Jaquavion Tavious,9,091206,HR
+game_winning_result,3066,AAAAAAAAAAThor,9,091207,2BWH
+game_winning_result,1023,Dan Gerzone,9,091208,2BWH
+game_winning_result,2086,Anna De Neko,9,091301,HR
+game_winning_result,7039,Mr Plow,9,091302,HR
+game_winning_result,7006,Pel OQuinn,9,091303,HR
+game_winning_result,7022,Meat Wad,9,091304,1BWH
+game_winning_result,6047,Crimson Chin,9,091305,1BWH
+game_winning_result,7028,Perome Jeterson,9,091306,HR
+game_winning_result,1099,Baron Samedi,9,091307,HR
+game_winning_result,1133,Hank Murphy,9,091308,HR
+game_winning_result,7004,Peter Hoomanawanui,9,091401,1BWH
+game_winning_result,9014,Jimmy Payne,9,091402,3B
+game_winning_result,1156,Thomas Thompson III,9,091403,HR
+game_winning_result,7012,CJ Ayer,9,091404,1B
+game_winning_result,3057,Speedo Meter,9,091405,1BWH
+game_winning_result,1063,Alex Yaxley,9,091406,HR
+game_winning_result,7016,Ovaltine,9,091407,HR
+game_winning_result,2010,Skillz Simanek,9,091408,HR
+game_winning_result,8013,Johnny Drama,9,091501,1BWH
+game_winning_result,4004,R'lyeh Reid,9,091502,1BWH
+game_winning_result,9015,Ratryox,9,091503,HR
+game_winning_result,1201,Mylo Grams,9,091504,HR
+game_winning_result,7022,Meat Wad,9,091601,HR
+game_winning_result,2010,Skillz Simanek,9,091602,HR
+game_winning_result,8013,Johnny Drama,9,091701,1B
+game_winning_result,2066,Talon Wingdiver,10,100101,1BWH
+game_winning_result,7039,Mr Plow,10,100102,HR
+game_winning_result,8023,Johnny B. Goode,10,100103,1B
+game_winning_result,3027,Diego Medina,10,100104,SacF
+game_winning_result,1002,Garitek,10,100105,1BWH
+game_winning_result,10047,Saul Pewald,10,100106,SacF
+game_winning_result,8014,Turn Page,10,100107,3B
+game_winning_result,10027,Dingers McGee,10,100108,2B
+game_winning_result,7011,Derek Rasmussen,10,100201,HR
+game_winning_result,10061,Albert Pooholes,10,100202,1BWH
+game_winning_result,6049,NoodleArmBigPowerODoyleetc,10,100203,2B
+game_winning_result,3080,Jeff Dingerhitter,10,100204,HR
+game_winning_result,3043,Keyo,10,100205,1B
+game_winning_result,8053,Basil,10,100206,1BWH
+game_winning_result,10005,Chef Cook,10,100207,1B
+game_winning_result,3057,Speedo Meter,10,100208,1BWH
+game_winning_result,10005,Chef Cook,10,100301,SacF
+game_winning_result,1208,Bace Ventura,10,100302,HR
+game_winning_result,1034,Jack Marnette,10,100303,1B
+game_winning_result,10003,BANNED PLAYER,10,100304,2B
+game_winning_result,4040,Trogdor Fhqwhgads,10,100305,1BWH
+game_winning_result,8014,Turn Page,10,100306,3B
+game_winning_result,2010,Skillz Simanek,10,100307,3B
+game_winning_result,10060,Tatsuyoshi Kazunami,10,100308,1BWH
+game_winning_result,2097,Dirtbag Darrell,10,100401,IF1B
+game_winning_result,2055,Harry Peritestes,10,100402,SacF
+game_winning_result,5018,Brian Taylor,10,100403,HR
+game_winning_result,9019,Tooth Heaven Won,10,100404,2B
+game_winning_result,8023,Johnny B. Goode,10,100405,1BWH
+game_winning_result,9044,Strawberry Jones,10,100406,HR
+game_winning_result,1021,Q Kimbrel,10,100407,HR
+game_winning_result,1131,KC Bats,10,100408,3B
+game_winning_result,9020,Nathanial Swenson,10,100501,3B
+game_winning_result,10025,Dark Brother,10,100502,1BWH
+game_winning_result,7031,Fatts Richard,10,100503,1BWH
+game_winning_result,2066,Talon Wingdiver,10,100504,2BWH
+game_winning_result,2044,Maud Nelson,10,100505,HR
+game_winning_result,5021,Kenny Kawaguchi,10,100506,2BWH
+game_winning_result,5040,Juju's Snorlax,10,100507,HR
+game_winning_result,3027,Diego Medina,10,100508,2BWH
+game_winning_result,10027,Dingers McGee,10,100601,3B
+game_winning_result,1133,Hank Murphy,10,100602,2BWH
+game_winning_result,7032,Neco Arc Enjoyer,10,100603,1BWH
+game_winning_result,10006,Sean Carrcrash,10,100604,2BWH
+game_winning_result,9020,Nathanial Swenson,10,100605,HR
+game_winning_result,3088,Yoel Roshi,10,100606,2B
+game_winning_result,6049,NoodleArmBigPowerODoyleetc,10,100607,HR
+game_winning_result,2073,Dom Emnic,10,100608,HR
+game_winning_result,1113,Cookie Mongster,10,100701,3B
+game_winning_result,3057,Speedo Meter,10,100702,IF1B
+game_winning_result,3061,Trog Smash,10,100703,HR
+game_winning_result,10023,Rex McStrange,10,100704,2BWH
+game_winning_result,3039,Bob Winn,10,100705,1BWH
+game_winning_result,6049,NoodleArmBigPowerODoyleetc,10,100706,2B
+game_winning_result,1080,Whitt Bass,10,100707,HR
+game_winning_result,4015,Plack Attack,10,100708,1B
+game_winning_result,10027,Dingers McGee,10,100801,HR
+game_winning_result,10075,Guillermo Griffey III,10,100802,3B
+game_winning_result,4069,Hot Dog Jeopardy,10,100803,HR
+game_winning_result,6009,Hannibal Bligh,10,100804,HR
+game_winning_result,9043,Mack Quackerson,10,100805,GORA
+game_winning_result,1034,Jack Marnette,10,100806,2B
+game_winning_result,6031,Captain Rex,10,100807,HR
+game_winning_result,1180,War Hamster,10,100808,HR
+game_winning_result,1088,Stan Mann,10,100901,HR
+game_winning_result,10005,Chef Cook,10,100902,HR
+game_winning_result,3027,Diego Medina,10,100903,HR
+game_winning_result,8023,Johnny B. Goode,10,100904,2B
+game_winning_result,10035,Man of Steal,10,100905,2B
+game_winning_result,3079,Isaac Snowbender,10,100906,HR
+game_winning_result,1023,Dan Gerzone,10,100907,HR
+game_winning_result,8014,Turn Page,10,100908,1BWH
+game_winning_result,1012,Reservoir Butler,10,101001,HR
+game_winning_result,10020,Johnmaine Chupri,10,101002,HR
+game_winning_result,10003,BANNED PLAYER,10,101003,1BWH
+game_winning_result,1035,Chip Otle,10,101004,GORA
+game_winning_result,9015,Ratryox,10,101005,2B
+game_winning_result,6011,Joe Pidgeon,10,101006,2B
+game_winning_result,10063,Penguino,10,101007,HR
+game_winning_result,1002,Garitek,10,101008,1BWH
+game_winning_result,1012,Reservoir Butler,10,101101,HR
+game_winning_result,5029,Peoples Champ,10,101102,1B
+game_winning_result,7004,Peter Hoomanawanui,10,101103,HR
+game_winning_result,9023,Jihmih Elsher,10,101104,2B
+game_winning_result,3039,Bob Winn,10,101105,HR
+game_winning_result,7039,Mr Plow,10,101106,HR
+game_winning_result,8049,Kries Von Kriestalhauser,10,101107,2BWH
+game_winning_result,3056,Donatello Chalupa,10,101108,SacF
+game_winning_result,10027,Dingers McGee,10,101201,HR
+game_winning_result,6004,Bony Skellinger,10,101202,1BWH
+game_winning_result,5002,Guidooooo,10,101203,HR
+game_winning_result,9019,Tooth Heaven Won,10,101204,1B
+game_winning_result,8053,Basil,10,101205,SacF
+game_winning_result,1208,Bace Ventura,10,101206,1BWH
+game_winning_result,9027,R'lyeh O'Brien,10,101207,HR
+game_winning_result,10024,Milo Kerrigan,10,101208,HR
+game_winning_result,10079,R'lyeh Greene,10,101301,HR
+game_winning_result,10076,Lars Nootbaar Jr,10,101302,2BWH
+game_winning_result,2044,Maud Nelson,10,101303,HR
+game_winning_result,10005,Chef Cook,10,101304,3B
+game_winning_result,6049,NoodleArmBigPowerODoyleetc,10,101305,1B
+game_winning_result,4070,Ioe Torrent,10,101306,HR
+game_winning_result,8014,Turn Page,10,101307,IF1B
+game_winning_result,1149,Garrett Evans,10,101308,HR
+game_winning_result,1023,Dan Gerzone,10,101401,HR
+game_winning_result,8014,Turn Page,10,101402,2BWH
+game_winning_result,10077,Salsa Steve,10,101403,HR
+game_winning_result,10004,BANNED PLAYER,10,101404,2B
+game_winning_result,4007,Reese Worthington,10,101405,HR
+game_winning_result,10030,Donny Dash,10,101406,2B
+game_winning_result,1088,Stan Mann,10,101407,2B
+game_winning_result,5022,Franz Lisztpitcher,10,101408,SacF
+game_winning_result,7038,Raffy Benitez,10,101501,HR
+game_winning_result,4000,King Kruul,10,101502,2BWH
+game_winning_result,9031,Bob Nutting Jr,10,101503,1B
+game_winning_result,4021,Jeff Shagwell,10,101504,HR
+game_winning_result,6011,Joe Pidgeon,10,101601,3B
+game_winning_result,1119,Willie Mays Hayes,10,101602,2B
+game_winning_result,6011,Joe Pidgeon,10,101701,1B
+game_winning_result,3043,Keyo,11,110101,GORA
+game_winning_result,11008,Miikka Jarvinen,11,110102,HR
+game_winning_result,10030,Donny Dash,11,110103,1B
+game_winning_result,11027,Ally McAllister,11,110104,3B
+game_winning_result,9001,Harvey Burton,11,110105,1B
+game_winning_result,7028,Perome Jeterson,11,110106,HR
+game_winning_result,5011,Mo Mo,11,110107,HR
+game_winning_result,7033,kilo,11,110108,HR
+game_winning_result,8023,Johnny B. Goode,11,110201,2B
+game_winning_result,1082,Basebally McBaseballface Jr.,11,110202,HR
+game_winning_result,7032,Neco Arc Enjoyer,11,110203,1BWH
+game_winning_result,8008,Guy Gilwater,11,110204,1BWH
+game_winning_result,6009,Hannibal Bligh,11,110205,HR
+game_winning_result,7022,Meat Wad,11,110206,HR
+game_winning_result,9026,Billy Boi,11,110207,1BWH
+game_winning_result,4040,Trogdor Fhqwhgads,11,110208,HR
+game_winning_result,4000,King Kruul,11,110301,SacF
+game_winning_result,9007,Dilwyn Silversheen,11,110302,HR
+game_winning_result,10079,R'lyeh Greene,11,110303,HR
+game_winning_result,3057,Speedo Meter,11,110304,1BWH
+game_winning_result,9041,Himmy Proton,11,110305,2B
+game_winning_result,9024,Calvin Ball,11,110306,HR
+game_winning_result,1036,Spike Suzuki,11,110307,1B
+game_winning_result,3080,Jeff Dingerhitter,11,110308,HR
+game_winning_result,11002,Diego Yard,11,110401,HR
+game_winning_result,5022,Franz Lisztpitcher,11,110402,2B
+game_winning_result,1156,Thomas Thompson III,11,110403,HR
+game_winning_result,3088,Yoel Roshi,11,110404,2BWH
+game_winning_result,1119,Willie Mays Hayes,11,110405,1BWH
+game_winning_result,1027,Thomas Nova,11,110406,HR
+game_winning_result,10027,Dingers McGee,11,110407,DP31
+game_winning_result,1052,Zed Leona,11,110408,2B
+game_winning_result,9023,Jihmih Elsher,11,110501,3B
+game_winning_result,6049,NoodleArmBigPowerODoyleetc,11,110502,2BWH
+game_winning_result,4072,R'lyeh Cultist 5,11,110503,3B
+game_winning_result,11008,Miikka Jarvinen,11,110504,2BWH
+game_winning_result,1036,Spike Suzuki,11,110505,1BWH
+game_winning_result,2082,Dixon Uraz,11,110506,HR
+game_winning_result,6004,Bony Skellinger,11,110507,HR
+game_winning_result,2057,Jack Alpha,11,110508,1BWH
+game_winning_result,1113,Cookie Mongster,11,110601,HR
+game_winning_result,6022,VI,11,110602,2B
+game_winning_result,9024,Calvin Ball,11,110603,HR
+game_winning_result,1002,Garitek,11,110604,1BWH
+game_winning_result,1069,Rub A. Chikin,11,110605,HR
+game_winning_result,9003,Cash Considerations,11,110606,HR
+game_winning_result,4040,Trogdor Fhqwhgads,11,110607,HR
+game_winning_result,3088,Yoel Roshi,11,110608,HR
+game_winning_result,10062,R'lyeh Cultist 73,11,110701,2B
+game_winning_result,1108,Conor Sexton,11,110702,HR
+game_winning_result,10043,Justin Trotter,11,110703,HR
+game_winning_result,8049,Kries Von Kriestalhauser,11,110704,1B
+game_winning_result,1002,Garitek,11,110705,HR
+game_winning_result,9001,Harvey Burton,11,110706,2B
+game_winning_result,2055,Harry Peritestes,11,110707,1BWH
+game_winning_result,9038,John McDonald Jr.,11,110708,1B
+game_winning_result,7038,Raffy Benitez,11,110801,2B
+game_winning_result,5029,Peoples Champ,11,110802,1B
+game_winning_result,8006,Gnome Chomsky,11,110803,HR
+game_winning_result,11008,Miikka Jarvinen,11,110804,HR
+game_winning_result,9031,Bob Nutting Jr,11,110805,GORA
+game_winning_result,10071,Bobert Hideyoshi,11,110806,HR
+game_winning_result,1063,Alex Yaxley,11,110807,1B
+game_winning_result,10015,Sir Walks A Lot,11,110808,1B
+game_winning_result,11023,Alessio Laveau,11,110901,HR
+game_winning_result,1156,Thomas Thompson III,11,110902,1B
+game_winning_result,3027,Diego Medina,11,110903,2B
+game_winning_result,6011,Joe Pidgeon,11,110904,HR
+game_winning_result,9031,Bob Nutting Jr,11,110905,HR
+game_winning_result,7021,Dutch Boggs,11,110906,HR
+game_winning_result,5030,Dirk Digglet,11,110907,HR
+game_winning_result,11033,Cared Jarrabis,11,110908,HR
+game_winning_result,7038,Raffy Benitez,11,111001,HR
+game_winning_result,10061,Albert Pooholes,11,111002,HR
+game_winning_result,9031,Bob Nutting Jr,11,111003,HR
+game_winning_result,10078,Jerk McGurkin,11,111004,1BWH
+game_winning_result,1133,Hank Murphy,11,111005,2B
+game_winning_result,3080,Jeff Dingerhitter,11,111006,HR
+game_winning_result,2075,Copenhagen Black,11,111007,GORA
+game_winning_result,3007,Salvatore De Luca,11,111008,BB
+game_winning_result,10062,R'lyeh Cultist 73,11,111101,HR
+game_winning_result,5022,Franz Lisztpitcher,11,111102,IF1B
+game_winning_result,9030,Cal R'lyeh,11,111103,SacF
+game_winning_result,5040,Juju's Snorlax,11,111104,2B
+game_winning_result,8014,Turn Page,11,111105,HR
+game_winning_result,11043,Arby Eye,11,111106,2B
+game_winning_result,8023,Johnny B. Goode,11,111107,1BWH2
+game_winning_result,7022,Meat Wad,11,111108,HR
+game_winning_result,11049,R'lyeh Cultist 1,11,111201,HR
+game_winning_result,10037,Skibidi McGyatt Jr.,11,111202,2B
+game_winning_result,10023,Rex McStrange,11,111203,HR
+game_winning_result,1119,Willie Mays Hayes,11,111204,1B
+game_winning_result,5017,Makesiondon Kelkboom,11,111205,HR
+game_winning_result,10002,Pokey Fleece,11,111206,1BWH
+game_winning_result,11047,Swiftie ESPN,11,111207,HR
+game_winning_result,1029,Lefty Louis,11,111208,HR
+game_winning_result,11050,Bald Bull,11,111301,HR
+game_winning_result,11042,Sir Walter R'lyeh,11,111302,HR
+game_winning_result,3007,Salvatore De Luca,11,111303,HR
+game_winning_result,2073,Dom Emnic,11,111304,HR
+game_winning_result,10063,Penguino,11,111305,2B
+game_winning_result,10061,Albert Pooholes,11,111306,HR
+game_winning_result,6004,Bony Skellinger,11,111307,3B
+game_winning_result,7022,Meat Wad,11,111308,HR
+game_winning_result,7038,Raffy Benitez,11,111401,HR
+game_winning_result,11008,Miikka Jarvinen,11,111402,HR
+game_winning_result,1119,Willie Mays Hayes,11,111403,2BWH
+game_winning_result,8023,Johnny B. Goode,11,111404,HR
+game_winning_result,10015,Sir Walks A Lot,11,111405,2B
+game_winning_result,10077,Salsa Steve,11,111406,2B
+game_winning_result,6009,Hannibal Bligh,11,111407,1BWH
+game_winning_result,1023,Dan Gerzone,11,111408,2BWH
+game_winning_result,9014,Jimmy Payne,11,111501,DFO
+game_winning_result,8049,Kries Von Kriestalhauser,11,111502,1BWH
+game_winning_result,4015,Plack Attack,11,111503,HR
+game_winning_result,11016,Arturo Escalibur,11,111504,3B
+game_winning_result,11008,Miikka Jarvinen,11,111601,SacF
+game_winning_result,11016,Arturo Escalibur,11,111602,1BWH
+game_winning_result,6004,Bony Skellinger,11,111701,HR
+game_winning_result,9036,O'R'lyeh Auto Parts,12,120109,2BWH
+game_winning_result,10012,Mighty Mulder,12,120110,2BWH
+game_winning_result,12035,Hippo Jars,12,120111,HR
+game_winning_result,10005,Chef Cook,12,120112,HR
+game_winning_result,12028,Glorp,12,120113,HR
+game_winning_result,12036,Doc Holliday II,12,120114,HR
+game_winning_result,3080,Jeff Dingerhitter,12,120115,3B
+game_winning_result,1052,Zed Leona,12,120116,HR
+game_winning_result,9033,Francesco Hardgust,12,120209,HR
+game_winning_result,1180,War Hamster,12,120210,1B
+game_winning_result,11003,R'lyeh Cultist 13,12,120211,HR
+game_winning_result,2095,Hecate Vassiliou,12,120212,SacF
+game_winning_result,8014,Turn Page,12,120213,1BWH2
+game_winning_result,1052,Zed Leona,12,120214,1B
+game_winning_result,2082,Dixon Uraz,12,120215,HR
+game_winning_result,3012,Rusty Nails,12,120216,HR
+game_winning_result,2097,Dirtbag Darrell,12,120309,HR
+game_winning_result,10037,Skibidi McGyatt Jr.,12,120310,BB
+game_winning_result,5002,Guidooooo,12,120311,HR
+game_winning_result,10076,Lars Nootbaar Jr,12,120312,2B
+game_winning_result,10019,Twatt Barton,12,120313,2B
+game_winning_result,9035,Mike Ock,12,120314,2B
+game_winning_result,11012,Ace Brickman,12,120315,2B
+game_winning_result,12032,Camden Yardsy,12,120316,HR
+game_winning_result,10024,Milo Kerrigan,12,120409,2B
+game_winning_result,1134,Ornn Mistborn,12,120410,HR
+game_winning_result,9017,Joe Yoshi,12,120411,3B
+game_winning_result,12016,Joey Tacoma,12,120412,HR
+game_winning_result,10049,Guy Ledouche,12,120413,2BWH
+game_winning_result,3043,Keyo,12,120414,SacF
+game_winning_result,6004,Bony Skellinger,12,120415,HR
+game_winning_result,5041,Papa Longstroke,12,120416,HR
+game_winning_result,2086,Anna De Neko,12,120509,1BWH
+game_winning_result,1108,Conor Sexton,12,120510,SacF
+game_winning_result,5018,Brian Taylor,12,120511,HR
+game_winning_result,11030,Ron Swanson,12,120512,HR
+game_winning_result,12014,Sonny Wortzik,12,120513,HR
+game_winning_result,6009,Hannibal Bligh,12,120514,3B
+game_winning_result,1036,Spike Suzuki,12,120515,HR
+game_winning_result,3066,AAAAAAAAAAThor,12,120516,1B
+game_winning_result,1201,Mylo Grams,12,120609,HR
+game_winning_result,5022,Franz Lisztpitcher,12,120610,1B
+game_winning_result,8016,R'lyeh Cultist C,12,120611,HR
+game_winning_result,4015,Plack Attack,12,120612,1BWH
+game_winning_result,3072,Tucker Doubt,12,120613,HR
+game_winning_result,8049,Kries Von Kriestalhauser,12,120614,3B
+game_winning_result,10023,Rex McStrange,12,120615,HR
+game_winning_result,4070,Ioe Torrent,12,120616,HR
+game_winning_result,7007,Kenny Powers,12,120709,HR
+game_winning_result,8016,R'lyeh Cultist C,12,120710,2B
+game_winning_result,1180,War Hamster,12,120711,HR
+game_winning_result,2095,Hecate Vassiliou,12,120712,HR
+game_winning_result,1002,Garitek,12,120713,HR
+game_winning_result,10049,Guy Ledouche,12,120714,1B
+game_winning_result,5011,Mo Mo,12,120715,HR
+game_winning_result,12031,Lula Pennant,12,120716,2B
+game_winning_result,1023,Dan Gerzone,12,120809,2B
+game_winning_result,1131,KC Bats,12,120810,HR
+game_winning_result,11028,Tree-O'Green Light,12,120811,2BWH
+game_winning_result,6031,Captain Rex,12,120812,1B
+game_winning_result,5040,Juju's Snorlax,12,120813,1B
+game_winning_result,9001,Harvey Burton,12,120814,HR
+game_winning_result,11029,Slayer Slime,12,120815,2B
+game_winning_result,1186,Francis Herman Swagger,12,120816,HR
+game_winning_result,3010,Jarey Butts,12,120909,HR
+game_winning_result,9038,John McDonald Jr.,12,120910,2BWH
+game_winning_result,1201,Mylo Grams,12,120911,HR
+game_winning_result,6009,Hannibal Bligh,12,120912,HR
+game_winning_result,2086,Anna De Neko,12,120913,2BWH
+game_winning_result,7028,Perome Jeterson,12,120914,HR
+game_winning_result,12006,Justin Time,12,120915,3B
+game_winning_result,9041,Himmy Proton,12,120916,2BWH
+game_winning_result,7045,Jimmy Pop,12,121009,HR
+game_winning_result,1136,Mason Spurs,12,121010,BB
+game_winning_result,4072,R'lyeh Cultist 5,12,121011,2B
+game_winning_result,6031,Captain Rex,12,121012,HR
+game_winning_result,4040,Trogdor Fhqwhgads,12,121013,HR
+game_winning_result,9040,Doctor Congo,12,121014,1BWH
+game_winning_result,12028,Glorp,12,121015,2B
+game_winning_result,2097,Dirtbag Darrell,12,121016,HR
+game_winning_result,11047,Swiftie ESPN,12,121109,SacF
+game_winning_result,7045,Jimmy Pop,12,121110,DP21
+game_winning_result,9030,Cal R'lyeh,12,121111,HR
+game_winning_result,7012,CJ Ayer,12,121112,HR
+game_winning_result,9041,Himmy Proton,12,121113,HR
+game_winning_result,3079,Isaac Snowbender,12,121114,BB
+game_winning_result,5011,Mo Mo,12,121115,1BWH
+game_winning_result,1027,Thomas Nova,12,121116,HR
+game_winning_result,11028,Tree-O'Green Light,12,121209,1BWH
+game_winning_result,12004,Al-Wayz Buntin,12,121210,HR
+game_winning_result,11041,Sylvia Bluesky,12,121211,HR
+game_winning_result,3088,Yoel Roshi,12,121212,GORA
+game_winning_result,1027,Thomas Nova,12,121213,HR
+game_winning_result,3027,Diego Medina,12,121214,HR
+game_winning_result,3080,Jeff Dingerhitter,12,121215,3B
+game_winning_result,3012,Rusty Nails,12,121216,1B
+game_winning_result,12046,Hibiscus,12,121309,1BWH
+game_winning_result,10081,R'lyeh Cultist 50,12,121310,1BWH
+game_winning_result,1186,Francis Herman Swagger,12,121311,1BWH
+game_winning_result,2073,Dom Emnic,12,121312,1BWH
+game_winning_result,10035,Man of Steal,12,121313,1BWH
+game_winning_result,4070,Ioe Torrent,12,121314,HR
+game_winning_result,12001,George Costanza,12,121315,HR
+game_winning_result,5002,Guidooooo,12,121316,1B
+game_winning_result,10024,Milo Kerrigan,12,121409,1B
+game_winning_result,11009,Garch McSkooter,12,121410,2B
+game_winning_result,2073,Dom Emnic,12,121411,2BWH
+game_winning_result,3069,Wallace Grommet,12,121412,HR
+game_winning_result,3039,Bob Winn,12,121413,1BWH
+game_winning_result,1098,Kegs Mabry,12,121414,HR
+game_winning_result,1006,Smitty Hoppenscotch,12,121415,3B
+game_winning_result,11024,Ferdinand Fritzwilliam,12,121416,1BWH
+game_winning_result,1002,Garitek,12,121505,HR
+game_winning_result,5018,Brian Taylor,12,121506,HR
+game_winning_result,5041,Papa Longstroke,12,121507,HR
+game_winning_result,3012,Rusty Nails,12,121508,3B
+game_winning_result,1136,Mason Spurs,12,121603,1BWH
+game_winning_result,1006,Smitty Hoppenscotch,12,121604,HR
+game_winning_result,1063,Alex Yaxley,12,121705,HR
+game_winning_result,12042,Jiggs Kingman,13,130117,1BWH
+game_winning_result,9027,R'lyeh O'Brien,13,130118,1BWH
+game_winning_result,8013,Johnny Drama,13,130119,HR
+game_winning_result,12016,Joey Tacoma,13,130120,3B
+game_winning_result,5032,Sander Entman,13,130121,2B
+game_winning_result,4069,Hot Dog Jeopardy,13,130122,HR
+game_winning_result,11033,Cared Jarrabis,13,130123,HR
+game_winning_result,1169,Jerome Garcia,13,130124,2BWH
+game_winning_result,1186,Francis Herman Swagger,13,130217,HR
+game_winning_result,2082,Dixon Uraz,13,130218,2B
+game_winning_result,13033,Cola Spritz,13,130219,BB
+game_winning_result,8016,R'lyeh Cultist C,13,130220,SacF
+game_winning_result,1032,Charlie Scott,13,130221,1BWH
+game_winning_result,6010,Homer Knocker,13,130222,1BWH
+game_winning_result,13067,Stupido Einsteiny,13,130223,1BWH2
+game_winning_result,6047,Crimson Chin,13,130224,1B
+game_winning_result,11012,Ace Brickman,13,130317,HR
+game_winning_result,3027,Diego Medina,13,130318,SacF
+game_winning_result,13032,Orb,13,130319,HR
+game_winning_result,12019,T.J. Oatman,13,130320,1B
+game_winning_result,13037,Gal Avant,13,130321,1BWH
+game_winning_result,2086,Anna De Neko,13,130322,3B
+game_winning_result,13028,Mikey Reynolds,13,130323,SacF
+game_winning_result,1012,Reservoir Butler,13,130324,1B
+game_winning_result,10037,Skibidi McGyatt Jr.,13,130417,1BWH2
+game_winning_result,10062,R'lyeh Cultist 73,13,130418,SacF
+game_winning_result,12035,Hippo Jars,13,130419,1BWH
+game_winning_result,4000,King Kruul,13,130420,HR
+game_winning_result,6047,Crimson Chin,13,130421,HR
+game_winning_result,12038,Jazzy Jeff,13,130422,2B
+game_winning_result,7016,Ovaltine,13,130423,1B
+game_winning_result,13016,Mac Dinger,13,130424,BB
+game_winning_result,11049,R'lyeh Cultist 1,13,130517,2B
+game_winning_result,13066,Vanilla Plantain,13,130518,HR
+game_winning_result,5012,Ben Bramly,13,130519,HR
+game_winning_result,7007,Kenny Powers,13,130520,1BWH
+game_winning_result,8014,Turn Page,13,130521,HR
+game_winning_result,7021,Dutch Boggs,13,130522,1B
+game_winning_result,12003,Boby Chadwick Jr,13,130523,1BWH
+game_winning_result,1158,Master Cashier,13,130524,HR
+game_winning_result,13023,Hamburger Pete Hamburg,13,130617,HR
+game_winning_result,11008,Miikka Jarvinen,13,130618,2BWH
+game_winning_result,2094,JZ (but not the rapper),13,130619,HR
+game_winning_result,1023,Dan Gerzone,13,130620,HR
+game_winning_result,7018,Y.E. Wally,13,130621,1B
+game_winning_result,11012,Ace Brickman,13,130622,2B
+game_winning_result,5011,Mo Mo,13,130623,3B
+game_winning_result,12039,Rich Driver,13,130624,HR
+game_winning_result,11030,Ron Swanson,13,130717,HR
+game_winning_result,5012,Ben Bramly,13,130718,SacF
+game_winning_result,4000,King Kruul,13,130719,1BWH
+game_winning_result,3088,Yoel Roshi,13,130720,1B
+game_winning_result,8049,Kries Von Kriestalhauser,13,130721,3B
+game_winning_result,12025,Daniel Harrison,13,130722,2BWH
+game_winning_result,5011,Mo Mo,13,130723,1B
+game_winning_result,1133,Hank Murphy,13,130724,1BWH
+game_winning_result,10018,Lee Luda,13,130817,HR
+game_winning_result,10047,Saul Pewald,13,130818,HR
+game_winning_result,10079,R'lyeh Greene,13,130819,3B
+game_winning_result,11008,Miikka Jarvinen,13,130820,2BWH
+game_winning_result,2094,JZ (but not the rapper),13,130821,HR
+game_winning_result,3072,Tucker Doubt,13,130822,1B
+game_winning_result,13009,Benny Schwa,13,130823,2B
+game_winning_result,11024,Ferdinand Fritzwilliam,13,130824,2BWH
+game_winning_result,12014,Sonny Wortzik,13,130917,1BWH
+game_winning_result,2073,Dom Emnic,13,130918,2BWH
+game_winning_result,13001,Ezra Wind,13,130919,2B
+game_winning_result,10079,R'lyeh Greene,13,130920,HR
+game_winning_result,10072,Copernicus Hel,13,130921,2B
+game_winning_result,13070,Hard Candy,13,130922,HR
+game_winning_result,2095,Hecate Vassiliou,13,130923,HR
+game_winning_result,13016,Mac Dinger,13,130924,1BWH
+golden_sombrero,3053,XxFAZE Jun1 RaWrXDxXx,3,030403,4 K
+golden_sombrero,1216,Billtopher Gatestopher,3,030502,4 K
+golden_sombrero,6010,Homer Knocker,9,090707,4 K
+golden_sombrero,1023,Dan Gerzone,10,101504,4 K
+golden_sombrero,1186,Francis Herman Swagger,12,120916,4 K
+golden_sombrero,11010,Starxy Stinkler,12,120916,4 K
+grand_slam,1132,Steel Pipe Simpson,1,010503,
+grand_slam,1087,Foxx Dashington,1,011004,
+grand_slam,1121,Vandalia Halen,1,011203,
+grand_slam,1153,AALarry Longshot,1,011401,
+grand_slam,1103,Blue Moon Barthelemy,2,020304,
+grand_slam,1135,Ryan Gastings,2,020607,
+grand_slam,1042,Dallas Houston,2,021606,
+grand_slam,1222,Justin Martin,3,030207,
+grand_slam,1194,Tuck,3,030501,
+grand_slam,1137,Jimmy Johns,3,030602,
+grand_slam,1096,Justin Paglia,3,030702,
+grand_slam,1201,Mylo Grams,3,030806,
+grand_slam,3046,Johnny Hendrix,3,030808,
+grand_slam,1099,Baron Samedi,3,031102,
+grand_slam,1021,Q Kimbrel,3,031303,
+grand_slam,3035,Max Power,3,031305,
+grand_slam,1210,Berna Pozo,3,031503,
+grand_slam,1134,Ornn Mistborn,4,040406,
+grand_slam,1042,Dallas Houston,4,040603,
+grand_slam,1174,Mad Monty,4,041402,
+grand_slam,3043,Keyo,4,041501,
+grand_slam,4066,Brusdar Powerade,5,050105,
+grand_slam,4007,Reese Worthington,5,050406,
+grand_slam,3019,Will The Thrill,5,050701,
+grand_slam,2097,Dirtbag Darrell,5,050707,
+grand_slam,3011,December Beckett,5,050708,
+grand_slam,4022,Adonis Sinoda,5,051202,
+grand_slam,5041,Papa Longstroke,5,051701,
+grand_slam,4033,Leonidas States,6,060302,
+grand_slam,5016,LeBarn James,6,060401,
+grand_slam,6001,Alternate Site,6,060502,
+grand_slam,1062,BB Bambino Jr.,6,060507,
+grand_slam,6040,Big Smoke Anderson,6,060701,
+grand_slam,1108,Conor Sexton,6,060802,
+grand_slam,1098,Kegs Mabry,6,060901,
+grand_slam,1210,Berna Pozo,6,061003,
+grand_slam,6011,Joe Pidgeon,6,061006,
+grand_slam,6009,Hannibal Bligh,6,061102,
+grand_slam,4041,John Rhys Ealy,6,061104,
+grand_slam,1141,Geno Scaramucci,6,061204,
+grand_slam,1089,Jefferson Steelflex,6,061305,
+grand_slam,1089,Jefferson Steelflex,7,070105,
+grand_slam,1201,Mylo Grams,7,070205,
+grand_slam,3066,AAAAAAAAAAThor,7,070308,
+grand_slam,6050,Emerson Austin Jr.,7,070607,
+grand_slam,3007,Salvatore De Luca,7,070901,
+grand_slam,1052,Zed Leona,7,071102,
+grand_slam,1054,Steve Hofbardozzi Jr. Jr. Jr.,7,071308,
+grand_slam,6009,Hannibal Bligh,8,080606,
+grand_slam,7025,Rocco Rudnikov,8,080706,
+grand_slam,7033,kilo,8,080904,
+grand_slam,4045,Dakota Carolina Montana,8,081502,
+grand_slam,3017,Bob Dunagee,8,081701,
+grand_slam,6031,Captain Rex,9,090304,
+grand_slam,4048,Mike Fruitstand,9,090402,
+grand_slam,5040,Juju's Snorlax,9,090503,
+grand_slam,2075,Copenhagen Black,9,090906,
+grand_slam,1099,Baron Samedi,9,091005,
+grand_slam,5022,Franz Lisztpitcher,9,091201,
+grand_slam,9032,Damion Knox,9,091204,
+grand_slam,4021,Jeff Shagwell,10,100601,
+grand_slam,3079,Isaac Snowbender,10,100906,
+grand_slam,10003,BANNED PLAYER,10,101003,
+grand_slam,1149,Garrett Evans,10,101308,
+grand_slam,7011,Derek Rasmussen,10,101404,
+grand_slam,10004,BANNED PLAYER,10,101503,
+grand_slam,11008,Miikka Jarvinen,11,110102,
+grand_slam,10075,Guillermo Griffey III,11,110207,
+grand_slam,10079,R'lyeh Greene,11,110303,
+grand_slam,1156,Thomas Thompson III,11,110403,
+grand_slam,1051,Superbone Threefinger,11,110405,
+grand_slam,3079,Isaac Snowbender,11,111005,
+grand_slam,10062,R'lyeh Cultist 73,11,111101,
+grand_slam,1029,Lefty Louis,11,111208,
+grand_slam,4000,King Kruul,11,111304,
+grand_slam,7012,CJ Ayer,11,111601,
+grand_slam,6004,Bony Skellinger,11,111701,
+grand_slam,10020,Johnmaine Chupri,12,120215,
+grand_slam,4070,Ioe Torrent,12,120616,
+grand_slam,5018,Brian Taylor,12,120916,
+grand_slam,11049,R'lyeh Cultist 1,12,121011,
+grand_slam,7012,CJ Ayer,12,121112,
+grand_slam,12004,Al-Wayz Buntin,12,121210,
+grand_slam,3027,Diego Medina,12,121214,
+grand_slam,12042,Jiggs Kingman,12,121309,
+grand_slam,13032,Orb,13,130319,
+grand_slam,12033,Bob Katz,13,130421,
+grand_slam,5012,Ben Bramly,13,130519,
+hits_4plus,1090,James Pablano,1,011004,4 H
+hits_4plus,1034,Jack Marnette,2,020803,4 H
+hits_4plus,1055,Ozymandias Jones,2,021002,4 H
+hits_4plus,3028,Loghan O'Brien,3,030202,4 H
+hits_4plus,1039,Clive Babineaux,3,030708,4 H
+hits_4plus,3069,Wallace Grommet,4,040201,4 H
+hits_4plus,1136,Mason Spurs,4,040406,4 H
+hits_4plus,3043,Keyo,4,040406,4 H
+hits_4plus,1082,Basebally McBaseballface Jr.,4,040701,4 H
+hits_4plus,4045,Dakota Carolina Montana,4,040805,4 H
+hits_4plus,1206,Meerkat Preller,5,050308,4 H
+hits_4plus,1058,Catfish Champ,5,050508,4 H
+hits_4plus,1137,Jimmy Johns,5,050701,4 H
+hits_4plus,3011,December Beckett,5,050708,4 H
+hits_4plus,1201,Mylo Grams,5,050806,4 H
+hits_4plus,4004,R'lyeh Reid,5,050901,4 H
+hits_4plus,5031,Doc Crudelly,5,050901,4 H
+hits_4plus,2012,Burgess Whitehead,5,051302,4 H
+hits_4plus,6019,Phillip Dunphy,6,060106,4 H
+hits_4plus,4034,Gargle Nutz,6,060205,4 H
+hits_4plus,6017,Ohtani But Wide,6,060502,4 H
+hits_4plus,1022,Chuck McCluster,6,060502,4 H
+hits_4plus,1168,Release T. Kraken,6,061005,4 H
+hits_4plus,1082,Basebally McBaseballface Jr.,7,070208,4 H
+hits_4plus,4025,Bast Fidgewidget,7,070703,4 H
+hits_4plus,1220,Al Ternate,7,070708,4 H
+hits_4plus,5032,Sander Entman,7,070806,4 H
+hits_4plus,2067,Riles McGiles,7,071004,4 H
+hits_4plus,1036,Spike Suzuki,7,071408,4 H
+hits_4plus,7025,Rocco Rudnikov,8,080706,5 H
+hits_4plus,4069,Hot Dog Jeopardy,8,080706,4 H
+hits_4plus,8007,Wally Wellbutrin,8,080706,4 H
+hits_4plus,8024,Kram Fork,8,080901,4 H
+hits_4plus,6012,Kanye East,8,081106,4 H
+hits_4plus,1032,Charlie Scott,8,081107,4 H
+hits_4plus,2086,Anna De Neko,8,081301,4 H
+hits_4plus,2075,Copenhagen Black,8,081503,4 H
+hits_4plus,1028,Mackenzie Haraldo,9,090107,5 H
+hits_4plus,1149,Garrett Evans,9,090107,4 H
+hits_4plus,8026,Alexander West,9,090606,4 H
+hits_4plus,1054,Steve Hofbardozzi Jr. Jr. Jr.,9,090905,4 H
+hits_4plus,2075,Copenhagen Black,9,091008,4 H
+hits_4plus,7028,Perome Jeterson,9,091101,4 H
+hits_4plus,10027,Dingers McGee,10,100108,4 H
+hits_4plus,4015,Plack Attack,10,100601,4 H
+hits_4plus,10003,BANNED PLAYER,10,101003,4 H
+hits_4plus,9019,Tooth Heaven Won,10,101204,4 H
+hits_4plus,9007,Dilwyn Silversheen,10,101303,4 H
+hits_4plus,10005,Chef Cook,10,101304,4 H
+hits_4plus,10025,Dark Brother,10,101401,4 H
+hits_4plus,10071,Bobert Hideyoshi,10,101403,4 H
+hits_4plus,1006,Smitty Hoppenscotch,10,101504,4 H
+hits_4plus,7045,Jimmy Pop,11,110201,4 H
+hits_4plus,1156,Thomas Thompson III,11,110201,5 H
+hits_4plus,9035,Mike Ock,11,110305,4 H
+hits_4plus,5017,Makesiondon Kelkboom,11,110405,4 H
+hits_4plus,10003,BANNED PLAYER,11,110504,4 H
+hits_4plus,9001,Harvey Burton,11,110601,4 H
+hits_4plus,1089,Jefferson Steelflex,11,110605,4 H
+hits_4plus,5022,Franz Lisztpitcher,11,110702,4 H
+hits_4plus,3007,Salvatore De Luca,11,110903,4 H
+hits_4plus,3080,Jeff Dingerhitter,11,111006,4 H
+hits_4plus,6031,Captain Rex,11,111402,4 H
+hits_4plus,6049,NoodleArmBigPowerODoyleetc,11,111406,4 H
+hits_4plus,10040,Serengeti Fingers,11,111502,4 H
+hits_4plus,8049,Kries Von Kriestalhauser,11,111601,4 H
+hits_4plus,10035,Man of Steal,12,120314,4 H
+hits_4plus,11028,Tree-O'Green Light,12,120611,4 H
+hits_4plus,11047,Swiftie ESPN,12,120916,5 H
+hits_4plus,9036,O'R'lyeh Auto Parts,12,121011,4 H
+hits_4plus,13016,Mac Dinger,13,130123,4 H
+hits_4plus,9036,O'R'lyeh Auto Parts,13,130220,4 H
+hits_4plus,11008,Miikka Jarvinen,13,130820,4 H
+immaculate_inning,1069,Rub A. Chikin,1,010202,bottom 2
+immaculate_inning,1195,Simon Dominic,1,010604,top 5
+immaculate_inning,1145,Artie Ziff,1,010703,top 8
+immaculate_inning,1009,Andrew Peters,1,010802,bottom 3
+immaculate_inning,1178,William Hatchet,1,011202,bottom 4
+immaculate_inning,1145,Artie Ziff,2,020102,bottom 2
+immaculate_inning,1070,Tommy Foxconn,2,020202,top 3
+immaculate_inning,1061,Hudson Hildebrandt,2,020203,bottom 8
+immaculate_inning,2025,Britt O'War,2,020204,top 4
+immaculate_inning,1097,Jameson Poe,2,020205,bottom 2
+immaculate_inning,1112,Miss Bats,2,020207,top 5
+immaculate_inning,1061,Hudson Hildebrandt,2,020302,top 3
+immaculate_inning,1024,Jordan Peppers,2,020303,top 3
+immaculate_inning,1008,Atlas Quin,2,020303,bottom 4
+immaculate_inning,1178,William Hatchet,2,020403,top 5
+immaculate_inning,1070,Tommy Foxconn,2,020502,top 4
+immaculate_inning,2049,Brian MacDonald,2,020604,bottom 4
+immaculate_inning,1221,Mako Bierman,2,020801,top 5
+immaculate_inning,1061,Hudson Hildebrandt,2,020804,bottom 1
+immaculate_inning,1061,Hudson Hildebrandt,2,020804,bottom 3
+immaculate_inning,2029,Lois Whip,2,020905,bottom 6
+immaculate_inning,1112,Miss Bats,2,021107,bottom 1
+immaculate_inning,1188,Teddy Ballinger,2,021202,bottom 3
+immaculate_inning,1084,Willoughby Hoose,2,021303,bottom 2
+immaculate_inning,1070,Tommy Foxconn,2,021402,bottom 5
+immaculate_inning,1217,Johnny Dickshot,2,021407,top 1
+immaculate_inning,1026,Angel Leon,3,030105,bottom 3
+immaculate_inning,2065,Gus Buster,3,030303,bottom 2
+immaculate_inning,1178,William Hatchet,3,030408,top 6
+immaculate_inning,1123,Kurt Anger,3,030506,bottom 5
+immaculate_inning,2075,Copenhagen Black,3,030601,top 2
+immaculate_inning,1008,Atlas Quin,3,030706,bottom 6
+immaculate_inning,2081,Cal Lidous,3,030804,top 1
+immaculate_inning,1158,Master Cashier,3,030904,bottom 3
+immaculate_inning,1051,Superbone Threefinger,3,031103,top 6
+immaculate_inning,2078,Rascal Alex,3,031106,bottom 5
+immaculate_inning,1008,Atlas Quin,3,031208,bottom 1
+immaculate_inning,2081,Cal Lidous,3,031402,top 4
+immaculate_inning,1140,Bartholomew Crumblepuff,3,031403,bottom 5
+immaculate_inning,1158,Master Cashier,4,040101,top 1
+immaculate_inning,2049,Brian MacDonald,4,040106,bottom 6
+immaculate_inning,3009,Bull Dozer,4,040204,bottom 6
+immaculate_inning,2065,Gus Buster,4,040303,top 1
+immaculate_inning,1026,Angel Leon,4,040303,top 4
+immaculate_inning,3083,Poop McGee,4,040601,top 1
+immaculate_inning,4003,Callie Braden,4,040606,top 2
+immaculate_inning,3057,Speedo Meter,4,040802,top 2
+immaculate_inning,3057,Speedo Meter,4,040802,top 4
+immaculate_inning,1112,Miss Bats,4,040802,bottom 4
+immaculate_inning,4008,LaCarpetron Dukemarriot II,4,040805,bottom 1
+immaculate_inning,2083,Dylan Green,4,041106,bottom 2
+immaculate_inning,2000,Jerry Jingles,4,041106,top 3
+immaculate_inning,1112,Miss Bats,4,041202,bottom 1
+immaculate_inning,1112,Miss Bats,4,041202,bottom 4
+immaculate_inning,4078,Sleve McDichael,4,041204,top 1
+immaculate_inning,1024,Jordan Peppers,4,041204,bottom 4
+immaculate_inning,4043,Cap Keeler,4,041205,top 3
+immaculate_inning,1205,Stephen Sondheim,4,041503,bottom 1
+immaculate_inning,4076,Grimothy Johnson,4,041504,top 1
+immaculate_inning,1027,Thomas Nova,5,050208,bottom 2
+immaculate_inning,2081,Cal Lidous,5,050301,top 5
+immaculate_inning,3063,Threefinger Jansen III,5,050307,top 5
+immaculate_inning,2081,Cal Lidous,5,050704,bottom 1
+immaculate_inning,1135,Ryan Gastings,5,050801,bottom 4
+immaculate_inning,3015,"Jason ""Dead"" Redd",5,050803,top 4
+immaculate_inning,1194,Tuck,5,050803,bottom 4
+immaculate_inning,2032,Kali McSuntas,5,050902,bottom 4
+immaculate_inning,1087,Foxx Dashington,5,050904,bottom 4
+immaculate_inning,2096,Adam Croft,5,051003,top 5
+immaculate_inning,3063,Threefinger Jansen III,5,051005,top 3
+immaculate_inning,1145,Artie Ziff,5,051304,top 2
+immaculate_inning,5036,Thackery Pounce,5,051305,bottom 5
+immaculate_inning,4017,Andrew Nova,5,051406,bottom 4
+immaculate_inning,3027,Diego Medina,5,051504,top 1
+immaculate_inning,1135,Ryan Gastings,6,060101,top 5
+immaculate_inning,5030,Dirk Digglet,6,060206,bottom 6
+immaculate_inning,1205,Stephen Sondheim,6,060505,bottom 1
+immaculate_inning,3015,"Jason ""Dead"" Redd",6,060608,bottom 2
+immaculate_inning,3073,Matt Himynamis,6,060904,top 4
+immaculate_inning,4008,LaCarpetron Dukemarriot II,6,061001,bottom 3
+immaculate_inning,1158,Master Cashier,6,061204,bottom 1
+immaculate_inning,1107,petra sabor,6,061501,bottom 5
+immaculate_inning,1122,Finkle Sparkles,7,070102,bottom 5
+immaculate_inning,3089,Joey Wheeler,7,070308,bottom 2
+immaculate_inning,3089,Joey Wheeler,7,070308,bottom 3
+immaculate_inning,2081,Cal Lidous,7,070402,bottom 3
+immaculate_inning,3042,Joanna McMartinez,7,070406,bottom 5
+immaculate_inning,1008,Atlas Quin,7,070407,bottom 5
+immaculate_inning,3005,Pablo Sanchez,7,070503,bottom 4
+immaculate_inning,1140,Bartholomew Crumblepuff,7,070606,bottom 1
+immaculate_inning,3005,Pablo Sanchez,7,070706,bottom 3
+immaculate_inning,3089,Joey Wheeler,7,070803,bottom 2
+immaculate_inning,2032,Kali McSuntas,7,071005,top 3
+immaculate_inning,2078,Rascal Alex,7,071008,bottom 2
+immaculate_inning,2109,Nate Duke,7,071103,top 3
+immaculate_inning,1079,Babatunde Oladotun,7,071201,bottom 4
+immaculate_inning,5030,Dirk Digglet,7,071207,top 6
+immaculate_inning,6035,Tommy Tightpants,7,071302,top 2
+immaculate_inning,3042,Joanna McMartinez,7,071406,bottom 4
+immaculate_inning,1174,Mad Monty,7,071601,bottom 2
+immaculate_inning,6035,Tommy Tightpants,8,080303,top 3
+immaculate_inning,1140,Bartholomew Crumblepuff,8,080306,bottom 3
+immaculate_inning,3015,"Jason ""Dead"" Redd",8,080403,top 2
+immaculate_inning,3015,"Jason ""Dead"" Redd",8,080403,top 5
+immaculate_inning,6013,Lane Drew,8,080404,bottom 2
+immaculate_inning,3027,Diego Medina,8,080408,top 1
+immaculate_inning,3005,Pablo Sanchez,8,080607,bottom 6
+immaculate_inning,1122,Finkle Sparkles,8,080702,bottom 5
+immaculate_inning,1033,Daz Butivegotthirtytwocharacters,8,080703,top 3
+immaculate_inning,8048,Captain Trash,8,080707,top 7
+immaculate_inning,1061,Hudson Hildebrandt,8,080708,bottom 5
+immaculate_inning,6049,NoodleArmBigPowerODoyleetc,8,080804,top 4
+immaculate_inning,2104,Bobby Portis,8,080805,top 1
+immaculate_inning,2104,Bobby Portis,8,080805,top 2
+immaculate_inning,1174,Mad Monty,8,081001,bottom 6
+immaculate_inning,3042,Joanna McMartinez,8,081008,bottom 5
+immaculate_inning,6022,VI,8,081103,top 2
+immaculate_inning,6022,VI,8,081103,top 4
+immaculate_inning,4078,Sleve McDichael,8,081106,bottom 5
+immaculate_inning,8047,Pete Morris,8,081201,bottom 3
+immaculate_inning,1061,Hudson Hildebrandt,8,081208,top 2
+immaculate_inning,6049,NoodleArmBigPowerODoyleetc,8,081401,bottom 1
+immaculate_inning,1122,Finkle Sparkles,8,081402,top 6
+immaculate_inning,1217,Johnny Dickshot,8,081403,top 3
+immaculate_inning,1033,Daz Butivegotthirtytwocharacters,9,090103,bottom 6
+immaculate_inning,1061,Hudson Hildebrandt,9,090205,bottom 2
+immaculate_inning,1061,Hudson Hildebrandt,9,090205,bottom 6
+immaculate_inning,2060,LaPrince Frye,9,090305,bottom 4
+immaculate_inning,1174,Mad Monty,9,090505,bottom 4
+immaculate_inning,9011,Lightning Volt,9,090801,top 3
+immaculate_inning,9012,Epto Bismol,9,090801,bottom 6
+immaculate_inning,5032,Sander Entman,9,090907,bottom 3
+immaculate_inning,3015,"Jason ""Dead"" Redd",9,091108,bottom 4
+immaculate_inning,2104,Bobby Portis,9,091206,top 2
+immaculate_inning,9010,Brent Chillwater,9,091301,top 5
+immaculate_inning,1083,Tony Smehrik,10,100205,bottom 2
+immaculate_inning,1174,Mad Monty,10,100302,top 6
+immaculate_inning,9011,Lightning Volt,10,100306,bottom 1
+immaculate_inning,4078,Sleve McDichael,10,100307,bottom 5
+immaculate_inning,10045,Jordan Kurdi,10,100401,top 3
+immaculate_inning,10008,Eldritch Dancer,10,100407,bottom 3
+immaculate_inning,4073,CJ Brandonson,10,100503,bottom 6
+immaculate_inning,10008,Eldritch Dancer,10,100603,bottom 3
+immaculate_inning,9039,Mama Luigi,10,100701,top 4
+immaculate_inning,7020,Sonar McDeuceski,10,100904,bottom 1
+immaculate_inning,4073,CJ Brandonson,10,100906,top 2
+immaculate_inning,9016,Virgil Aegis-Gunther,10,100906,top 4
+immaculate_inning,10008,Eldritch Dancer,10,101103,top 5
+immaculate_inning,1217,Johnny Dickshot,10,101106,bottom 3
+immaculate_inning,2104,Bobby Portis,10,101201,bottom 2
+immaculate_inning,9039,Mama Luigi,11,110101,top 2
+immaculate_inning,9010,Brent Chillwater,11,110705,bottom 5
+immaculate_inning,10007,Henry Atombomb,11,110804,bottom 3
+immaculate_inning,7020,Sonar McDeuceski,11,110804,top 5
+immaculate_inning,8002,Trevor Rose,11,110904,bottom 5
+immaculate_inning,1153,AALarry Longshot,11,111005,top 5
+immaculate_inning,3005,Pablo Sanchez,11,111106,top 5
+immaculate_inning,2078,Rascal Alex,11,111107,top 3
+immaculate_inning,4078,Sleve McDichael,11,111107,top 6
+immaculate_inning,11029,Slayer Slime,11,111202,top 3
+immaculate_inning,3089,Joey Wheeler,11,111203,top 3
+immaculate_inning,3049,Ferda Bois,11,111302,top 4
+immaculate_inning,9011,Lightning Volt,11,111307,top 3
+immaculate_inning,1061,Hudson Hildebrandt,12,120214,bottom 3
+immaculate_inning,10082,Sterling Turlington,12,120309,top 7
+immaculate_inning,4078,Sleve McDichael,12,120310,top 5
+immaculate_inning,11032,Smokey Zygowski,12,120416,top 3
+immaculate_inning,11032,Smokey Zygowski,12,120416,top 4
+immaculate_inning,1061,Hudson Hildebrandt,12,120812,top 1
+immaculate_inning,5014,Sheridan Blackstone,12,120813,bottom 4
+immaculate_inning,3011,December Beckett,12,120910,bottom 5
+immaculate_inning,1141,Geno Scaramucci,12,120916,bottom 5
+immaculate_inning,1083,Tony Smehrik,12,121010,top 1
+immaculate_inning,12018,Clifton McCullough,12,121214,top 1
+immaculate_inning,1061,Hudson Hildebrandt,12,121216,bottom 4
+immaculate_inning,10008,Eldritch Dancer,12,121310,bottom 3
+immaculate_inning,1206,Meerkat Preller,12,121603,top 1
+immaculate_inning,9039,Mama Luigi,12,121705,top 1
+immaculate_inning,10070,John Applebees,13,130120,bottom 3
+immaculate_inning,1008,Atlas Quin,13,130123,bottom 8
+immaculate_inning,12005,Jimothy Jhompson,13,130220,bottom 3
+immaculate_inning,13039,Max Muncy,13,130223,top 3
+immaculate_inning,9010,Brent Chillwater,13,130322,bottom 5
+immaculate_inning,10036,Kyuss Kosades,13,130621,top 8
+immaculate_inning,12017,K Junk,13,130624,bottom 1
+immaculate_inning,12051,Fat Lever,13,130719,bottom 3
+immaculate_inning,1194,Tuck,13,130818,top 4
+immaculate_inning,4078,Sleve McDichael,13,130917,top 6
+immaculate_inning,7023,Mickey May,13,130919,bottom 6
+immaculate_inning,3011,December Beckett,13,130924,bottom 6
+k_10plus,1008,Atlas Quin,1,011001,11 K
+k_10plus,1211,Pete Jones,1,011006,12 K
+k_10plus,1061,Hudson Hildebrandt,2,020804,12 K
+k_10plus,2029,Lois Whip,2,020905,10 K
+k_10plus,1112,Miss Bats,2,020907,11 K
+k_10plus,1008,Atlas Quin,2,021203,11 K
+k_10plus,1026,Angel Leon,3,030105,10 K
+k_10plus,1008,Atlas Quin,3,030706,11 K
+k_10plus,2059,Daraya Jonjet,3,030808,11 K
+k_10plus,1079,Babatunde Oladotun,3,031005,10 K
+k_10plus,1061,Hudson Hildebrandt,3,031008,12 K
+k_10plus,2060,LaPrince Frye,3,031308,11 K
+k_10plus,1205,Stephen Sondheim,4,040308,10 K
+k_10plus,2083,Dylan Green,4,041106,10 K
+k_10plus,1112,Miss Bats,4,041202,11 K
+k_10plus,1208,Bace Ventura,6,060703,12 K
+k_10plus,6044,Matthew Longballo,6,060704,11 K
+k_10plus,3056,Donatello Chalupa,7,070203,10 K
+k_10plus,3089,Joey Wheeler,7,070308,10 K
+k_10plus,1174,Mad Monty,7,070505,10 K
+k_10plus,2036,Sandy Collazo,7,070707,13 K
+k_10plus,1208,Bace Ventura,7,071002,10 K
+k_10plus,7023,Mickey May,8,080704,10 K
+k_10plus,4078,Sleve McDichael,8,081307,12 K
+k_10plus,3042,Joanna McMartinez,9,090608,12 K
+k_10plus,1174,Mad Monty,9,090805,10 K
+k_10plus,1217,Johnny Dickshot,9,091005,10 K
+k_10plus,3015,"Jason ""Dead"" Redd",9,091108,10 K
+k_10plus,10045,Jordan Kurdi,10,100401,13 K
+k_10plus,1140,Bartholomew Crumblepuff,11,110407,10 K
+k_10plus,4078,Sleve McDichael,11,110506,10 K
+k_10plus,10008,Eldritch Dancer,11,110803,12 K
+k_10plus,1061,Hudson Hildebrandt,11,110808,12 K
+k_10plus,3011,December Beckett,11,110908,11 K
+k_10plus,1153,AALarry Longshot,11,111005,11 K
+k_10plus,3089,Joey Wheeler,11,111203,10 K
+k_10plus,9010,Brent Chillwater,11,111305,10 K
+k_10plus,1061,Hudson Hildebrandt,12,120513,11 K
+k_10plus,2055,Harry Peritestes,12,120611,11 K
+k_10plus,3005,Pablo Sanchez,12,120712,10 K
+k_10plus,1026,Angel Leon,12,121009,10 K
+multi_hr_2plus,1063,Alex Yaxley,1,010703,3 HR
+multi_hr_2plus,1013,Kaylee Stewart,1,010704,2 HR
+multi_hr_2plus,1187,Brandon Blade,1,010803,2 HR
+multi_hr_2plus,1076,Fuzzy Dunlop,1,011002,2 HR
+multi_hr_2plus,1067,Austin Schwartz,1,011102,2 HR
+multi_hr_2plus,1153,AALarry Longshot,1,011105,2 HR
+multi_hr_2plus,1092,Cody Omega,1,011105,2 HR
+multi_hr_2plus,1022,Chuck McCluster,1,011205,2 HR
+multi_hr_2plus,1218,Bofadeez Newtz,2,020402,2 HR
+multi_hr_2plus,2057,Jack Alpha,2,020502,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,2,020503,2 HR
+multi_hr_2plus,2016,Super Talent,2,020505,2 HR
+multi_hr_2plus,1011,El Duké Nukem,2,020506,2 HR
+multi_hr_2plus,1206,Meerkat Preller,2,020507,2 HR
+multi_hr_2plus,1199,Boof Boog,2,020605,2 HR
+multi_hr_2plus,2072,Pull Ganger,2,020607,2 HR
+multi_hr_2plus,2057,Jack Alpha,2,020702,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,2,021003,2 HR
+multi_hr_2plus,2073,Dom Emnic,2,021007,2 HR
+multi_hr_2plus,1013,Kaylee Stewart,2,021102,2 HR
+multi_hr_2plus,2057,Jack Alpha,2,021104,2 HR
+multi_hr_2plus,2034,Fortuk Monmouth,2,021107,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,2,021403,2 HR
+multi_hr_2plus,1098,Kegs Mabry,2,021403,2 HR
+multi_hr_2plus,1075,Robin Reynolds,2,021406,2 HR
+multi_hr_2plus,2080,Junebug Wray,2,021504,2 HR
+multi_hr_2plus,2057,Jack Alpha,2,021603,2 HR
+multi_hr_2plus,1072,Red Trapper,3,030206,2 HR
+multi_hr_2plus,1151,Lance Lummoxx,3,030307,2 HR
+multi_hr_2plus,2008,Brian Zucchini,3,030403,2 HR
+multi_hr_2plus,2068,Raphael Akias,3,030503,2 HR
+multi_hr_2plus,3054,Paulie Wag,3,030607,2 HR
+multi_hr_2plus,1218,Bofadeez Newtz,3,030607,2 HR
+multi_hr_2plus,1039,Clive Babineaux,3,030708,2 HR
+multi_hr_2plus,2074,Jobert Maclin,3,030803,2 HR
+multi_hr_2plus,1201,Mylo Grams,3,030806,2 HR
+multi_hr_2plus,1022,Chuck McCluster,3,031304,2 HR
+multi_hr_2plus,1217,Johnny Dickshot,3,031305,2 HR
+multi_hr_2plus,1154,Kyle Corbett,4,040201,3 HR
+multi_hr_2plus,3069,Wallace Grommet,4,040201,2 HR
+multi_hr_2plus,2055,Harry Peritestes,4,040207,2 HR
+multi_hr_2plus,2082,Dixon Uraz,4,040307,2 HR
+multi_hr_2plus,2012,Burgess Whitehead,4,040401,2 HR
+multi_hr_2plus,1165,Dropov Andpicov,4,040406,2 HR
+multi_hr_2plus,3091,AAAAntilles Zelk,4,040508,2 HR
+multi_hr_2plus,1029,Lefty Louis,4,040804,2 HR
+multi_hr_2plus,2068,Raphael Akias,4,040907,2 HR
+multi_hr_2plus,3079,Isaac Snowbender,4,041101,2 HR
+multi_hr_2plus,1028,Mackenzie Haraldo,4,041108,2 HR
+multi_hr_2plus,3038,Lincoln Crawford,4,041108,2 HR
+multi_hr_2plus,3053,XxFAZE Jun1 RaWrXDxXx,4,041203,2 HR
+multi_hr_2plus,4042,Sarah Buntingsworth,5,050204,2 HR
+multi_hr_2plus,4070,Ioe Torrent,5,050406,2 HR
+multi_hr_2plus,1042,Dallas Houston,5,050608,2 HR
+multi_hr_2plus,2057,Jack Alpha,5,050708,2 HR
+multi_hr_2plus,1089,Jefferson Steelflex,5,051001,2 HR
+multi_hr_2plus,4021,Jeff Shagwell,5,051007,2 HR
+multi_hr_2plus,1033,Daz Butivegotthirtytwocharacters,5,051102,2 HR
+multi_hr_2plus,1023,Dan Gerzone,5,051106,2 HR
+multi_hr_2plus,3080,Jeff Dingerhitter,5,051407,2 HR
+multi_hr_2plus,3038,Lincoln Crawford,5,051602,2 HR
+multi_hr_2plus,1028,Mackenzie Haraldo,5,051602,2 HR
+multi_hr_2plus,1063,Alex Yaxley,6,060106,2 HR
+multi_hr_2plus,4033,Leonidas States,6,060302,2 HR
+multi_hr_2plus,4066,Brusdar Powerade,6,060406,2 HR
+multi_hr_2plus,6017,Ohtani But Wide,6,060502,2 HR
+multi_hr_2plus,1191,Morris Deratt,6,060603,2 HR
+multi_hr_2plus,1021,Q Kimbrel,6,060907,2 HR
+multi_hr_2plus,4015,Plack Attack,6,061105,2 HR
+multi_hr_2plus,4078,Sleve McDichael,6,061402,2 HR
+multi_hr_2plus,2106,Declan Archer,6,061403,2 HR
+multi_hr_2plus,2075,Copenhagen Black,6,061601,2 HR
+multi_hr_2plus,4021,Jeff Shagwell,6,061602,2 HR
+multi_hr_2plus,3072,Tucker Doubt,6,061701,2 HR
+multi_hr_2plus,6011,Joe Pidgeon,7,070304,2 HR
+multi_hr_2plus,5002,Guidooooo,7,070306,2 HR
+multi_hr_2plus,1100,Antwan Zella,7,070306,2 HR
+multi_hr_2plus,5024,Simba II,7,070706,2 HR
+multi_hr_2plus,5011,Mo Mo,7,071007,2 HR
+multi_hr_2plus,1021,Q Kimbrel,8,080106,2 HR
+multi_hr_2plus,7039,Mr Plow,8,080203,2 HR
+multi_hr_2plus,7025,Rocco Rudnikov,8,080706,2 HR
+multi_hr_2plus,3080,Jeff Dingerhitter,8,080801,2 HR
+multi_hr_2plus,1021,Q Kimbrel,8,081206,2 HR
+multi_hr_2plus,5016,LeBarn James,8,081301,2 HR
+multi_hr_2plus,1108,Conor Sexton,8,081301,2 HR
+multi_hr_2plus,6011,Joe Pidgeon,8,081304,2 HR
+multi_hr_2plus,2080,Junebug Wray,8,081306,2 HR
+multi_hr_2plus,1063,Alex Yaxley,8,081406,2 HR
+multi_hr_2plus,3038,Lincoln Crawford,8,081504,2 HR
+multi_hr_2plus,1099,Baron Samedi,9,090204,2 HR
+multi_hr_2plus,4048,Mike Fruitstand,9,090402,2 HR
+multi_hr_2plus,1149,Garrett Evans,9,090504,2 HR
+multi_hr_2plus,2085,Lloyd Gross,9,090702,2 HR
+multi_hr_2plus,2047,Calvin Huff,9,090703,2 HR
+multi_hr_2plus,7033,kilo,9,090707,2 HR
+multi_hr_2plus,9017,Joe Yoshi,9,091004,2 HR
+multi_hr_2plus,1100,Antwan Zella,9,091105,2 HR
+multi_hr_2plus,6009,Hannibal Bligh,9,091407,2 HR
+multi_hr_2plus,5017,Makesiondon Kelkboom,9,091503,2 HR
+multi_hr_2plus,9015,Ratryox,9,091503,2 HR
+multi_hr_2plus,2107,Kalin Young,9,091601,3 HR
+multi_hr_2plus,2083,Dylan Green,10,100601,2 HR
+multi_hr_2plus,9001,Harvey Burton,10,100705,2 HR
+multi_hr_2plus,10061,Albert Pooholes,10,100705,2 HR
+multi_hr_2plus,6009,Hannibal Bligh,10,100804,2 HR
+multi_hr_2plus,10005,Chef Cook,10,100902,2 HR
+multi_hr_2plus,1012,Reservoir Butler,10,101001,2 HR
+multi_hr_2plus,3039,Bob Winn,10,101105,2 HR
+multi_hr_2plus,1113,Cookie Mongster,10,101208,2 HR
+multi_hr_2plus,10071,Bobert Hideyoshi,10,101403,3 HR
+multi_hr_2plus,11008,Miikka Jarvinen,11,110102,2 HR
+multi_hr_2plus,4010,Matthew Heskey,11,110301,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,11,110403,2 HR
+multi_hr_2plus,1027,Thomas Nova,11,110406,2 HR
+multi_hr_2plus,2097,Dirtbag Darrell,11,110507,2 HR
+multi_hr_2plus,1089,Jefferson Steelflex,11,110605,2 HR
+multi_hr_2plus,1134,Ornn Mistborn,11,110802,2 HR
+multi_hr_2plus,10071,Bobert Hideyoshi,11,110806,2 HR
+multi_hr_2plus,9031,Bob Nutting Jr,11,110905,2 HR
+multi_hr_2plus,7038,Raffy Benitez,11,111001,2 HR
+multi_hr_2plus,9031,Bob Nutting Jr,11,111003,2 HR
+multi_hr_2plus,10062,R'lyeh Cultist 73,11,111101,2 HR
+multi_hr_2plus,10061,Albert Pooholes,11,111103,2 HR
+multi_hr_2plus,1051,Superbone Threefinger,11,111205,2 HR
+multi_hr_2plus,6009,Hannibal Bligh,11,111207,2 HR
+multi_hr_2plus,1149,Garrett Evans,11,111208,2 HR
+multi_hr_2plus,11050,Bald Bull,11,111301,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,11,111502,3 HR
+multi_hr_2plus,1052,Zed Leona,12,120214,2 HR
+multi_hr_2plus,1156,Thomas Thompson III,12,120412,2 HR
+multi_hr_2plus,10047,Saul Pewald,12,120414,2 HR
+multi_hr_2plus,5041,Papa Longstroke,12,120416,2 HR
+multi_hr_2plus,11047,Swiftie ESPN,12,120511,2 HR
+multi_hr_2plus,1023,Dan Gerzone,12,120515,2 HR
+multi_hr_2plus,1036,Spike Suzuki,12,120515,2 HR
+multi_hr_2plus,8016,R'lyeh Cultist C,12,120811,2 HR
+multi_hr_2plus,1186,Francis Herman Swagger,12,120816,2 HR
+multi_hr_2plus,11049,R'lyeh Cultist 1,12,121011,2 HR
+multi_hr_2plus,12033,Bob Katz,12,121213,2 HR
+multi_hr_2plus,7016,Ovaltine,12,121215,2 HR
+multi_hr_2plus,12042,Jiggs Kingman,12,121309,2 HR
+multi_hr_2plus,1006,Smitty Hoppenscotch,12,121604,2 HR
+multi_hr_2plus,9033,Francesco Hardgust,13,130420,2 HR
+multi_hr_2plus,1089,Jefferson Steelflex,13,130624,2 HR
+multi_hr_3plus,1063,Alex Yaxley,1,010703,3 HR
+multi_hr_3plus,1154,Kyle Corbett,4,040201,3 HR
+multi_hr_3plus,2107,Kalin Young,9,091601,3 HR
+multi_hr_3plus,10071,Bobert Hideyoshi,10,101403,3 HR
+multi_hr_3plus,1156,Thomas Thompson III,11,111502,3 HR
+no_hitter,2078,Rascal Alex,2,020904,3 BB
+no_hitter,1112,Miss Bats,3,030102,2 BB
+no_hitter,10045,Jordan Kurdi,10,100401,0 BB
+no_hitter,12034,Triscuit McBiskit,13,130219,2 BB
+perfect_game,10045,Jordan Kurdi,10,100401,
+rbi_5plus,1156,Thomas Thompson III,2,020503,6 RBI
+rbi_5plus,2073,Dom Emnic,2,021007,5 RBI
+rbi_5plus,1072,Red Trapper,3,030206,5 RBI
+rbi_5plus,1039,Clive Babineaux,3,030708,5 RBI
+rbi_5plus,1201,Mylo Grams,3,030806,6 RBI
+rbi_5plus,3046,Johnny Hendrix,3,030808,6 RBI
+rbi_5plus,1184,Buzz Schwinghammer,3,031204,5 RBI
+rbi_5plus,1021,Q Kimbrel,3,031303,5 RBI
+rbi_5plus,1217,Johnny Dickshot,3,031305,5 RBI
+rbi_5plus,3065,Robert Atech,4,040401,5 RBI
+rbi_5plus,1042,Dallas Houston,4,040603,6 RBI
+rbi_5plus,4033,Leonidas States,4,040603,5 RBI
+rbi_5plus,4042,Sarah Buntingsworth,5,050204,6 RBI
+rbi_5plus,1042,Dallas Houston,5,050608,5 RBI
+rbi_5plus,2097,Dirtbag Darrell,5,050707,5 RBI
+rbi_5plus,2012,Burgess Whitehead,5,051501,5 RBI
+rbi_5plus,1028,Mackenzie Haraldo,5,051602,5 RBI
+rbi_5plus,4033,Leonidas States,6,060302,7 RBI
+rbi_5plus,5016,LeBarn James,6,060401,5 RBI
+rbi_5plus,1108,Conor Sexton,6,060802,5 RBI
+rbi_5plus,1098,Kegs Mabry,6,060901,5 RBI
+rbi_5plus,4078,Sleve McDichael,6,061402,5 RBI
+rbi_5plus,5024,Simba II,7,070706,6 RBI
+rbi_5plus,7039,Mr Plow,8,080203,5 RBI
+rbi_5plus,7025,Rocco Rudnikov,8,080706,6 RBI
+rbi_5plus,4069,Hot Dog Jeopardy,8,080908,5 RBI
+rbi_5plus,2080,Junebug Wray,8,081306,7 RBI
+rbi_5plus,1063,Alex Yaxley,8,081406,5 RBI
+rbi_5plus,1149,Garrett Evans,9,090107,5 RBI
+rbi_5plus,1099,Baron Samedi,9,090204,5 RBI
+rbi_5plus,4048,Mike Fruitstand,9,090402,5 RBI
+rbi_5plus,2085,Lloyd Gross,9,090702,5 RBI
+rbi_5plus,7033,kilo,9,090707,5 RBI
+rbi_5plus,5022,Franz Lisztpitcher,9,091201,6 RBI
+rbi_5plus,10023,Rex McStrange,10,100103,5 RBI
+rbi_5plus,1156,Thomas Thompson III,10,100103,5 RBI
+rbi_5plus,7017,Juan Sexton,10,100808,5 RBI
+rbi_5plus,10005,Chef Cook,10,100902,5 RBI
+rbi_5plus,10003,BANNED PLAYER,10,101003,7 RBI
+rbi_5plus,10071,Bobert Hideyoshi,10,101403,5 RBI
+rbi_5plus,11008,Miikka Jarvinen,11,110102,6 RBI
+rbi_5plus,1156,Thomas Thompson III,11,110201,5 RBI
+rbi_5plus,1156,Thomas Thompson III,11,110403,5 RBI
+rbi_5plus,1027,Thomas Nova,11,110406,5 RBI
+rbi_5plus,2055,Harry Peritestes,11,110607,5 RBI
+rbi_5plus,9031,Bob Nutting Jr,11,110905,5 RBI
+rbi_5plus,7038,Raffy Benitez,11,111001,6 RBI
+rbi_5plus,10062,R'lyeh Cultist 73,11,111101,5 RBI
+rbi_5plus,9019,Tooth Heaven Won,11,111406,5 RBI
+rbi_5plus,1156,Thomas Thompson III,11,111502,7 RBI
+rbi_5plus,6004,Bony Skellinger,11,111701,6 RBI
+rbi_5plus,1156,Thomas Thompson III,12,120412,5 RBI
+rbi_5plus,10047,Saul Pewald,12,120414,6 RBI
+rbi_5plus,4070,Ioe Torrent,12,120616,5 RBI
+rbi_5plus,11049,R'lyeh Cultist 1,12,121011,5 RBI
+rbi_5plus,7012,CJ Ayer,12,121112,5 RBI
+rbi_5plus,12042,Jiggs Kingman,12,121309,8 RBI
+rbi_5plus,1098,Kegs Mabry,12,121414,5 RBI
+rbi_5plus,5012,Ben Bramly,13,130519,5 RBI
+reached_5plus,3043,Keyo,4,040406,5 times on base
+reached_5plus,7025,Rocco Rudnikov,8,080706,5 times on base
+reached_5plus,1028,Mackenzie Haraldo,9,090107,5 times on base
+reached_5plus,10023,Rex McStrange,10,100103,5 times on base
+reached_5plus,1156,Thomas Thompson III,11,110201,5 times on base
+reached_5plus,10003,BANNED PLAYER,11,110504,5 times on base
+reached_5plus,11028,Tree-O'Green Light,12,120611,5 times on base
+reached_5plus,11047,Swiftie ESPN,12,120916,5 times on base
+reached_5plus,13029,Mickey Scales,13,130820,5 times on base
+sb_3plus,2069,Tygen Shinybeard,5,050503,3 SB
+sb_3plus,5002,Guidooooo,10,101404,3 SB
+walk_off,1067,Austin Schwartz,1,010102,1BWH
+walk_off,1007,Chris Robin,1,010202,GORA
+walk_off,1033,Daz Butivegotthirtytwocharacters,1,010305,HR
+walk_off,1090,James Pablano,1,010306,HR
+walk_off,1048,Spike McBride,1,010506,2B
+walk_off,1079,Babatunde Oladotun,1,010703,1B
+walk_off,1134,Ornn Mistborn,1,010805,2B
+walk_off,1121,Vandalia Halen,1,011003,HR
+walk_off,1048,Spike McBride,1,011106,2B
+walk_off,1077,Storm Johnson,1,011203,HR
+walk_off,1194,Tuck,1,011204,GORA
+walk_off,1036,Spike Suzuki,2,020107,1B
+walk_off,1189,Ethan Franklin,2,020401,2B
+walk_off,2061,Dez Perado,2,020403,1BWH
+walk_off,1046,Rabbi Chase,2,020606,HR
+walk_off,1135,Ryan Gastings,2,020607,HR
+walk_off,2012,Burgess Whitehead,2,020704,3B
+walk_off,1012,Reservoir Butler,2,020803,1B
+walk_off,2054,Woofie K9,2,020907,1BWH
+walk_off,2003,Mr. Jim Business,2,021004,3B
+walk_off,2005,Kiger Wulf,2,021406,2B
+walk_off,2003,Mr. Jim Business,2,021604,2B
+walk_off,1192,Larry Slack,2,021702,2B
+walk_off,2072,Pull Ganger,2,021901,1B
+walk_off,1072,Red Trapper,3,030206,HR
+walk_off,1166,Ecliptic Astrum,3,030401,HR
+walk_off,1108,Conor Sexton,3,030403,1B
+walk_off,3038,Lincoln Crawford,3,030502,1B
+walk_off,1133,Hank Murphy,3,030506,1BWH
+walk_off,1137,Jimmy Johns,3,030602,HR
+walk_off,1064,Dick Pole,3,030706,BB
+walk_off,2014,Shovel Bryant,3,031003,1BWH
+walk_off,1153,AALarry Longshot,3,031104,SacF
+walk_off,3049,Ferda Bois,3,031203,1BWH
+walk_off,1189,Ethan Franklin,3,031302,2B
+walk_off,1143,Viking Fishbird,3,031405,HR
+walk_off,1210,Berna Pozo,3,031503,HR
+walk_off,1096,Justin Paglia,4,040102,2B
+walk_off,4021,Jeff Shagwell,4,040308,1BWH
+walk_off,3069,Wallace Grommet,4,040501,HR
+walk_off,2044,Maud Nelson,4,040603,2B
+walk_off,3082,Basethony Balltano,4,040708,HR
+walk_off,4012,Deku Matsui,4,040802,1B
+walk_off,3035,Max Power,4,041205,1B
+walk_off,3023,Andy,4,041305,1B
+walk_off,1088,Stan Mann,5,050101,1BWH
+walk_off,2094,JZ (but not the rapper),5,050103,HR
+walk_off,3077,Derek Bongiovanni,5,050205,2B
+walk_off,3091,AAAAntilles Zelk,5,050208,2B
+walk_off,1136,Mason Spurs,5,050405,1BWH
+walk_off,1058,Catfish Champ,5,050407,2B
+walk_off,3011,December Beckett,5,050708,HR
+walk_off,1034,Jack Marnette,5,050804,1B
+walk_off,1159,Clifton Outlaw,5,050904,1B
+walk_off,1022,Chuck McCluster,5,050905,BB
+walk_off,5019,Connor Morgan,5,050907,HR
+walk_off,1034,Jack Marnette,5,051004,2B
+walk_off,4021,Jeff Shagwell,5,051007,HR
+walk_off,2035,Jhahn Tahmus,5,051201,3B
+walk_off,1012,Reservoir Butler,5,051308,HR
+walk_off,3053,XxFAZE Jun1 RaWrXDxXx,5,051402,2BWH
+walk_off,3060,Skye McDowell,5,051404,1BWH
+walk_off,1158,Master Cashier,5,051701,1BWH
+walk_off,5026,Freddie Huff,6,060106,BB
+walk_off,2002,Assassin Xekutioner,6,060303,HR
+walk_off,1149,Garrett Evans,6,060306,HR
+walk_off,5007,Gas House Gorillas,6,060402,GORA
+walk_off,6016,Mike Litoris,6,060404,HR
+walk_off,2055,Harry Peritestes,6,060405,1B
+walk_off,4007,Reese Worthington,6,060704,1BWH
+walk_off,5040,Juju's Snorlax,6,060805,HR
+walk_off,1088,Stan Mann,6,060901,HR
+walk_off,1134,Ornn Mistborn,6,060902,HR
+walk_off,1063,Alex Yaxley,6,061008,1BWH
+walk_off,3082,Basethony Balltano,6,061401,1B
+walk_off,2055,Harry Peritestes,6,061405,HR
+walk_off,6047,Crimson Chin,6,061701,HR
+walk_off,3012,Rusty Nails,7,070305,HR
+walk_off,3039,Bob Winn,7,070703,3B
+walk_off,7024,Jethro McDungle,7,070705,2B
+walk_off,1201,Mylo Grams,7,070708,2BWH
+walk_off,7013,Pie In The Sky,7,070803,IF1B
+walk_off,7013,Pie In The Sky,7,070903,HR
+walk_off,1052,Zed Leona,7,070905,1BWH
+walk_off,1164,Zin Martinez,7,071005,HR
+walk_off,7024,Jethro McDungle,7,071306,HR
+walk_off,1149,Garrett Evans,7,071308,HR
+walk_off,6040,Big Smoke Anderson,8,080101,1BWH
+walk_off,5029,Peoples Champ,8,080102,2B
+walk_off,2012,Burgess Whitehead,8,080201,HR
+walk_off,6029,Scherbie Fully-Loaded,8,080205,HR
+walk_off,4081,Toppo Thamornin,8,080206,HR
+walk_off,3038,Lincoln Crawford,8,080308,HR
+walk_off,3007,Salvatore De Luca,8,080403,HR
+walk_off,1156,Thomas Thompson III,8,080602,HR
+walk_off,4033,Leonidas States,8,080603,HR
+walk_off,3056,Donatello Chalupa,8,080707,HR
+walk_off,6050,Emerson Austin Jr.,8,080804,2B
+walk_off,4040,Trogdor Fhqwhgads,8,080906,2B
+walk_off,3080,Jeff Dingerhitter,8,080907,HR
+walk_off,1090,James Pablano,8,081001,HR
+walk_off,1069,Rub A. Chikin,8,081006,1BWH
+walk_off,1071,Isaac Saffron,8,081101,HR
+walk_off,6005,Borg Torbjorgsson,8,081107,2B
+walk_off,2080,Junebug Wray,8,081306,3B
+walk_off,9015,Ratryox,9,090102,1BWH
+walk_off,1149,Garrett Evans,9,090107,1BWH
+walk_off,5021,Kenny Kawaguchi,9,090206,2BWH
+walk_off,1120,Johnny Hopkins,9,090307,2BWH
+walk_off,7021,Dutch Boggs,9,090506,HR
+walk_off,9026,Billy Boi,9,090705,HR
+walk_off,7017,Juan Sexton,9,090902,1B
+walk_off,7028,Perome Jeterson,9,091306,HR
+walk_off,7012,CJ Ayer,9,091404,1B
+walk_off,10025,Dark Brother,10,100502,1BWH
+walk_off,5040,Juju's Snorlax,10,100507,HR
+walk_off,3057,Speedo Meter,10,100702,IF1B
+walk_off,3061,Trog Smash,10,100703,HR
+walk_off,10027,Dingers McGee,10,100801,HR
+walk_off,1034,Jack Marnette,10,100806,2B
+walk_off,3056,Donatello Chalupa,10,101108,SacF
+walk_off,10027,Dingers McGee,10,101201,HR
+walk_off,5002,Guidooooo,10,101203,HR
+walk_off,10005,Chef Cook,10,101304,3B
+walk_off,1052,Zed Leona,11,110408,2B
+walk_off,10043,Justin Trotter,11,110703,HR
+walk_off,2055,Harry Peritestes,11,110707,1BWH
+walk_off,3027,Diego Medina,11,110903,2B
+walk_off,10061,Albert Pooholes,11,111002,HR
+walk_off,3080,Jeff Dingerhitter,11,111006,HR
+walk_off,7022,Meat Wad,11,111108,HR
+walk_off,11047,Swiftie ESPN,11,111207,HR
+walk_off,1029,Lefty Louis,11,111208,HR
+walk_off,3007,Salvatore De Luca,11,111303,HR
+walk_off,6004,Bony Skellinger,11,111307,3B
+walk_off,8023,Johnny B. Goode,11,111404,HR
+walk_off,6009,Hannibal Bligh,11,111407,1BWH
+walk_off,2097,Dirtbag Darrell,12,120309,HR
+walk_off,3043,Keyo,12,120414,SacF
+walk_off,11030,Ron Swanson,12,120512,HR
+walk_off,12014,Sonny Wortzik,12,120513,HR
+walk_off,8049,Kries Von Kriestalhauser,12,120614,3B
+walk_off,1023,Dan Gerzone,12,120809,2B
+walk_off,9001,Harvey Burton,12,120814,HR
+walk_off,2086,Anna De Neko,12,120913,2BWH
+walk_off,6031,Captain Rex,12,121012,HR
+walk_off,4040,Trogdor Fhqwhgads,12,121013,HR
+walk_off,5011,Mo Mo,12,121115,1BWH
+walk_off,3088,Yoel Roshi,12,121212,GORA
+walk_off,3012,Rusty Nails,12,121216,1B
+walk_off,3069,Wallace Grommet,12,121412,HR
+walk_off,1006,Smitty Hoppenscotch,12,121604,HR
+walk_off,5032,Sander Entman,13,130121,2B
+walk_off,8016,R'lyeh Cultist C,13,130220,SacF
+walk_off,13037,Gal Avant,13,130321,1BWH
+walk_off,13016,Mac Dinger,13,130424,BB
+walk_off,7018,Y.E. Wally,13,130621,1B
+walk_off,12039,Rich Driver,13,130624,HR
+walk_off,3088,Yoel Roshi,13,130720,1B
+walk_off,10047,Saul Pewald,13,130818,HR
+zero_diff_bat,1126,Clipper Charge,1,010101,HR
+zero_diff_bat,1052,Zed Leona,1,010201,HR
+zero_diff_bat,1049,Dixie Wrecked,1,010703,HR
+zero_diff_bat,1082,Basebally McBaseballface Jr.,1,010705,HR
+zero_diff_bat,1063,Alex Yaxley,1,010801,HR
+zero_diff_bat,1143,Viking Fishbird,1,010903,HR
+zero_diff_bat,1205,Stephen Sondheim,1,010903,HR
+zero_diff_bat,1088,Stan Mann,1,010906,HR
+zero_diff_bat,1086,George Ewell,1,010906,HR
+zero_diff_bat,1078,Lawrence Wiseman,1,011001,1BWH
+zero_diff_bat,1157,JP Panik,1,011006,HR
+zero_diff_bat,1180,War Hamster,1,011006,1B
+zero_diff_bat,1135,Ryan Gastings,1,011205,HR
+zero_diff_bat,1108,Conor Sexton,1,011205,HR
+zero_diff_bat,1022,Chuck McCluster,1,011205,HR
+zero_diff_bat,1183,Akhbar Reginald Geraldo Hughes,1,011205,HR
+zero_diff_bat,1022,Chuck McCluster,1,011205,HR
+zero_diff_bat,1189,Ethan Franklin,2,020101,HR
+zero_diff_bat,1052,Zed Leona,2,020102,1BWH
+zero_diff_bat,1075,Robin Reynolds,2,020104,HR
+zero_diff_bat,1157,JP Panik,2,020307,DP
+zero_diff_bat,1103,Blue Moon Barthelemy,2,020402,HR
+zero_diff_bat,1100,Antwan Zella,2,020402,2B
+zero_diff_bat,2057,Jack Alpha,2,020502,HR
+zero_diff_bat,1096,Justin Paglia,2,020504,HR
+zero_diff_bat,1212,Barney Turbo,2,020505,HR
+zero_diff_bat,1193,Solomon Caine,2,020601,HR
+zero_diff_bat,2048,Xavier Phoenix,2,020604,HR
+zero_diff_bat,1164,Zin Martinez,2,020701,FO
+zero_diff_bat,1036,Spike Suzuki,2,020804,HR
+zero_diff_bat,2008,Brian Zucchini,2,020806,HR
+zero_diff_bat,1039,Clive Babineaux,2,021007,FO
+zero_diff_bat,2019,Ricky Calzone,2,021206,HR
+zero_diff_bat,1123,Kurt Anger,2,021403,HR
+zero_diff_bat,1156,Thomas Thompson III,2,021403,HR
+zero_diff_bat,2020,Demetrios Ooga,2,021404,HR
+zero_diff_bat,1108,Conor Sexton,2,021405,FO
+zero_diff_bat,1075,Robin Reynolds,2,021406,HR
+zero_diff_bat,2057,Jack Alpha,2,021603,HR
+zero_diff_bat,1205,Stephen Sondheim,2,021901,HR
+zero_diff_bat,2102,Oliver Yu,3,030106,BB
+zero_diff_bat,1096,Justin Paglia,3,030201,HR
+zero_diff_bat,1196,Devin Arianna,3,030202,HR
+zero_diff_bat,2067,Riles McGiles,3,030202,HR
+zero_diff_bat,1103,Blue Moon Barthelemy,3,030306,GO
+zero_diff_bat,1126,Clipper Charge,3,030306,1BWH
+zero_diff_bat,1151,Lance Lummoxx,3,030307,HR
+zero_diff_bat,1137,Jimmy Johns,3,030402,HR
+zero_diff_bat,1159,Clifton Outlaw,3,030406,HR
+zero_diff_bat,1136,Mason Spurs,3,030501,HR
+zero_diff_bat,1096,Justin Paglia,3,030502,HR
+zero_diff_bat,1113,Cookie Mongster,3,030506,HR
+zero_diff_bat,3054,Paulie Wag,3,030607,HR
+zero_diff_bat,1184,Buzz Schwinghammer,3,030907,HR
+zero_diff_bat,3052,Oni R1,3,030908,1B
+zero_diff_bat,3050,Annie Campbell,3,031006,3B
+zero_diff_bat,1189,Ethan Franklin,3,031202,HR
+zero_diff_bat,3000,Eli Sasak,3,031302,HR
+zero_diff_bat,3072,Tucker Doubt,3,031303,HR
+zero_diff_bat,1119,Willie Mays Hayes,3,031305,HR
+zero_diff_bat,2094,JZ (but not the rapper),3,031407,HR
+zero_diff_bat,3023,Andy,3,031504,HR
+zero_diff_bat,1063,Alex Yaxley,4,040106,HR
+zero_diff_bat,2082,Dixon Uraz,4,040307,HR
+zero_diff_bat,1165,Dropov Andpicov,4,040406,HR
+zero_diff_bat,2069,Tygen Shinybeard,4,040601,HR
+zero_diff_bat,4015,Plack Attack,4,040901,HR
+zero_diff_bat,4018,Slow Low,4,040903,HR
+zero_diff_bat,3075,H.D. Dog,4,041106,HR
+zero_diff_bat,4000,King Kruul,4,041203,HR
+zero_diff_bat,1174,Mad Monty,4,041402,HR
+zero_diff_bat,1102,Graham Otherie,4,041406,HR
+zero_diff_bat,3043,Keyo,4,041501,HR
+zero_diff_bat,3069,Wallace Grommet,5,050101,HR
+zero_diff_bat,4042,Sarah Buntingsworth,5,050204,HR
+zero_diff_bat,3005,Pablo Sanchez,5,050404,HR
+zero_diff_bat,2109,Nate Duke,5,050408,HR
+zero_diff_bat,1001,Crash Davis,5,050507,HR
+zero_diff_bat,5003,Pieter Sanchez,5,050601,HR
+zero_diff_bat,1180,War Hamster,5,050702,HR
+zero_diff_bat,3017,Bob Dunagee,5,050708,HR
+zero_diff_bat,1051,Superbone Threefinger,5,050708,HR
+zero_diff_bat,1091,Dougal McGoogol,5,050801,HR
+zero_diff_bat,1089,Jefferson Steelflex,5,051001,HR
+zero_diff_bat,1217,Johnny Dickshot,5,051103,HR
+zero_diff_bat,3060,Skye McDowell,5,051107,HR
+zero_diff_bat,1063,Alex Yaxley,5,051406,HR
+zero_diff_bat,2012,Burgess Whitehead,5,051501,HR
+zero_diff_bat,1028,Mackenzie Haraldo,5,051602,HR
+zero_diff_bat,3038,Lincoln Crawford,5,051602,HR
+zero_diff_bat,1063,Alex Yaxley,6,060106,HR
+zero_diff_bat,4067,Dogwood Maple,6,060406,HR
+zero_diff_bat,4078,Sleve McDichael,6,060503,HR
+zero_diff_bat,3050,Annie Campbell,6,060504,HR
+zero_diff_bat,4080,Patrick McDonough,6,060604,HR
+zero_diff_bat,1091,Dougal McGoogol,6,060701,HR
+zero_diff_bat,6017,Ohtani But Wide,6,060702,HR
+zero_diff_bat,3012,Rusty Nails,6,060705,HR
+zero_diff_bat,5032,Sander Entman,6,060804,HR
+zero_diff_bat,6014,Mattress,6,060807,HR
+zero_diff_bat,3069,Wallace Grommet,6,060902,HR
+zero_diff_bat,2067,Riles McGiles,6,060904,HR
+zero_diff_bat,4080,Patrick McDonough,6,061002,HR
+zero_diff_bat,6011,Joe Pidgeon,6,061006,HR
+zero_diff_bat,6018,Perry Platypus,6,061007,HR
+zero_diff_bat,3088,Yoel Roshi,6,061106,HR
+zero_diff_bat,1141,Geno Scaramucci,6,061204,HR
+zero_diff_bat,2055,Harry Peritestes,6,061205,HR
+zero_diff_bat,2094,JZ (but not the rapper),6,061302,HR
+zero_diff_bat,1021,Q Kimbrel,6,061306,HR
+zero_diff_bat,3066,AAAAAAAAAAThor,6,061307,HR
+zero_diff_bat,4070,Ioe Torrent,6,061405,HR
+zero_diff_bat,7002,Dinah Myte,7,070101,HR
+zero_diff_bat,2072,Pull Ganger,7,070102,HR
+zero_diff_bat,7016,Ovaltine,7,070107,HR
+zero_diff_bat,4041,John Rhys Ealy,7,070204,HR
+zero_diff_bat,1201,Mylo Grams,7,070306,HR
+zero_diff_bat,2067,Riles McGiles,7,071004,HR
+zero_diff_bat,4040,Trogdor Fhqwhgads,7,071006,HR
+zero_diff_bat,1052,Zed Leona,7,071102,HR
+zero_diff_bat,3077,Derek Bongiovanni,7,071106,HR
+zero_diff_bat,1036,Spike Suzuki,7,071107,HR
+zero_diff_bat,1165,Dropov Andpicov,7,071108,HR
+zero_diff_bat,6005,Borg Torbjorgsson,7,071204,HR
+zero_diff_bat,3078,Chakra Pilates,7,071303,HR
+zero_diff_bat,1149,Garrett Evans,7,071308,HR
+zero_diff_bat,3086,Nono Nones,7,071402,HR
+zero_diff_bat,7012,CJ Ayer,7,071404,HR
+zero_diff_bat,1029,Lefty Louis,8,080103,HR
+zero_diff_bat,7039,Mr Plow,8,080203,HR
+zero_diff_bat,1169,Jerome Garcia,8,080208,HR
+zero_diff_bat,1194,Tuck,8,080302,HR
+zero_diff_bat,5021,Kenny Kawaguchi,8,080404,HR
+zero_diff_bat,2097,Dirtbag Darrell,8,080407,HR
+zero_diff_bat,7003,Stumpy Malone,8,080604,HR
+zero_diff_bat,1082,Basebally McBaseballface Jr.,8,080604,HR
+zero_diff_bat,3019,Will The Thrill,8,080701,HR
+zero_diff_bat,3056,Donatello Chalupa,8,080707,HR
+zero_diff_bat,1036,Spike Suzuki,8,080708,HR
+zero_diff_bat,5021,Kenny Kawaguchi,8,080806,HR
+zero_diff_bat,5005,Narancia Ghirga,8,080808,HR
+zero_diff_bat,6050,Emerson Austin Jr.,8,081004,HR
+zero_diff_bat,1021,Q Kimbrel,8,081007,HR
+zero_diff_bat,1012,Reservoir Butler,8,081008,HR
+zero_diff_bat,8025,Don Bon,8,081102,HR
+zero_diff_bat,4070,Ioe Torrent,8,081306,HR
+zero_diff_bat,4008,LaCarpetron Dukemarriot II,8,081406,HR
+zero_diff_bat,8011,Vis Pacifiera,8,081406,HR
+zero_diff_bat,8020,Lazer Dave,8,081503,HR
+zero_diff_bat,9017,Joe Yoshi,9,090302,HR
+zero_diff_bat,4044,Ura Irons,9,090502,HR
+zero_diff_bat,2066,Talon Wingdiver,9,090504,HR
+zero_diff_bat,2002,Assassin Xekutioner,9,091107,HR
+zero_diff_bat,5022,Franz Lisztpitcher,9,091201,HR
+zero_diff_bat,9033,Francesco Hardgust,9,091204,HR
+zero_diff_bat,2086,Anna De Neko,9,091401,HR
+zero_diff_bat,2010,Skillz Simanek,9,091504,HR
+zero_diff_bat,1157,JP Panik,9,091504,HR
+zero_diff_bat,7039,Mr Plow,10,100102,HR
+zero_diff_bat,10015,Sir Walks A Lot,10,100202,HR
+zero_diff_bat,6031,Captain Rex,10,100304,HR
+zero_diff_bat,7017,Juan Sexton,10,100406,HR
+zero_diff_bat,10003,BANNED PLAYER,10,100504,HR
+zero_diff_bat,3057,Speedo Meter,10,100601,HR
+zero_diff_bat,4072,R'lyeh Cultist 5,10,100603,HR
+zero_diff_bat,1088,Stan Mann,10,100901,HR
+zero_diff_bat,1149,Garrett Evans,10,100905,HR
+zero_diff_bat,10005,Chef Cook,10,101006,HR
+zero_diff_bat,7004,Peter Hoomanawanui,10,101103,HR
+zero_diff_bat,1113,Cookie Mongster,10,101208,HR
+zero_diff_bat,10030,Donny Dash,10,101303,HR
+zero_diff_bat,2082,Dixon Uraz,10,101401,HR
+zero_diff_bat,1133,Hank Murphy,10,101402,HR
+zero_diff_bat,7011,Derek Rasmussen,10,101404,HR
+zero_diff_bat,5002,Guidooooo,10,101701,HR
+zero_diff_bat,10043,Justin Trotter,11,110103,HR
+zero_diff_bat,4040,Trogdor Fhqwhgads,11,110208,HR
+zero_diff_bat,10004,BANNED PLAYER,11,110305,HR
+zero_diff_bat,1027,Thomas Nova,11,110406,HR
+zero_diff_bat,1088,Stan Mann,11,110601,HR
+zero_diff_bat,11012,Ace Brickman,11,110604,HR
+zero_diff_bat,1054,Steve Hofbardozzi Jr. Jr. Jr.,11,110605,HR
+zero_diff_bat,1169,Jerome Garcia,11,110605,HR
+zero_diff_bat,7017,Juan Sexton,11,110605,HR
+zero_diff_bat,9025,Bryce Parker,11,110807,HR
+zero_diff_bat,1141,Geno Scaramucci,11,110905,HR
+zero_diff_bat,2044,Maud Nelson,11,111005,HR
+zero_diff_bat,11049,R'lyeh Cultist 1,11,111201,HR
+zero_diff_bat,6009,Hannibal Bligh,11,111207,HR
+zero_diff_bat,8008,Guy Gilwater,11,111301,HR
+zero_diff_bat,11042,Sir Walter R'lyeh,11,111302,HR
+zero_diff_bat,10040,Serengeti Fingers,11,111304,HR
+zero_diff_bat,3056,Donatello Chalupa,11,111307,HR
+zero_diff_bat,11049,R'lyeh Cultist 1,11,111402,HR
+zero_diff_bat,6049,NoodleArmBigPowerODoyleetc,11,111406,HR
+zero_diff_bat,1156,Thomas Thompson III,11,111502,HR
+zero_diff_bat,9033,Francesco Hardgust,12,120209,HR
+zero_diff_bat,1208,Bace Ventura,12,120210,HR
+zero_diff_bat,9014,Jimmy Payne,12,120312,HR
+zero_diff_bat,10035,Man of Steal,12,120314,HR
+zero_diff_bat,10042,Bingle Johnson,12,120612,HR
+zero_diff_bat,12024,Zed Underhill,12,120813,HR
+zero_diff_bat,8049,Kries Von Kriestalhauser,12,120915,HR
+zero_diff_bat,5040,Juju's Snorlax,12,121115,HR
+zero_diff_bat,12004,Al-Wayz Buntin,12,121210,HR
+zero_diff_bat,9044,Strawberry Jones,12,121213,HR
+zero_diff_bat,11016,Arturo Escalibur,12,121415,HR
+zero_diff_bat,1158,Master Cashier,12,121508,HR
+zero_diff_bat,7021,Dutch Boggs,13,130121,HR
+zero_diff_bat,11012,Ace Brickman,13,130317,HR
+zero_diff_bat,13063,Socks Maybe,13,130419,HR
+zero_diff_bat,1156,Thomas Thompson III,13,130519,HR
+zero_diff_bat,2020,Demetrios Ooga,13,130623,HR
+zero_diff_bat,9031,Bob Nutting Jr,13,130819,HR
+zero_diff_bat,6010,Homer Knocker,13,130821,HR
+zero_diff_bat,10079,R'lyeh Greene,13,130920,HR
+zero_diff_pit,1111,Ronald Eagle V,1,010101,HR
+zero_diff_pit,1061,Hudson Hildebrandt,1,010201,HR
+zero_diff_pit,1145,Artie Ziff,1,010703,HR
+zero_diff_pit,1141,Geno Scaramucci,1,010705,HR
+zero_diff_pit,1150,Ricky Vaughn,1,010801,HR
+zero_diff_pit,1061,Hudson Hildebrandt,1,010903,HR
+zero_diff_pit,1111,Ronald Eagle V,1,010903,HR
+zero_diff_pit,1152,Hans Ali,1,010906,HR
+zero_diff_pit,1152,Hans Ali,1,010906,HR
+zero_diff_pit,1116,Lee Allen Ripley,1,011001,1BWH
+zero_diff_pit,1152,Hans Ali,1,011006,HR
+zero_diff_pit,1204,Syd Kidd,1,011006,1B
+zero_diff_pit,1217,Johnny Dickshot,1,011205,HR
+zero_diff_pit,1217,Johnny Dickshot,1,011205,HR
+zero_diff_pit,1217,Johnny Dickshot,1,011205,HR
+zero_diff_pit,1217,Johnny Dickshot,1,011205,HR
+zero_diff_pit,1217,Johnny Dickshot,1,011205,HR
+zero_diff_pit,1079,Babatunde Oladotun,2,020101,HR
+zero_diff_pit,1145,Artie Ziff,2,020102,1BWH
+zero_diff_pit,2049,Brian MacDonald,2,020104,HR
+zero_diff_pit,1141,Geno Scaramucci,2,020307,DP
+zero_diff_pit,1070,Tommy Foxconn,2,020402,HR
+zero_diff_pit,1070,Tommy Foxconn,2,020402,2B
+zero_diff_pit,1070,Tommy Foxconn,2,020502,HR
+zero_diff_pit,2013,Carney Lerouix,2,020504,HR
+zero_diff_pit,1140,Bartholomew Crumblepuff,2,020505,HR
+zero_diff_pit,1083,Tony Smehrik,2,020601,HR
+zero_diff_pit,2046,Sam Anger,2,020604,HR
+zero_diff_pit,1145,Artie Ziff,2,020701,FO
+zero_diff_pit,1061,Hudson Hildebrandt,2,020804,HR
+zero_diff_pit,1079,Babatunde Oladotun,2,020806,HR
+zero_diff_pit,1217,Johnny Dickshot,2,021007,FO
+zero_diff_pit,2081,Cal Lidous,2,021206,HR
+zero_diff_pit,2045,Tanner Hendrix,2,021403,HR
+zero_diff_pit,2045,Tanner Hendrix,2,021403,HR
+zero_diff_pit,1097,Jameson Poe,2,021404,HR
+zero_diff_pit,1150,Ricky Vaughn,2,021405,FO
+zero_diff_pit,1027,Thomas Nova,2,021406,HR
+zero_diff_pit,1061,Hudson Hildebrandt,2,021603,HR
+zero_diff_pit,1141,Geno Scaramucci,2,021901,HR
+zero_diff_pit,2087,Patrick Mahomes,3,030106,BB
+zero_diff_pit,3013,John Cock,3,030201,HR
+zero_diff_pit,1158,Master Cashier,3,030202,HR
+zero_diff_pit,1196,Devin Arianna,3,030202,HR
+zero_diff_pit,1152,Hans Ali,3,030306,GO
+zero_diff_pit,1152,Hans Ali,3,030306,1BWH
+zero_diff_pit,2049,Brian MacDonald,3,030307,HR
+zero_diff_pit,1158,Master Cashier,3,030402,HR
+zero_diff_pit,2098,Chief Cory,3,030406,HR
+zero_diff_pit,3013,John Cock,3,030501,HR
+zero_diff_pit,1079,Babatunde Oladotun,3,030502,HR
+zero_diff_pit,2049,Brian MacDonald,3,030506,HR
+zero_diff_pit,2104,Bobby Portis,3,030607,HR
+zero_diff_pit,2049,Brian MacDonald,3,030907,HR
+zero_diff_pit,2075,Copenhagen Black,3,030908,1B
+zero_diff_pit,1084,Willoughby Hoose,3,031006,3B
+zero_diff_pit,2104,Bobby Portis,3,031202,HR
+zero_diff_pit,2093,True Pierce,3,031302,HR
+zero_diff_pit,2069,Tygen Shinybeard,3,031303,HR
+zero_diff_pit,2083,Dylan Green,3,031305,HR
+zero_diff_pit,3056,Donatello Chalupa,3,031407,HR
+zero_diff_pit,2078,Rascal Alex,3,031504,HR
+zero_diff_pit,1212,Barney Turbo,4,040106,HR
+zero_diff_pit,2060,LaPrince Frye,4,040307,HR
+zero_diff_pit,1010,Madis Mickelson,4,040406,HR
+zero_diff_pit,2096,Adam Croft,4,040601,HR
+zero_diff_pit,1208,Bace Ventura,4,040901,HR
+zero_diff_pit,3049,Ferda Bois,4,040903,HR
+zero_diff_pit,2000,Jerry Jingles,4,041106,HR
+zero_diff_pit,3083,Poop McGee,4,041203,HR
+zero_diff_pit,1112,Miss Bats,4,041402,HR
+zero_diff_pit,4017,Andrew Nova,4,041406,HR
+zero_diff_pit,3049,Ferda Bois,4,041501,HR
+zero_diff_pit,5010,Viktor Patterson,5,050101,HR
+zero_diff_pit,4078,Sleve McDichael,5,050204,HR
+zero_diff_pit,2032,Kali McSuntas,5,050404,HR
+zero_diff_pit,2000,Jerry Jingles,5,050408,HR
+zero_diff_pit,4017,Andrew Nova,5,050507,HR
+zero_diff_pit,1135,Ryan Gastings,5,050601,HR
+zero_diff_pit,1153,AALarry Longshot,5,050702,HR
+zero_diff_pit,3063,Threefinger Jansen III,5,050708,HR
+zero_diff_pit,2104,Bobby Portis,5,050708,HR
+zero_diff_pit,3083,Poop McGee,5,050801,HR
+zero_diff_pit,5010,Viktor Patterson,5,051001,HR
+zero_diff_pit,2029,Lois Whip,5,051103,HR
+zero_diff_pit,3056,Donatello Chalupa,5,051107,HR
+zero_diff_pit,2104,Bobby Portis,5,051406,HR
+zero_diff_pit,1194,Tuck,5,051501,HR
+zero_diff_pit,3042,Joanna McMartinez,5,051602,HR
+zero_diff_pit,2078,Rascal Alex,5,051602,HR
+zero_diff_pit,4023,Vinny Vega,6,060106,HR
+zero_diff_pit,2104,Bobby Portis,6,060406,HR
+zero_diff_pit,1174,Mad Monty,6,060503,HR
+zero_diff_pit,3083,Poop McGee,6,060504,HR
+zero_diff_pit,6031,Captain Rex,6,060604,HR
+zero_diff_pit,3073,Matt Himynamis,6,060701,HR
+zero_diff_pit,1107,petra sabor,6,060702,HR
+zero_diff_pit,4042,Sarah Buntingsworth,6,060705,HR
+zero_diff_pit,1026,Angel Leon,6,060804,HR
+zero_diff_pit,6035,Tommy Tightpants,6,060807,HR
+zero_diff_pit,1194,Tuck,6,060902,HR
+zero_diff_pit,3073,Matt Himynamis,6,060904,HR
+zero_diff_pit,5022,Franz Lisztpitcher,6,061002,HR
+zero_diff_pit,4042,Sarah Buntingsworth,6,061006,HR
+zero_diff_pit,3042,Joanna McMartinez,6,061007,HR
+zero_diff_pit,1153,AALarry Longshot,6,061106,HR
+zero_diff_pit,1113,Cookie Mongster,6,061204,HR
+zero_diff_pit,6030,Steven Silston,6,061205,HR
+zero_diff_pit,3073,Matt Himynamis,6,061302,HR
+zero_diff_pit,4042,Sarah Buntingsworth,6,061306,HR
+zero_diff_pit,4050,Calvin Guerensk,6,061307,HR
+zero_diff_pit,6035,Tommy Tightpants,6,061405,HR
+zero_diff_pit,1135,Ryan Gastings,7,070101,HR
+zero_diff_pit,6022,VI,7,070102,HR
+zero_diff_pit,2078,Rascal Alex,7,070107,HR
+zero_diff_pit,1008,Atlas Quin,7,070204,HR
+zero_diff_pit,4011,Mitch Meanmug,7,070306,HR
+zero_diff_pit,2066,Talon Wingdiver,7,071004,HR
+zero_diff_pit,4011,Mitch Meanmug,7,071006,HR
+zero_diff_pit,1122,Finkle Sparkles,7,071102,HR
+zero_diff_pit,6013,Lane Drew,7,071106,HR
+zero_diff_pit,1116,Lee Allen Ripley,7,071107,HR
+zero_diff_pit,2000,Jerry Jingles,7,071108,HR
+zero_diff_pit,3015,"Jason ""Dead"" Redd",7,071204,HR
+zero_diff_pit,6013,Lane Drew,7,071303,HR
+zero_diff_pit,2036,Sandy Collazo,7,071308,HR
+zero_diff_pit,6022,VI,7,071402,HR
+zero_diff_pit,6023,Y.Y. Lord,7,071404,HR
+zero_diff_pit,1033,Daz Butivegotthirtytwocharacters,8,080103,HR
+zero_diff_pit,3027,Diego Medina,8,080203,HR
+zero_diff_pit,2096,Adam Croft,8,080208,HR
+zero_diff_pit,1024,Jordan Peppers,8,080302,HR
+zero_diff_pit,8016,R'lyeh Cultist C,8,080404,HR
+zero_diff_pit,4078,Sleve McDichael,8,080407,HR
+zero_diff_pit,1083,Tony Smehrik,8,080604,HR
+zero_diff_pit,1057,Rusty LaRue,8,080604,HR
+zero_diff_pit,4050,Calvin Guerensk,8,080701,HR
+zero_diff_pit,3053,XxFAZE Jun1 RaWrXDxXx,8,080707,HR
+zero_diff_pit,2078,Rascal Alex,8,080708,HR
+zero_diff_pit,3089,Joey Wheeler,8,080806,HR
+zero_diff_pit,7007,Kenny Powers,8,080808,HR
+zero_diff_pit,8016,R'lyeh Cultist C,8,081004,HR
+zero_diff_pit,3089,Joey Wheeler,8,081007,HR
+zero_diff_pit,2104,Bobby Portis,8,081008,HR
+zero_diff_pit,1002,Garitek,8,081102,HR
+zero_diff_pit,8011,Vis Pacifiera,8,081306,HR
+zero_diff_pit,7025,Rocco Rudnikov,8,081406,HR
+zero_diff_pit,1113,Cookie Mongster,8,081406,HR
+zero_diff_pit,1209,Franz Joseph Hymen,8,081503,HR
+zero_diff_pit,1141,Geno Scaramucci,9,090302,HR
+zero_diff_pit,1141,Geno Scaramucci,9,090502,HR
+zero_diff_pit,1061,Hudson Hildebrandt,9,090504,HR
+zero_diff_pit,3053,XxFAZE Jun1 RaWrXDxXx,9,091107,HR
+zero_diff_pit,9012,Epto Bismol,9,091201,HR
+zero_diff_pit,7045,Jimmy Pop,9,091204,HR
+zero_diff_pit,1107,petra sabor,9,091401,HR
+zero_diff_pit,7014,Doc Dockerson,9,091504,HR
+zero_diff_pit,4078,Sleve McDichael,9,091504,HR
+zero_diff_pit,10036,Kyuss Kosades,10,100102,HR
+zero_diff_pit,3053,XxFAZE Jun1 RaWrXDxXx,10,100202,HR
+zero_diff_pit,2096,Adam Croft,10,100304,HR
+zero_diff_pit,8002,Trevor Rose,10,100406,HR
+zero_diff_pit,3053,XxFAZE Jun1 RaWrXDxXx,10,100504,HR
+zero_diff_pit,1008,Atlas Quin,10,100601,HR
+zero_diff_pit,2078,Rascal Alex,10,100603,HR
+zero_diff_pit,1033,Daz Butivegotthirtytwocharacters,10,100901,HR
+zero_diff_pit,3072,Tucker Doubt,10,100905,HR
+zero_diff_pit,1206,Meerkat Preller,10,101006,HR
+zero_diff_pit,3089,Joey Wheeler,10,101103,HR
+zero_diff_pit,3069,Wallace Grommet,10,101208,HR
+zero_diff_pit,3015,"Jason ""Dead"" Redd",10,101303,HR
+zero_diff_pit,3011,December Beckett,10,101401,HR
+zero_diff_pit,8048,Captain Trash,10,101402,HR
+zero_diff_pit,4070,Ioe Torrent,10,101404,HR
+zero_diff_pit,1217,Johnny Dickshot,10,101701,HR
+zero_diff_pit,8002,Trevor Rose,11,110103,HR
+zero_diff_pit,11006,Spitty McSpit,11,110208,HR
+zero_diff_pit,1028,Mackenzie Haraldo,11,110305,HR
+zero_diff_pit,10045,Jordan Kurdi,11,110406,HR
+zero_diff_pit,11006,Spitty McSpit,11,110601,HR
+zero_diff_pit,10007,Henry Atombomb,11,110604,HR
+zero_diff_pit,1097,Jameson Poe,11,110605,HR
+zero_diff_pit,1097,Jameson Poe,11,110605,HR
+zero_diff_pit,1028,Mackenzie Haraldo,11,110605,HR
+zero_diff_pit,2104,Bobby Portis,11,110807,HR
+zero_diff_pit,3053,XxFAZE Jun1 RaWrXDxXx,11,110905,HR
+zero_diff_pit,1153,AALarry Longshot,11,111005,HR
+zero_diff_pit,11035,Nash Ellis,11,111201,HR
+zero_diff_pit,3011,December Beckett,11,111207,HR
+zero_diff_pit,1026,Angel Leon,11,111301,HR
+zero_diff_pit,1206,Meerkat Preller,11,111302,HR
+zero_diff_pit,6013,Lane Drew,11,111304,HR
+zero_diff_pit,1153,AALarry Longshot,11,111307,HR
+zero_diff_pit,11029,Slayer Slime,11,111402,HR
+zero_diff_pit,6020,Pope Coswi,11,111406,HR
+zero_diff_pit,8002,Trevor Rose,11,111502,HR
+zero_diff_pit,11035,Nash Ellis,12,120209,HR
+zero_diff_pit,1206,Meerkat Preller,12,120210,HR
+zero_diff_pit,2055,Harry Peritestes,12,120312,HR
+zero_diff_pit,3005,Pablo Sanchez,12,120314,HR
+zero_diff_pit,12034,Triscuit McBiskit,12,120612,HR
+zero_diff_pit,12018,Clifton McCullough,12,120813,HR
+zero_diff_pit,11007,Hubert Dubois,12,120915,HR
+zero_diff_pit,8048,Captain Trash,12,121115,HR
+zero_diff_pit,12049,Ant Man,12,121210,HR
+zero_diff_pit,4011,Mitch Meanmug,12,121213,HR
+zero_diff_pit,1140,Bartholomew Crumblepuff,12,121415,HR
+zero_diff_pit,4011,Mitch Meanmug,12,121508,HR
+zero_diff_pit,12047,Chunky Menthol,13,130121,HR
+zero_diff_pit,10036,Kyuss Kosades,13,130317,HR
+zero_diff_pit,2066,Talon Wingdiver,13,130419,HR
+zero_diff_pit,13004,Mr. Clanky,13,130519,HR
+zero_diff_pit,9009,Jamal Fyre,13,130623,HR
+zero_diff_pit,6022,VI,13,130819,HR
+zero_diff_pit,10070,John Applebees,13,130821,HR
+zero_diff_pit,13039,Max Muncy,13,130920,HR

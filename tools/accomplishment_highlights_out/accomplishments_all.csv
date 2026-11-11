@@ -1,0 +1,1794 @@
+player_id,player_name,kind,accomplishment,season,game_code,detail
+1001,Crash Davis,game,0 diff (batter),5,050507,"▲6 · HR · pitch 530, swing 530"
+1002,Garitek,game,0 diff allowed (pitcher),8,081102,"▼2 · HR · pitch 620, swing 620"
+1002,Garitek,game,500 diff against (batter),11,111102,"▲4 · K · pitch 120, swing 620"
+1006,Smitty Hoppenscotch,season,SB leader,4,,5
+1006,Smitty Hoppenscotch,game,4+ hit game,10,101504,
+1006,Smitty Hoppenscotch,game,Multi-HR game,12,121604,
+1006,Smitty Hoppenscotch,game,Walk-off,12,121604,▼6 · HR
+1007,Chris Robin,season,RBI leader,1,,12
+1007,Chris Robin,game,Walk-off,1,010202,▼6 · GORA
+1008,Atlas Quin,game,10+ K game,1,011001,
+1008,Atlas Quin,game,Immaculate inning,2,020303,▼4
+1008,Atlas Quin,game,10+ K game,2,021203,
+1008,Atlas Quin,game,Immaculate inning,3,030706,▼6
+1008,Atlas Quin,game,Immaculate inning,3,031208,▼1
+1008,Atlas Quin,game,10+ K game,3,030706,
+1008,Atlas Quin,season,K leader,3,,37
+1008,Atlas Quin,game,CG shutout,4,040308,
+1008,Atlas Quin,game,500 diff (pitcher),7,071208,"▲2 · K · pitch 600, swing 100"
+1008,Atlas Quin,game,Immaculate inning,7,070407,▼5
+1008,Atlas Quin,game,0 diff allowed (pitcher),7,070204,"▼2 · HR · pitch 785, swing 785"
+1008,Atlas Quin,game,CG shutout,10,100308,
+1008,Atlas Quin,game,0 diff allowed (pitcher),10,100601,"▼2 · HR · pitch 808, swing 808"
+1008,Atlas Quin,game,Immaculate inning,13,130123,▼8
+1009,Andrew Peters,game,Immaculate inning,1,010802,▼3
+1010,Madis Mickelson,game,CG shutout,2,020503,
+1010,Madis Mickelson,game,0 diff allowed (pitcher),4,040406,"▲5 · HR · pitch 420, swing 420"
+1011,El Duké Nukem,game,500 diff against (batter),1,010704,"▼6 · K · pitch 501, swing 1"
+1011,El Duké Nukem,game,Multi-HR game,2,020506,
+1012,Reservoir Butler,game,Walk-off,2,020803,▼8 · 1B
+1012,Reservoir Butler,game,Walk-off,5,051308,▼12 · HR
+1012,Reservoir Butler,game,0 diff (batter),8,081008,"▼3 · HR · pitch 229, swing 229"
+1012,Reservoir Butler,game,Multi-HR game,10,101001,
+1013,Kaylee Stewart,game,Multi-HR game,1,010704,
+1013,Kaylee Stewart,game,Multi-HR game,2,021102,
+1013,Kaylee Stewart,game,500 diff against (batter),3,031107,"▲1 · K · pitch 401, swing 901"
+1021,Q Kimbrel,game,500 diff (pitcher),2,021507,"▼5 · DP · pitch 512, swing 12"
+1021,Q Kimbrel,game,Grand slam,3,031303,▼3
+1021,Q Kimbrel,season,RBI leader,3,,17
+1021,Q Kimbrel,season,WPA leader (bat),3,,160.7
+1021,Q Kimbrel,game,5+ RBI game,3,031303,
+1021,Q Kimbrel,game,Multi-HR game,6,060907,
+1021,Q Kimbrel,game,0 diff (batter),6,061306,"▲5 · HR · pitch 569, swing 569"
+1021,Q Kimbrel,game,Multi-HR game,8,080106,
+1021,Q Kimbrel,game,Multi-HR game,8,081206,
+1021,Q Kimbrel,game,0 diff (batter),8,081007,"▼4 · HR · pitch 470, swing 470"
+1022,Chuck McCluster,game,Multi-HR game,1,011205,
+1022,Chuck McCluster,game,0 diff (batter),1,011205,"▼2 · HR · pitch 666, swing 666"
+1022,Chuck McCluster,game,0 diff (batter),1,011205,"▼4 · HR · pitch 69, swing 69"
+1022,Chuck McCluster,game,500 diff against (batter),3,030304,"▲4 · K · pitch 69, swing 569"
+1022,Chuck McCluster,game,Multi-HR game,3,031304,
+1022,Chuck McCluster,game,Walk-off,5,050905,▼7 · BB
+1022,Chuck McCluster,game,4+ hit game,6,060502,
+1023,Dan Gerzone,game,500 diff against (batter),5,050808,"▼5 · K · pitch 1, swing 501"
+1023,Dan Gerzone,game,Multi-HR game,5,051106,
+1023,Dan Gerzone,game,500 diff against (batter),9,090607,"▲4 · K · pitch 501, swing 1"
+1023,Dan Gerzone,game,Golden sombrero,10,101504,
+1023,Dan Gerzone,game,Multi-HR game,12,120515,
+1023,Dan Gerzone,game,Walk-off,12,120809,▼6 · 2B
+1024,Jordan Peppers,game,CG shutout,1,010505,
+1024,Jordan Peppers,game,500 diff (pitcher),2,021505,"▲2 · K · pitch 701, swing 201"
+1024,Jordan Peppers,game,Immaculate inning,2,020303,▲3
+1024,Jordan Peppers,game,CG shutout,3,030404,
+1024,Jordan Peppers,game,CG shutout,3,030701,
+1024,Jordan Peppers,game,500 diff (pitcher),3,030304,"▲4 · K · pitch 69, swing 569"
+1024,Jordan Peppers,game,500 diff (pitcher),4,041204,"▼3 · K · pitch 300, swing 800"
+1024,Jordan Peppers,game,Immaculate inning,4,041204,▼4
+1024,Jordan Peppers,game,0 diff allowed (pitcher),8,080302,"▲6 · HR · pitch 985, swing 985"
+1026,Angel Leon,game,Immaculate inning,3,030105,▼3
+1026,Angel Leon,game,10+ K game,3,030105,
+1026,Angel Leon,season,DBF leader,3,,283.3
+1026,Angel Leon,game,Immaculate inning,4,040303,▲4
+1026,Angel Leon,game,0 diff allowed (pitcher),6,060804,"▲2 · HR · pitch 900, swing 900"
+1026,Angel Leon,game,CG shutout,10,100805,
+1026,Angel Leon,game,500 diff (pitcher),11,110401,"▲6 · K · pitch 1000, swing 500"
+1026,Angel Leon,game,500 diff (pitcher),11,111301,"▼3 · K · pitch 733, swing 233"
+1026,Angel Leon,game,0 diff allowed (pitcher),11,111301,"▼1 · HR · pitch 500, swing 500"
+1026,Angel Leon,game,10+ K game,12,121009,
+1027,Thomas Nova,game,CG shutout,2,020705,
+1027,Thomas Nova,game,0 diff allowed (pitcher),2,021406,"▲4 · HR · pitch 350, swing 350"
+1027,Thomas Nova,game,CG shutout,5,050605,
+1027,Thomas Nova,game,Immaculate inning,5,050208,▼2
+1027,Thomas Nova,game,Multi-HR game,11,110406,
+1027,Thomas Nova,game,5+ RBI game,11,110406,
+1027,Thomas Nova,game,0 diff (batter),11,110406,"▲1 · HR · pitch 816, swing 816"
+1028,Mackenzie Haraldo,game,Multi-HR game,4,041108,
+1028,Mackenzie Haraldo,game,Multi-HR game,5,051602,
+1028,Mackenzie Haraldo,game,5+ RBI game,5,051602,
+1028,Mackenzie Haraldo,game,0 diff (batter),5,051602,"▲5 · HR · pitch 420, swing 420"
+1028,Mackenzie Haraldo,game,4+ hit game,9,090107,
+1028,Mackenzie Haraldo,game,Reached base 5+,9,090107,
+1028,Mackenzie Haraldo,game,0 diff allowed (pitcher),11,110305,"▼3 · HR · pitch 69, swing 69"
+1028,Mackenzie Haraldo,game,0 diff allowed (pitcher),11,110605,"▲2 · HR · pitch 10, swing 10"
+1029,Lefty Louis,season,HR leader,3,,5
+1029,Lefty Louis,game,Multi-HR game,4,040804,
+1029,Lefty Louis,game,0 diff (batter),8,080103,"▲6 · HR · pitch 875, swing 875"
+1029,Lefty Louis,game,Grand slam,11,111208,▼6
+1029,Lefty Louis,game,Walk-off,11,111208,▼6 · HR
+1032,Charlie Scott,game,4+ hit game,8,081107,
+1032,Charlie Scott,game,500 diff against (batter),13,130820,"▼3 · K · pitch 802, swing 302"
+1033,Daz Butivegotthirtytwocharacters,game,Walk-off,1,010305,▼6 · HR
+1033,Daz Butivegotthirtytwocharacters,game,Multi-HR game,5,051102,
+1033,Daz Butivegotthirtytwocharacters,game,CG shutout,8,081105,
+1033,Daz Butivegotthirtytwocharacters,game,500 diff (pitcher),8,081303,"▲5 · K · pitch 500, swing 1000"
+1033,Daz Butivegotthirtytwocharacters,game,Immaculate inning,8,080703,▲3
+1033,Daz Butivegotthirtytwocharacters,season,DBF leader,8,,282.6
+1033,Daz Butivegotthirtytwocharacters,season,WHIP leader,8,,0.93
+1033,Daz Butivegotthirtytwocharacters,game,0 diff allowed (pitcher),8,080103,"▲6 · HR · pitch 875, swing 875"
+1033,Daz Butivegotthirtytwocharacters,game,Immaculate inning,9,090103,▼6
+1033,Daz Butivegotthirtytwocharacters,season,WPA leader (pit),9,,126.2
+1033,Daz Butivegotthirtytwocharacters,game,0 diff allowed (pitcher),10,100901,"▼5 · HR · pitch 157, swing 157"
+1034,Jack Marnette,game,4+ hit game,2,020803,
+1034,Jack Marnette,game,Walk-off,5,050804,▼6 · 1B
+1034,Jack Marnette,game,Walk-off,5,051004,▼6 · 2B
+1034,Jack Marnette,game,Walk-off,10,100806,▼6 · 2B
+1036,Spike Suzuki,game,Walk-off,2,020107,▼6 · 1B
+1036,Spike Suzuki,game,0 diff (batter),2,020804,"▼5 · HR · pitch 902, swing 902"
+1036,Spike Suzuki,game,4+ hit game,7,071408,
+1036,Spike Suzuki,game,0 diff (batter),7,071107,"▲4 · HR · pitch 612, swing 612"
+1036,Spike Suzuki,game,0 diff (batter),8,080708,"▼1 · HR · pitch 338, swing 338"
+1036,Spike Suzuki,game,Multi-HR game,12,120515,
+1039,Clive Babineaux,game,500 diff against (batter),2,021306,"▲1 · DP · pitch 957, swing 457"
+1039,Clive Babineaux,game,0 diff (batter),2,021007,"▼2 · FO · pitch 328, swing 328"
+1039,Clive Babineaux,game,4+ hit game,3,030708,
+1039,Clive Babineaux,game,Multi-HR game,3,030708,
+1039,Clive Babineaux,game,5+ RBI game,3,030708,
+1042,Dallas Houston,game,Grand slam,2,021606,▲2
+1042,Dallas Houston,game,Grand slam,4,040603,▲3
+1042,Dallas Houston,game,5+ RBI game,4,040603,
+1042,Dallas Houston,game,Multi-HR game,5,050608,
+1042,Dallas Houston,game,5+ RBI game,5,050608,
+1043,Tyler Palmatier,game,500 diff against (batter),6,061306,"▲3 · K · pitch 502, swing 2"
+1046,Rabbi Chase,game,Walk-off,2,020606,▼6 · HR
+1048,Spike McBride,game,500 diff against (batter),1,011204,"▲1 · K · pitch 810, swing 310"
+1048,Spike McBride,game,Walk-off,1,010506,▼7 · 2B
+1048,Spike McBride,game,Walk-off,1,011106,▼7 · 2B
+1049,Dixie Wrecked,game,0 diff (batter),1,010703,"▲6 · HR · pitch 371, swing 371"
+1051,Superbone Threefinger,game,CG shutout,2,020205,
+1051,Superbone Threefinger,game,CG shutout,3,031103,
+1051,Superbone Threefinger,game,Immaculate inning,3,031103,▲6
+1051,Superbone Threefinger,game,0 diff (batter),5,050708,"▲5 · HR · pitch 1, swing 1"
+1051,Superbone Threefinger,game,Grand slam,11,110405,▼5
+1051,Superbone Threefinger,season,Hits leader,11,,23
+1051,Superbone Threefinger,game,Multi-HR game,11,111205,
+1052,Zed Leona,game,500 diff against (batter),1,010803,"▼2 · K · pitch 300, swing 800"
+1052,Zed Leona,game,0 diff (batter),1,010201,"▲4 · HR · pitch 420, swing 420"
+1052,Zed Leona,game,0 diff (batter),2,020102,"▼1 · 1BWH · pitch 700, swing 700"
+1052,Zed Leona,game,Grand slam,7,071102,▼2
+1052,Zed Leona,season,WPA leader (bat),7,,151.2
+1052,Zed Leona,game,Walk-off,7,070905,▼7 · 1BWH
+1052,Zed Leona,game,0 diff (batter),7,071102,"▼2 · HR · pitch 700, swing 700"
+1052,Zed Leona,game,Walk-off,11,110408,▼7 · 2B
+1052,Zed Leona,game,Multi-HR game,12,120214,
+1054,Steve Hofbardozzi Jr. Jr. Jr.,game,500 diff against (batter),7,071208,"▲2 · K · pitch 600, swing 100"
+1054,Steve Hofbardozzi Jr. Jr. Jr.,game,Grand slam,7,071308,▼4
+1054,Steve Hofbardozzi Jr. Jr. Jr.,game,4+ hit game,9,090905,
+1054,Steve Hofbardozzi Jr. Jr. Jr.,game,0 diff (batter),11,110605,"▼1 · HR · pitch 551, swing 551"
+1055,Ozymandias Jones,game,4+ hit game,2,021002,
+1057,Rusty LaRue,game,0 diff allowed (pitcher),8,080604,"▲7 · HR · pitch 705, swing 705"
+1058,Catfish Champ,game,4+ hit game,5,050508,
+1058,Catfish Champ,game,Walk-off,5,050407,▼9 · 2B
+1060,Jay Bedia,season,DBF leader,1,,305.7
+1060,Jay Bedia,season,ER6 leader,1,,0.43
+1060,Jay Bedia,season,WHIP leader,1,,0.50
+1061,Hudson Hildebrandt,game,500 diff (pitcher),1,011002,"▼5 · K · pitch 359, swing 859"
+1061,Hudson Hildebrandt,game,0 diff allowed (pitcher),1,010201,"▲4 · HR · pitch 420, swing 420"
+1061,Hudson Hildebrandt,game,0 diff allowed (pitcher),1,010903,"▼1 · HR · pitch 1, swing 1"
+1061,Hudson Hildebrandt,game,CG shutout,2,021103,
+1061,Hudson Hildebrandt,game,Immaculate inning,2,020203,▼8
+1061,Hudson Hildebrandt,game,Immaculate inning,2,020302,▲3
+1061,Hudson Hildebrandt,game,Immaculate inning,2,020804,▼1
+1061,Hudson Hildebrandt,game,Immaculate inning,2,020804,▼3
+1061,Hudson Hildebrandt,game,10+ K game,2,020804,
+1061,Hudson Hildebrandt,season,WPA leader (pit),2,,176.8
+1061,Hudson Hildebrandt,game,0 diff allowed (pitcher),2,020804,"▼5 · HR · pitch 902, swing 902"
+1061,Hudson Hildebrandt,game,0 diff allowed (pitcher),2,021603,"▲5 · HR · pitch 988, swing 988"
+1061,Hudson Hildebrandt,game,CG shutout,3,030707,
+1061,Hudson Hildebrandt,game,10+ K game,3,031008,
+1061,Hudson Hildebrandt,season,K leader,3,,37
+1061,Hudson Hildebrandt,game,500 diff (pitcher),4,040207,"▲6 · DP · pitch 69, swing 569"
+1061,Hudson Hildebrandt,game,CG shutout,5,050906,
+1061,Hudson Hildebrandt,game,500 diff (pitcher),6,060606,"▲3 · K · pitch 899, swing 399"
+1061,Hudson Hildebrandt,game,Immaculate inning,8,080708,▼5
+1061,Hudson Hildebrandt,game,Immaculate inning,8,081208,▲2
+1061,Hudson Hildebrandt,game,500 diff (pitcher),9,090803,"▼6 · K · pitch 569, swing 69"
+1061,Hudson Hildebrandt,game,Immaculate inning,9,090205,▼2
+1061,Hudson Hildebrandt,game,Immaculate inning,9,090205,▼6
+1061,Hudson Hildebrandt,game,0 diff allowed (pitcher),9,090504,"▲2 · HR · pitch 824, swing 824"
+1061,Hudson Hildebrandt,game,500 diff (pitcher),10,100803,"▼4 · K · pitch 944, swing 444"
+1061,Hudson Hildebrandt,game,CG shutout,11,110408,
+1061,Hudson Hildebrandt,game,10+ K game,11,110808,
+1061,Hudson Hildebrandt,game,Immaculate inning,12,120214,▼3
+1061,Hudson Hildebrandt,game,Immaculate inning,12,120812,▲1
+1061,Hudson Hildebrandt,game,Immaculate inning,12,121216,▼4
+1061,Hudson Hildebrandt,game,10+ K game,12,120513,
+1062,BB Bambino Jr.,game,500 diff against (batter),6,060603,"▼4 · K · pitch 266, swing 766"
+1062,BB Bambino Jr.,game,Grand slam,6,060507,▲4
+1063,Alex Yaxley,game,Multi-HR game,1,010703,
+1063,Alex Yaxley,game,0 diff (batter),1,010801,"▲1 · HR · pitch 573, swing 573"
+1063,Alex Yaxley,game,0 diff (batter),4,040106,"▲6 · HR · pitch 69, swing 69"
+1063,Alex Yaxley,game,0 diff (batter),5,051406,"▲4 · HR · pitch 69, swing 69"
+1063,Alex Yaxley,season,HR leader,6,,6
+1063,Alex Yaxley,game,Multi-HR game,6,060106,
+1063,Alex Yaxley,game,Walk-off,6,061008,▼8 · 1BWH
+1063,Alex Yaxley,game,0 diff (batter),6,060106,"▼3 · HR · pitch 630, swing 630"
+1063,Alex Yaxley,game,Multi-HR game,8,081406,
+1063,Alex Yaxley,game,5+ RBI game,8,081406,
+1063,Alex Yaxley,season,HR leader,10,,5
+1064,Dick Pole,game,Walk-off,3,030706,▼7 · BB
+1067,Austin Schwartz,game,Multi-HR game,1,011102,
+1067,Austin Schwartz,game,Walk-off,1,010102,▼7 · 1BWH
+1069,Rub A. Chikin,game,CG shutout,1,010902,
+1069,Rub A. Chikin,game,Immaculate inning,1,010202,▼2
+1069,Rub A. Chikin,game,Walk-off,8,081006,▼8 · 1BWH
+1070,Tommy Foxconn,game,500 diff (pitcher),2,020202,"▲5 · K · pitch 625, swing 125"
+1070,Tommy Foxconn,game,500 diff (pitcher),2,020802,"▲6 · GO · pitch 800, swing 300"
+1070,Tommy Foxconn,game,Immaculate inning,2,020202,▲3
+1070,Tommy Foxconn,game,Immaculate inning,2,020502,▲4
+1070,Tommy Foxconn,game,Immaculate inning,2,021402,▼5
+1070,Tommy Foxconn,game,0 diff allowed (pitcher),2,020402,"▲4 · HR · pitch 500, swing 500"
+1070,Tommy Foxconn,game,0 diff allowed (pitcher),2,020402,"▲5 · 2B · pitch 812, swing 812"
+1070,Tommy Foxconn,game,0 diff allowed (pitcher),2,020502,"▲3 · HR · pitch 1, swing 1"
+1071,Isaac Saffron,game,Walk-off,8,081101,▼6 · HR
+1072,Red Trapper,game,Multi-HR game,3,030206,
+1072,Red Trapper,game,5+ RBI game,3,030206,
+1072,Red Trapper,game,Walk-off,3,030206,▼6 · HR
+1073,Juan Diego De Las Rosas Jr.,season,SB leader,4,,5
+1074,Donked McToad,game,500 diff against (batter),2,021505,"▼7 · DP · pitch 401, swing 901"
+1074,Donked McToad,game,500 diff against (batter),3,030808,"▼5 · DP · pitch 611, swing 111"
+1074,Donked McToad,game,CG shutout,5,050705,
+1075,Robin Reynolds,game,Multi-HR game,2,021406,
+1075,Robin Reynolds,game,0 diff (batter),2,020104,"▼3 · HR · pitch 420, swing 420"
+1075,Robin Reynolds,game,0 diff (batter),2,021406,"▲4 · HR · pitch 350, swing 350"
+1076,Fuzzy Dunlop,game,Multi-HR game,1,011002,
+1076,Fuzzy Dunlop,game,500 diff against (batter),2,020901,"▼6 · K · pitch 611, swing 111"
+1077,Storm Johnson,game,Walk-off,1,011203,▼6 · HR
+1077,Storm Johnson,game,500 diff against (batter),2,020801,"▲3 · K · pitch 901, swing 401"
+1078,Lawrence Wiseman,game,0 diff (batter),1,011001,"▲2 · 1BWH · pitch 288, swing 288"
+1079,Babatunde Oladotun,game,Walk-off,1,010703,▼8 · 1B
+1079,Babatunde Oladotun,game,CG shutout,2,020906,
+1079,Babatunde Oladotun,game,CG shutout,2,021004,
+1079,Babatunde Oladotun,season,K leader,2,,60
+1079,Babatunde Oladotun,game,0 diff allowed (pitcher),2,020101,"▼4 · HR · pitch 488, swing 488"
+1079,Babatunde Oladotun,game,0 diff allowed (pitcher),2,020806,"▲3 · HR · pitch 569, swing 569"
+1079,Babatunde Oladotun,game,CG shutout,3,031403,
+1079,Babatunde Oladotun,game,10+ K game,3,031005,
+1079,Babatunde Oladotun,game,0 diff allowed (pitcher),3,030502,"▲2 · HR · pitch 555, swing 555"
+1079,Babatunde Oladotun,game,CG shutout,4,040203,
+1079,Babatunde Oladotun,game,CG shutout,5,050606,
+1079,Babatunde Oladotun,game,CG shutout,7,071201,
+1079,Babatunde Oladotun,game,Immaculate inning,7,071201,▼4
+1082,Basebally McBaseballface Jr.,game,0 diff (batter),1,010705,"▼5 · HR · pitch 666, swing 666"
+1082,Basebally McBaseballface Jr.,season,SB leader,3,,6
+1082,Basebally McBaseballface Jr.,game,4+ hit game,4,040701,
+1082,Basebally McBaseballface Jr.,game,4+ hit game,7,070208,
+1082,Basebally McBaseballface Jr.,game,0 diff (batter),8,080604,"▲7 · HR · pitch 705, swing 705"
+1083,Tony Smehrik,game,0 diff allowed (pitcher),2,020601,"▼1 · HR · pitch 500, swing 500"
+1083,Tony Smehrik,game,CG shutout,6,060501,
+1083,Tony Smehrik,game,CG shutout,7,070508,
+1083,Tony Smehrik,season,DBF leader,7,,291.8
+1083,Tony Smehrik,season,ER6 leader,7,,0.51
+1083,Tony Smehrik,season,WHIP leader,7,,0.85
+1083,Tony Smehrik,game,0 diff allowed (pitcher),8,080604,"▼2 · HR · pitch 326, swing 326"
+1083,Tony Smehrik,game,Immaculate inning,10,100205,▼2
+1083,Tony Smehrik,game,CG shutout,11,111008,
+1083,Tony Smehrik,game,Immaculate inning,12,121010,▲1
+1084,Willoughby Hoose,game,Immaculate inning,2,021303,▼2
+1084,Willoughby Hoose,game,0 diff allowed (pitcher),3,031006,"▲3 · 3B · pitch 888, swing 888"
+1086,George Ewell,game,0 diff (batter),1,010906,"▼2 · HR · pitch 69, swing 69"
+1087,Foxx Dashington,game,Grand slam,1,011004,▲6
+1087,Foxx Dashington,game,500 diff (pitcher),5,051701,"▲3 · K · pitch 180, swing 680"
+1087,Foxx Dashington,game,Immaculate inning,5,050904,▼4
+1088,Stan Mann,game,0 diff (batter),1,010906,"▼2 · HR · pitch 69, swing 69"
+1088,Stan Mann,game,Walk-off,5,050101,▼6 · 1BWH
+1088,Stan Mann,game,Walk-off,6,060901,▼7 · HR
+1088,Stan Mann,game,0 diff (batter),10,100901,"▼5 · HR · pitch 157, swing 157"
+1088,Stan Mann,game,0 diff (batter),11,110601,"▼3 · HR · pitch 69, swing 69"
+1089,Jefferson Steelflex,game,500 diff against (batter),4,040402,"▲2 · DP · pitch 678, swing 178"
+1089,Jefferson Steelflex,game,Multi-HR game,5,051001,
+1089,Jefferson Steelflex,game,0 diff (batter),5,051001,"▼4 · HR · pitch 777, swing 777"
+1089,Jefferson Steelflex,game,500 diff against (batter),6,061503,"▼4 · K · pitch 647, swing 147"
+1089,Jefferson Steelflex,game,Grand slam,6,061305,▼3
+1089,Jefferson Steelflex,game,Grand slam,7,070105,▼4
+1089,Jefferson Steelflex,game,4+ hit game,11,110605,
+1089,Jefferson Steelflex,game,Multi-HR game,11,110605,
+1089,Jefferson Steelflex,game,Multi-HR game,13,130624,
+1090,James Pablano,game,4+ hit game,1,011004,
+1090,James Pablano,season,WPA leader (bat),1,,139.5
+1090,James Pablano,game,Walk-off,1,010306,▼6 · HR
+1090,James Pablano,season,SB leader,2,,9
+1090,James Pablano,game,500 diff (pitcher),4,040402,"▲2 · DP · pitch 678, swing 178"
+1090,James Pablano,game,Walk-off,8,081001,▼7 · HR
+1091,Dougal McGoogol,game,500 diff against (batter),3,030602,"▼4 · K · pitch 1000, swing 500"
+1091,Dougal McGoogol,game,0 diff (batter),5,050801,"▲4 · HR · pitch 69, swing 69"
+1091,Dougal McGoogol,game,0 diff (batter),6,060701,"▼3 · HR · pitch 871, swing 871"
+1091,Dougal McGoogol,game,500 diff against (batter),9,091401,"▲2 · K · pitch 420, swing 920"
+1092,Cody Omega,game,Multi-HR game,1,011105,
+1096,Justin Paglia,game,0 diff (batter),2,020504,"▼5 · HR · pitch 1, swing 1"
+1096,Justin Paglia,game,Grand slam,3,030702,▼1
+1096,Justin Paglia,game,0 diff (batter),3,030201,"▲5 · HR · pitch 512, swing 512"
+1096,Justin Paglia,game,0 diff (batter),3,030502,"▲2 · HR · pitch 555, swing 555"
+1096,Justin Paglia,game,Walk-off,4,040102,▼8 · 2B
+1097,Jameson Poe,game,Immaculate inning,2,020205,▼2
+1097,Jameson Poe,game,0 diff allowed (pitcher),2,021404,"▼4 · HR · pitch 564, swing 564"
+1097,Jameson Poe,game,0 diff allowed (pitcher),11,110605,"▼1 · HR · pitch 551, swing 551"
+1097,Jameson Poe,game,0 diff allowed (pitcher),11,110605,"▼1 · HR · pitch 786, swing 786"
+1098,Kegs Mabry,game,Multi-HR game,2,021403,
+1098,Kegs Mabry,game,Grand slam,6,060901,▼1
+1098,Kegs Mabry,game,5+ RBI game,6,060901,
+1098,Kegs Mabry,game,5+ RBI game,12,121414,
+1099,Baron Samedi,game,Grand slam,3,031102,▼3
+1099,Baron Samedi,game,500 diff against (batter),8,081005,"▲6 · K · pitch 569, swing 69"
+1099,Baron Samedi,game,Grand slam,9,091005,▲2
+1099,Baron Samedi,season,HR leader,9,,5
+1099,Baron Samedi,game,Multi-HR game,9,090204,
+1099,Baron Samedi,game,5+ RBI game,9,090204,
+1100,Antwan Zella,game,0 diff (batter),2,020402,"▲5 · 2B · pitch 812, swing 812"
+1100,Antwan Zella,game,Multi-HR game,7,070306,
+1100,Antwan Zella,game,500 diff against (batter),9,090808,"▲2 · K · pitch 1000, swing 500"
+1100,Antwan Zella,game,Multi-HR game,9,091105,
+1101,Caleb VanVacter,game,500 diff against (batter),1,010101,"▲4 · K · pitch 250, swing 750"
+1102,Graham Otherie,game,0 diff (batter),4,041406,"▲1 · HR · pitch 3, swing 3"
+1103,Blue Moon Barthelemy,game,Grand slam,2,020304,▲3
+1103,Blue Moon Barthelemy,game,0 diff (batter),2,020402,"▲4 · HR · pitch 500, swing 500"
+1103,Blue Moon Barthelemy,game,0 diff (batter),3,030306,"▼2 · GO · pitch 390, swing 390"
+1107,petra sabor,game,CG shutout,6,061501,
+1107,petra sabor,game,Immaculate inning,6,061501,▼5
+1107,petra sabor,game,0 diff allowed (pitcher),6,060702,"▼1 · HR · pitch 527, swing 527"
+1107,petra sabor,game,CG shutout,8,080503,
+1107,petra sabor,game,500 diff (pitcher),9,091401,"▲2 · K · pitch 420, swing 920"
+1107,petra sabor,game,0 diff allowed (pitcher),9,091401,"▲5 · HR · pitch 777, swing 777"
+1108,Conor Sexton,game,500 diff against (batter),1,011106,"▲7 · DP · pitch 69, swing 569"
+1108,Conor Sexton,game,0 diff (batter),1,011205,"▼2 · HR · pitch 420, swing 420"
+1108,Conor Sexton,game,0 diff (batter),2,021405,"▼5 · FO · pitch 277, swing 277"
+1108,Conor Sexton,game,Walk-off,3,030403,▼7 · 1B
+1108,Conor Sexton,game,Grand slam,6,060802,▲1
+1108,Conor Sexton,game,5+ RBI game,6,060802,
+1108,Conor Sexton,season,DPA leader,8,,192.8
+1108,Conor Sexton,season,Hits leader,8,,23
+1108,Conor Sexton,season,HR leader,8,,7
+1108,Conor Sexton,game,Multi-HR game,8,081301,
+1108,Conor Sexton,season,Hits leader,12,,20
+1109,Dominus Nominus,game,500 diff against (batter),2,020202,"▲5 · K · pitch 625, swing 125"
+1111,Ronald Eagle V,game,CG shutout,1,010605,
+1111,Ronald Eagle V,game,500 diff (pitcher),1,010101,"▲4 · K · pitch 250, swing 750"
+1111,Ronald Eagle V,season,K leader,1,,32
+1111,Ronald Eagle V,game,0 diff allowed (pitcher),1,010101,"▲5 · HR · pitch 666, swing 666"
+1111,Ronald Eagle V,game,0 diff allowed (pitcher),1,010903,"▲5 · HR · pitch 420, swing 420"
+1111,Ronald Eagle V,game,CG shutout,2,020401,
+1111,Ronald Eagle V,game,500 diff (pitcher),2,020401,"▲4 · K · pitch 1, swing 501"
+1112,Miss Bats,game,CG shutout,2,020504,
+1112,Miss Bats,game,Immaculate inning,2,020207,▲5
+1112,Miss Bats,game,Immaculate inning,2,021107,▼1
+1112,Miss Bats,game,10+ K game,2,020907,
+1112,Miss Bats,game,CG shutout,3,030102,
+1112,Miss Bats,game,No-hitter,3,030102,
+1112,Miss Bats,game,CG shutout,4,041202,
+1112,Miss Bats,game,Immaculate inning,4,040802,▼4
+1112,Miss Bats,game,Immaculate inning,4,041202,▼1
+1112,Miss Bats,game,Immaculate inning,4,041202,▼4
+1112,Miss Bats,game,10+ K game,4,041202,
+1112,Miss Bats,game,0 diff allowed (pitcher),4,041402,"▼1 · HR · pitch 777, swing 777"
+1113,Cookie Mongster,game,500 diff (pitcher),1,010706,"▲1 · K · pitch 556, swing 56"
+1113,Cookie Mongster,game,0 diff (batter),3,030506,"▲2 · HR · pitch 314, swing 314"
+1113,Cookie Mongster,game,CG shutout,5,050302,
+1113,Cookie Mongster,game,0 diff allowed (pitcher),6,061204,"▼5 · HR · pitch 222, swing 222"
+1113,Cookie Mongster,game,500 diff against (batter),8,081406,"▲1 · DP31 · pitch 69, swing 569"
+1113,Cookie Mongster,game,0 diff allowed (pitcher),8,081406,"▼3 · HR · pitch 503, swing 503"
+1113,Cookie Mongster,game,Multi-HR game,10,101208,
+1113,Cookie Mongster,game,0 diff (batter),10,101208,"▼1 · HR · pitch 345, swing 345"
+1116,Lee Allen Ripley,game,0 diff allowed (pitcher),1,011001,"▲2 · 1BWH · pitch 288, swing 288"
+1116,Lee Allen Ripley,game,0 diff allowed (pitcher),7,071107,"▲4 · HR · pitch 612, swing 612"
+1117,Tim Burr,game,500 diff (pitcher),1,011204,"▲1 · K · pitch 810, swing 310"
+1119,Willie Mays Hayes,season,DPA leader,1,,166.0
+1119,Willie Mays Hayes,season,Hits leader,1,,21
+1119,Willie Mays Hayes,game,500 diff against (batter),2,021505,"▲2 · K · pitch 701, swing 201"
+1119,Willie Mays Hayes,game,0 diff (batter),3,031305,"▲1 · HR · pitch 69, swing 69"
+1120,Johnny Hopkins,game,Walk-off,9,090307,▼7 · 2BWH
+1120,Johnny Hopkins,game,500 diff against (batter),10,100802,"▲4 · K · pitch 400, swing 900"
+1121,Vandalia Halen,game,Grand slam,1,011203,▲5
+1121,Vandalia Halen,season,HR leader,1,,6
+1121,Vandalia Halen,game,Walk-off,1,011003,▼6 · HR
+1122,Finkle Sparkles,game,CG shutout,4,041501,
+1122,Finkle Sparkles,season,ER6 leader,4,,1.14
+1122,Finkle Sparkles,season,WHIP leader,4,,1.06
+1122,Finkle Sparkles,game,CG shutout,6,060802,
+1122,Finkle Sparkles,season,ER6 leader,6,,0.86
+1122,Finkle Sparkles,game,Immaculate inning,7,070102,▼5
+1122,Finkle Sparkles,game,0 diff allowed (pitcher),7,071102,"▼2 · HR · pitch 700, swing 700"
+1122,Finkle Sparkles,game,CG shutout,8,081202,
+1122,Finkle Sparkles,game,CG shutout,8,081402,
+1122,Finkle Sparkles,game,Immaculate inning,8,080702,▼5
+1122,Finkle Sparkles,game,Immaculate inning,8,081402,▲6
+1122,Finkle Sparkles,game,CG shutout,9,090101,
+1122,Finkle Sparkles,game,CG shutout,10,101408,
+1123,Kurt Anger,game,0 diff (batter),2,021403,"▲1 · HR · pitch 987, swing 987"
+1123,Kurt Anger,game,Immaculate inning,3,030506,▼5
+1126,Clipper Charge,game,0 diff (batter),1,010101,"▲5 · HR · pitch 666, swing 666"
+1126,Clipper Charge,game,0 diff (batter),3,030306,"▼2 · 1BWH · pitch 510, swing 510"
+1128,S.A.R Dinka,game,500 diff (pitcher),1,010803,"▼2 · K · pitch 300, swing 800"
+1132,Steel Pipe Simpson,game,500 diff against (batter),1,011002,"▼5 · K · pitch 359, swing 859"
+1132,Steel Pipe Simpson,game,Grand slam,1,010503,▲7
+1133,Hank Murphy,game,Walk-off,3,030506,▼6 · 1BWH
+1133,Hank Murphy,game,0 diff (batter),10,101402,"▲6 · HR · pitch 69, swing 69"
+1134,Ornn Mistborn,game,Walk-off,1,010805,▼6 · 2B
+1134,Ornn Mistborn,game,Grand slam,4,040406,▲6
+1134,Ornn Mistborn,game,Walk-off,6,060902,▼8 · HR
+1134,Ornn Mistborn,game,Multi-HR game,11,110802,
+1135,Ryan Gastings,game,0 diff (batter),1,011205,"▼2 · HR · pitch 69, swing 69"
+1135,Ryan Gastings,game,Grand slam,2,020607,▼9
+1135,Ryan Gastings,game,Walk-off,2,020607,▼9 · HR
+1135,Ryan Gastings,game,Immaculate inning,5,050801,▼4
+1135,Ryan Gastings,game,0 diff allowed (pitcher),5,050601,"▲5 · HR · pitch 377, swing 377"
+1135,Ryan Gastings,game,CG shutout,6,061301,
+1135,Ryan Gastings,game,Immaculate inning,6,060101,▲5
+1135,Ryan Gastings,game,CG shutout,7,070701,
+1135,Ryan Gastings,game,0 diff allowed (pitcher),7,070101,"▲3 · HR · pitch 400, swing 400"
+1136,Mason Spurs,game,0 diff (batter),3,030501,"▲2 · HR · pitch 1, swing 1"
+1136,Mason Spurs,game,4+ hit game,4,040406,
+1136,Mason Spurs,game,Walk-off,5,050405,▼7 · 1BWH
+1137,Jimmy Johns,game,Grand slam,3,030602,▼7
+1137,Jimmy Johns,season,Hits leader,3,,20
+1137,Jimmy Johns,game,Walk-off,3,030602,▼7 · HR
+1137,Jimmy Johns,game,0 diff (batter),3,030402,"▼5 · HR · pitch 129, swing 129"
+1137,Jimmy Johns,season,Hits leader,4,,21
+1137,Jimmy Johns,season,SB leader,4,,5
+1137,Jimmy Johns,game,500 diff against (batter),5,051401,"▲6 · K · pitch 690, swing 190"
+1137,Jimmy Johns,game,4+ hit game,5,050701,
+1140,Bartholomew Crumblepuff,game,CG shutout,2,020806,
+1140,Bartholomew Crumblepuff,game,500 diff (pitcher),2,021306,"▲1 · DP · pitch 957, swing 457"
+1140,Bartholomew Crumblepuff,game,0 diff allowed (pitcher),2,020505,"▼2 · HR · pitch 833, swing 833"
+1140,Bartholomew Crumblepuff,game,CG shutout,3,030204,
+1140,Bartholomew Crumblepuff,game,CG shutout,3,030802,
+1140,Bartholomew Crumblepuff,game,500 diff (pitcher),3,031107,"▲1 · K · pitch 401, swing 901"
+1140,Bartholomew Crumblepuff,game,Immaculate inning,3,031403,▼5
+1140,Bartholomew Crumblepuff,game,CG shutout,7,070606,
+1140,Bartholomew Crumblepuff,game,Immaculate inning,7,070606,▼1
+1140,Bartholomew Crumblepuff,game,500 diff (pitcher),8,081207,"▲4 · DP31 · pitch 667, swing 167"
+1140,Bartholomew Crumblepuff,game,Immaculate inning,8,080306,▼3
+1140,Bartholomew Crumblepuff,game,CG shutout,9,090305,
+1140,Bartholomew Crumblepuff,game,CG shutout,10,100108,
+1140,Bartholomew Crumblepuff,game,CG shutout,10,100502,
+1140,Bartholomew Crumblepuff,game,CG shutout,10,101101,
+1140,Bartholomew Crumblepuff,game,CG shutout,11,110407,
+1140,Bartholomew Crumblepuff,game,10+ K game,11,110407,
+1140,Bartholomew Crumblepuff,game,CG shutout,12,120311,
+1140,Bartholomew Crumblepuff,game,0 diff allowed (pitcher),12,121415,"▼3 · HR · pitch 911, swing 911"
+1140,Bartholomew Crumblepuff,game,CG shutout,13,130620,
+1141,Geno Scaramucci,game,0 diff allowed (pitcher),1,010705,"▼5 · HR · pitch 666, swing 666"
+1141,Geno Scaramucci,game,500 diff (pitcher),2,020307,"▲4 · K · pitch 300, swing 800"
+1141,Geno Scaramucci,game,0 diff allowed (pitcher),2,020307,"▲3 · DP · pitch 667, swing 667"
+1141,Geno Scaramucci,game,0 diff allowed (pitcher),2,021901,"▲1 · HR · pitch 1, swing 1"
+1141,Geno Scaramucci,game,CG shutout,3,030501,
+1141,Geno Scaramucci,game,500 diff (pitcher),4,040908,"▼5 · K · pitch 166, swing 666"
+1141,Geno Scaramucci,game,Grand slam,6,061204,▼5
+1141,Geno Scaramucci,game,0 diff (batter),6,061204,"▼5 · HR · pitch 222, swing 222"
+1141,Geno Scaramucci,game,500 diff (pitcher),8,081301,"▲5 · LODP · pitch 100, swing 600"
+1141,Geno Scaramucci,game,0 diff allowed (pitcher),9,090302,"▼4 · HR · pitch 1000, swing 1000"
+1141,Geno Scaramucci,game,0 diff allowed (pitcher),9,090502,"▼2 · HR · pitch 880, swing 880"
+1141,Geno Scaramucci,game,0 diff (batter),11,110905,"▼5 · HR · pitch 569, swing 569"
+1141,Geno Scaramucci,game,Immaculate inning,12,120916,▼5
+1143,Viking Fishbird,game,0 diff (batter),1,010903,"▼1 · HR · pitch 1, swing 1"
+1143,Viking Fishbird,game,Walk-off,3,031405,▼6 · HR
+1143,Viking Fishbird,game,500 diff against (batter),4,040908,"▼5 · K · pitch 166, swing 666"
+1145,Artie Ziff,game,Immaculate inning,1,010703,▲8
+1145,Artie Ziff,game,0 diff allowed (pitcher),1,010703,"▲6 · HR · pitch 371, swing 371"
+1145,Artie Ziff,game,Immaculate inning,2,020102,▼2
+1145,Artie Ziff,game,0 diff allowed (pitcher),2,020102,"▼1 · 1BWH · pitch 700, swing 700"
+1145,Artie Ziff,game,0 diff allowed (pitcher),2,020701,"▼2 · FO · pitch 701, swing 701"
+1145,Artie Ziff,game,Immaculate inning,5,051304,▲2
+1149,Garrett Evans,game,Walk-off,6,060306,▼6 · HR
+1149,Garrett Evans,game,Walk-off,7,071308,▼6 · HR
+1149,Garrett Evans,game,0 diff (batter),7,071308,"▼6 · HR · pitch 69, swing 69"
+1149,Garrett Evans,game,500 diff against (batter),9,090905,"▼1 · DP31 · pitch 277, swing 777"
+1149,Garrett Evans,game,4+ hit game,9,090107,
+1149,Garrett Evans,season,RBI leader,9,,15
+1149,Garrett Evans,game,Multi-HR game,9,090504,
+1149,Garrett Evans,game,5+ RBI game,9,090107,
+1149,Garrett Evans,game,Walk-off,9,090107,▼13 · 1BWH
+1149,Garrett Evans,game,Grand slam,10,101308,▲5
+1149,Garrett Evans,game,0 diff (batter),10,100905,"▼2 · HR · pitch 727, swing 727"
+1149,Garrett Evans,game,Multi-HR game,11,111208,
+1150,Ricky Vaughn,game,0 diff allowed (pitcher),1,010801,"▲1 · HR · pitch 573, swing 573"
+1150,Ricky Vaughn,game,500 diff (pitcher),2,021505,"▼7 · DP · pitch 401, swing 901"
+1150,Ricky Vaughn,game,0 diff allowed (pitcher),2,021405,"▼5 · FO · pitch 277, swing 277"
+1151,Lance Lummoxx,season,HR leader,3,,5
+1151,Lance Lummoxx,game,Multi-HR game,3,030307,
+1151,Lance Lummoxx,game,0 diff (batter),3,030307,"▲6 · HR · pitch 999, swing 999"
+1151,Lance Lummoxx,game,500 diff against (batter),8,080508,"▲4 · K · pitch 569, swing 69"
+1152,Hans Ali,game,CG shutout,1,011106,
+1152,Hans Ali,game,500 diff (pitcher),1,011106,"▲7 · DP · pitch 69, swing 569"
+1152,Hans Ali,season,WPA leader (pit),1,,152.2
+1152,Hans Ali,game,0 diff allowed (pitcher),1,010906,"▼2 · HR · pitch 69, swing 69"
+1152,Hans Ali,game,0 diff allowed (pitcher),1,010906,"▼2 · HR · pitch 69, swing 69"
+1152,Hans Ali,game,0 diff allowed (pitcher),1,011006,"▲1 · HR · pitch 69, swing 69"
+1152,Hans Ali,game,500 diff (pitcher),3,030606,"▲4 · DP · pitch 365, swing 865"
+1152,Hans Ali,game,0 diff allowed (pitcher),3,030306,"▼2 · GO · pitch 390, swing 390"
+1152,Hans Ali,game,0 diff allowed (pitcher),3,030306,"▼2 · 1BWH · pitch 510, swing 510"
+1153,AALarry Longshot,game,Grand slam,1,011401,▲1
+1153,AALarry Longshot,season,RBI leader,1,,12
+1153,AALarry Longshot,game,Multi-HR game,1,011105,
+1153,AALarry Longshot,game,Walk-off,3,031104,▼9 · SacF
+1153,AALarry Longshot,game,500 diff against (batter),4,040102,"▼4 · K · pitch 611, swing 111"
+1153,AALarry Longshot,game,500 diff (pitcher),5,051304,"▼4 · K · pitch 350, swing 850"
+1153,AALarry Longshot,game,0 diff allowed (pitcher),5,050702,"▼6 · HR · pitch 111, swing 111"
+1153,AALarry Longshot,game,500 diff (pitcher),6,060107,"▼1 · K · pitch 250, swing 750"
+1153,AALarry Longshot,game,0 diff allowed (pitcher),6,061106,"▼4 · HR · pitch 69, swing 69"
+1153,AALarry Longshot,season,SB leader,7,,9
+1153,AALarry Longshot,season,SB leader,8,,8
+1153,AALarry Longshot,game,Immaculate inning,11,111005,▲5
+1153,AALarry Longshot,game,10+ K game,11,111005,
+1153,AALarry Longshot,game,0 diff allowed (pitcher),11,111005,"▲2 · HR · pitch 699, swing 699"
+1153,AALarry Longshot,game,0 diff allowed (pitcher),11,111307,"▼3 · HR · pitch 700, swing 700"
+1154,Kyle Corbett,season,HR leader,4,,5
+1154,Kyle Corbett,game,Multi-HR game,4,040201,
+1156,Thomas Thompson III,season,DPA leader,2,,177.8
+1156,Thomas Thompson III,season,Hits leader,2,,23
+1156,Thomas Thompson III,season,RBI leader,2,,20
+1156,Thomas Thompson III,season,WPA leader (bat),2,,190.6
+1156,Thomas Thompson III,game,Multi-HR game,2,020503,
+1156,Thomas Thompson III,game,Multi-HR game,2,021003,
+1156,Thomas Thompson III,game,Multi-HR game,2,021403,
+1156,Thomas Thompson III,game,5+ RBI game,2,020503,
+1156,Thomas Thompson III,game,0 diff (batter),2,021403,"▲1 · HR · pitch 9, swing 9"
+1156,Thomas Thompson III,game,500 diff against (batter),8,081203,"▼6 · K · pitch 764, swing 264"
+1156,Thomas Thompson III,game,Walk-off,8,080602,▼6 · HR
+1156,Thomas Thompson III,game,5+ RBI game,10,100103,
+1156,Thomas Thompson III,game,Grand slam,11,110403,▲2
+1156,Thomas Thompson III,game,4+ hit game,11,110201,
+1156,Thomas Thompson III,game,Multi-HR game,11,110403,
+1156,Thomas Thompson III,game,Multi-HR game,11,111502,
+1156,Thomas Thompson III,game,5+ RBI game,11,110201,
+1156,Thomas Thompson III,game,5+ RBI game,11,110403,
+1156,Thomas Thompson III,game,5+ RBI game,11,111502,
+1156,Thomas Thompson III,game,Reached base 5+,11,110201,
+1156,Thomas Thompson III,game,0 diff (batter),11,111502,"▼5 · HR · pitch 69, swing 69"
+1156,Thomas Thompson III,season,HR leader,12,,6
+1156,Thomas Thompson III,season,RBI leader,12,,15
+1156,Thomas Thompson III,game,Multi-HR game,12,120412,
+1156,Thomas Thompson III,game,5+ RBI game,12,120412,
+1156,Thomas Thompson III,game,0 diff (batter),13,130519,"▲4 · HR · pitch 1, swing 1"
+1157,JP Panik,game,0 diff (batter),1,011006,"▲1 · HR · pitch 69, swing 69"
+1157,JP Panik,game,0 diff (batter),2,020307,"▲3 · DP · pitch 667, swing 667"
+1157,JP Panik,game,0 diff (batter),9,091504,"▲4 · HR · pitch 118, swing 118"
+1158,Master Cashier,game,500 diff (pitcher),3,030504,"▲1 · K · pitch 625, swing 125"
+1158,Master Cashier,game,Immaculate inning,3,030904,▼3
+1158,Master Cashier,game,0 diff allowed (pitcher),3,030202,"▼4 · HR · pitch 210, swing 210"
+1158,Master Cashier,game,0 diff allowed (pitcher),3,030402,"▼5 · HR · pitch 129, swing 129"
+1158,Master Cashier,game,Immaculate inning,4,040101,▲1
+1158,Master Cashier,game,Walk-off,5,051701,▼6 · 1BWH
+1158,Master Cashier,game,Immaculate inning,6,061204,▼1
+1158,Master Cashier,game,500 diff against (batter),12,120809,"▼3 · DP · pitch 586, swing 86"
+1158,Master Cashier,game,0 diff (batter),12,121508,"▲4 · HR · pitch 417, swing 417"
+1159,Clifton Outlaw,game,0 diff (batter),3,030406,"▼1 · HR · pitch 511, swing 511"
+1159,Clifton Outlaw,game,Walk-off,5,050904,▼6 · 1B
+1160,Caleb Athen,game,500 diff against (batter),2,020506,"▼4 · K · pitch 227, swing 727"
+1162,Nate Lewis,game,500 diff against (batter),10,100803,"▼4 · K · pitch 944, swing 444"
+1164,Zin Martinez,game,0 diff (batter),2,020701,"▼2 · FO · pitch 701, swing 701"
+1164,Zin Martinez,game,Walk-off,7,071005,▼6 · HR
+1165,Dropov Andpicov,game,Multi-HR game,4,040406,
+1165,Dropov Andpicov,game,0 diff (batter),4,040406,"▲5 · HR · pitch 420, swing 420"
+1165,Dropov Andpicov,game,0 diff (batter),7,071108,"▲3 · HR · pitch 666, swing 666"
+1166,Ecliptic Astrum,game,Walk-off,3,030401,▼7 · HR
+1166,Ecliptic Astrum,game,500 diff against (batter),8,080805,"▲2 · K · pitch 777, swing 277"
+1166,Ecliptic Astrum,game,500 diff against (batter),11,111403,"▼6 · K · pitch 4, swing 504"
+1168,Release T. Kraken,game,4+ hit game,6,061005,
+1169,Jerome Garcia,game,500 diff against (batter),8,081006,"▼7 · DP · pitch 211, swing 711"
+1169,Jerome Garcia,game,0 diff (batter),8,080208,"▼1 · HR · pitch 544, swing 544"
+1169,Jerome Garcia,game,0 diff (batter),11,110605,"▼1 · HR · pitch 786, swing 786"
+1174,Mad Monty,game,500 diff against (batter),3,031103,"▼5 · DP · pitch 833, swing 333"
+1174,Mad Monty,game,Grand slam,4,041402,▼1
+1174,Mad Monty,game,0 diff (batter),4,041402,"▼1 · HR · pitch 777, swing 777"
+1174,Mad Monty,game,0 diff allowed (pitcher),6,060503,"▼4 · HR · pitch 2, swing 2"
+1174,Mad Monty,game,CG shutout,7,070505,
+1174,Mad Monty,game,500 diff (pitcher),7,071105,"▼5 · K · pitch 920, swing 420"
+1174,Mad Monty,game,Immaculate inning,7,071601,▼2
+1174,Mad Monty,game,10+ K game,7,070505,
+1174,Mad Monty,game,500 diff (pitcher),8,080603,"▲2 · LODP · pitch 533, swing 33"
+1174,Mad Monty,game,Immaculate inning,8,081001,▼6
+1174,Mad Monty,game,Immaculate inning,9,090505,▼4
+1174,Mad Monty,game,10+ K game,9,090805,
+1174,Mad Monty,game,CG shutout,10,100302,
+1174,Mad Monty,game,Immaculate inning,10,100302,▲6
+1176,Ace Brasco,game,500 diff (pitcher),1,010704,"▼6 · K · pitch 501, swing 1"
+1178,William Hatchet,game,CG shutout,1,011202,
+1178,William Hatchet,game,Immaculate inning,1,011202,▼4
+1178,William Hatchet,game,CG shutout,2,020403,
+1178,William Hatchet,game,Immaculate inning,2,020403,▲5
+1178,William Hatchet,game,Immaculate inning,3,030408,▲6
+1180,War Hamster,season,SB leader,1,,5
+1180,War Hamster,game,0 diff (batter),1,011006,"▲5 · 1B · pitch 805, swing 805"
+1180,War Hamster,game,500 diff against (batter),2,021507,"▼5 · DP · pitch 512, swing 12"
+1180,War Hamster,season,SB leader,3,,6
+1180,War Hamster,game,0 diff (batter),5,050702,"▼6 · HR · pitch 111, swing 111"
+1180,War Hamster,game,500 diff against (batter),8,081502,"▼6 · K · pitch 569, swing 69"
+1183,Akhbar Reginald Geraldo Hughes,game,0 diff (batter),1,011205,"▼4 · HR · pitch 69, swing 69"
+1184,Buzz Schwinghammer,game,500 diff against (batter),2,020802,"▲6 · GO · pitch 800, swing 300"
+1184,Buzz Schwinghammer,game,5+ RBI game,3,031204,
+1184,Buzz Schwinghammer,game,0 diff (batter),3,030907,"▼5 · HR · pitch 777, swing 777"
+1186,Francis Herman Swagger,game,500 diff against (batter),1,010706,"▲1 · K · pitch 556, swing 56"
+1186,Francis Herman Swagger,game,500 diff against (batter),6,060606,"▲3 · K · pitch 899, swing 399"
+1186,Francis Herman Swagger,game,Golden sombrero,12,120916,
+1186,Francis Herman Swagger,game,Multi-HR game,12,120816,
+1187,Brandon Blade,season,HR leader,1,,6
+1187,Brandon Blade,game,Multi-HR game,1,010803,
+1188,Teddy Ballinger,game,CG shutout,2,020302,
+1188,Teddy Ballinger,game,CG shutout,2,020602,
+1188,Teddy Ballinger,game,Immaculate inning,2,021202,▼3
+1188,Teddy Ballinger,game,CG shutout,3,030406,
+1189,Ethan Franklin,game,Walk-off,2,020401,▼6 · 2B
+1189,Ethan Franklin,game,0 diff (batter),2,020101,"▼4 · HR · pitch 488, swing 488"
+1189,Ethan Franklin,game,Walk-off,3,031302,▼6 · 2B
+1189,Ethan Franklin,game,0 diff (batter),3,031202,"▲3 · HR · pitch 200, swing 200"
+1191,Morris Deratt,game,Multi-HR game,6,060603,
+1192,Larry Slack,game,Walk-off,2,021702,▼7 · 2B
+1193,Solomon Caine,game,0 diff (batter),2,020601,"▼1 · HR · pitch 500, swing 500"
+1194,Tuck,game,Walk-off,1,011204,▼7 · GORA
+1194,Tuck,game,Grand slam,3,030501,▲5
+1194,Tuck,game,CG shutout,5,051203,
+1194,Tuck,game,Immaculate inning,5,050803,▼4
+1194,Tuck,game,0 diff allowed (pitcher),5,051501,"▼1 · HR · pitch 1, swing 1"
+1194,Tuck,game,0 diff allowed (pitcher),6,060902,"▲4 · HR · pitch 333, swing 333"
+1194,Tuck,game,500 diff against (batter),8,081402,"▼1 · K · pitch 1, swing 501"
+1194,Tuck,game,0 diff (batter),8,080302,"▲6 · HR · pitch 985, swing 985"
+1194,Tuck,game,Immaculate inning,13,130818,▲4
+1195,Simon Dominic,game,Immaculate inning,1,010604,▲5
+1196,Devin Arianna,game,0 diff (batter),3,030202,"▼4 · HR · pitch 210, swing 210"
+1196,Devin Arianna,game,0 diff allowed (pitcher),3,030202,"▲5 · HR · pitch 69, swing 69"
+1199,Boof Boog,game,Multi-HR game,2,020605,
+1199,Boof Boog,game,500 diff against (batter),3,030504,"▲1 · K · pitch 625, swing 125"
+1199,Boof Boog,game,500 diff against (batter),4,041204,"▼3 · K · pitch 300, swing 800"
+1201,Mylo Grams,game,Grand slam,3,030806,▼5
+1201,Mylo Grams,game,Multi-HR game,3,030806,
+1201,Mylo Grams,game,5+ RBI game,3,030806,
+1201,Mylo Grams,game,4+ hit game,5,050806,
+1201,Mylo Grams,game,500 diff against (batter),6,060408,"▲6 · K · pitch 127, swing 627"
+1201,Mylo Grams,game,Grand slam,7,070205,▲3
+1201,Mylo Grams,season,HR leader,7,,5
+1201,Mylo Grams,season,RBI leader,7,,18
+1201,Mylo Grams,game,Walk-off,7,070708,▼6 · 2BWH
+1201,Mylo Grams,game,0 diff (batter),7,070306,"▼1 · HR · pitch 323, swing 323"
+1204,Syd Kidd,game,0 diff allowed (pitcher),1,011006,"▲5 · 1B · pitch 805, swing 805"
+1204,Syd Kidd,game,500 diff (pitcher),2,020506,"▼4 · K · pitch 227, swing 727"
+1205,Stephen Sondheim,game,0 diff (batter),1,010903,"▲5 · HR · pitch 420, swing 420"
+1205,Stephen Sondheim,game,0 diff (batter),2,021901,"▲1 · HR · pitch 1, swing 1"
+1205,Stephen Sondheim,game,Immaculate inning,4,041503,▼1
+1205,Stephen Sondheim,game,10+ K game,4,040308,
+1205,Stephen Sondheim,season,DBF leader,4,,280.0
+1205,Stephen Sondheim,season,WPA leader (pit),4,,155.5
+1205,Stephen Sondheim,game,CG shutout,6,060803,
+1205,Stephen Sondheim,game,Immaculate inning,6,060505,▼1
+1206,Meerkat Preller,game,Multi-HR game,2,020507,
+1206,Meerkat Preller,game,500 diff against (batter),3,030303,"▲3 · K · pitch 317, swing 817"
+1206,Meerkat Preller,game,4+ hit game,5,050308,
+1206,Meerkat Preller,game,500 diff (pitcher),9,090607,"▲4 · K · pitch 501, swing 1"
+1206,Meerkat Preller,game,0 diff allowed (pitcher),10,101006,"▼1 · HR · pitch 999, swing 999"
+1206,Meerkat Preller,season,WHIP leader,11,,1.12
+1206,Meerkat Preller,game,0 diff allowed (pitcher),11,111302,"▲6 · HR · pitch 1, swing 1"
+1206,Meerkat Preller,game,Immaculate inning,12,121603,▲1
+1206,Meerkat Preller,game,0 diff allowed (pitcher),12,120210,"▲2 · HR · pitch 869, swing 869"
+1206,Meerkat Preller,game,500 diff (pitcher),13,130218,"▼1 · K · pitch 567, swing 67"
+1208,Bace Ventura,game,0 diff allowed (pitcher),4,040901,"▼4 · HR · pitch 920, swing 920"
+1208,Bace Ventura,game,CG shutout,5,050402,
+1208,Bace Ventura,game,CG shutout,5,051002,
+1208,Bace Ventura,game,10+ K game,6,060703,
+1208,Bace Ventura,game,10+ K game,7,071002,
+1208,Bace Ventura,game,500 diff against (batter),10,100208,"▲1 · K · pitch 23, swing 523"
+1208,Bace Ventura,game,0 diff (batter),12,120210,"▲2 · HR · pitch 869, swing 869"
+1209,Franz Joseph Hymen,game,500 diff against (batter),7,070605,"▲2 · K · pitch 903, swing 403"
+1209,Franz Joseph Hymen,game,0 diff allowed (pitcher),8,081503,"▲4 · HR · pitch 711, swing 711"
+1210,Berna Pozo,game,Grand slam,3,031503,▼6
+1210,Berna Pozo,game,Walk-off,3,031503,▼6 · HR
+1210,Berna Pozo,game,Grand slam,6,061003,▲4
+1211,Pete Jones,game,10+ K game,1,011006,
+1212,Barney Turbo,game,0 diff (batter),2,020505,"▼2 · HR · pitch 833, swing 833"
+1212,Barney Turbo,game,0 diff allowed (pitcher),4,040106,"▲6 · HR · pitch 69, swing 69"
+1216,Billtopher Gatestopher,game,Golden sombrero,3,030502,
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),1,011205,"▼2 · HR · pitch 69, swing 69"
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),1,011205,"▼2 · HR · pitch 420, swing 420"
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),1,011205,"▼2 · HR · pitch 666, swing 666"
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),1,011205,"▼4 · HR · pitch 69, swing 69"
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),1,011205,"▼4 · HR · pitch 69, swing 69"
+1217,Johnny Dickshot,game,500 diff (pitcher),2,020901,"▼6 · K · pitch 611, swing 111"
+1217,Johnny Dickshot,game,Immaculate inning,2,021407,▲1
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),2,021007,"▼2 · FO · pitch 328, swing 328"
+1217,Johnny Dickshot,game,Multi-HR game,3,031305,
+1217,Johnny Dickshot,game,5+ RBI game,3,031305,
+1217,Johnny Dickshot,game,0 diff (batter),5,051103,"▲2 · HR · pitch 867, swing 867"
+1217,Johnny Dickshot,game,Immaculate inning,8,081403,▲3
+1217,Johnny Dickshot,game,CG shutout,9,091205,
+1217,Johnny Dickshot,game,10+ K game,9,091005,
+1217,Johnny Dickshot,game,CG shutout,10,101502,
+1217,Johnny Dickshot,game,Immaculate inning,10,101106,▼3
+1217,Johnny Dickshot,game,0 diff allowed (pitcher),10,101701,"▲4 · HR · pitch 299, swing 299"
+1218,Bofadeez Newtz,game,Multi-HR game,2,020402,
+1218,Bofadeez Newtz,game,Multi-HR game,3,030607,
+1220,Al Ternate,game,4+ hit game,7,070708,
+1221,Mako Bierman,game,500 diff (pitcher),2,020801,"▲3 · K · pitch 901, swing 401"
+1221,Mako Bierman,game,Immaculate inning,2,020801,▲5
+1222,Justin Martin,game,Grand slam,3,030207,▼3
+2000,Jerry Jingles,game,CG shutout,4,040706,
+2000,Jerry Jingles,game,Immaculate inning,4,041106,▲3
+2000,Jerry Jingles,game,0 diff allowed (pitcher),4,041106,"▲5 · HR · pitch 1, swing 1"
+2000,Jerry Jingles,game,0 diff allowed (pitcher),5,050408,"▼5 · HR · pitch 1, swing 1"
+2000,Jerry Jingles,game,0 diff allowed (pitcher),7,071108,"▲3 · HR · pitch 666, swing 666"
+2002,Assassin Xekutioner,game,Walk-off,6,060303,▼6 · HR
+2002,Assassin Xekutioner,game,0 diff (batter),9,091107,"▼2 · HR · pitch 69, swing 69"
+2002,Assassin Xekutioner,game,500 diff against (batter),11,110804,"▼4 · K · pitch 103, swing 603"
+2003,Mr. Jim Business,game,Walk-off,2,021004,▼6 · 3B
+2003,Mr. Jim Business,game,Walk-off,2,021604,▼6 · 2B
+2005,Kiger Wulf,game,500 diff against (batter),2,020401,"▲4 · K · pitch 1, swing 501"
+2005,Kiger Wulf,game,Walk-off,2,021406,▼6 · 2B
+2006,Caleb Miller,game,CG shutout,2,020301,
+2008,Brian Zucchini,game,0 diff (batter),2,020806,"▲3 · HR · pitch 569, swing 569"
+2008,Brian Zucchini,game,Multi-HR game,3,030403,
+2010,Skillz Simanek,game,0 diff (batter),9,091504,"▼3 · HR · pitch 119, swing 119"
+2012,Burgess Whitehead,game,Walk-off,2,020704,▼7 · 3B
+2012,Burgess Whitehead,game,Multi-HR game,4,040401,
+2012,Burgess Whitehead,game,4+ hit game,5,051302,
+2012,Burgess Whitehead,game,5+ RBI game,5,051501,
+2012,Burgess Whitehead,game,0 diff (batter),5,051501,"▼1 · HR · pitch 1, swing 1"
+2012,Burgess Whitehead,game,Walk-off,8,080201,▼6 · HR
+2013,Carney Lerouix,game,0 diff allowed (pitcher),2,020504,"▼5 · HR · pitch 1, swing 1"
+2014,Shovel Bryant,game,Walk-off,3,031003,▼7 · 1BWH
+2016,Super Talent,game,Multi-HR game,2,020505,
+2019,Ricky Calzone,game,0 diff (batter),2,021206,"▲3 · HR · pitch 882, swing 882"
+2020,Demetrios Ooga,game,0 diff (batter),2,021404,"▼4 · HR · pitch 564, swing 564"
+2020,Demetrios Ooga,game,0 diff (batter),13,130623,"▲7 · HR · pitch 14, swing 14"
+2025,Britt O'War,game,Immaculate inning,2,020204,▲4
+2029,Lois Whip,game,CG shutout,2,021602,
+2029,Lois Whip,game,Immaculate inning,2,020905,▼6
+2029,Lois Whip,game,10+ K game,2,020905,
+2029,Lois Whip,game,0 diff allowed (pitcher),5,051103,"▲2 · HR · pitch 867, swing 867"
+2032,Kali McSuntas,game,Immaculate inning,5,050902,▼4
+2032,Kali McSuntas,game,0 diff allowed (pitcher),5,050404,"▲5 · HR · pitch 913, swing 913"
+2032,Kali McSuntas,game,CG shutout,6,060201,
+2032,Kali McSuntas,game,Immaculate inning,7,071005,▲3
+2032,Kali McSuntas,season,ER6 leader,8,,1.03
+2032,Kali McSuntas,season,WPA leader (pit),8,,125.0
+2032,Kali McSuntas,game,CG shutout,10,100206,
+2032,Kali McSuntas,game,500 diff (pitcher),10,101501,"▲6 · K · pitch 569, swing 69"
+2032,Kali McSuntas,game,500 diff against (batter),13,130218,"▼1 · K · pitch 567, swing 67"
+2033,Guillermo Caruthers,game,CG shutout,2,020402,
+2034,Fortuk Monmouth,game,Multi-HR game,2,021107,
+2034,Fortuk Monmouth,season,DPA leader,3,,184.7
+2035,Jhahn Tahmus,game,500 diff against (batter),2,020307,"▲4 · K · pitch 300, swing 800"
+2035,Jhahn Tahmus,game,Walk-off,5,051201,▼8 · 3B
+2036,Sandy Collazo,game,500 diff (pitcher),3,030602,"▼4 · K · pitch 1000, swing 500"
+2036,Sandy Collazo,game,CG shutout,7,070707,
+2036,Sandy Collazo,game,10+ K game,7,070707,
+2036,Sandy Collazo,game,0 diff allowed (pitcher),7,071308,"▼6 · HR · pitch 69, swing 69"
+2036,Sandy Collazo,game,CG shutout,8,080108,
+2044,Maud Nelson,game,Walk-off,4,040603,▼6 · 2B
+2044,Maud Nelson,game,0 diff (batter),11,111005,"▲2 · HR · pitch 699, swing 699"
+2045,Tanner Hendrix,game,CG shutout,2,020501,
+2045,Tanner Hendrix,game,CG shutout,2,020805,
+2045,Tanner Hendrix,game,0 diff allowed (pitcher),2,021403,"▲1 · HR · pitch 987, swing 987"
+2045,Tanner Hendrix,game,0 diff allowed (pitcher),2,021403,"▲1 · HR · pitch 9, swing 9"
+2045,Tanner Hendrix,game,CG shutout,3,030408,
+2046,Sam Anger,game,0 diff allowed (pitcher),2,020604,"▲3 · HR · pitch 285, swing 285"
+2047,Calvin Huff,game,500 diff (pitcher),4,040102,"▼4 · K · pitch 611, swing 111"
+2047,Calvin Huff,game,Multi-HR game,9,090703,
+2048,Xavier Phoenix,game,0 diff (batter),2,020604,"▲3 · HR · pitch 285, swing 285"
+2049,Brian MacDonald,game,Immaculate inning,2,020604,▼4
+2049,Brian MacDonald,game,0 diff allowed (pitcher),2,020104,"▼3 · HR · pitch 420, swing 420"
+2049,Brian MacDonald,game,0 diff allowed (pitcher),3,030307,"▲6 · HR · pitch 999, swing 999"
+2049,Brian MacDonald,game,0 diff allowed (pitcher),3,030506,"▲2 · HR · pitch 314, swing 314"
+2049,Brian MacDonald,game,0 diff allowed (pitcher),3,030907,"▼5 · HR · pitch 777, swing 777"
+2049,Brian MacDonald,game,Immaculate inning,4,040106,▼6
+2049,Brian MacDonald,game,CG shutout,5,050807,
+2054,Woofie K9,game,Walk-off,2,020907,▼7 · 1BWH
+2055,Harry Peritestes,game,Multi-HR game,4,040207,
+2055,Harry Peritestes,game,500 diff against (batter),5,050107,"▼6 · DP · pitch 288, swing 788"
+2055,Harry Peritestes,season,WPA leader (bat),6,,127.2
+2055,Harry Peritestes,game,Walk-off,6,060405,▼6 · 1B
+2055,Harry Peritestes,game,Walk-off,6,061405,▼7 · HR
+2055,Harry Peritestes,game,0 diff (batter),6,061205,"▲3 · HR · pitch 888, swing 888"
+2055,Harry Peritestes,game,500 diff against (batter),9,090105,"▼4 · LODP · pitch 411, swing 911"
+2055,Harry Peritestes,game,5+ RBI game,11,110607,
+2055,Harry Peritestes,game,Walk-off,11,110707,▼6 · 1BWH
+2055,Harry Peritestes,game,10+ K game,12,120611,
+2055,Harry Peritestes,game,0 diff allowed (pitcher),12,120312,"▼4 · HR · pitch 200, swing 200"
+2056,Huge Yakman,game,CG shutout,2,020407,
+2057,Jack Alpha,season,HR leader,2,,9
+2057,Jack Alpha,game,Multi-HR game,2,020502,
+2057,Jack Alpha,game,Multi-HR game,2,020702,
+2057,Jack Alpha,game,Multi-HR game,2,021104,
+2057,Jack Alpha,game,Multi-HR game,2,021603,
+2057,Jack Alpha,game,0 diff (batter),2,020502,"▲3 · HR · pitch 1, swing 1"
+2057,Jack Alpha,game,0 diff (batter),2,021603,"▲5 · HR · pitch 988, swing 988"
+2057,Jack Alpha,season,DPA leader,4,,190.5
+2057,Jack Alpha,game,Multi-HR game,5,050708,
+2059,Daraya Jonjet,game,CG shutout,3,031408,
+2059,Daraya Jonjet,game,500 diff (pitcher),3,030808,"▼5 · DP · pitch 611, swing 111"
+2059,Daraya Jonjet,game,10+ K game,3,030808,
+2060,LaPrince Frye,game,CG shutout,3,031308,
+2060,LaPrince Frye,game,10+ K game,3,031308,
+2060,LaPrince Frye,game,0 diff allowed (pitcher),4,040307,"▲6 · HR · pitch 222, swing 222"
+2060,LaPrince Frye,game,Immaculate inning,9,090305,▼4
+2061,Dez Perado,game,Walk-off,2,020403,▼6 · 1BWH
+2065,Gus Buster,game,Immaculate inning,3,030303,▼2
+2065,Gus Buster,game,Immaculate inning,4,040303,▲1
+2066,Talon Wingdiver,game,0 diff allowed (pitcher),7,071004,"▼5 · HR · pitch 500, swing 500"
+2066,Talon Wingdiver,game,0 diff (batter),9,090504,"▲2 · HR · pitch 824, swing 824"
+2066,Talon Wingdiver,game,0 diff allowed (pitcher),13,130419,"▼2 · HR · pitch 171, swing 171"
+2067,Riles McGiles,game,0 diff (batter),3,030202,"▲5 · HR · pitch 69, swing 69"
+2067,Riles McGiles,game,0 diff (batter),6,060904,"▲5 · HR · pitch 416, swing 416"
+2067,Riles McGiles,game,4+ hit game,7,071004,
+2067,Riles McGiles,game,0 diff (batter),7,071004,"▼5 · HR · pitch 500, swing 500"
+2068,Raphael Akias,game,Multi-HR game,3,030503,
+2068,Raphael Akias,game,Multi-HR game,4,040907,
+2069,Tygen Shinybeard,game,0 diff allowed (pitcher),3,031303,"▲6 · HR · pitch 420, swing 420"
+2069,Tygen Shinybeard,game,0 diff (batter),4,040601,"▼2 · HR · pitch 420, swing 420"
+2069,Tygen Shinybeard,game,3+ SB game,5,050503,
+2070,Billy Winters,game,CG shutout,3,030907,
+2070,Billy Winters,season,ER6 leader,3,,0.78
+2070,Billy Winters,season,WHIP leader,3,,1.04
+2070,Billy Winters,season,WPA leader (pit),3,,189.2
+2072,Pull Ganger,game,Multi-HR game,2,020607,
+2072,Pull Ganger,game,Walk-off,2,021901,▼6 · 1B
+2072,Pull Ganger,game,0 diff (batter),7,070102,"▲1 · HR · pitch 874, swing 874"
+2072,Pull Ganger,game,500 diff against (batter),10,101008,"▲2 · DP · pitch 399, swing 899"
+2073,Dom Emnic,game,Multi-HR game,2,021007,
+2073,Dom Emnic,game,5+ RBI game,2,021007,
+2074,Jobert Maclin,season,HR leader,3,,5
+2074,Jobert Maclin,game,Multi-HR game,3,030803,
+2075,Copenhagen Black,game,CG shutout,2,021506,
+2075,Copenhagen Black,season,ER6 leader,2,,0.71
+2075,Copenhagen Black,game,500 diff (pitcher),3,030303,"▲3 · K · pitch 317, swing 817"
+2075,Copenhagen Black,game,Immaculate inning,3,030601,▲2
+2075,Copenhagen Black,game,0 diff allowed (pitcher),3,030908,"▼6 · 1B · pitch 793, swing 793"
+2075,Copenhagen Black,game,CG shutout,4,041304,
+2075,Copenhagen Black,game,Multi-HR game,6,061601,
+2075,Copenhagen Black,game,4+ hit game,8,081503,
+2075,Copenhagen Black,game,Grand slam,9,090906,▼5
+2075,Copenhagen Black,game,4+ hit game,9,091008,
+2078,Rascal Alex,game,CG shutout,2,020904,
+2078,Rascal Alex,season,WHIP leader,2,,0.89
+2078,Rascal Alex,game,No-hitter,2,020904,
+2078,Rascal Alex,game,CG shutout,3,031106,
+2078,Rascal Alex,game,CG shutout,3,031407,
+2078,Rascal Alex,game,Immaculate inning,3,031106,▼5
+2078,Rascal Alex,game,0 diff allowed (pitcher),3,031504,"▼3 · HR · pitch 1000, swing 1000"
+2078,Rascal Alex,game,500 diff (pitcher),4,041005,"▼1 · DP31 · pitch 164, swing 664"
+2078,Rascal Alex,game,0 diff allowed (pitcher),5,051602,"▼6 · HR · pitch 1, swing 1"
+2078,Rascal Alex,game,500 diff (pitcher),6,060408,"▼4 · K · pitch 402, swing 902"
+2078,Rascal Alex,game,Immaculate inning,7,071008,▼2
+2078,Rascal Alex,game,0 diff allowed (pitcher),7,070107,"▲5 · HR · pitch 910, swing 910"
+2078,Rascal Alex,game,CG shutout,8,081006,
+2078,Rascal Alex,game,0 diff allowed (pitcher),8,080708,"▼1 · HR · pitch 338, swing 338"
+2078,Rascal Alex,game,CG shutout,9,091408,
+2078,Rascal Alex,game,0 diff allowed (pitcher),10,100603,"▲6 · HR · pitch 363, swing 363"
+2078,Rascal Alex,game,Immaculate inning,11,111107,▲3
+2078,Rascal Alex,game,CG shutout,12,120416,
+2080,Junebug Wray,game,Multi-HR game,2,021504,
+2080,Junebug Wray,season,HR leader,8,,7
+2080,Junebug Wray,season,RBI leader,8,,20
+2080,Junebug Wray,season,WPA leader (bat),8,,166.7
+2080,Junebug Wray,game,Multi-HR game,8,081306,
+2080,Junebug Wray,game,5+ RBI game,8,081306,
+2080,Junebug Wray,game,Walk-off,8,081306,▼6 · 3B
+2081,Cal Lidous,season,DBF leader,2,,279.2
+2081,Cal Lidous,game,0 diff allowed (pitcher),2,021206,"▲3 · HR · pitch 882, swing 882"
+2081,Cal Lidous,game,Immaculate inning,3,030804,▲1
+2081,Cal Lidous,game,Immaculate inning,3,031402,▲4
+2081,Cal Lidous,game,CG shutout,5,051502,
+2081,Cal Lidous,game,Immaculate inning,5,050301,▲5
+2081,Cal Lidous,game,Immaculate inning,5,050704,▼1
+2081,Cal Lidous,season,K leader,5,,34
+2081,Cal Lidous,game,500 diff (pitcher),7,071402,"▼1 · K · pitch 951, swing 451"
+2081,Cal Lidous,game,Immaculate inning,7,070402,▼3
+2082,Dixon Uraz,game,Multi-HR game,4,040307,
+2082,Dixon Uraz,game,0 diff (batter),4,040307,"▲6 · HR · pitch 222, swing 222"
+2082,Dixon Uraz,game,500 diff against (batter),5,051403,"▼4 · DP · pitch 501, swing 1"
+2082,Dixon Uraz,game,500 diff against (batter),9,091408,"▲5 · K · pitch 512, swing 12"
+2082,Dixon Uraz,game,0 diff (batter),10,101401,"▼2 · HR · pitch 333, swing 333"
+2083,Dylan Green,game,500 diff (pitcher),3,031103,"▼5 · DP · pitch 833, swing 333"
+2083,Dylan Green,game,0 diff allowed (pitcher),3,031305,"▲1 · HR · pitch 69, swing 69"
+2083,Dylan Green,game,Immaculate inning,4,041106,▼2
+2083,Dylan Green,game,10+ K game,4,041106,
+2083,Dylan Green,game,Multi-HR game,10,100601,
+2085,Lloyd Gross,season,HR leader,9,,5
+2085,Lloyd Gross,game,Multi-HR game,9,090702,
+2085,Lloyd Gross,game,5+ RBI game,9,090702,
+2086,Anna De Neko,game,4+ hit game,8,081301,
+2086,Anna De Neko,game,0 diff (batter),9,091401,"▲5 · HR · pitch 777, swing 777"
+2086,Anna De Neko,game,Walk-off,12,120913,▼6 · 2BWH
+2087,Patrick Mahomes,game,CG shutout,2,021307,
+2087,Patrick Mahomes,game,0 diff allowed (pitcher),3,030106,"▲5 · BB · pitch 541, swing 541"
+2090,Goro Shinoda,game,500 diff (pitcher),6,060603,"▼4 · K · pitch 266, swing 766"
+2093,True Pierce,game,0 diff allowed (pitcher),3,031302,"▼5 · HR · pitch 296, swing 296"
+2094,JZ (but not the rapper),game,0 diff (batter),3,031407,"▲4 · HR · pitch 1, swing 1"
+2094,JZ (but not the rapper),game,Walk-off,5,050103,▼6 · HR
+2094,JZ (but not the rapper),game,0 diff (batter),6,061302,"▼3 · HR · pitch 17, swing 17"
+2094,JZ (but not the rapper),game,500 diff against (batter),7,070508,"▼5 · DP · pitch 517, swing 17"
+2094,JZ (but not the rapper),game,500 diff (pitcher),10,101005,"▼5 · K · pitch 910, swing 410"
+2094,JZ (but not the rapper),game,500 diff against (batter),12,120716,"▼3 · K · pitch 517, swing 17"
+2094,JZ (but not the rapper),game,500 diff against (batter),12,121013,"▼2 · K · pitch 517, swing 17"
+2096,Adam Croft,game,0 diff allowed (pitcher),4,040601,"▼2 · HR · pitch 420, swing 420"
+2096,Adam Croft,game,500 diff (pitcher),5,051401,"▲6 · K · pitch 690, swing 190"
+2096,Adam Croft,game,Immaculate inning,5,051003,▲5
+2096,Adam Croft,season,WHIP leader,6,,1.02
+2096,Adam Croft,season,WPA leader (pit),6,,173.4
+2096,Adam Croft,game,500 diff (pitcher),8,080508,"▲4 · K · pitch 569, swing 69"
+2096,Adam Croft,game,0 diff allowed (pitcher),8,080208,"▼1 · HR · pitch 544, swing 544"
+2096,Adam Croft,game,0 diff allowed (pitcher),10,100304,"▲2 · HR · pitch 241, swing 241"
+2097,Dirtbag Darrell,game,Grand slam,5,050707,▲1
+2097,Dirtbag Darrell,game,5+ RBI game,5,050707,
+2097,Dirtbag Darrell,game,500 diff against (batter),8,081407,"▲6 · K · pitch 112, swing 612"
+2097,Dirtbag Darrell,game,0 diff (batter),8,080407,"▲2 · HR · pitch 888, swing 888"
+2097,Dirtbag Darrell,game,Multi-HR game,11,110507,
+2097,Dirtbag Darrell,game,Walk-off,12,120309,▼9 · HR
+2098,Chief Cory,game,0 diff allowed (pitcher),3,030406,"▼1 · HR · pitch 511, swing 511"
+2102,Oliver Yu,game,0 diff (batter),3,030106,"▲5 · BB · pitch 541, swing 541"
+2104,Bobby Portis,game,0 diff allowed (pitcher),3,030607,"▲1 · HR · pitch 5, swing 5"
+2104,Bobby Portis,game,0 diff allowed (pitcher),3,031202,"▲3 · HR · pitch 200, swing 200"
+2104,Bobby Portis,game,CG shutout,5,050106,
+2104,Bobby Portis,game,0 diff allowed (pitcher),5,050708,"▲5 · HR · pitch 1, swing 1"
+2104,Bobby Portis,game,0 diff allowed (pitcher),5,051406,"▲4 · HR · pitch 69, swing 69"
+2104,Bobby Portis,game,0 diff allowed (pitcher),6,060406,"▼5 · HR · pitch 1, swing 1"
+2104,Bobby Portis,game,CG shutout,8,080805,
+2104,Bobby Portis,game,CG shutout,8,081504,
+2104,Bobby Portis,game,500 diff (pitcher),8,080608,"▲5 · K · pitch 788, swing 288"
+2104,Bobby Portis,game,500 diff (pitcher),8,080805,"▲2 · K · pitch 777, swing 277"
+2104,Bobby Portis,game,Immaculate inning,8,080805,▲1
+2104,Bobby Portis,game,Immaculate inning,8,080805,▲2
+2104,Bobby Portis,game,0 diff allowed (pitcher),8,081008,"▼3 · HR · pitch 229, swing 229"
+2104,Bobby Portis,game,Immaculate inning,9,091206,▲2
+2104,Bobby Portis,game,Immaculate inning,10,101201,▼2
+2104,Bobby Portis,game,CG shutout,11,110208,
+2104,Bobby Portis,game,0 diff allowed (pitcher),11,110807,"▼5 · HR · pitch 801, swing 801"
+2106,Declan Archer,game,Multi-HR game,6,061403,
+2107,Kalin Young,game,Multi-HR game,9,091601,
+2108,Arm N. Hammer,season,SB leader,5,,7
+2108,Arm N. Hammer,game,500 diff against (batter),6,060107,"▼1 · K · pitch 250, swing 750"
+2109,Nate Duke,game,0 diff (batter),5,050408,"▼5 · HR · pitch 1, swing 1"
+2109,Nate Duke,game,Immaculate inning,7,071103,▲3
+3000,Eli Sasak,game,0 diff (batter),3,031302,"▼5 · HR · pitch 296, swing 296"
+3005,Pablo Sanchez,game,0 diff (batter),5,050404,"▲5 · HR · pitch 913, swing 913"
+3005,Pablo Sanchez,game,500 diff (pitcher),6,061503,"▼4 · K · pitch 647, swing 147"
+3005,Pablo Sanchez,game,Immaculate inning,7,070503,▼4
+3005,Pablo Sanchez,game,Immaculate inning,7,070706,▼3
+3005,Pablo Sanchez,game,Immaculate inning,8,080607,▼6
+3005,Pablo Sanchez,game,CG shutout,11,111403,
+3005,Pablo Sanchez,game,500 diff (pitcher),11,111403,"▼6 · K · pitch 4, swing 504"
+3005,Pablo Sanchez,game,Immaculate inning,11,111106,▲5
+3005,Pablo Sanchez,game,10+ K game,12,120712,
+3005,Pablo Sanchez,game,0 diff allowed (pitcher),12,120314,"▲6 · HR · pitch 249, swing 249"
+3007,Salvatore De Luca,game,Grand slam,7,070901,▲5
+3007,Salvatore De Luca,game,Walk-off,8,080403,▼9 · HR
+3007,Salvatore De Luca,game,4+ hit game,11,110903,
+3007,Salvatore De Luca,game,Walk-off,11,111303,▼8 · HR
+3009,Bull Dozer,game,CG shutout,3,031008,
+3009,Bull Dozer,game,500 diff (pitcher),4,040704,"▲6 · K · pitch 301, swing 801"
+3009,Bull Dozer,game,Immaculate inning,4,040204,▼6
+3010,Jarey Butts,season,DPA leader,12,,188.3
+3011,December Beckett,game,Grand slam,5,050708,▼8
+3011,December Beckett,game,4+ hit game,5,050708,
+3011,December Beckett,season,Hits leader,5,,20
+3011,December Beckett,game,Walk-off,5,050708,▼8 · HR
+3011,December Beckett,game,500 diff (pitcher),10,101504,"▼4 · LODP · pitch 771, swing 271"
+3011,December Beckett,game,0 diff allowed (pitcher),10,101401,"▼2 · HR · pitch 333, swing 333"
+3011,December Beckett,game,CG shutout,11,110708,
+3011,December Beckett,game,CG shutout,11,110908,
+3011,December Beckett,game,10+ K game,11,110908,
+3011,December Beckett,season,DBF leader,11,,273.0
+3011,December Beckett,season,ER6 leader,11,,1.57
+3011,December Beckett,season,WPA leader (pit),11,,141.7
+3011,December Beckett,game,0 diff allowed (pitcher),11,111207,"▲4 · HR · pitch 324, swing 324"
+3011,December Beckett,game,CG shutout,12,120216,
+3011,December Beckett,game,CG shutout,12,121316,
+3011,December Beckett,game,500 diff (pitcher),12,120716,"▼3 · K · pitch 517, swing 17"
+3011,December Beckett,game,Immaculate inning,12,120910,▼5
+3011,December Beckett,game,CG shutout,13,130924,
+3011,December Beckett,game,Immaculate inning,13,130924,▼6
+3012,Rusty Nails,game,0 diff (batter),6,060705,"▲2 · HR · pitch 577, swing 577"
+3012,Rusty Nails,game,Walk-off,7,070305,▼6 · HR
+3012,Rusty Nails,game,Walk-off,12,121216,▼6 · 1B
+3013,John Cock,game,0 diff allowed (pitcher),3,030201,"▲5 · HR · pitch 512, swing 512"
+3013,John Cock,game,0 diff allowed (pitcher),3,030501,"▲2 · HR · pitch 1, swing 1"
+3015,"Jason ""Dead"" Redd",game,CG shutout,3,031201,
+3015,"Jason ""Dead"" Redd",game,CG shutout,5,050803,
+3015,"Jason ""Dead"" Redd",game,Immaculate inning,5,050803,▲4
+3015,"Jason ""Dead"" Redd",game,Immaculate inning,6,060608,▼2
+3015,"Jason ""Dead"" Redd",game,0 diff allowed (pitcher),7,071204,"▲2 · HR · pitch 104, swing 104"
+3015,"Jason ""Dead"" Redd",game,500 diff (pitcher),8,081108,"▲6 · DP · pitch 301, swing 801"
+3015,"Jason ""Dead"" Redd",game,Immaculate inning,8,080403,▲2
+3015,"Jason ""Dead"" Redd",game,Immaculate inning,8,080403,▲5
+3015,"Jason ""Dead"" Redd",game,CG shutout,9,090808,
+3015,"Jason ""Dead"" Redd",game,CG shutout,9,091501,
+3015,"Jason ""Dead"" Redd",game,500 diff (pitcher),9,090808,"▲2 · K · pitch 1000, swing 500"
+3015,"Jason ""Dead"" Redd",game,Immaculate inning,9,091108,▼4
+3015,"Jason ""Dead"" Redd",game,10+ K game,9,091108,
+3015,"Jason ""Dead"" Redd",game,CG shutout,10,100104,
+3015,"Jason ""Dead"" Redd",game,0 diff allowed (pitcher),10,101303,"▲3 · HR · pitch 988, swing 988"
+3017,Bob Dunagee,game,0 diff (batter),5,050708,"▼1 · HR · pitch 777, swing 777"
+3017,Bob Dunagee,game,Grand slam,8,081701,▲4
+3019,Will The Thrill,game,Grand slam,5,050701,▼2
+3019,Will The Thrill,season,WPA leader (bat),5,,119.9
+3019,Will The Thrill,game,0 diff (batter),8,080701,"▲2 · HR · pitch 555, swing 555"
+3023,Andy,game,0 diff (batter),3,031504,"▼3 · HR · pitch 1000, swing 1000"
+3023,Andy,game,Walk-off,4,041305,▼6 · 1B
+3027,Diego Medina,game,500 diff (pitcher),5,050808,"▼5 · K · pitch 1, swing 501"
+3027,Diego Medina,game,Immaculate inning,5,051504,▲1
+3027,Diego Medina,game,CG shutout,6,060508,
+3027,Diego Medina,game,CG shutout,7,070705,
+3027,Diego Medina,season,K leader,7,,39
+3027,Diego Medina,game,500 diff (pitcher),8,080802,"▲2 · DP · pitch 833, swing 333"
+3027,Diego Medina,game,Immaculate inning,8,080408,▲1
+3027,Diego Medina,game,0 diff allowed (pitcher),8,080203,"▲3 · HR · pitch 311, swing 311"
+3027,Diego Medina,game,Walk-off,11,110903,▼7 · 2B
+3027,Diego Medina,game,Grand slam,12,121214,▼2
+3028,Loghan O'Brien,game,4+ hit game,3,030202,
+3035,Max Power,game,Grand slam,3,031305,▲5
+3035,Max Power,game,Walk-off,4,041205,▼7 · 1B
+3037,Doc Holliday,season,RBI leader,4,,14
+3038,Lincoln Crawford,game,Walk-off,3,030502,▼8 · 1B
+3038,Lincoln Crawford,game,Multi-HR game,4,041108,
+3038,Lincoln Crawford,game,Multi-HR game,5,051602,
+3038,Lincoln Crawford,game,0 diff (batter),5,051602,"▼6 · HR · pitch 1, swing 1"
+3038,Lincoln Crawford,game,Multi-HR game,8,081504,
+3038,Lincoln Crawford,game,Walk-off,8,080308,▼7 · HR
+3039,Bob Winn,game,500 diff against (batter),4,040704,"▲6 · K · pitch 301, swing 801"
+3039,Bob Winn,game,500 diff against (batter),4,041005,"▼1 · DP31 · pitch 164, swing 664"
+3039,Bob Winn,game,500 diff against (batter),6,061007,"▼6 · K · pitch 666, swing 166"
+3039,Bob Winn,season,DPA leader,7,,176.2
+3039,Bob Winn,season,Hits leader,7,,19
+3039,Bob Winn,game,Walk-off,7,070703,▼6 · 3B
+3039,Bob Winn,game,Multi-HR game,10,101105,
+3042,Joanna McMartinez,game,CG shutout,5,050306,
+3042,Joanna McMartinez,game,0 diff allowed (pitcher),5,051602,"▲5 · HR · pitch 420, swing 420"
+3042,Joanna McMartinez,game,500 diff (pitcher),6,061007,"▼6 · K · pitch 666, swing 166"
+3042,Joanna McMartinez,game,0 diff allowed (pitcher),6,061007,"▼6 · HR · pitch 1, swing 1"
+3042,Joanna McMartinez,game,CG shutout,7,071205,
+3042,Joanna McMartinez,game,Immaculate inning,7,070406,▼5
+3042,Joanna McMartinez,game,Immaculate inning,7,071406,▼4
+3042,Joanna McMartinez,game,Immaculate inning,8,081008,▼5
+3042,Joanna McMartinez,game,10+ K game,9,090608,
+3043,Keyo,game,Grand slam,4,041501,▲1
+3043,Keyo,game,4+ hit game,4,040406,
+3043,Keyo,game,Reached base 5+,4,040406,
+3043,Keyo,game,0 diff (batter),4,041501,"▲1 · HR · pitch 813, swing 813"
+3043,Keyo,game,CG shutout,7,071502,
+3043,Keyo,game,500 diff (pitcher),7,070802,"▲6 · DP · pitch 327, swing 827"
+3043,Keyo,game,Walk-off,12,120414,▼7 · SacF
+3046,Johnny Hendrix,game,Grand slam,3,030808,▲3
+3046,Johnny Hendrix,game,5+ RBI game,3,030808,
+3049,Ferda Bois,game,Walk-off,3,031203,▼6 · 1BWH
+3049,Ferda Bois,game,0 diff allowed (pitcher),4,040903,"▼3 · HR · pitch 711, swing 711"
+3049,Ferda Bois,game,0 diff allowed (pitcher),4,041501,"▲1 · HR · pitch 813, swing 813"
+3049,Ferda Bois,season,WHIP leader,5,,1.12
+3049,Ferda Bois,game,500 diff (pitcher),11,111102,"▲4 · K · pitch 120, swing 620"
+3049,Ferda Bois,game,Immaculate inning,11,111302,▲4
+3049,Ferda Bois,game,500 diff (pitcher),12,120709,"▼3 · K · pitch 4, swing 504"
+3050,Annie Campbell,game,0 diff (batter),3,031006,"▲3 · 3B · pitch 888, swing 888"
+3050,Annie Campbell,game,0 diff (batter),6,060504,"▼5 · HR · pitch 69, swing 69"
+3051,Jackie Daytona,season,HR leader,5,,5
+3052,Oni R1,game,0 diff (batter),3,030908,"▼6 · 1B · pitch 793, swing 793"
+3053,XxFAZE Jun1 RaWrXDxXx,game,Golden sombrero,3,030403,
+3053,XxFAZE Jun1 RaWrXDxXx,game,Multi-HR game,4,041203,
+3053,XxFAZE Jun1 RaWrXDxXx,game,Walk-off,5,051402,▼6 · 2BWH
+3053,XxFAZE Jun1 RaWrXDxXx,game,CG shutout,7,070605,
+3053,XxFAZE Jun1 RaWrXDxXx,game,500 diff (pitcher),7,070605,"▲2 · K · pitch 903, swing 403"
+3053,XxFAZE Jun1 RaWrXDxXx,game,0 diff allowed (pitcher),8,080707,"▼7 · HR · pitch 569, swing 569"
+3053,XxFAZE Jun1 RaWrXDxXx,game,0 diff allowed (pitcher),9,091107,"▼2 · HR · pitch 69, swing 69"
+3053,XxFAZE Jun1 RaWrXDxXx,game,0 diff allowed (pitcher),10,100202,"▼4 · HR · pitch 512, swing 512"
+3053,XxFAZE Jun1 RaWrXDxXx,game,0 diff allowed (pitcher),10,100504,"▲6 · HR · pitch 919, swing 919"
+3053,XxFAZE Jun1 RaWrXDxXx,game,500 diff (pitcher),11,110905,"▼5 · K · pitch 569, swing 69"
+3053,XxFAZE Jun1 RaWrXDxXx,game,0 diff allowed (pitcher),11,110905,"▼5 · HR · pitch 569, swing 569"
+3054,Paulie Wag,game,Multi-HR game,3,030607,
+3054,Paulie Wag,game,0 diff (batter),3,030607,"▲1 · HR · pitch 5, swing 5"
+3056,Donatello Chalupa,game,0 diff allowed (pitcher),3,031407,"▲4 · HR · pitch 1, swing 1"
+3056,Donatello Chalupa,game,0 diff allowed (pitcher),5,051107,"▼3 · HR · pitch 700, swing 700"
+3056,Donatello Chalupa,game,CG shutout,7,070203,
+3056,Donatello Chalupa,game,10+ K game,7,070203,
+3056,Donatello Chalupa,game,Walk-off,8,080707,▼7 · HR
+3056,Donatello Chalupa,game,0 diff (batter),8,080707,"▼7 · HR · pitch 569, swing 569"
+3056,Donatello Chalupa,game,Walk-off,10,101108,▼7 · SacF
+3056,Donatello Chalupa,game,0 diff (batter),11,111307,"▼3 · HR · pitch 700, swing 700"
+3057,Speedo Meter,game,Immaculate inning,4,040802,▲2
+3057,Speedo Meter,game,Immaculate inning,4,040802,▲4
+3057,Speedo Meter,game,Walk-off,10,100702,▼6 · IF1B
+3057,Speedo Meter,game,0 diff (batter),10,100601,"▼2 · HR · pitch 808, swing 808"
+3059,Skel Etor,game,500 diff against (batter),3,030606,"▲4 · DP · pitch 365, swing 865"
+3060,Skye McDowell,game,Walk-off,5,051404,▼7 · 1BWH
+3060,Skye McDowell,game,0 diff (batter),5,051107,"▼3 · HR · pitch 700, swing 700"
+3061,Trog Smash,game,Walk-off,10,100703,▼6 · HR
+3063,Threefinger Jansen III,game,Immaculate inning,5,050307,▲5
+3063,Threefinger Jansen III,game,Immaculate inning,5,051005,▲3
+3063,Threefinger Jansen III,game,0 diff allowed (pitcher),5,050708,"▼1 · HR · pitch 777, swing 777"
+3063,Threefinger Jansen III,game,CG shutout,6,061208,
+3063,Threefinger Jansen III,game,500 diff (pitcher),6,060408,"▲6 · K · pitch 127, swing 627"
+3065,Robert Atech,game,5+ RBI game,4,040401,
+3066,AAAAAAAAAAThor,game,0 diff (batter),6,061307,"▼3 · HR · pitch 111, swing 111"
+3066,AAAAAAAAAAThor,game,Grand slam,7,070308,▲2
+3069,Wallace Grommet,game,4+ hit game,4,040201,
+3069,Wallace Grommet,season,WPA leader (bat),4,,138.9
+3069,Wallace Grommet,game,Multi-HR game,4,040201,
+3069,Wallace Grommet,game,Walk-off,4,040501,▼6 · HR
+3069,Wallace Grommet,game,0 diff (batter),5,050101,"▲5 · HR · pitch 1000, swing 1000"
+3069,Wallace Grommet,game,0 diff (batter),6,060902,"▲4 · HR · pitch 333, swing 333"
+3069,Wallace Grommet,game,CG shutout,9,091102,
+3069,Wallace Grommet,game,0 diff allowed (pitcher),10,101208,"▼1 · HR · pitch 345, swing 345"
+3069,Wallace Grommet,game,Walk-off,12,121412,▼6 · HR
+3070,Ded Tanson,game,500 diff against (batter),8,081108,"▲6 · DP · pitch 301, swing 801"
+3072,Tucker Doubt,game,0 diff (batter),3,031303,"▲6 · HR · pitch 420, swing 420"
+3072,Tucker Doubt,game,Multi-HR game,6,061701,
+3072,Tucker Doubt,season,ER6 leader,9,,0.80
+3072,Tucker Doubt,season,WHIP leader,9,,1.00
+3072,Tucker Doubt,game,0 diff allowed (pitcher),10,100905,"▼2 · HR · pitch 727, swing 727"
+3073,Matt Himynamis,game,Immaculate inning,6,060904,▲4
+3073,Matt Himynamis,game,0 diff allowed (pitcher),6,060701,"▼3 · HR · pitch 871, swing 871"
+3073,Matt Himynamis,game,0 diff allowed (pitcher),6,060904,"▲5 · HR · pitch 416, swing 416"
+3073,Matt Himynamis,game,0 diff allowed (pitcher),6,061302,"▼3 · HR · pitch 17, swing 17"
+3073,Matt Himynamis,game,500 diff (pitcher),11,111504,"▲4 · K · pitch 892, swing 392"
+3075,H.D. Dog,game,0 diff (batter),4,041106,"▲5 · HR · pitch 1, swing 1"
+3077,Derek Bongiovanni,game,Walk-off,5,050205,▼6 · 2B
+3077,Derek Bongiovanni,game,0 diff (batter),7,071106,"▼5 · HR · pitch 244, swing 244"
+3077,Derek Bongiovanni,game,500 diff against (batter),10,101005,"▼5 · K · pitch 910, swing 410"
+3078,Chakra Pilates,game,0 diff (batter),7,071303,"▲2 · HR · pitch 888, swing 888"
+3079,Isaac Snowbender,season,HR leader,4,,5
+3079,Isaac Snowbender,game,Multi-HR game,4,041101,
+3079,Isaac Snowbender,season,SB leader,6,,9
+3079,Isaac Snowbender,game,500 diff against (batter),8,080608,"▲5 · K · pitch 788, swing 288"
+3079,Isaac Snowbender,game,500 diff (pitcher),9,091408,"▲5 · K · pitch 512, swing 12"
+3079,Isaac Snowbender,game,Grand slam,10,100906,▲3
+3079,Isaac Snowbender,game,500 diff against (batter),11,110607,"▲2 · K · pitch 12, swing 512"
+3079,Isaac Snowbender,game,Grand slam,11,111005,▼2
+3080,Jeff Dingerhitter,game,Multi-HR game,5,051407,
+3080,Jeff Dingerhitter,game,Multi-HR game,8,080801,
+3080,Jeff Dingerhitter,game,Walk-off,8,080907,▼8 · HR
+3080,Jeff Dingerhitter,game,4+ hit game,11,111006,
+3080,Jeff Dingerhitter,game,Walk-off,11,111006,▼6 · HR
+3082,Basethony Balltano,game,Walk-off,4,040708,▼6 · HR
+3082,Basethony Balltano,game,Walk-off,6,061401,▼6 · 1B
+3083,Poop McGee,game,Immaculate inning,4,040601,▲1
+3083,Poop McGee,game,0 diff allowed (pitcher),4,041203,"▲6 · HR · pitch 420, swing 420"
+3083,Poop McGee,game,500 diff (pitcher),5,050908,"▼1 · DP31 · pitch 722, swing 222"
+3083,Poop McGee,game,500 diff (pitcher),5,051403,"▼4 · DP · pitch 501, swing 1"
+3083,Poop McGee,game,0 diff allowed (pitcher),5,050801,"▲4 · HR · pitch 69, swing 69"
+3083,Poop McGee,game,0 diff allowed (pitcher),6,060504,"▼5 · HR · pitch 69, swing 69"
+3086,Nono Nones,game,0 diff (batter),7,071402,"▼5 · HR · pitch 569, swing 569"
+3088,Yoel Roshi,game,0 diff (batter),6,061106,"▼4 · HR · pitch 69, swing 69"
+3088,Yoel Roshi,game,500 diff against (batter),8,080606,"▼1 · K · pitch 612, swing 112"
+3088,Yoel Roshi,game,Walk-off,12,121212,▼6 · GORA
+3088,Yoel Roshi,game,Walk-off,13,130720,▼6 · 1B
+3089,Joey Wheeler,game,CG shutout,4,040806,
+3089,Joey Wheeler,game,CG shutout,7,070308,
+3089,Joey Wheeler,game,Immaculate inning,7,070308,▼2
+3089,Joey Wheeler,game,Immaculate inning,7,070308,▼3
+3089,Joey Wheeler,game,Immaculate inning,7,070803,▼2
+3089,Joey Wheeler,game,10+ K game,7,070308,
+3089,Joey Wheeler,game,500 diff (pitcher),8,081407,"▲6 · K · pitch 112, swing 612"
+3089,Joey Wheeler,game,0 diff allowed (pitcher),8,080806,"▲5 · HR · pitch 98, swing 98"
+3089,Joey Wheeler,game,0 diff allowed (pitcher),8,081007,"▼4 · HR · pitch 470, swing 470"
+3089,Joey Wheeler,game,500 diff (pitcher),10,100802,"▲4 · K · pitch 400, swing 900"
+3089,Joey Wheeler,game,0 diff allowed (pitcher),10,101103,"▼2 · HR · pitch 333, swing 333"
+3089,Joey Wheeler,game,500 diff (pitcher),11,110607,"▲2 · K · pitch 12, swing 512"
+3089,Joey Wheeler,game,Immaculate inning,11,111203,▲3
+3089,Joey Wheeler,game,10+ K game,11,111203,
+3091,AAAAntilles Zelk,game,500 diff against (batter),4,040207,"▲6 · DP · pitch 69, swing 569"
+3091,AAAAntilles Zelk,game,Multi-HR game,4,040508,
+3091,AAAAntilles Zelk,game,Walk-off,5,050208,▼7 · 2B
+3091,AAAAntilles Zelk,game,CG shutout,13,130619,
+4000,King Kruul,game,0 diff (batter),4,041203,"▲6 · HR · pitch 420, swing 420"
+4000,King Kruul,game,Grand slam,11,111304,▼1
+4000,King Kruul,game,500 diff against (batter),12,121111,"▼6 · K · pitch 713, swing 213"
+4003,Callie Braden,game,Immaculate inning,4,040606,▲2
+4004,R'lyeh Reid,game,4+ hit game,5,050901,
+4004,R'lyeh Reid,game,CG shutout,7,071105,
+4007,Reese Worthington,game,Grand slam,5,050406,▲4
+4007,Reese Worthington,game,Walk-off,6,060704,▼10 · 1BWH
+4008,LaCarpetron Dukemarriot II,game,CG shutout,4,040607,
+4008,LaCarpetron Dukemarriot II,game,CG shutout,4,041007,
+4008,LaCarpetron Dukemarriot II,game,Immaculate inning,4,040805,▼1
+4008,LaCarpetron Dukemarriot II,season,K leader,4,,34
+4008,LaCarpetron Dukemarriot II,game,500 diff (pitcher),5,050107,"▼6 · DP · pitch 288, swing 788"
+4008,LaCarpetron Dukemarriot II,season,WPA leader (pit),5,,156.7
+4008,LaCarpetron Dukemarriot II,game,Immaculate inning,6,061001,▼3
+4008,LaCarpetron Dukemarriot II,game,0 diff (batter),8,081406,"▲2 · HR · pitch 777, swing 777"
+4010,Matthew Heskey,game,Multi-HR game,11,110301,
+4011,Mitch Meanmug,game,CG shutout,7,070906,
+4011,Mitch Meanmug,game,500 diff (pitcher),7,070508,"▼5 · DP · pitch 517, swing 17"
+4011,Mitch Meanmug,season,WPA leader (pit),7,,153.6
+4011,Mitch Meanmug,game,0 diff allowed (pitcher),7,070306,"▼1 · HR · pitch 323, swing 323"
+4011,Mitch Meanmug,game,0 diff allowed (pitcher),7,071006,"▼5 · HR · pitch 840, swing 840"
+4011,Mitch Meanmug,game,0 diff allowed (pitcher),12,121213,"▲4 · HR · pitch 7, swing 7"
+4011,Mitch Meanmug,game,0 diff allowed (pitcher),12,121508,"▲4 · HR · pitch 417, swing 417"
+4012,Deku Matsui,game,Walk-off,4,040802,▼7 · 1B
+4015,Plack Attack,game,0 diff (batter),4,040901,"▼4 · HR · pitch 920, swing 920"
+4015,Plack Attack,game,Multi-HR game,6,061105,
+4015,Plack Attack,game,4+ hit game,10,100601,
+4017,Andrew Nova,game,0 diff allowed (pitcher),4,041406,"▲1 · HR · pitch 3, swing 3"
+4017,Andrew Nova,game,Immaculate inning,5,051406,▼4
+4017,Andrew Nova,game,0 diff allowed (pitcher),5,050507,"▲6 · HR · pitch 530, swing 530"
+4018,Slow Low,game,0 diff (batter),4,040903,"▼3 · HR · pitch 711, swing 711"
+4021,Jeff Shagwell,game,Walk-off,4,040308,▼6 · 1BWH
+4021,Jeff Shagwell,game,Multi-HR game,5,051007,
+4021,Jeff Shagwell,game,Walk-off,5,051007,▼6 · HR
+4021,Jeff Shagwell,game,Multi-HR game,6,061602,
+4021,Jeff Shagwell,game,500 diff against (batter),9,090607,"▲3 · K · pitch 327, swing 827"
+4021,Jeff Shagwell,game,Grand slam,10,100601,▲2
+4022,Adonis Sinoda,game,Grand slam,5,051202,▲3
+4022,Adonis Sinoda,season,HR leader,5,,5
+4022,Adonis Sinoda,season,RBI leader,5,,17
+4023,Vinny Vega,game,CG shutout,4,040906,
+4023,Vinny Vega,game,0 diff allowed (pitcher),6,060106,"▼3 · HR · pitch 630, swing 630"
+4025,Bast Fidgewidget,game,4+ hit game,7,070703,
+4033,Leonidas States,game,5+ RBI game,4,040603,
+4033,Leonidas States,game,Grand slam,6,060302,▼4
+4033,Leonidas States,game,Multi-HR game,6,060302,
+4033,Leonidas States,game,5+ RBI game,6,060302,
+4033,Leonidas States,game,Walk-off,8,080603,▼6 · HR
+4034,Gargle Nutz,game,4+ hit game,6,060205,
+4040,Trogdor Fhqwhgads,game,0 diff (batter),7,071006,"▼5 · HR · pitch 840, swing 840"
+4040,Trogdor Fhqwhgads,game,Walk-off,8,080906,▼8 · 2B
+4040,Trogdor Fhqwhgads,game,0 diff (batter),11,110208,"▼1 · HR · pitch 1, swing 1"
+4040,Trogdor Fhqwhgads,game,Walk-off,12,121013,▼6 · HR
+4041,John Rhys Ealy,game,Grand slam,6,061104,▲5
+4041,John Rhys Ealy,game,0 diff (batter),7,070204,"▼2 · HR · pitch 785, swing 785"
+4042,Sarah Buntingsworth,game,Multi-HR game,5,050204,
+4042,Sarah Buntingsworth,game,5+ RBI game,5,050204,
+4042,Sarah Buntingsworth,game,0 diff (batter),5,050204,"▼3 · HR · pitch 112, swing 112"
+4042,Sarah Buntingsworth,game,500 diff (pitcher),6,061306,"▲3 · K · pitch 502, swing 2"
+4042,Sarah Buntingsworth,game,0 diff allowed (pitcher),6,060705,"▲2 · HR · pitch 577, swing 577"
+4042,Sarah Buntingsworth,game,0 diff allowed (pitcher),6,061006,"▲2 · HR · pitch 777, swing 777"
+4042,Sarah Buntingsworth,game,0 diff allowed (pitcher),6,061306,"▲5 · HR · pitch 569, swing 569"
+4043,Cap Keeler,game,Immaculate inning,4,041205,▲3
+4044,Ura Irons,game,0 diff (batter),9,090502,"▼2 · HR · pitch 880, swing 880"
+4045,Dakota Carolina Montana,game,4+ hit game,4,040805,
+4045,Dakota Carolina Montana,game,Grand slam,8,081502,▲5
+4045,Dakota Carolina Montana,game,500 diff (pitcher),11,110504,"▲4 · K · pitch 186, swing 686"
+4045,Dakota Carolina Montana,game,500 diff against (batter),13,130122,"▼3 · K · pitch 250, swing 750"
+4048,Mike Fruitstand,game,Grand slam,9,090402,▲3
+4048,Mike Fruitstand,season,HR leader,9,,5
+4048,Mike Fruitstand,game,Multi-HR game,9,090402,
+4048,Mike Fruitstand,game,5+ RBI game,9,090402,
+4050,Calvin Guerensk,game,CG shutout,5,051006,
+4050,Calvin Guerensk,game,0 diff allowed (pitcher),6,061307,"▼3 · HR · pitch 111, swing 111"
+4050,Calvin Guerensk,game,0 diff allowed (pitcher),8,080701,"▲2 · HR · pitch 555, swing 555"
+4066,Brusdar Powerade,game,Grand slam,5,050105,▲3
+4066,Brusdar Powerade,game,Multi-HR game,6,060406,
+4067,Dogwood Maple,game,0 diff (batter),6,060406,"▼5 · HR · pitch 1, swing 1"
+4069,Hot Dog Jeopardy,game,4+ hit game,8,080706,
+4069,Hot Dog Jeopardy,game,5+ RBI game,8,080908,
+4070,Ioe Torrent,game,Multi-HR game,5,050406,
+4070,Ioe Torrent,game,0 diff (batter),6,061405,"▲3 · HR · pitch 69, swing 69"
+4070,Ioe Torrent,game,0 diff (batter),8,081306,"▲2 · HR · pitch 680, swing 680"
+4070,Ioe Torrent,game,0 diff allowed (pitcher),10,101404,"▼4 · HR · pitch 844, swing 844"
+4070,Ioe Torrent,game,Grand slam,12,120616,▲2
+4070,Ioe Torrent,game,5+ RBI game,12,120616,
+4072,R'lyeh Cultist 5,game,0 diff (batter),10,100603,"▲6 · HR · pitch 363, swing 363"
+4073,CJ Brandonson,game,CG shutout,10,100503,
+4073,CJ Brandonson,game,CG shutout,10,101305,
+4073,CJ Brandonson,game,Immaculate inning,10,100503,▼6
+4073,CJ Brandonson,game,Immaculate inning,10,100906,▲2
+4076,Grimothy Johnson,game,Immaculate inning,4,041504,▲1
+4078,Sleve McDichael,game,CG shutout,4,041403,
+4078,Sleve McDichael,game,Immaculate inning,4,041204,▲1
+4078,Sleve McDichael,game,0 diff allowed (pitcher),5,050204,"▼3 · HR · pitch 112, swing 112"
+4078,Sleve McDichael,game,Multi-HR game,6,061402,
+4078,Sleve McDichael,game,5+ RBI game,6,061402,
+4078,Sleve McDichael,game,0 diff (batter),6,060503,"▼4 · HR · pitch 2, swing 2"
+4078,Sleve McDichael,game,Immaculate inning,8,081106,▼5
+4078,Sleve McDichael,game,10+ K game,8,081307,
+4078,Sleve McDichael,season,K leader,8,,39
+4078,Sleve McDichael,game,0 diff allowed (pitcher),8,080407,"▲2 · HR · pitch 888, swing 888"
+4078,Sleve McDichael,game,CG shutout,9,090306,
+4078,Sleve McDichael,game,0 diff allowed (pitcher),9,091504,"▲4 · HR · pitch 118, swing 118"
+4078,Sleve McDichael,game,Immaculate inning,10,100307,▼5
+4078,Sleve McDichael,game,Immaculate inning,11,111107,▲6
+4078,Sleve McDichael,game,10+ K game,11,110506,
+4078,Sleve McDichael,game,Immaculate inning,12,120310,▲5
+4078,Sleve McDichael,game,Immaculate inning,13,130917,▲6
+4080,Patrick McDonough,game,0 diff (batter),6,060604,"▲2 · HR · pitch 666, swing 666"
+4080,Patrick McDonough,game,0 diff (batter),6,061002,"▲1 · HR · pitch 316, swing 316"
+4081,Toppo Thamornin,season,DPA leader,6,,195.7
+4081,Toppo Thamornin,game,Walk-off,8,080206,▼6 · HR
+5002,Guidooooo,game,500 diff against (batter),5,051701,"▲3 · K · pitch 180, swing 680"
+5002,Guidooooo,game,500 diff against (batter),7,070802,"▲6 · DP · pitch 327, swing 827"
+5002,Guidooooo,game,Multi-HR game,7,070306,
+5002,Guidooooo,season,SB leader,10,,8
+5002,Guidooooo,game,3+ SB game,10,101404,
+5002,Guidooooo,game,Walk-off,10,101203,▼6 · HR
+5002,Guidooooo,game,0 diff (batter),10,101701,"▲4 · HR · pitch 299, swing 299"
+5003,Pieter Sanchez,game,0 diff (batter),5,050601,"▲5 · HR · pitch 377, swing 377"
+5005,Narancia Ghirga,game,0 diff (batter),8,080808,"▲5 · HR · pitch 159, swing 159"
+5006,Sticky Mickey Mantle,game,500 diff against (batter),5,050701,"▲6 · K · pitch 1000, swing 500"
+5007,Gas House Gorillas,game,Walk-off,6,060402,▼6 · GORA
+5007,Gas House Gorillas,game,500 diff against (batter),8,080802,"▲2 · DP · pitch 833, swing 333"
+5010,Viktor Patterson,game,500 diff (pitcher),5,050701,"▲6 · K · pitch 1000, swing 500"
+5010,Viktor Patterson,game,0 diff allowed (pitcher),5,050101,"▲5 · HR · pitch 1000, swing 1000"
+5010,Viktor Patterson,game,0 diff allowed (pitcher),5,051001,"▼4 · HR · pitch 777, swing 777"
+5011,Mo Mo,game,500 diff against (batter),5,050908,"▼1 · DP31 · pitch 722, swing 222"
+5011,Mo Mo,game,Multi-HR game,7,071007,
+5011,Mo Mo,season,Hits leader,9,,19
+5011,Mo Mo,game,Walk-off,12,121115,▼6 · 1BWH
+5012,Ben Bramly,game,500 diff against (batter),6,061002,"▲6 · K · pitch 367, swing 867"
+5012,Ben Bramly,game,Grand slam,13,130519,▼5
+5012,Ben Bramly,game,5+ RBI game,13,130519,
+5014,Sheridan Blackstone,game,CG shutout,6,061406,
+5014,Sheridan Blackstone,game,CG shutout,7,070601,
+5014,Sheridan Blackstone,game,500 diff (pitcher),8,081203,"▼6 · K · pitch 764, swing 264"
+5014,Sheridan Blackstone,game,Immaculate inning,12,120813,▼4
+5016,LeBarn James,game,Grand slam,6,060401,▲2
+5016,LeBarn James,game,5+ RBI game,6,060401,
+5016,LeBarn James,game,Multi-HR game,8,081301,
+5016,LeBarn James,season,HR leader,9,,5
+5017,Makesiondon Kelkboom,game,Multi-HR game,9,091503,
+5017,Makesiondon Kelkboom,game,4+ hit game,11,110405,
+5018,Brian Taylor,season,DPA leader,5,,182.7
+5018,Brian Taylor,game,Grand slam,12,120916,▼6
+5019,Connor Morgan,game,Walk-off,5,050907,▼6 · HR
+5019,Connor Morgan,game,500 diff against (batter),7,070402,"▲5 · K · pitch 189, swing 689"
+5021,Kenny Kawaguchi,game,0 diff (batter),8,080404,"▲3 · HR · pitch 7, swing 7"
+5021,Kenny Kawaguchi,game,0 diff (batter),8,080806,"▲5 · HR · pitch 98, swing 98"
+5021,Kenny Kawaguchi,game,Walk-off,9,090206,▼6 · 2BWH
+5022,Franz Lisztpitcher,game,0 diff allowed (pitcher),6,061002,"▲1 · HR · pitch 316, swing 316"
+5022,Franz Lisztpitcher,game,500 diff against (batter),7,071402,"▼1 · K · pitch 951, swing 451"
+5022,Franz Lisztpitcher,game,500 diff against (batter),8,080102,"▼4 · K · pitch 285, swing 785"
+5022,Franz Lisztpitcher,game,500 diff against (batter),9,090302,"▲4 · K · pitch 569, swing 69"
+5022,Franz Lisztpitcher,game,Grand slam,9,091201,▼2
+5022,Franz Lisztpitcher,game,5+ RBI game,9,091201,
+5022,Franz Lisztpitcher,game,0 diff (batter),9,091201,"▼2 · HR · pitch 1, swing 1"
+5022,Franz Lisztpitcher,game,4+ hit game,11,110702,
+5022,Franz Lisztpitcher,season,SB leader,12,,9
+5024,Simba II,game,500 diff against (batter),7,071103,"▼4 · K · pitch 500, swing 1000"
+5024,Simba II,game,Multi-HR game,7,070706,
+5024,Simba II,game,5+ RBI game,7,070706,
+5025,Doc Wingduck,game,CG shutout,5,051104,
+5025,Doc Wingduck,season,DBF leader,5,,278.1
+5025,Doc Wingduck,season,ER6 leader,5,,1.57
+5025,Doc Wingduck,game,CG shutout,6,060703,
+5025,Doc Wingduck,season,K leader,6,,36
+5026,Freddie Huff,game,Walk-off,6,060106,▼8 · BB
+5029,Peoples Champ,game,Walk-off,8,080102,▼7 · 2B
+5029,Peoples Champ,game,500 diff against (batter),11,111102,"▼1 · K · pitch 500, swing 1000"
+5030,Dirk Digglet,game,Immaculate inning,6,060206,▼6
+5030,Dirk Digglet,season,DBF leader,6,,277.4
+5030,Dirk Digglet,game,Immaculate inning,7,071207,▲6
+5030,Dirk Digglet,game,500 diff (pitcher),8,081005,"▲6 · K · pitch 569, swing 69"
+5030,Dirk Digglet,game,CG shutout,9,091307,
+5030,Dirk Digglet,game,500 diff against (batter),11,111504,"▲4 · K · pitch 892, swing 392"
+5031,Doc Crudelly,game,4+ hit game,5,050901,
+5032,Sander Entman,game,0 diff (batter),6,060804,"▲2 · HR · pitch 900, swing 900"
+5032,Sander Entman,game,4+ hit game,7,070806,
+5032,Sander Entman,game,500 diff (pitcher),9,090607,"▲3 · K · pitch 327, swing 827"
+5032,Sander Entman,game,Immaculate inning,9,090907,▼3
+5032,Sander Entman,game,Walk-off,13,130121,▼6 · 2B
+5036,Thackery Pounce,game,Immaculate inning,5,051305,▼5
+5038,"Buster ""Striker"" Walker",game,500 diff against (batter),5,051304,"▼4 · K · pitch 350, swing 850"
+5040,Juju's Snorlax,game,Walk-off,6,060805,▼6 · HR
+5040,Juju's Snorlax,game,Grand slam,9,090503,▼5
+5040,Juju's Snorlax,game,Walk-off,10,100507,▼7 · HR
+5040,Juju's Snorlax,game,0 diff (batter),12,121115,"▲6 · HR · pitch 751, swing 751"
+5041,Papa Longstroke,game,Grand slam,5,051701,▲2
+5041,Papa Longstroke,game,Multi-HR game,12,120416,
+5042,Jay Emess,game,500 diff (pitcher),6,061306,"▼5 · K · pitch 777, swing 277"
+5042,Jay Emess,game,500 diff (pitcher),7,070402,"▲5 · K · pitch 189, swing 689"
+6001,Alternate Site,game,Grand slam,6,060502,▼4
+6004,Bony Skellinger,game,500 diff against (batter),8,081207,"▲4 · DP31 · pitch 667, swing 167"
+6004,Bony Skellinger,game,Grand slam,11,111701,▼1
+6004,Bony Skellinger,game,5+ RBI game,11,111701,
+6004,Bony Skellinger,game,Walk-off,11,111307,▼6 · 3B
+6005,Borg Torbjorgsson,game,0 diff (batter),7,071204,"▲2 · HR · pitch 104, swing 104"
+6005,Borg Torbjorgsson,game,Walk-off,8,081107,▼7 · 2B
+6008,Dottie,game,500 diff against (batter),6,061306,"▼5 · K · pitch 777, swing 277"
+6009,Hannibal Bligh,game,Grand slam,6,061102,▼1
+6009,Hannibal Bligh,season,RBI leader,6,,14
+6009,Hannibal Bligh,game,Grand slam,8,080606,▲4
+6009,Hannibal Bligh,season,HR leader,9,,5
+6009,Hannibal Bligh,game,Multi-HR game,9,091407,
+6009,Hannibal Bligh,game,Multi-HR game,10,100804,
+6009,Hannibal Bligh,game,Multi-HR game,11,111207,
+6009,Hannibal Bligh,game,Walk-off,11,111407,▼6 · 1BWH
+6009,Hannibal Bligh,game,0 diff (batter),11,111207,"▲4 · HR · pitch 324, swing 324"
+6010,Homer Knocker,game,500 diff against (batter),7,071105,"▼5 · K · pitch 920, swing 420"
+6010,Homer Knocker,game,Golden sombrero,9,090707,
+6010,Homer Knocker,game,0 diff (batter),13,130821,"▼5 · HR · pitch 222, swing 222"
+6011,Joe Pidgeon,game,Grand slam,6,061006,▲2
+6011,Joe Pidgeon,game,0 diff (batter),6,061006,"▲2 · HR · pitch 777, swing 777"
+6011,Joe Pidgeon,game,Multi-HR game,7,070304,
+6011,Joe Pidgeon,game,Multi-HR game,8,081304,
+6012,Kanye East,game,4+ hit game,8,081106,
+6013,Lane Drew,game,0 diff allowed (pitcher),7,071106,"▼5 · HR · pitch 244, swing 244"
+6013,Lane Drew,game,0 diff allowed (pitcher),7,071303,"▲2 · HR · pitch 888, swing 888"
+6013,Lane Drew,game,Immaculate inning,8,080404,▼2
+6013,Lane Drew,game,CG shutout,9,090904,
+6013,Lane Drew,game,500 diff (pitcher),9,091106,"▼5 · DP · pitch 888, swing 388"
+6013,Lane Drew,game,CG shutout,10,100506,
+6013,Lane Drew,season,WPA leader (pit),10,,164.6
+6013,Lane Drew,game,0 diff allowed (pitcher),11,111304,"▲3 · HR · pitch 999, swing 999"
+6014,Mattress,game,500 diff against (batter),6,060408,"▼4 · K · pitch 402, swing 902"
+6014,Mattress,game,0 diff (batter),6,060807,"▲4 · HR · pitch 505, swing 505"
+6016,Mike Litoris,game,Walk-off,6,060404,▼6 · HR
+6017,Ohtani But Wide,game,4+ hit game,6,060502,
+6017,Ohtani But Wide,season,Hits leader,6,,20
+6017,Ohtani But Wide,game,Multi-HR game,6,060502,
+6017,Ohtani But Wide,game,0 diff (batter),6,060702,"▼1 · HR · pitch 527, swing 527"
+6018,Perry Platypus,game,0 diff (batter),6,061007,"▼6 · HR · pitch 1, swing 1"
+6019,Phillip Dunphy,game,4+ hit game,6,060106,
+6020,Pope Coswi,game,0 diff allowed (pitcher),11,111406,"▼5 · HR · pitch 841, swing 841"
+6022,VI,game,500 diff (pitcher),7,071103,"▼4 · K · pitch 500, swing 1000"
+6022,VI,game,0 diff allowed (pitcher),7,070102,"▲1 · HR · pitch 874, swing 874"
+6022,VI,game,0 diff allowed (pitcher),7,071402,"▼5 · HR · pitch 569, swing 569"
+6022,VI,game,CG shutout,8,080402,
+6022,VI,game,500 diff (pitcher),8,081502,"▼6 · K · pitch 569, swing 69"
+6022,VI,game,Immaculate inning,8,081103,▲2
+6022,VI,game,Immaculate inning,8,081103,▲4
+6022,VI,game,CG shutout,11,111201,
+6022,VI,game,0 diff allowed (pitcher),13,130819,"▼3 · HR · pitch 412, swing 412"
+6023,Y.Y. Lord,game,0 diff allowed (pitcher),7,071404,"▲2 · HR · pitch 222, swing 222"
+6025,Hornot Hivez,game,500 diff (pitcher),6,061002,"▲6 · K · pitch 367, swing 867"
+6026,B.A. Dickey,game,CG shutout,8,080105,
+6029,Scherbie Fully-Loaded,game,Walk-off,8,080205,▼7 · HR
+6029,Scherbie Fully-Loaded,season,Hits leader,9,,19
+6030,Steven Silston,game,0 diff allowed (pitcher),6,061205,"▲3 · HR · pitch 888, swing 888"
+6031,Captain Rex,game,0 diff allowed (pitcher),6,060604,"▲2 · HR · pitch 666, swing 666"
+6031,Captain Rex,game,Grand slam,9,090304,▲5
+6031,Captain Rex,game,500 diff against (batter),10,100702,"▼4 · K · pitch 69, swing 569"
+6031,Captain Rex,game,0 diff (batter),10,100304,"▲2 · HR · pitch 241, swing 241"
+6031,Captain Rex,game,4+ hit game,11,111402,
+6031,Captain Rex,game,Walk-off,12,121012,▼6 · HR
+6035,Tommy Tightpants,game,0 diff allowed (pitcher),6,060807,"▲4 · HR · pitch 505, swing 505"
+6035,Tommy Tightpants,game,0 diff allowed (pitcher),6,061405,"▲3 · HR · pitch 69, swing 69"
+6035,Tommy Tightpants,game,Immaculate inning,7,071302,▲2
+6035,Tommy Tightpants,game,Immaculate inning,8,080303,▲3
+6040,Big Smoke Anderson,game,Grand slam,6,060701,▲1
+6040,Big Smoke Anderson,game,500 diff against (batter),8,080603,"▲2 · LODP · pitch 533, swing 33"
+6040,Big Smoke Anderson,game,Walk-off,8,080101,▼6 · 1BWH
+6044,Matthew Longballo,game,CG shutout,6,060704,
+6044,Matthew Longballo,game,10+ K game,6,060704,
+6044,Matthew Longballo,game,CG shutout,7,070805,
+6047,Crimson Chin,game,Walk-off,6,061701,▼6 · HR
+6047,Crimson Chin,season,SB leader,9,,9
+6049,NoodleArmBigPowerODoyleetc,game,500 diff (pitcher),8,080102,"▼4 · K · pitch 285, swing 785"
+6049,NoodleArmBigPowerODoyleetc,game,Immaculate inning,8,080804,▲4
+6049,NoodleArmBigPowerODoyleetc,game,Immaculate inning,8,081401,▼1
+6049,NoodleArmBigPowerODoyleetc,game,4+ hit game,11,111406,
+6049,NoodleArmBigPowerODoyleetc,season,SB leader,11,,5
+6049,NoodleArmBigPowerODoyleetc,game,0 diff (batter),11,111406,"▼5 · HR · pitch 841, swing 841"
+6050,Emerson Austin Jr.,game,Grand slam,7,070607,▼4
+6050,Emerson Austin Jr.,game,Walk-off,8,080804,▼6 · 2B
+6050,Emerson Austin Jr.,game,0 diff (batter),8,081004,"▼5 · HR · pitch 327, swing 327"
+7002,Dinah Myte,game,0 diff (batter),7,070101,"▲3 · HR · pitch 400, swing 400"
+7003,Stumpy Malone,game,0 diff (batter),8,080604,"▼2 · HR · pitch 326, swing 326"
+7004,Peter Hoomanawanui,game,0 diff (batter),10,101103,"▼2 · HR · pitch 333, swing 333"
+7004,Peter Hoomanawanui,game,500 diff against (batter),12,120709,"▼3 · K · pitch 4, swing 504"
+7007,Kenny Powers,game,CG shutout,8,080406,
+7007,Kenny Powers,game,0 diff allowed (pitcher),8,080808,"▲5 · HR · pitch 159, swing 159"
+7011,Derek Rasmussen,game,Grand slam,10,101404,▼4
+7011,Derek Rasmussen,game,0 diff (batter),10,101404,"▼4 · HR · pitch 844, swing 844"
+7012,CJ Ayer,game,0 diff (batter),7,071404,"▲2 · HR · pitch 222, swing 222"
+7012,CJ Ayer,game,Walk-off,9,091404,▼10 · 1B
+7012,CJ Ayer,game,Grand slam,11,111601,▲2
+7012,CJ Ayer,game,Grand slam,12,121112,▲4
+7012,CJ Ayer,game,5+ RBI game,12,121112,
+7013,Pie In The Sky,game,Walk-off,7,070803,▼10 · IF1B
+7013,Pie In The Sky,game,Walk-off,7,070903,▼6 · HR
+7014,Doc Dockerson,game,CG shutout,9,090705,
+7014,Doc Dockerson,game,0 diff allowed (pitcher),9,091504,"▼3 · HR · pitch 119, swing 119"
+7014,Doc Dockerson,game,CG shutout,13,130523,
+7016,Ovaltine,game,0 diff (batter),7,070107,"▲5 · HR · pitch 910, swing 910"
+7016,Ovaltine,game,Multi-HR game,12,121215,
+7017,Juan Sexton,season,DPA leader,9,,199.9
+7017,Juan Sexton,game,Walk-off,9,090902,▼8 · 1B
+7017,Juan Sexton,game,5+ RBI game,10,100808,
+7017,Juan Sexton,game,0 diff (batter),10,100406,"▲4 · HR · pitch 1, swing 1"
+7017,Juan Sexton,game,0 diff (batter),11,110605,"▲2 · HR · pitch 10, swing 10"
+7018,Y.E. Wally,game,Walk-off,13,130621,▼8 · 1B
+7020,Sonar McDeuceski,game,500 diff against (batter),8,080507,"▲3 · K · pitch 817, swing 317"
+7020,Sonar McDeuceski,game,Immaculate inning,10,100904,▼1
+7020,Sonar McDeuceski,game,Immaculate inning,11,110804,▲5
+7021,Dutch Boggs,game,Walk-off,9,090506,▼8 · HR
+7021,Dutch Boggs,game,0 diff (batter),13,130121,"▲5 · HR · pitch 12, swing 12"
+7022,Meat Wad,game,500 diff against (batter),8,081303,"▲5 · K · pitch 500, swing 1000"
+7022,Meat Wad,season,DPA leader,11,,190.0
+7022,Meat Wad,season,WPA leader (bat),11,,155.7
+7022,Meat Wad,game,Walk-off,11,111108,▼9 · HR
+7023,Mickey May,game,10+ K game,8,080704,
+7023,Mickey May,game,500 diff (pitcher),9,090905,"▼1 · DP31 · pitch 277, swing 777"
+7023,Mickey May,game,500 diff (pitcher),10,101008,"▲2 · DP · pitch 399, swing 899"
+7023,Mickey May,game,CG shutout,11,110805,
+7023,Mickey May,game,Immaculate inning,13,130919,▼6
+7024,Jethro McDungle,game,Walk-off,7,070705,▼6 · 2B
+7024,Jethro McDungle,game,Walk-off,7,071306,▼6 · HR
+7025,Rocco Rudnikov,game,500 diff (pitcher),8,081406,"▲1 · DP31 · pitch 69, swing 569"
+7025,Rocco Rudnikov,game,Grand slam,8,080706,▲5
+7025,Rocco Rudnikov,game,4+ hit game,8,080706,
+7025,Rocco Rudnikov,game,Multi-HR game,8,080706,
+7025,Rocco Rudnikov,game,5+ RBI game,8,080706,
+7025,Rocco Rudnikov,game,Reached base 5+,8,080706,
+7025,Rocco Rudnikov,game,0 diff allowed (pitcher),8,081406,"▲2 · HR · pitch 777, swing 777"
+7025,Rocco Rudnikov,game,500 diff against (batter),9,091106,"▼5 · DP · pitch 888, swing 388"
+7027,Kevin James,game,CG shutout,10,100208,
+7027,Kevin James,game,500 diff (pitcher),10,100208,"▲1 · K · pitch 23, swing 523"
+7027,Kevin James,game,500 diff (pitcher),11,111301,"▲3 · K · pitch 134, swing 634"
+7028,Perome Jeterson,game,4+ hit game,9,091101,
+7028,Perome Jeterson,game,Walk-off,9,091306,▼7 · HR
+7030,Jimmy Kalkowski,game,CG shutout,9,091002,
+7033,kilo,game,Grand slam,8,080904,▼4
+7033,kilo,game,Multi-HR game,9,090707,
+7033,kilo,game,5+ RBI game,9,090707,
+7034,G Baby,game,CG shutout,9,091403,
+7035,peachespeachespeaches,game,CG shutout,11,110806,
+7038,Raffy Benitez,game,Multi-HR game,11,111001,
+7038,Raffy Benitez,game,5+ RBI game,11,111001,
+7039,Mr Plow,game,Multi-HR game,8,080203,
+7039,Mr Plow,game,5+ RBI game,8,080203,
+7039,Mr Plow,game,0 diff (batter),8,080203,"▲3 · HR · pitch 311, swing 311"
+7039,Mr Plow,game,0 diff (batter),10,100102,"▼2 · HR · pitch 420, swing 420"
+7039,Mr Plow,season,SB leader,11,,5
+7042,Skimble Shanks,game,500 diff against (batter),8,081004,"▼5 · K · pitch 900, swing 400"
+7045,Jimmy Pop,game,0 diff allowed (pitcher),9,091204,"▼4 · HR · pitch 202, swing 202"
+7045,Jimmy Pop,game,4+ hit game,11,110201,
+8002,Trevor Rose,game,0 diff allowed (pitcher),10,100406,"▲4 · HR · pitch 1, swing 1"
+8002,Trevor Rose,game,Immaculate inning,11,110904,▼5
+8002,Trevor Rose,game,0 diff allowed (pitcher),11,110103,"▲1 · HR · pitch 808, swing 808"
+8002,Trevor Rose,game,0 diff allowed (pitcher),11,111502,"▼5 · HR · pitch 69, swing 69"
+8002,Trevor Rose,game,500 diff (pitcher),13,130120,"▲1 · K · pitch 567, swing 67"
+8006,Gnome Chomsky,game,500 diff against (batter),9,090803,"▼6 · K · pitch 569, swing 69"
+8007,Wally Wellbutrin,game,4+ hit game,8,080706,
+8008,Guy Gilwater,game,500 diff against (batter),11,110504,"▲4 · K · pitch 186, swing 686"
+8008,Guy Gilwater,game,500 diff against (batter),11,111301,"▼3 · K · pitch 733, swing 233"
+8008,Guy Gilwater,game,0 diff (batter),11,111301,"▼1 · HR · pitch 500, swing 500"
+8011,Vis Pacifiera,game,CG shutout,8,080506,
+8011,Vis Pacifiera,game,0 diff (batter),8,081406,"▼3 · HR · pitch 503, swing 503"
+8011,Vis Pacifiera,game,0 diff allowed (pitcher),8,081306,"▲2 · HR · pitch 680, swing 680"
+8016,R'lyeh Cultist C,game,500 diff (pitcher),8,081004,"▼5 · K · pitch 900, swing 400"
+8016,R'lyeh Cultist C,game,0 diff allowed (pitcher),8,080404,"▲3 · HR · pitch 7, swing 7"
+8016,R'lyeh Cultist C,game,0 diff allowed (pitcher),8,081004,"▼5 · HR · pitch 327, swing 327"
+8016,R'lyeh Cultist C,game,Multi-HR game,12,120811,
+8016,R'lyeh Cultist C,game,Walk-off,13,130220,▼8 · SacF
+8020,Lazer Dave,game,0 diff (batter),8,081503,"▲4 · HR · pitch 711, swing 711"
+8021,Otto Von Eirsmark,game,500 diff against (batter),8,081301,"▲5 · LODP · pitch 100, swing 600"
+8023,Johnny B. Goode,game,Walk-off,11,111404,▼6 · HR
+8024,Kram Fork,game,4+ hit game,8,080901,
+8025,Don Bon,game,0 diff (batter),8,081102,"▼2 · HR · pitch 620, swing 620"
+8026,Alexander West,game,4+ hit game,9,090606,
+8030,Butter Man,game,500 diff (pitcher),8,080507,"▲3 · K · pitch 817, swing 317"
+8030,Butter Man,game,500 diff (pitcher),8,080606,"▼1 · K · pitch 612, swing 112"
+8032,toronto mans,game,500 diff (pitcher),8,081006,"▼7 · DP · pitch 211, swing 711"
+8046,Hunter Scott,game,500 diff against (batter),11,111301,"▲3 · K · pitch 134, swing 634"
+8047,Pete Morris,game,500 diff (pitcher),8,081402,"▼1 · K · pitch 1, swing 501"
+8047,Pete Morris,game,Immaculate inning,8,081201,▼3
+8048,Captain Trash,game,Immaculate inning,8,080707,▲7
+8048,Captain Trash,game,0 diff allowed (pitcher),10,101402,"▲6 · HR · pitch 69, swing 69"
+8048,Captain Trash,game,CG shutout,11,110907,
+8048,Captain Trash,game,CG shutout,12,120115,
+8048,Captain Trash,game,CG shutout,12,120514,
+8048,Captain Trash,game,0 diff allowed (pitcher),12,121115,"▲6 · HR · pitch 751, swing 751"
+8049,Kries Von Kriestalhauser,game,4+ hit game,11,111601,
+8049,Kries Von Kriestalhauser,game,500 diff against (batter),12,120114,"▲3 · K · pitch 92, swing 592"
+8049,Kries Von Kriestalhauser,game,Walk-off,12,120614,▼6 · 3B
+8049,Kries Von Kriestalhauser,game,0 diff (batter),12,120915,"▲6 · HR · pitch 707, swing 707"
+8051,James St. Louis,game,500 diff (pitcher),12,121013,"▼2 · K · pitch 517, swing 17"
+9001,Harvey Burton,game,Multi-HR game,10,100705,
+9001,Harvey Burton,game,4+ hit game,11,110601,
+9001,Harvey Burton,game,Walk-off,12,120814,▼6 · HR
+9003,Cash Considerations,game,500 diff against (batter),12,120209,"▲5 · DP · pitch 711, swing 211"
+9007,Dilwyn Silversheen,game,4+ hit game,10,101303,
+9009,Jamal Fyre,game,500 diff (pitcher),9,090302,"▲4 · K · pitch 569, swing 69"
+9009,Jamal Fyre,season,DBF leader,9,,275.7
+9009,Jamal Fyre,game,0 diff allowed (pitcher),13,130623,"▲7 · HR · pitch 14, swing 14"
+9010,Brent Chillwater,game,Immaculate inning,9,091301,▲5
+9010,Brent Chillwater,season,K leader,9,,45
+9010,Brent Chillwater,game,CG shutout,10,100203,
+9010,Brent Chillwater,game,CG shutout,11,110906,
+9010,Brent Chillwater,game,Immaculate inning,11,110705,▼5
+9010,Brent Chillwater,game,10+ K game,11,111305,
+9010,Brent Chillwater,season,K leader,11,,39
+9010,Brent Chillwater,game,Immaculate inning,13,130322,▼5
+9011,Lightning Volt,game,Immaculate inning,9,090801,▲3
+9011,Lightning Volt,game,CG shutout,10,101307,
+9011,Lightning Volt,game,Immaculate inning,10,100306,▼1
+9011,Lightning Volt,game,CG shutout,11,110107,
+9011,Lightning Volt,game,CG shutout,11,110507,
+9011,Lightning Volt,game,Immaculate inning,11,111307,▲3
+9011,Lightning Volt,game,500 diff (pitcher),13,130823,"▼3 · DP31 · pitch 703, swing 203"
+9012,Epto Bismol,game,Immaculate inning,9,090801,▼6
+9012,Epto Bismol,game,0 diff allowed (pitcher),9,091201,"▼2 · HR · pitch 1, swing 1"
+9014,Jimmy Payne,season,WPA leader (bat),9,,104.3
+9014,Jimmy Payne,game,0 diff (batter),12,120312,"▼4 · HR · pitch 200, swing 200"
+9015,Ratryox,game,Multi-HR game,9,091503,
+9015,Ratryox,game,Walk-off,9,090102,▼6 · 1BWH
+9016,Virgil Aegis-Gunther,game,500 diff (pitcher),9,090105,"▼4 · LODP · pitch 411, swing 911"
+9016,Virgil Aegis-Gunther,game,Immaculate inning,10,100906,▲4
+9017,Joe Yoshi,game,Multi-HR game,9,091004,
+9017,Joe Yoshi,game,0 diff (batter),9,090302,"▼4 · HR · pitch 1000, swing 1000"
+9019,Tooth Heaven Won,game,500 diff against (batter),10,101504,"▼4 · LODP · pitch 771, swing 271"
+9019,Tooth Heaven Won,game,4+ hit game,10,101204,
+9019,Tooth Heaven Won,game,5+ RBI game,11,111406,
+9019,Tooth Heaven Won,game,500 diff against (batter),12,120414,"▼6 · K · pitch 771, swing 271"
+9019,Tooth Heaven Won,game,500 diff against (batter),12,120816,"▼5 · K · pitch 771, swing 271"
+9020,Nathanial Swenson,game,500 diff against (batter),10,101501,"▲6 · K · pitch 569, swing 69"
+9025,Bryce Parker,game,0 diff (batter),11,110807,"▼5 · HR · pitch 801, swing 801"
+9026,Billy Boi,game,Walk-off,9,090705,▼6 · HR
+9031,Bob Nutting Jr,season,HR leader,11,,7
+9031,Bob Nutting Jr,season,RBI leader,11,,19
+9031,Bob Nutting Jr,game,Multi-HR game,11,110905,
+9031,Bob Nutting Jr,game,Multi-HR game,11,111003,
+9031,Bob Nutting Jr,game,5+ RBI game,11,110905,
+9031,Bob Nutting Jr,game,0 diff (batter),13,130819,"▼3 · HR · pitch 412, swing 412"
+9032,Damion Knox,game,Grand slam,9,091204,▲5
+9033,Francesco Hardgust,game,0 diff (batter),9,091204,"▼4 · HR · pitch 202, swing 202"
+9033,Francesco Hardgust,game,500 diff against (batter),12,120209,"▲6 · K · pitch 461, swing 961"
+9033,Francesco Hardgust,game,0 diff (batter),12,120209,"▲4 · HR · pitch 961, swing 961"
+9033,Francesco Hardgust,game,Multi-HR game,13,130420,
+9035,Mike Ock,game,4+ hit game,11,110305,
+9036,O'R'lyeh Auto Parts,game,500 diff against (batter),12,120511,"▼6 · K · pitch 504, swing 4"
+9036,O'R'lyeh Auto Parts,game,4+ hit game,12,121011,
+9036,O'R'lyeh Auto Parts,game,4+ hit game,13,130220,
+9039,Mama Luigi,game,CG shutout,10,100701,
+9039,Mama Luigi,game,Immaculate inning,10,100701,▲4
+9039,Mama Luigi,game,Immaculate inning,11,110101,▲2
+9039,Mama Luigi,game,CG shutout,12,121410,
+9039,Mama Luigi,game,Immaculate inning,12,121705,▲1
+9039,Mama Luigi,season,K leader,12,,38
+9039,Mama Luigi,season,WHIP leader,12,,0.95
+9039,Mama Luigi,season,WPA leader (pit),12,,218.1
+9041,Himmy Proton,game,500 diff against (batter),11,110905,"▼5 · K · pitch 569, swing 69"
+9044,Strawberry Jones,season,HR leader,10,,5
+9044,Strawberry Jones,game,0 diff (batter),12,121213,"▲4 · HR · pitch 7, swing 7"
+10002,Pokey Fleece,game,500 diff against (batter),11,110406,"▲1 · K · pitch 501, swing 1"
+10003,BANNED PLAYER,game,Cycle,10,101003,
+10003,BANNED PLAYER,game,Grand slam,10,101003,▲4
+10003,BANNED PLAYER,game,4+ hit game,10,101003,
+10003,BANNED PLAYER,season,RBI leader,10,,17
+10003,BANNED PLAYER,game,5+ RBI game,10,101003,
+10003,BANNED PLAYER,game,0 diff (batter),10,100504,"▲6 · HR · pitch 919, swing 919"
+10003,BANNED PLAYER,game,500 diff against (batter),11,110401,"▲6 · K · pitch 1000, swing 500"
+10003,BANNED PLAYER,game,4+ hit game,11,110504,
+10003,BANNED PLAYER,game,Reached base 5+,11,110504,
+10004,BANNED PLAYER,game,Grand slam,10,101503,▲4
+10004,BANNED PLAYER,game,0 diff (batter),11,110305,"▼3 · HR · pitch 69, swing 69"
+10005,Chef Cook,game,4+ hit game,10,101304,
+10005,Chef Cook,season,DPA leader,10,,175.7
+10005,Chef Cook,season,Hits leader,10,,23
+10005,Chef Cook,season,WPA leader (bat),10,,127.6
+10005,Chef Cook,game,Multi-HR game,10,100902,
+10005,Chef Cook,game,5+ RBI game,10,100902,
+10005,Chef Cook,game,Walk-off,10,101304,▼7 · 3B
+10005,Chef Cook,game,0 diff (batter),10,101006,"▼1 · HR · pitch 999, swing 999"
+10007,Henry Atombomb,game,CG shutout,10,100504,
+10007,Henry Atombomb,game,CG shutout,10,101104,
+10007,Henry Atombomb,game,CG shutout,11,111004,
+10007,Henry Atombomb,game,500 diff (pitcher),11,110804,"▼4 · K · pitch 103, swing 603"
+10007,Henry Atombomb,game,Immaculate inning,11,110804,▼3
+10007,Henry Atombomb,game,0 diff allowed (pitcher),11,110604,"▲2 · HR · pitch 900, swing 900"
+10008,Eldritch Dancer,game,Immaculate inning,10,100407,▼3
+10008,Eldritch Dancer,game,Immaculate inning,10,100603,▼3
+10008,Eldritch Dancer,game,Immaculate inning,10,101103,▲5
+10008,Eldritch Dancer,season,K leader,10,,39
+10008,Eldritch Dancer,game,10+ K game,11,110803,
+10008,Eldritch Dancer,game,Immaculate inning,12,121310,▼3
+10015,Sir Walks A Lot,game,0 diff (batter),10,100202,"▼4 · HR · pitch 512, swing 512"
+10020,Johnmaine Chupri,game,Grand slam,12,120215,▼3
+10023,Rex McStrange,game,5+ RBI game,10,100103,
+10023,Rex McStrange,game,Reached base 5+,10,100103,
+10025,Dark Brother,game,4+ hit game,10,101401,
+10025,Dark Brother,game,Walk-off,10,100502,▼6 · 1BWH
+10027,Dingers McGee,game,4+ hit game,10,100108,
+10027,Dingers McGee,game,Walk-off,10,100801,▼6 · HR
+10027,Dingers McGee,game,Walk-off,10,101201,▼6 · HR
+10030,Donny Dash,game,0 diff (batter),10,101303,"▲3 · HR · pitch 988, swing 988"
+10030,Donny Dash,game,500 diff against (batter),13,130823,"▼3 · DP31 · pitch 703, swing 203"
+10035,Man of Steal,game,4+ hit game,12,120314,
+10035,Man of Steal,game,0 diff (batter),12,120314,"▲6 · HR · pitch 249, swing 249"
+10036,Kyuss Kosades,game,500 diff (pitcher),10,100702,"▼4 · K · pitch 69, swing 569"
+10036,Kyuss Kosades,game,0 diff allowed (pitcher),10,100102,"▼2 · HR · pitch 420, swing 420"
+10036,Kyuss Kosades,game,500 diff (pitcher),11,111102,"▼1 · K · pitch 500, swing 1000"
+10036,Kyuss Kosades,game,Immaculate inning,13,130621,▲8
+10036,Kyuss Kosades,game,0 diff allowed (pitcher),13,130317,"▼3 · HR · pitch 250, swing 250"
+10040,Serengeti Fingers,game,4+ hit game,11,111502,
+10040,Serengeti Fingers,game,0 diff (batter),11,111304,"▲3 · HR · pitch 999, swing 999"
+10042,Bingle Johnson,game,0 diff (batter),12,120612,"▲2 · HR · pitch 97, swing 97"
+10043,Justin Trotter,game,Walk-off,11,110703,▼7 · HR
+10043,Justin Trotter,game,0 diff (batter),11,110103,"▲1 · HR · pitch 808, swing 808"
+10045,Jordan Kurdi,game,CG shutout,10,100401,
+10045,Jordan Kurdi,game,500 diff (pitcher),10,100401,"▲3 · K · pitch 400, swing 900"
+10045,Jordan Kurdi,game,Immaculate inning,10,100401,▲3
+10045,Jordan Kurdi,game,10+ K game,10,100401,
+10045,Jordan Kurdi,season,DBF leader,10,,300.0
+10045,Jordan Kurdi,season,ER6 leader,10,,1.78
+10045,Jordan Kurdi,season,WHIP leader,10,,0.96
+10045,Jordan Kurdi,game,No-hitter,10,100401,
+10045,Jordan Kurdi,game,Perfect game,10,100401,
+10045,Jordan Kurdi,game,500 diff (pitcher),11,110406,"▲1 · K · pitch 501, swing 1"
+10045,Jordan Kurdi,game,0 diff allowed (pitcher),11,110406,"▲1 · HR · pitch 816, swing 816"
+10047,Saul Pewald,game,Multi-HR game,12,120414,
+10047,Saul Pewald,game,5+ RBI game,12,120414,
+10047,Saul Pewald,game,Walk-off,13,130818,▼6 · HR
+10048,Texan Two Gloves,game,500 diff against (batter),10,100401,"▲3 · K · pitch 400, swing 900"
+10061,Albert Pooholes,game,Multi-HR game,10,100705,
+10061,Albert Pooholes,game,Multi-HR game,11,111103,
+10061,Albert Pooholes,game,Walk-off,11,111002,▼6 · HR
+10062,R'lyeh Cultist 73,game,Grand slam,11,111101,▲7
+10062,R'lyeh Cultist 73,game,Multi-HR game,11,111101,
+10062,R'lyeh Cultist 73,game,5+ RBI game,11,111101,
+10070,John Applebees,game,Immaculate inning,13,130120,▼3
+10070,John Applebees,game,0 diff allowed (pitcher),13,130821,"▼5 · HR · pitch 222, swing 222"
+10071,Bobert Hideyoshi,game,4+ hit game,10,101403,
+10071,Bobert Hideyoshi,season,HR leader,10,,5
+10071,Bobert Hideyoshi,game,Multi-HR game,10,101403,
+10071,Bobert Hideyoshi,game,5+ RBI game,10,101403,
+10071,Bobert Hideyoshi,game,Multi-HR game,11,110806,
+10075,Guillermo Griffey III,game,Grand slam,11,110207,▲1
+10079,R'lyeh Greene,game,Grand slam,11,110303,▲3
+10079,R'lyeh Greene,game,0 diff (batter),13,130920,"▼1 · HR · pitch 1, swing 1"
+10082,Sterling Turlington,game,Immaculate inning,12,120309,▲7
+11006,Spitty McSpit,game,0 diff allowed (pitcher),11,110208,"▼1 · HR · pitch 1, swing 1"
+11006,Spitty McSpit,game,0 diff allowed (pitcher),11,110601,"▼3 · HR · pitch 69, swing 69"
+11006,Spitty McSpit,game,500 diff (pitcher),12,120114,"▲3 · K · pitch 92, swing 592"
+11007,Hubert Dubois,game,CG shutout,12,120815,
+11007,Hubert Dubois,game,0 diff allowed (pitcher),12,120915,"▲6 · HR · pitch 707, swing 707"
+11008,Miikka Jarvinen,game,Grand slam,11,110102,▼2
+11008,Miikka Jarvinen,game,Multi-HR game,11,110102,
+11008,Miikka Jarvinen,game,5+ RBI game,11,110102,
+11008,Miikka Jarvinen,game,4+ hit game,13,130820,
+11010,Starxy Stinkler,game,Golden sombrero,12,120916,
+11011,Sock Monkey,game,500 diff (pitcher),12,120511,"▼6 · K · pitch 504, swing 4"
+11011,Sock Monkey,game,500 diff (pitcher),12,120816,"▼5 · K · pitch 771, swing 271"
+11012,Ace Brickman,game,0 diff (batter),11,110604,"▲2 · HR · pitch 900, swing 900"
+11012,Ace Brickman,game,0 diff (batter),13,130317,"▼3 · HR · pitch 250, swing 250"
+11013,AJ Wolfe,game,500 diff (pitcher),12,120414,"▼6 · K · pitch 771, swing 271"
+11016,Arturo Escalibur,game,0 diff (batter),12,121415,"▼3 · HR · pitch 911, swing 911"
+11028,Tree-O'Green Light,game,4+ hit game,12,120611,
+11028,Tree-O'Green Light,game,Reached base 5+,12,120611,
+11029,Slayer Slime,game,Immaculate inning,11,111202,▲3
+11029,Slayer Slime,game,0 diff allowed (pitcher),11,111402,"▼1 · HR · pitch 500, swing 500"
+11030,Ron Swanson,game,Walk-off,12,120512,▼6 · HR
+11032,Smokey Zygowski,game,Immaculate inning,12,120416,▲3
+11032,Smokey Zygowski,game,Immaculate inning,12,120416,▲4
+11035,Nash Ellis,game,CG shutout,11,111401,
+11035,Nash Ellis,game,0 diff allowed (pitcher),11,111201,"▲1 · HR · pitch 86, swing 86"
+11035,Nash Ellis,game,500 diff (pitcher),12,120209,"▲5 · DP · pitch 711, swing 211"
+11035,Nash Ellis,game,500 diff (pitcher),12,120209,"▲6 · K · pitch 461, swing 961"
+11035,Nash Ellis,game,500 diff (pitcher),12,120509,"▼2 · K · pitch 961, swing 461"
+11035,Nash Ellis,game,500 diff (pitcher),12,120809,"▼3 · DP · pitch 586, swing 86"
+11035,Nash Ellis,game,500 diff (pitcher),12,121409,"▼4 · DP · pitch 86, swing 586"
+11035,Nash Ellis,game,0 diff allowed (pitcher),12,120209,"▲4 · HR · pitch 961, swing 961"
+11036,Scoreson McCorkle,game,500 diff against (batter),13,130120,"▲1 · K · pitch 567, swing 67"
+11042,Sir Walter R'lyeh,game,0 diff (batter),11,111302,"▲6 · HR · pitch 1, swing 1"
+11047,Swiftie ESPN,game,Walk-off,11,111207,▼6 · HR
+11047,Swiftie ESPN,game,4+ hit game,12,120916,
+11047,Swiftie ESPN,season,WPA leader (bat),12,,112.6
+11047,Swiftie ESPN,game,Multi-HR game,12,120511,
+11047,Swiftie ESPN,game,Reached base 5+,12,120916,
+11047,Swiftie ESPN,game,500 diff (pitcher),13,130122,"▼3 · K · pitch 250, swing 750"
+11049,R'lyeh Cultist 1,game,0 diff (batter),11,111201,"▲1 · HR · pitch 86, swing 86"
+11049,R'lyeh Cultist 1,game,0 diff (batter),11,111402,"▼1 · HR · pitch 500, swing 500"
+11049,R'lyeh Cultist 1,game,Grand slam,12,121011,▼5
+11049,R'lyeh Cultist 1,game,Multi-HR game,12,121011,
+11049,R'lyeh Cultist 1,game,5+ RBI game,12,121011,
+11050,Bald Bull,game,Multi-HR game,11,111301,
+12002,Tor Tilla,game,500 diff against (batter),12,121409,"▼4 · DP · pitch 86, swing 586"
+12004,Al-Wayz Buntin,game,Grand slam,12,121210,▼3
+12004,Al-Wayz Buntin,game,0 diff (batter),12,121210,"▼3 · HR · pitch 1000, swing 1000"
+12005,Jimothy Jhompson,game,Immaculate inning,13,130220,▼3
+12010,R'lyeh R'ivy,game,500 diff (pitcher),12,121111,"▼6 · K · pitch 713, swing 213"
+12010,R'lyeh R'ivy,season,DBF leader,12,,281.9
+12010,R'lyeh R'ivy,season,ER6 leader,12,,0.47
+12014,Sonny Wortzik,game,Walk-off,12,120513,▼8 · HR
+12017,K Junk,game,Immaculate inning,13,130624,▼1
+12018,Clifton McCullough,game,Immaculate inning,12,121214,▲1
+12018,Clifton McCullough,game,0 diff allowed (pitcher),12,120813,"▲6 · HR · pitch 444, swing 444"
+12018,Clifton McCullough,game,500 diff (pitcher),13,130619,"▼2 · K · pitch 1000, swing 500"
+12024,Zed Underhill,game,500 diff against (batter),12,120509,"▼2 · K · pitch 961, swing 461"
+12024,Zed Underhill,game,0 diff (batter),12,120813,"▲6 · HR · pitch 444, swing 444"
+12033,Bob Katz,game,Multi-HR game,12,121213,
+12033,Bob Katz,game,Grand slam,13,130421,▼3
+12034,Triscuit McBiskit,game,0 diff allowed (pitcher),12,120612,"▲2 · HR · pitch 97, swing 97"
+12034,Triscuit McBiskit,game,CG shutout,13,130219,
+12034,Triscuit McBiskit,game,500 diff (pitcher),13,130820,"▼3 · K · pitch 802, swing 302"
+12034,Triscuit McBiskit,game,No-hitter,13,130219,
+12039,Rich Driver,game,Walk-off,13,130624,▼6 · HR
+12042,Jiggs Kingman,game,Grand slam,12,121309,▲4
+12042,Jiggs Kingman,game,Multi-HR game,12,121309,
+12042,Jiggs Kingman,game,5+ RBI game,12,121309,
+12047,Chunky Menthol,game,0 diff allowed (pitcher),13,130121,"▲5 · HR · pitch 12, swing 12"
+12049,Ant Man,game,0 diff allowed (pitcher),12,121210,"▼3 · HR · pitch 1000, swing 1000"
+12049,Ant Man,game,CG shutout,13,130617,
+12051,Fat Lever,game,CG shutout,13,130719,
+12051,Fat Lever,game,Immaculate inning,13,130719,▼3
+13004,Mr. Clanky,game,0 diff allowed (pitcher),13,130519,"▲4 · HR · pitch 1, swing 1"
+13016,Mac Dinger,game,4+ hit game,13,130123,
+13016,Mac Dinger,game,Walk-off,13,130424,▼7 · BB
+13028,Mikey Reynolds,game,500 diff against (batter),13,130619,"▼2 · K · pitch 1000, swing 500"
+13029,Mickey Scales,game,Reached base 5+,13,130820,
+13032,Orb,game,Grand slam,13,130319,▲1
+13037,Gal Avant,game,Walk-off,13,130321,▼8 · 1BWH
+13039,Max Muncy,game,Immaculate inning,13,130223,▲3
+13039,Max Muncy,game,0 diff allowed (pitcher),13,130920,"▼1 · HR · pitch 1, swing 1"
+13063,Socks Maybe,game,0 diff (batter),13,130419,"▼2 · HR · pitch 171, swing 171"

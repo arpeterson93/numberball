@@ -21,6 +21,9 @@ on:
       - 'docs/**'
       - 'key_moments_build.py'
       - 'career_build.py'
+      - 'accomplishments_build.py'
+      - 'tools/accomplishment_frequency.py'
+      - 'tools/season_milestones.py'
       - 'rookie_tags.py'
       - 'requirements.txt'
       - '.github/workflows/key_moments.yml'
@@ -88,6 +91,11 @@ jobs:
       # generated here only, like the rest of docs/data.
       - name: Build career, records and search data
         run: python -u career_build.py
+
+      # Single-game feats and season league-leader titles for the player Awards tab: reads the built JSON above and
+      # patches "acc" into each player's career file, so it must run after career_build.py.
+      - name: Build player accomplishments
+        run: python -u accomplishments_build.py
 
       # What the gate compared against next time: the sheet's hash and when this deploy happened (ships with the site)
       - name: Record the build hash
