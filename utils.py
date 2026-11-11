@@ -12734,6 +12734,10 @@ def read_session_awards_from_sheet(sheet_id: str, tab: str = "Sheet1") -> list[d
     this reader just trusts its columns as-is, no re-parsing of the original
     free-text sheet. A blank player_id (the extraction's own unmatched-name
     rows, or a genuine "None Selected" session) reads as None, not 0.
+
+    The same sheet also carries the season-long awards (MVP, Cy Young, All-Star,
+    ToOS, ...), which have no session: those rows read with session None and use
+    the league / team / pos / detail columns (blank for a session pick).
     """
     import urllib.parse
     url = (
@@ -12746,7 +12750,7 @@ def read_session_awards_from_sheet(sheet_id: str, tab: str = "Sheet1") -> list[d
     for _, row in df.iterrows():
         season, session = _safe_int(row.get("season")), _safe_int(row.get("session"))
         award = _str(row.get("award"))
-        if season is None or session is None or not award:
+        if season is None or not award:
             continue
         out.append({
             "season": season,
@@ -12754,6 +12758,10 @@ def read_session_awards_from_sheet(sheet_id: str, tab: str = "Sheet1") -> list[d
             "award": award,
             "player_id": _safe_int(row.get("player_id")),
             "player_name": _str(row.get("player_name")),
+            "league": _str(row.get("league")),
+            "team": _str(row.get("team")),
+            "pos": _str(row.get("pos")),
+            "detail": _str(row.get("detail")),
         })
     return out
 
@@ -12880,6 +12888,24 @@ def read_mln_games_from_sheet(sheet_id: str) -> list[dict]:
     return games
 
 
+# Ids the play logs use for a player the Rosters tab knows under a different id: {logged id: roster id}. Every
+# game, play and career row for the logged id belongs to the roster id, so the alias is applied as the plays are
+# read and nothing downstream (stats, career files, awards) ever sees the stray id.
+PLAYER_ID_ALIASES = {6006: 3072}
+
+# Plays-tab columns whose cells hold a bare player id (0/"-" for an empty base).
+_PLAY_ID_COLUMNS = ("Pitcher", "Catcher", "Batter", "Runner", "OnFirst", "OnSecond", "OnThird",
+                    "scored2", "scored3", "scored4", "er1", "er2", "er3", "er4")
+
+
+def apply_player_id_aliases(df: pd.DataFrame, columns) -> None:
+    """Rewrite aliased ids (PLAYER_ID_ALIASES) in `columns` of a string-typed sheet frame, in place."""
+    swap = {str(k): str(v) for k, v in PLAYER_ID_ALIASES.items()}
+    for col in columns:
+        if col in df.columns:
+            df[col] = df[col].replace(swap)
+
+
 def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None = None) -> list[dict]:
     """Read a plays tab from an MLN sheet. Archive uses 'Plays'; current season uses 'Plays (Raw)'.
 
@@ -12908,6 +12934,7 @@ def read_mln_plays_from_sheet(sheet_id: str, tab: str = "Plays", gid: str | None
         )
     df = pd.read_csv(url, dtype=str)
     df.columns = [c.strip() for c in df.columns]
+    apply_player_id_aliases(df, _PLAY_ID_COLUMNS)
     plays = []
     for _, row in df.iterrows():
         play_num = _safe_int(row.get("Play"))

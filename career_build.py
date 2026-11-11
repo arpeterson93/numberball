@@ -74,6 +74,13 @@ def season_dirs() -> list[tuple[int, str]]:
     return sorted(out)
 
 
+# Game awards the Games tab can't hold: (season, session) -> {player_id: "potg" | "hm"}. The tab has one Player of the Game
+# slot, so a shared award (or one never entered) is set here and replaces whatever the sheet said for that player.
+GAME_AWARD_OVERRIDES = {
+    (3, 17): {1027: "potg", 2002: "potg", 3065: "hm"},   # S3 ToOS: Thomas Nova and Assassin Xekutioner co-MVPs, Robert Atech HM
+}
+
+
 def post_sessions(meta: dict) -> set[int]:
     """Playoff sessions of one season: the build's own post_sessions (from the
     Games tab's Type column) when present, else the league's convention that
@@ -185,6 +192,11 @@ def main() -> None:
                "name_to_id": name_to_id, "team_by_id": {}, "team_by_abbrev": {}}
         team_names = {a: t.get("name") or a for a, t in (meta.get("teams") or {}).items()}
         post = post_sessions(meta)
+        # the last postseason session is the championship (ToOS), the one before it the semis (LCS, one per league)
+        post_order = sorted(post)
+        final_session = post_order[-1] if post_order else None
+        semi_session = post_order[-2] if len(post_order) > 1 else None
+        sub_league = {a: t.get("sub_league") or "" for a, t in (meta.get("teams") or {}).items()}
         rookie_ids[season] = {p["id"] for p in roster if p.get("rookie") and p.get("id")}
         seasons_meta.append({"season": season, "sessions": meta.get("sessions", []), "teams": team_names,
                              "post": sorted(post)})
@@ -195,6 +207,14 @@ def main() -> None:
                     session_stat_rows.append((season, int(sess_key), side, r, 1 if int(sess_key) in post else 0))
                     if r.get("award") or r.get("game_award"):
                         awards_by[(int(sess_key), side, r["player_id"])] = (r.get("award"), r.get("game_award"))
+
+        for (o_season, o_session), picks in GAME_AWARD_OVERRIDES.items():
+            if o_season != season:
+                continue
+            for pid, tier in picks.items():
+                for side in ("batting", "pitching"):
+                    if any(r.get("player_id") == pid for r in ((meta.get("stats") or {}).get(str(o_session)) or {}).get(side) or []):
+                        awards_by[(o_session, side, pid)] = ((awards_by.get((o_session, side, pid)) or (None, None))[0], tier)
 
         for session in meta.get("sessions", []):
             path = os.path.join(sdir, f"plays_{session:02d}.json")
@@ -265,6 +285,10 @@ def main() -> None:
                             row["aw"] = aw[0]
                         if aw[1]:
                             row["ga"] = aw[1]
+                            if session in (final_session, semi_session):
+                                row["pr"] = "toos" if session == final_session else "lcs"   # series MVP (potg) / honorable mention in that game
+                                if session == semi_session and sub_league.get(team):
+                                    row["pl"] = sub_league[team]
                     row.update(_compact({k: b.get(k, 0) for k in BAT_KEYS}))
                     if b.get("wpa"):
                         row["wpa"] = b["wpa"]
@@ -301,6 +325,10 @@ def main() -> None:
                             row["aw"] = aw[0]
                         if aw[1]:
                             row["ga"] = aw[1]
+                            if session in (final_session, semi_session):
+                                row["pr"] = "toos" if session == final_session else "lcs"   # series MVP (potg) / honorable mention in that game
+                                if session == semi_session and sub_league.get(team):
+                                    row["pl"] = sub_league[team]
                     row.update(_compact({k: line.get(k, 0) for k in PIT_KEYS}))
                     if line.get("wpa"):
                         row["wpa"] = line["wpa"]
@@ -353,6 +381,9 @@ def main() -> None:
         for f in os.listdir(out_dir):
             os.remove(os.path.join(out_dir, f))
     hdr_teams: dict[int, str] = {}
+    # Season-long awards (key_moments_build writes season_awards.json from the awards sheet); player id -> list of
+    # [season, award, league, team, pos, detail]. Missing file = no trophies yet.
+    season_awards = _load(os.path.join(DATA, "season_awards.json")) if os.path.exists(os.path.join(DATA, "season_awards.json")) else {}
     for pid, g in player_games.items():
         for side in ("bat", "pit"):
             g[side].sort(key=lambda r: (r["s"], r["n"], r["d"], r["g"]))
@@ -370,8 +401,11 @@ def main() -> None:
         hdr_teams[pid] = hdr_team
         hdr = {"t": hdr_team, "pos": last_pos.get(pid, ["", ""]), "act": 1 if pid in active_team else 0,
                "bld": last_bld.get(pid, {})}
-        _write(os.path.join(out_dir, f"{pid}.json"), {"id": pid, "name": names.get(pid, f"Player {pid}"), "hdr": hdr, **g,
-                                                      "dist": dist_by_player.get(pid, {"bat": {}, "pit": {}})})
+        player = {"id": pid, "name": names.get(pid, f"Player {pid}"), "hdr": hdr, **g,
+                  "dist": dist_by_player.get(pid, {"bat": {}, "pit": {}})}
+        if season_awards.get(str(pid)):
+            player["awd"] = season_awards[str(pid)]
+        _write(os.path.join(out_dir, f"{pid}.json"), player)
 
     # ---- per-player per-season totals ------------------------------------------
     totals: dict[int, dict] = {}

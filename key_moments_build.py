@@ -1863,6 +1863,27 @@ def _game_awards_from_game(game: dict | None, name_to_id: dict) -> dict[int, str
     return out or None
 
 
+def _load_season_awards(sheet_id: str = SESSION_AWARDS_SHEET_ID) -> dict[str, list[list]] | None:
+    """player_id -> [[season, award, league, team, pos, detail], ...] for the season-long awards (every row of the
+    same sheet that has no session), for the player modal's Awards tab. Returns None when the sheet can't be read,
+    so the caller keeps the last published file rather than wiping everyone's trophies.
+    """
+    try:
+        rows = utils.read_session_awards_from_sheet(sheet_id)
+    except Exception as exc:
+        print(f"WARNING: could not load season awards ({exc}) - keeping the last published file", file=sys.stderr)
+        return None
+    out: dict[str, list[list]] = {}
+    for r in rows:
+        if r.get("session") is not None or r.get("player_id") is None:
+            continue
+        out.setdefault(str(r["player_id"]), []).append(
+            [r["season"], r["award"], r.get("league") or "", r.get("team") or "", r.get("pos") or "", r.get("detail") or ""])
+    for lst in out.values():
+        lst.sort(key=lambda a: (a[0], a[1], a[4]))
+    return out
+
+
 # Hierarchy for the Stats tab's award highlight (Alex's ask): "Player of the
 # Session" outranks "Hitter"/"Pitcher of the Session" - the rare case of one
 # player winning both in the same session shows only the higher one, which
@@ -1890,7 +1911,7 @@ def _load_session_awards(sheet_id: str = SESSION_AWARDS_SHEET_ID) -> dict[tuple[
     out: dict[tuple[int, int, int], str] = {}
     for r in rows:
         pid, award = r.get("player_id"), r.get("award")
-        if pid is None or award not in _AWARD_PRIORITY:
+        if pid is None or r.get("session") is None or award not in _AWARD_PRIORITY:
             continue
         key = (r["season"], r["session"], pid)
         if key not in out or _AWARD_PRIORITY[award] > _AWARD_PRIORITY[out[key]]:
@@ -2461,6 +2482,9 @@ def _build_and_write(sheet_id: str, archive_season: int | None = None, out_root:
         _write(os.path.join(out_dir, f"plays_{session:02d}.json"), session_rows)
     if archive_season is None:
         _prune_stale_session_files(meta["sessions"], out_dir)
+        season_awards = _load_season_awards()
+        if season_awards is not None:
+            _write(os.path.join(out_dir, "season_awards.json"), season_awards)
 
     counts: dict[str, int] = {}
     per_session: dict[int, list[int]] = {}
