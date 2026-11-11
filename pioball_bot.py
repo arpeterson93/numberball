@@ -29,6 +29,7 @@ import database
 import pace
 import pioball_clip
 import pioball_render
+import pioball_timers
 import swing_game
 import swing_model
 
@@ -577,6 +578,7 @@ def _message_text(message: discord.Message) -> str:
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
+    _timer_observe(message)
     await _handle_feed(message)
 
 
@@ -587,7 +589,152 @@ async def on_message_edit(before: discord.Message, after: discord.Message) -> No
     grade the next pitch."""
     age = (discord.utils.utcnow() - after.created_at).total_seconds()
     if age < 600 and swing_game.parse_feed(_message_text(before)) is None:
+        _timer_observe(after)
         await _handle_feed(after)
+
+
+# ------------------------------------------------------------- response timers (see pioball_timers.py)
+
+_timers = pioball_timers.Tracker()
+_timers_rebuilt = False
+_REMINDER_CHANNEL_ENV = int(os.environ.get("PIOBALL_REMINDER_CHANNEL_ID") or 0)   # only for a setup nobody has /guess-ed in
+
+
+def _timer_observe(message: discord.Message) -> None:
+    """Feed one results-feed message to the timer tracker. Never raises: timers must not break grading."""
+    try:
+        if message.author == bot.user or not RESULTS_CHANNEL_ID:
+            return
+        if RESULTS_CHANNEL_ID not in (message.channel.id, getattr(message.channel, "parent_id", 0)):
+            return
+        text = _message_text(message)
+        parsed = swing_game.parse_feed(text) if text else None
+        if parsed:
+            _timers.observe(parsed, text, message.created_at, pioball_timers.load_settings()["hours"])
+    except Exception as e:
+        print(f"timer observe error: {e!r}")
+
+
+async def _rebuild_timers() -> None:
+    """After a (re)start, replay the newest feed messages so a timer already running is picked up again."""
+    channel = bot.get_channel(RESULTS_CHANNEL_ID)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(RESULTS_CHANNEL_ID)
+        except Exception as e:
+            print(f"timer rebuild: can't reach the results channel: {e!r}")
+            return
+    sources = [channel]
+    threads = list(getattr(channel, "threads", None) or [])   # games may be posted in threads under the feed channel
+    sources += sorted(threads, key=lambda t: t.last_message_id or 0, reverse=True)[:3]
+    msgs = []
+    for src in sources:
+        try:
+            async for m in src.history(limit=60):
+                msgs.append(m)
+        except Exception as e:
+            print(f"timer rebuild: can't read {getattr(src, 'id', '?')}: {e!r}")
+    msgs.sort(key=lambda m: m.created_at)
+    for m in msgs[-80:]:
+        _timer_observe(m)
+    print(f"timers rebuilt from {len(msgs)} messages: {_timers.describe(datetime.now(timezone.utc))}")
+
+
+async def _reminder_channel(game: dict):
+    cid = _post_channel
+    if not cid:
+        row = await asyncio.to_thread(swing_game._latest_pitch_row, game["game_code"])
+        cid = int((row or {}).get("channel_id") or 0) or _REMINDER_CHANNEL_ENV
+    if not cid:
+        return None
+    return bot.get_channel(cid) or await bot.fetch_channel(cid)
+
+
+async def _timer_tick() -> None:
+    now = datetime.now(timezone.utc)
+    game = await _live_game()
+    pend = _timers.pending
+    if pend is not None:
+        if game:
+            hours = pioball_timers.load_settings()["hours"]
+            status, timer = await asyncio.to_thread(
+                pioball_timers.resolve_pending, pend, game["game_code"], hours, now)
+        else:
+            status, timer = "retry", None
+        if _timers.pending is pend:   # nothing newer arrived while the sheet was being read
+            if status != "retry":
+                _timers.pending, _timers.timer = None, timer
+            elif now - pend.ts > pioball_timers.PENDING_GIVE_UP:
+                print(f"timer: gave up on result {pend.parsed}, the sheet never showed it")
+                _timers.pending = None
+    t = _timers.timer
+    if t is None or not game:
+        return
+    t.game_code = t.game_code or str(game["game_code"])
+    if now >= t.deadline or await asyncio.to_thread(pioball_timers.game_is_over, t.game_code):
+        _timers.timer = None
+        return
+    due = pioball_timers.due_alerts(t.deadline, now, t.sent)
+    if not due:
+        return
+    channel = await _reminder_channel(game)
+    if channel is None:
+        print("timer alert not sent: no pioball channel known yet (a /guess sets it, or set PIOBALL_REMINDER_CHANNEL_ID)")
+        return
+    await channel.send(t.alert(now), allowed_mentions=discord.AllowedMentions(users=True, roles=True))
+    t.sent.update(due)
+    print(f"timer alert sent {due}: {t.kind} expires {t.deadline.isoformat()}")
+
+
+@tasks.loop(seconds=60)
+async def timer_loop() -> None:
+    try:
+        await _timer_tick()
+    except Exception as e:
+        print(f"timer loop error: {e!r}")
+
+
+@timer_loop.before_loop
+async def _timer_before_loop() -> None:
+    await bot.wait_until_ready()
+
+
+@bot.tree.command(name="timer", description="Set the pitch/swing timer length the reminders count from")
+@app_commands.describe(hours="12 hours, or 6 hours (10 when it starts or would expire from 12am to 7am ET)")
+@app_commands.choices(hours=[app_commands.Choice(name="12 hours (default)", value=12),
+                             app_commands.Choice(name="6 hours (10 if overnight ET)", value=6)])
+async def timer_command(interaction: discord.Interaction, hours: app_commands.Choice[int]) -> None:
+    pioball_timers.save_settings({"hours": hours.value})
+    await interaction.response.send_message(
+        f"Timers are now {'6 hours (10 if it starts or would expire from 12am to 7am ET)' if hours.value == 6 else '12 hours'}, "
+        "starting with the next timer.", ephemeral=True)
+
+
+def _timers_text() -> str:
+    hours = pioball_timers.load_settings()["hours"]
+    return f"{_timers.describe(datetime.now(timezone.utc))}\nLength setting: {hours}h."
+
+
+class _PostTimersView(discord.ui.View):
+    """The /timers reply is private; this button posts the current status to the channel for everyone."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=900)
+
+    @discord.ui.button(label="Post to channel", style=discord.ButtonStyle.primary)
+    async def post(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        button.disabled = True   # the private reply stays private: only its button changes
+        await interaction.response.edit_message(view=self)
+        try:   # re-read the timer: it may have changed since the private reply was sent
+            await interaction.channel.send(_timers_text(), allowed_mentions=discord.AllowedMentions.none())
+        except (discord.HTTPException, AttributeError) as e:
+            print(f"timers post failed: {e!r}")
+            await interaction.followup.send("Couldn't post to the channel.", ephemeral=True)
+
+
+@bot.tree.command(name="timers", description="Show the pitch/swing timer running for us (private; a button posts it to the channel)")
+async def timers_command(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message(_timers_text(), ephemeral=True, view=_PostTimersView())
 
 
 async def _handle_feed(message: discord.Message) -> None:
@@ -646,6 +793,12 @@ async def on_ready() -> None:
         grade_loop.start()
     if not model_loop.is_running():
         model_loop.start()
+    global _timers_rebuilt
+    if not _timers_rebuilt and RESULTS_CHANNEL_ID:
+        _timers_rebuilt = True   # a reconnect must not replay the feed and forget which alerts already went out
+        await _rebuild_timers()
+    if not timer_loop.is_running():
+        timer_loop.start()
     await bot.tree.sync()
     if TEST_GUILD_ID:
         # Commands are global now. A guild copy on top of that shows every command twice in that

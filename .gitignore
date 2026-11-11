@@ -32,3 +32,4 @@ tools/probe_output/transitions/
 
 # Local copy of the plays/players tables for analysis tools (tools/local_plays.py fetch)
 tools/probe_output/plays_raw.pkl
+pioball_timer_settings.json
