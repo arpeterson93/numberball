@@ -2957,6 +2957,8 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 /* Batting/Pitching/Fielding tab switcher (Alex's ask) - sits right beneath
    the linescore, above whichever tab's own content. Reuses the site's
    existing .chip toggle look rather than inventing a new control. */
+.sc-diffs-chart{margin:0 0 18px;}
+.sc-diffs-legend{margin-top:4px;}
 .sc-tabs{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:0 0 16px;}
 
 /* ---- Fielding tab: one static field diagram per pitcher, aggregating that

@@ -144,6 +144,20 @@ def _blank():
     return {"rv": 0.0, "xr": 0.0, "wp": 0.0, "xw": 0.0}
 
 
+def game_swings(rows: list, season: int) -> dict:
+    """One game's modelled swings by batting side, for the scorecard's Diffs tab: {"a": [...], "h": [...]} (away / home batters),
+    each swing packed as diff * 32 + result class index (into the model's result list)."""
+    out = {"a": [], "h": []}
+    if season < FIRST_SEASON or not available():
+        return out
+    for m in rows:
+        v = swing_values(m)
+        if v is None:
+            continue
+        out["h" if m.get("batting_is_home") else "a"].append(min(int(m["diff"]), 500) * 32 + v[0])
+    return out
+
+
 def game_metrics(rows: list, season: int):
     """One game's swing values per hitter and per pitcher, plus each swing's (side, player, bucket, result class
     index into the model's result list) for the diff charts. Returns ({"bat": {pid: {...}}, "pit": {pid: {...}}}, [(side, pid, bucket, class), ...])."""

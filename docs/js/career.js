@@ -288,17 +288,18 @@
     return out;
   }
 
-  function dxChart(kind, bins, lg, dpa, lgdpa, mkLabel) {
+  function dxChart(kind, bins, lg, dpa, lgdpa, mkLabel, opts) {
+    opts = opts || {};   // bw: bucket width (20 default; 25 for one game's few swings), w: drawing width
     // Sized to the panel (so the labels stay a readable size at any width): up to 1000px wide on a big screen.
-    var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36));
+    var W = opts.w || Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), BW = opts.bw || 20, NB = Math.round(500 / BW);
     // The DPA / League labels get their own band above the plot (two rows when they have to stack), so they
     // never sit on top of the bars.
     var withMk = kind === "count" && (dpa != null || lgdpa != null);
     var T = withMk ? 30 : 12;
-    var H = Math.round(W * 0.34) + (withMk ? 18 : 0), L = 40, R = 18, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / 25;
+    var H = Math.round(W * 0.34) + (withMk ? 18 : 0), L = 40, R = 18, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / NB;
     var n = [];
     var NC = bins.length;
-    for (var b = 0; b < 25; b++) { var t = 0; for (var c = 0; c < NC; c++) t += bins[c][b]; n.push(t); }
+    for (var b = 0; b < NB; b++) { var t = 0; for (var c = 0; c < NC; c++) t += bins[c][b]; n.push(t); }
     var sc = kind === "count" ? niceScale(Math.max.apply(null, n.concat([1]))) : null;
     var max = kind === "count" ? sc.top : 1;
     var yOf = function (v) { return T + ph - (v / max) * ph; };
@@ -308,8 +309,8 @@
       svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (yOf(v) + 3) + '" text-anchor="end">' +
         (kind === "count" ? v : Math.round(v * 100) + "%") + "</text>";
     });
-    for (var i = 0; i < 25; i++) {
-      var x = L + i * bw + 1, w = bw - 2, base = 0, lo = i * 20, hi = i === 24 ? 500 : lo + 19;
+    for (var i = 0; i < NB; i++) {
+      var x = L + i * bw + 1, w = bw - 2, base = 0, lo = i * BW, hi = i === NB - 1 ? 500 : lo + BW - 1;
       var tip = "Diff " + lo + "-" + hi;
       var y0 = T + ph;
       // the whole column (for the space above the stack); each segment below carries its own tip on top of it
@@ -329,7 +330,7 @@
     }
     if (kind === "share" && lg) {
       var pts = [];
-      for (var j = 0; j < 25; j++) {
+      for (var j = 0; j < NB; j++) {
         var reach = lg[0][j] + lg[1][j] + lg[2][j] + lg[3][j] + lg[4][j];
         pts.push((L + j * bw + bw / 2).toFixed(1) + "," + yOf(reach).toFixed(1));
       }
@@ -368,6 +369,43 @@
     return dn ? ds / dn : modelData.lgdpa;
   }
 
+  // Three centred rows: HR-BB, SacF-GO, K-DPH1.
+  function dxLegend() {
+    var legend = '<div class="dx-legend">', rowStart = { SacF: 1, K: 1 };
+    dxOrder().forEach(function (i) {
+      var x = DX()[i];
+      if (rowStart[x[0]]) legend += '<div class="dx-legend-break"></div>';
+      legend += '<span><i style="background:' + x[1] + '"></i>' + x[0] + "</span>";
+    });
+    return legend + "</div>";
+  }
+
+  // A scorecard's Diffs tab: each team's hitting swings in one game, in 25-wide buckets (a game only has a few dozen swings
+  // a side). Resolves to { a, h, legend } html, or null when the game has no modelled swings. Packed swings come from
+  // career_build (diff * 32 + result class).
+  function gameDiffs(season, session, code) {
+    var mp = modelData ? Promise.resolve(modelData) : getJ("data/career/model.json").then(function (m) { modelData = m; return m; });
+    return Promise.all([mp, getJ("data/career/gd/" + season + "_" + session + ".json").catch(function () { return null; })]).then(function (r) {
+      var game = r[1] && r[1][code];
+      if (!game) return null;
+      var BW = 25, NB = 20, nc = DX().length, w = Math.max(320, Math.min(640, window.innerWidth - 56)), out = { legend: dxLegend() };
+      ["a", "h"].forEach(function (side) {
+        var swings = game[side] || [], bins = [], sum = 0, c;
+        for (c = 0; c < nc; c++) bins.push(new Array(NB).fill(0));
+        swings.forEach(function (v) {
+          var d = v >> 5;
+          bins[v & 31][Math.min(Math.floor(d / BW), NB - 1)]++;
+          sum += d;
+        });
+        out[side] = swings.length
+          ? '<div class="xt-sub">Diff Distribution <span class="xt-hint">' + swings.length + " swings</span></div>" +
+            '<div class="dx-chart">' + dxChart("count", bins, null, sum / swings.length, modelData.lgdpa, "DPA", { bw: BW, w: w }) + "</div>"
+          : '<div class="stats-empty">No modelled swings.</div>';
+      });
+      return out;
+    });
+  }
+
   function renderDiffs(d, tabs, all) {
     var side = pm.side;
     var seasons = {};
@@ -389,14 +427,7 @@
     for (var c = 0; c < bins.length; c++) for (var b = 0; b < 25; b++) n += bins[c][b];
     var rows = all.filter(function (r) { return (pm.season === "all" || String(r.s) === pm.season); });
     var line = lineFrom(rows, side);
-    // Three centred rows: HR-BB, SacF-GO, K-DPH1.
-    var legend = '<div class="dx-legend">', rowStart = { SacF: 1, K: 1 };
-    dxOrder().forEach(function (i) {
-      var x = DX()[i];
-      if (rowStart[x[0]]) legend += '<div class="dx-legend-break"></div>';
-      legend += '<span><i style="background:' + x[1] + '"></i>' + x[0] + "</span>";
-    });
-    legend += "</div>";
+    var legend = dxLegend();
     var body;
     if (!n) body = '<div class="stats-empty">No modelled swings here.</div>';
     else {
@@ -1677,6 +1708,7 @@
     loadTotals: loadTotals,
     totalsSeasons: function () { return totals ? totals.seasons : null; },
     openPlayer: openPlayer,
+    gameDiffs: gameDiffs,
     setSearchFromLink: setSearchFromLink,
   };
 })();

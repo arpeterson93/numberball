@@ -147,6 +147,7 @@ def main() -> None:
     dists: dict[tuple, list] = {}              # (pid, side, season key) -> one count per model result x 25 diff buckets, flat
     n_res = len(dm.model()["GC"]) if dm.available() else 0
     game_lines: dict[tuple, dict] = {}         # (season, session, game_code) -> both teams' stats combined
+    game_swings: dict[tuple, dict] = {}        # (season, session) -> {game_code: {"a": [...], "h": [...]}} packed swings, for the scorecard's Diffs tab
     player_sessions: dict[tuple, dict] = {}   # (pid, season, session) -> {"t","bat","pit"}
     seasons_meta = []
     session_stat_rows: list[tuple] = []        # (season, session, side, row, postseason) straight from each season's meta.stats
@@ -219,6 +220,9 @@ def main() -> None:
                 tmap = game_teams(grows, name_to_id)
                 stats = kmb._session_stats(grows, session, season, ref, {}, {})
                 _, swing_dist = dm.game_metrics(grows, season)
+                sw = dm.game_swings(grows, season)
+                if sw["a"] or sw["h"]:
+                    game_swings.setdefault((season, session), {})[code] = sw
                 for side, pid, bucket, sc in swing_dist:
                     arr = dists.setdefault((pid, side, f"{season}p" if session in post else str(season)), [0] * (n_res * dm.BINS))
                     arr[sc * dm.BINS + bucket] += 1
@@ -411,6 +415,8 @@ def main() -> None:
     for side in lg_gsc:
         for acc in lg_gsc[side].values():
             acc[0] = round(acc[0], 1)
+    for (gs, gn), games in game_swings.items():
+        _write(os.path.join(DATA, "career", "gd", f"{gs}_{gn}.json"), games)
     _write(os.path.join(DATA, "career", "model.json"), {
         "w": dm.BIN_W, "bins": dm.BINS, "p": dm.league_bins() if dm.available() else None,
         # every result the model separates (1B, 1BWH, 2B, GO, DP21 ...) with the Streamlit scouting colour for it

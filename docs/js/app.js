@@ -15701,10 +15701,36 @@
     { key: "batting", label: "Batting" },
     { key: "pitching", label: "Pitching" },
     { key: "fielding", label: "Fielding" },
+    { key: "diffs", label: "Diffs" },
   ];
   var SCORECARD_TAB_BODY = {
     batting: scorecardBattingBodyHtml, pitching: scorecardPitchingBodyHtml, fielding: scorecardFieldingBodyHtml,
+    diffs: scorecardDiffsBodyHtml,
   };
+
+  // Diffs tab: each team's hitting diff distribution (career.js draws the charts from the build's per-game swings), one legend
+  // beneath both. The panes start empty and fillScorecardDiffs drops the charts in once they load.
+  function scorecardDiffsBodyHtml(box) {
+    return scorecardTeamHeaderHtml(box.awayAbbr) + '<div class="sc-diffs-chart" id="sc-diffs-a"></div>' +
+      scorecardTeamHeaderHtml(box.homeAbbr) + '<div class="sc-diffs-chart" id="sc-diffs-h"></div>' +
+      '<div class="sc-diffs-legend" id="sc-diffs-legend"></div>';
+  }
+  function fillScorecardDiffs(gameCode, session) {
+    if (!window.MLNExtras || !window.MLNExtras.gameDiffs || !$("sc-diffs-a")) return;
+    var key = season.active + "/" + session + "/" + gameCode;
+    var put = function (res) {
+      var set = function (id, html) { var el = $(id); if (el) el.innerHTML = html; };
+      set("sc-diffs-a", res ? res.a : '<div class="stats-empty">No modelled swings for this game.</div>');
+      set("sc-diffs-h", res ? res.h : "");
+      set("sc-diffs-legend", res ? res.legend : "");
+    };
+    // a live refresh re-renders the body: show what we already have while the newer file loads
+    if (scorecard.diffs && scorecard.diffs.key === key) put(scorecard.diffs.res);
+    window.MLNExtras.gameDiffs(season.active, session, gameCode).then(function (res) {
+      scorecard.diffs = { key: key, res: res };
+      if (scorecard.gameCode === gameCode || scorecard.gameCode == null) put(res);
+    }).catch(function () { put(null); });
+  }
 
   function scorecardBodyHtml(box) {
     var active = scorecard.activeTab;
@@ -15847,6 +15873,7 @@
       '<span class="scorecard-title-at">@</span>' +
       '<span class="scorecard-title-team">' + scorecardTeamTagHtml(box.homeAbbr) + "</span>";
     $("scorecard-body").innerHTML = scorecardBodyHtml(box);
+    fillScorecardDiffs(gameCode, session);
     // Always set (harmless at any screen size) - style.css's own small-
     // screen media query is what actually wires --sc-batter-col (the var
     // .sc-grid's grid-template-columns consumes) to this value; on any
@@ -15880,7 +15907,7 @@
       toast("Could not determine which session this game belongs to.");
       return;
     }
-    scorecard.activeTab = initialTab === "pitching" ? "pitching" : "batting";
+    scorecard.activeTab = initialTab === "pitching" || initialTab === "diffs" ? initialTab : "batting";
     ensureSessionPlaysLoaded(session).then(function () {
       var plays = gamePlaysFor(session, gameCode);
       renderScorecard(gameCode, session, plays);
@@ -17863,7 +17890,7 @@
     // &tab=pitching (scorecard view only, Alex's ask) picks which of the
     // two tabs the modal opens on - anything else (missing, "batting", a
     // typo) is the existing default and needs no special-casing here.
-    var tab = params.get("tab") === "pitching" ? "pitching" : "batting";
+    var tab = ["pitching", "diffs"].indexOf(params.get("tab")) >= 0 ? params.get("tab") : "batting";
     return { code: code, season: gameSeason, session: session, play: play, view: view, tab: tab };
   }
 
