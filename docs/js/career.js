@@ -225,6 +225,10 @@
       var g = e.target.closest("[data-pgame]");
       if (g) {
         // the game replays on top of this panel, so the player's log is still here when it closes
+        // the game replays on top of this panel, so the player's log is still here when it closes; the player modal
+        // normally sits above the replay (a player opened from one), so lift the replay for this open only
+        var rp = $("replay-modal");
+        if (rp) rp.classList.add("over-player");
         B.openPlay({ s: Number(g.getAttribute("data-s")), n: Number(g.getAttribute("data-n")), g: g.getAttribute("data-pgame") });
       }
     });
@@ -633,6 +637,8 @@
   function openPlayer(id, name, opts) {
     ensureModal();
     opts = opts || {};
+    var rpl = $("replay-modal");
+    if (rpl) rpl.classList.remove("over-player");   // a player opened from the replay goes above it again
     var wasOpen = !$("career-modal").hidden;
     if (opts.list) pnav.list = opts.list;
     else if (!opts.fromNav && !opts.fromPop) pnav.list = null;
@@ -1669,6 +1675,17 @@
       items[cur].scrollIntoView({ block: "nearest" });
     }
     btn.addEventListener("click", function () { setOpen(box.hidden); });
+    // dice: a random player with a career file
+    var dice = $("header-search-dice");
+    if (dice) dice.addEventListener("click", function () {
+      loadNames().then(function () {
+        buildPeople();
+        if (!people || !people.length) return;
+        var p = people[Math.floor(Math.random() * people.length)];
+        setOpen(false);
+        openPlayer(p.id, p.name);
+      });
+    });
     input.addEventListener("input", show);
     input.addEventListener("keydown", function (e) {
       if (e.key === "Escape") { setOpen(false); btn.focus(); }

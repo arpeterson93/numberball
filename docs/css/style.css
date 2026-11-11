@@ -716,6 +716,9 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 /* ---- Favorites modal ---- */
 .modal{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20;}
 .modal[hidden]{display:none;}
+/* While any modal is open the page behind it doesn't scroll; overscroll-behavior stops a modal's own scroll from chaining out to it at its ends. */
+html:has(.modal:not([hidden])){overflow:hidden;}
+.modal,.modal-body{overscroll-behavior:contain;}
 .modal-card{background:var(--card);border-radius:10px;width:100%;max-width:520px;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;}
 /* On white the scrim alone separates the card from the page; on dark the two
    are close enough in value that it needs a real edge. */
@@ -3364,6 +3367,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .stats-filters .chip-row{flex-wrap:wrap;}
 /* A game opened from the player panel plays on top of it. */
 #replay-modal{z-index:25;}
+#replay-modal.over-player{z-index:27;}   /* opened from the player modal (z 26): sit on top of it */
 .xt-ptop{margin:0 0 4px;}
 
 /* RK: a narrow rank column at the far left of every Stats table; Player (when there is one) sticks right after it. */
@@ -3474,6 +3478,12 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .header-search{position:relative;flex:1 1 auto;min-width:0;}
 .header-search-input{width:220px;max-width:100%;padding:6px 10px;font-size:14px;font-weight:600;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);}
 .header-search-list{position:absolute;top:calc(100% + 4px);left:0;width:min(320px,92vw);max-height:min(60vh,420px);overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:40;padding:4px;}
+.hs-field{position:relative;display:block;width:220px;max-width:100%;}
+#header-search .hs-field #header-search-input{width:100%;padding-right:30px;}
+.hs-dice{position:absolute;top:50%;right:3px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:5px;background:none;color:var(--muted);cursor:pointer;}
+.hs-dice:hover,.hs-dice:focus-visible{color:var(--text);background:var(--tint);}
+.hs-dice svg{width:18px;height:18px;}
+@media (max-width:600px){.hs-field{width:100%;}}
 .hs-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border:none;background:none;border-radius:6px;font-size:14px;font-weight:600;color:var(--text);cursor:pointer;}
 .hs-item:hover,.hs-item.on{background:var(--tint);}
 .hs-team{font-size:11px;font-weight:800;letter-spacing:0.3px;color:var(--muted);flex-shrink:0;}
