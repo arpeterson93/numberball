@@ -254,7 +254,7 @@ def main() -> int:
             print(f"push: no previous build to compare with ({exc}); nothing sent")
             return 0
 
-    logos = {abbr: SITE + t["logo_url"].lstrip("/") for abbr, t in (new_meta.get("teams") or {}).items() if t.get("logo_url")}
+    logos = {abbr: f"{SITE}data/push_icons/{abbr}.png" for abbr, t in (new_meta.get("teams") or {}).items() if t.get("logo_url")}   # tools/push_icons.py
     labels = new_meta.get("result_labels") or {}   # full names, as the slideshow recap uses
     old_final = final_games(old_meta)
     by_game: dict[str, list[dict]] = {}

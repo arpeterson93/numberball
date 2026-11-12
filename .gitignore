@@ -8,6 +8,7 @@ roster_maturity/data/
 # Key Moments feed data: built fresh by the Actions Pages deploy (see
 # .github/workflows/key_moments.yml), never committed.
 docs/data/*.json
+docs/data/push_icons/
 
 # Local preview builds (key_moments_build.py --sheet-id/--out-dir) used to
 # validate archive-sheet edits before pasting them back into the real sheet.

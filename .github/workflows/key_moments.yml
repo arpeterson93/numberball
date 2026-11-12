@@ -25,6 +25,7 @@ on:
       - 'tools/accomplishment_frequency.py'
       - 'tools/season_milestones.py'
       - 'tools/push_send.py'
+      - 'tools/push_icons.py'
       - 'rookie_tags.py'
       - 'requirements.txt'
       - '.github/workflows/key_moments.yml'
@@ -101,6 +102,10 @@ jobs:
       # Web-push alerts, step 1 of 2: save the still-live previous build as the baseline for "what is new" (see
       # tools/push_send.py). The alerts themselves go out in the notify job below, once the deploy is live, so a tapped
       # alert always finds its play. Needs no secrets and never blocks the deploy.
+      # Small square copies of the team logos for the push alerts' icons (tools/push_icons.py)
+      - name: Build notification icons
+        run: python -u tools/push_icons.py
+
       - name: Save the live data for the push diff
         continue-on-error: true
         run: python -u tools/push_send.py --snapshot push_baseline
