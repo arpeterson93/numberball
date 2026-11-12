@@ -36,6 +36,11 @@
   }
   function storePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(state.prefs)); } catch (e) { /* ignore */ } }
 
+  function syncButton() {
+    var btn = $("push-btn");
+    if (btn) btn.textContent = state.sub ? "Preferences" : "Set up alerts";
+  }
+
   function register() {
     return navigator.serviceWorker.register("sw.js").then(function () { return navigator.serviceWorker.ready; });
   }
@@ -93,18 +98,34 @@
     m.addEventListener("click", function (e) { if (e.target === m) m.hidden = true; });
     $("push-close").addEventListener("click", function () { m.hidden = true; });
     m.addEventListener("click", onClick);
+    m.addEventListener("change", onChange);
     state.modal = m;
     return m;
   }
 
+  var LEVELS = [["0", "Off"], ["1", "Key moments"], ["2", "All plays"]];
+  function levelSelect(attrs, value, label) {
+    return '<select class="push-level" ' + attrs + ' aria-label="' + esc(label) + '">' +
+      (value === "" ? '<option value="" selected disabled>Set all...</option>' : "") +
+      LEVELS.map(function (l) { return '<option value="' + l[0] + '"' + (l[0] === value ? " selected" : "") + ">" + l[1] + "</option>"; }).join("") + "</select>";
+  }
   function teamRows() {
     var t = state.teams || {};
     return Object.keys(t).sort().map(function (abbr) {
-      var p = state.prefs.teams[abbr] || {};
-      return '<tr><td class="push-team"><strong>' + esc(abbr) + "</strong> " + esc(t[abbr].name || "") + "</td>" +
-        '<td><input type="checkbox" data-pteam="' + abbr + '" data-pkind="m"' + (p.m ? " checked" : "") + ' aria-label="' + esc(abbr) + ' plays"></td>' +
-        '<td><input type="checkbox" data-pteam="' + abbr + '" data-pkind="e"' + (p.e ? " checked" : "") + ' aria-label="' + esc(abbr) + ' game ends"></td></tr>';
+      var p = state.prefs.teams[abbr] || {}, name = t[abbr].name || abbr;
+      var logo = t[abbr].logo_url ? '<img class="push-logo" src="' + esc(t[abbr].logo_url) + '" alt="' + esc(abbr) + '" title="' + esc(name) + '" loading="lazy">' : "<strong>" + esc(abbr) + "</strong>";
+      return '<tr><td class="push-team"><div class="push-team-in">' + logo + '<span class="push-name">' + esc(name) + "</span></div></td>" +
+        "<td>" + levelSelect('data-pteam="' + abbr + '" data-pkind="m"', String(p.m || 0), name + " plays") + "</td>" +
+        '<td><input type="checkbox" data-pteam="' + abbr + '" data-pkind="e"' + (p.e ? " checked" : "") + ' aria-label="' + esc(name) + ' game ends"></td></tr>';
     }).join("");
+  }
+  function allValue(kind) {   // the shared setting if every team has the same one, else "" (mixed)
+    var abbrs = Object.keys(state.teams || {}), first = null, i, v;
+    for (i = 0; i < abbrs.length; i++) {
+      v = String((state.prefs.teams[abbrs[i]] || {})[kind] || 0);
+      if (first === null) first = v; else if (v !== first) return "";
+    }
+    return first === null ? "0" : first;
   }
 
   function render() {
@@ -131,8 +152,8 @@
       (on
         ? '<label class="settings-row"><span>Plays from my favorites</span><input type="checkbox" data-pfavs' + (state.prefs.favs ? " checked" : "") + "></label>" +
           '<table class="stats-table push-grid"><thead><tr><th>Team</th><th>Plays</th><th>Game end</th></tr></thead><tbody>' +
-          '<tr><td class="push-team"><em>All teams</em></td><td><input type="checkbox" data-pall="m" aria-label="All teams plays"></td>' +
-          '<td><input type="checkbox" data-pall="e" aria-label="All teams game ends"></td></tr>' + teamRows() + "</tbody></table>"
+          '<tr><td class="push-team"><div class="push-team-in"><em>All teams</em></div></td><td>' + levelSelect('data-pall="m"', allValue("m"), "All teams plays") + "</td>" +
+          '<td><input type="checkbox" data-pall="e"' + (allValue("e") === "1" ? " checked" : "") + ' aria-label="All teams game ends"></td></tr>' + teamRows() + "</tbody></table>"
         : "") +
       '<div class="fav-status" id="push-status"></div>';
   }
@@ -143,31 +164,43 @@
     if (t.getAttribute("data-push") === "fav") { state.modal.hidden = true; window.KMFavorites.openPanel(); return; }
     if (t.getAttribute("data-push") === "toggle") {
       t.disabled = true;
-      (state.sub ? unsubscribe() : subscribe()).then(render).catch(function (err) {
+      (state.sub ? unsubscribe() : subscribe()).then(function () { syncButton(); render(); }).catch(function (err) {
+        syncButton();
         render();
         setStatus(err.message === "denied" ? "Permission was not granted." : "Could not turn alerts on (" + err.message + ").");
       });
       return;
     }
+  }
+
+  // the inputs: favorites toggle, each team's plays level and game-end box, and the All teams row
+  function onChange(e) {
+    var t = e.target;
+    if (!t.hasAttribute) return;
     if (t.hasAttribute("data-pfavs")) { state.prefs.favs = t.checked ? 1 : 0; queueSave(); return; }
+    var val = t.type === "checkbox" ? (t.checked ? 1 : 0) : parseInt(t.value, 10) || 0;
     if (t.hasAttribute("data-pteam")) {
-      var a = t.getAttribute("data-pteam"), k = t.getAttribute("data-pkind");
-      var p = state.prefs.teams[a] || (state.prefs.teams[a] = { m: 0, e: 0 });
-      p[k] = t.checked ? 1 : 0;
-      if (!p.m && !p.e) delete state.prefs.teams[a];
+      setTeam(t.getAttribute("data-pteam"), t.getAttribute("data-pkind"), val);
       queueSave();
-      return;
-    }
-    if (t.hasAttribute("data-pall")) {
-      var kind = t.getAttribute("data-pall"), on = t.checked;
-      Object.keys(state.teams || {}).forEach(function (abbr) {
-        var q = state.prefs.teams[abbr] || (state.prefs.teams[abbr] = { m: 0, e: 0 });
-        q[kind] = on ? 1 : 0;
-        if (!q.m && !q.e) delete state.prefs.teams[abbr];
+      refreshAll();
+    } else if (t.hasAttribute("data-pall")) {
+      var kind = t.getAttribute("data-pall");
+      Object.keys(state.teams || {}).forEach(function (abbr) { setTeam(abbr, kind, val); });
+      queueSave();
+      Array.prototype.forEach.call(state.modal.querySelectorAll('[data-pteam][data-pkind="' + kind + '"]'), function (c) {
+        if (c.type === "checkbox") c.checked = !!val; else c.value = String(val);
       });
-      queueSave();
-      Array.prototype.forEach.call(state.modal.querySelectorAll('[data-pteam][data-pkind="' + kind + '"]'), function (c) { c.checked = on; });
     }
+  }
+  function setTeam(abbr, kind, val) {
+    var p = state.prefs.teams[abbr] || (state.prefs.teams[abbr] = { m: 0, e: 0 });
+    p[kind] = val;
+    if (!p.m && !p.e) delete state.prefs.teams[abbr];
+  }
+  function refreshAll() {   // keep the All teams row in step with the rows below it
+    var m = state.modal.querySelector('select[data-pall="m"]'), g = state.modal.querySelector('input[data-pall="e"]');
+    if (m) m.outerHTML = levelSelect('data-pall="m"', allValue("m"), "All teams plays");
+    if (g) g.checked = allValue("e") === "1";
   }
 
   function open() {
@@ -176,6 +209,7 @@
     var teams = state.teams ? Promise.resolve() : fetch("data/meta.json").then(function (r) { return r.json(); }).then(function (m) { state.teams = m.teams || {}; });
     var sub = supported ? currentSub().then(function (s) { state.sub = s; }).catch(function () { state.sub = null; }) : Promise.resolve();
     Promise.all([teams, sub]).then(function () {
+      syncButton();
       if (!state.sub) return;
       // the sheet's copy wins on a fresh device that already has a subscription
       return post({ action: "push_get", endpoint: state.sub.endpoint }).then(function (r) {
@@ -191,6 +225,8 @@
     loadPrefs();
     row.hidden = false;
     btn.addEventListener("click", open);
+    // already subscribed on this device: say Preferences from the start
+    if (supported && Notification.permission === "granted") currentSub().then(function (sub) { state.sub = sub; syncButton(); }).catch(function () { /* ignore */ });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();

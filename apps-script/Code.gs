@@ -257,13 +257,13 @@ function pushSecretOk_(secret) {
 
 function cleanPrefs_(prefs) {
   // Tiny whitelist so a client cannot stuff arbitrary data into the sheet:
-  //   teams: { ABC: { m: 0|1 (all plays and key moments), e: 0|1 (game ends) } }, favs: 0|1 (plays from my favorites)
+  //   teams: { ABC: { m: 0|1|2 (off / key moments / every play), e: 0|1 (game ends) } }, favs: 0|1 (key moments from my favorites)
   var out = { teams: {}, favs: prefs && prefs.favs ? 1 : 0 };
   var t = (prefs && prefs.teams) || {};
   Object.keys(t).slice(0, 64).forEach(function (abbr) {
     var a = String(abbr).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
     if (!a) return;
-    var m = t[abbr] && t[abbr].m ? 1 : 0;
+    var m = Math.max(0, Math.min(2, parseInt(t[abbr] && t[abbr].m, 10) || 0));
     var g = t[abbr] && t[abbr].e ? 1 : 0;
     if (m || g) out.teams[a] = { m: m, e: g };
   });

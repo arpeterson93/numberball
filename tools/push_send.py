@@ -7,7 +7,7 @@ previous build: "new" means in docs/data/ now and not in <old-base>/ (default ht
 its own. If the old data cannot be read (first run, site down) it sends nothing - a baseline, never a flood.
 
 Events (prefs per subscription, see docs/js/push.js):
-  team "m"  every key moment where the team is batting or fielding
+  team "m"  plays where the team is batting or fielding: 1 = key moments only, 2 = every play
   team "e"  the team's game just ended
   favs      key moments featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet)
 Each subscription gets at most MAX_PER_SUB notifications per run (more are folded into one "N new plays" summary), and
@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -30,7 +31,7 @@ NEW_DIR = os.path.join(ROOT, "docs", "data")
 LIVE_DATA = "https://mlngameday.com/data"
 SITE = "https://mlngameday.com/"
 MAX_PER_SUB = 4
-MAX_NEW_EVENTS = 150     # a rebuild that "creates" far more than this is a data reset, not live play: send nothing
+MAX_NEW_EVENTS = 250     # a rebuild that "creates" far more than this is a data reset, not live play: send nothing
 
 
 def read(base: str, name: str):
@@ -65,7 +66,7 @@ def moment_event(m: dict, labels: dict) -> dict:
     half = "Top" if m["half"] == "top" else "Bot"
     score = f'{m["away_team_abbr"]} {m["away_score"]}, {m["home_team_abbr"]} {m["home_score"]}'
     return {
-        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
+        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
             "title": f'{m["away_team_abbr"]} @ {m["home_team_abbr"]} - {half} {m["inning"]}',
             "body": f"{who}: {res}. {score}", "url": link(m["game_code"], m["play_num"]), "tag": m["game_code"]}}
@@ -84,16 +85,20 @@ def wants(sub: dict, ev: dict) -> bool:
     prefs = sub.get("prefs") or {}
     teams = prefs.get("teams") or {}
     for abbr in ev["teams"]:
-        if (teams.get(abbr) or {}).get(ev["kind"]):
+        level = int((teams.get(abbr) or {}).get(ev["kind"]) or 0)
+        if ev["kind"] == "e" and level:
             return True
-    return bool(ev["kind"] == "m" and prefs.get("favs") and ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
+        if ev["kind"] == "m" and (level >= 2 or (level == 1 and ev["key"])):
+            return True
+    return bool(ev["kind"] == "m" and ev["key"] and prefs.get("favs") and ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
 
 
 def messages_for(sub: dict, events: list[dict]) -> list[dict]:
     mine = [e["payload"] for e in events if wants(sub, e)]
     if len(mine) <= MAX_PER_SUB:
         return mine
-    return mine[:MAX_PER_SUB - 1] + [{"title": f"{len(mine) - MAX_PER_SUB + 1} more plays", "body": "Open MLN Gameday to catch up", "url": SITE, "tag": "more"}]
+    # one summary for the older ones, then the latest plays (events are in time order)
+    return [{"title": f"{len(mine) - MAX_PER_SUB + 1} earlier plays", "body": "Open MLN Gameday to catch up", "url": SITE, "tag": "more"}] + mine[-(MAX_PER_SUB - 1):]
 
 
 def api(endpoint: str, body: dict | None = None, params: dict | None = None) -> dict:
@@ -110,28 +115,36 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print who would get what, send nothing")
     ap.add_argument("--subs-file", help="read subscriptions from this JSON file ({subs: [...]}) instead of the Apps Script endpoint")
     ap.add_argument("--old-base", default=LIVE_DATA, help="URL or directory holding the previous build's key_moments.json and meta.json")
-    ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N moments and the latest finished game are new (no previous build needed)")
+    ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N plays and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
-    new_moments, new_meta = read(NEW_DIR, "key_moments.json"), read(NEW_DIR, "meta.json")
+    new_meta = read(NEW_DIR, "meta.json")
+    sessions = (new_meta.get("sessions") or [])[:2]          # the live session and the one before it
+    new_plays = {m["moment_id"]: m for sess in sessions for m in read(NEW_DIR, f"plays_{sess:02d}.json") if m.get("result") is not None}
     if args.replay:
-        latest = sorted(new_moments, key=lambda m: m["timestamp"])[-args.replay:]
-        old_moments = [m for m in new_moments if m not in latest]
+        newest = sorted(new_plays.values(), key=lambda m: m["timestamp"])[-args.replay:]
+        seen = set(new_plays) - {m["moment_id"] for m in newest}
         old_meta = json.loads(json.dumps(new_meta))
         done = final_games(old_meta)
         if done:
             done[sorted(done)[-1]]["is_game_final"] = False   # game codes are SSNNGG, so the biggest code is the latest game
     else:
         try:
-            old_moments, old_meta = read(args.old_base, "key_moments.json"), read(args.old_base, "meta.json")
+            old_meta = read(args.old_base, "meta.json")
+            seen = set()
+            for sess in sessions:
+                try:
+                    seen |= {m["moment_id"] for m in read(args.old_base, f"plays_{sess:02d}.json")}
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 404:      # a session the live site does not have yet is empty; any other failure is "no baseline"
+                        raise
         except Exception as exc:  # noqa: BLE001 - any failure here means "no baseline"
             print(f"push: no previous build to compare with ({exc}); nothing sent")
             return 0
 
-    seen = {m["moment_id"] for m in old_moments}
     labels = new_meta.get("result_short") or new_meta.get("result_labels") or {}
     old_final = final_games(old_meta)
-    events = [moment_event(m, labels) for m in new_moments if m["moment_id"] not in seen]
+    events = [moment_event(m, labels) for m in sorted((m for mid, m in new_plays.items() if mid not in seen), key=lambda m: (m["timestamp"], m["play_num"]))]
     events += [final_event(g) for code, g in final_games(new_meta).items() if code not in old_final]
     print(f"push: {len(events)} new events")
     if not events:
