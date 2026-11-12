@@ -68,16 +68,25 @@ def scoring_line(m: dict) -> str:
     return f"{names[0]} scores" if len(names) == 1 else f"{', '.join(names)} score"
 
 
+def diamond(m: dict) -> str:
+    """The base state after the play on one row, 3rd 2nd 1st, then the outs:  ◇ ◆ ◇   1 out
+    (obc_after is 1st-2nd-3rd occupancy, e.g. '010' = runner on 2nd)"""
+    obc = m.get("obc_after") or "000"
+    dots = " ".join("\u25c6" if obc[i] == "1" else "\u25c7" for i in (2, 1, 0))
+    outs = m.get("outs_after")
+    return dots if outs is None else f"{dots}   {outs} out" + ("" if outs == 1 else "s")
+
+
 def moment_event(m: dict) -> dict:
-    """Title  HFX @ GHG ▲1   (▲ top of the inning, ▼ bottom)
-    Body   Brody Page HR / Costanza scores (only when someone scored) / HFX 1 - GHG 0"""
+    """Title  HFX 1 - GHG 0 ▲ 1   (▲ top of the inning, ▼ bottom)
+    Body   Brody Page HR / Costanza scores (only when someone scored) / the base diamond with the outs"""
     who = m.get("featured_name") or m.get("batter_name") or ""
     tri = "▲" if m["half"] == "top" else "▼"
-    lines = [f'{who} {m["result"]}', scoring_line(m), f'{m["away_team_abbr"]} {m["away_score"]} - {m["home_team_abbr"]} {m["home_score"]}']
+    lines = [f'{who} {m["result"]}', scoring_line(m), diamond(m)]
     return {
         "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
-            "title": f'{m["away_team_abbr"]} @ {m["home_team_abbr"]} {tri}{m["inning"]}',
+            "title": f'{m["away_team_abbr"]} {m["away_score"]} - {m["home_team_abbr"]} {m["home_score"]} {tri} {m["inning"]}',
             "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), "tag": m["game_code"]}}
 
 
