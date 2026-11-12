@@ -1,5 +1,5 @@
 /* MLN Gameday service worker - push notifications only (no offline caching yet).
- * The sender (tools/push_send.py) sends JSON: { title, body, url, tag, icon }.
+ * The sender (tools/push_send.py) sends JSON: { title, body, url, icon }  (icon: a team logo; iOS ignores it and shows the app icon).
  * Tapping a notification focuses an open tab and navigates it to `url` (the usual ?game=..&play=.. deep link), or opens one. */
 self.addEventListener("install", function () { self.skipWaiting(); });
 self.addEventListener("activate", function (e) { e.waitUntil(self.clients.claim()); });
@@ -11,8 +11,6 @@ self.addEventListener("push", function (event) {
     body: d.body || "",
     icon: d.icon || "apple-touch-icon.png",
     badge: "favicon.png",
-    tag: d.tag || undefined,          // same tag replaces the earlier notification (e.g. one per game)
-    renotify: !!d.tag,
     data: { url: d.url || "./" },
   };
   event.waitUntil(self.registration.showNotification(d.title || "MLN Gameday", opts));

@@ -14,7 +14,8 @@ Events (prefs per subscription, see docs/js/push.js):
   team "e"  the team's game just ended
   favs      key moments featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet)
 Each subscription gets at most MAX_PER_SUB notifications per run (the rest are folded into one "N more new plays" summary), and
-notifications carry a per-game tag so a burst collapses on the device.
+every notification stands alone (no tag), so a later play never replaces an earlier one on the device. Android and desktop
+Chrome show the batting team's logo (the winner's, for a game end); iOS always shows the app icon and ignores it.
 
 Environment (GitHub secrets): PUSH_ENDPOINT (the Apps Script /exec URL), PUSH_SECRET, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 (mailto: or https: contact URL for the push services). Without them it just reports and exits 0.
@@ -94,7 +95,13 @@ def diamond(m: dict) -> str:
     return dots if outs is None else f"{dots}   {outs} out" + ("" if outs == 1 else "s")
 
 
-def moment_event(m: dict) -> dict:
+def icon_for(logos: dict | None, abbr: str | None) -> dict:
+    """{"icon": absolute logo URL} for the team, or nothing (the service worker then uses the app icon)."""
+    url = (logos or {}).get(abbr or "")
+    return {"icon": url} if url else {}
+
+
+def moment_event(m: dict, logos: dict | None = None) -> dict:
     """Title  HFX 1 - GHG 0 ▲ 1   (▲ top of the inning, ▼ bottom)
     Body   Brody Page HR / vs Pitcher Name (a steal: Runner SB2 / vs Catcher) / Costanza scores (only when someone scored) / the base diamond with the outs"""
     if m["result"][:2] in ("SB", "CS"):    # a steal: runner and result, against the catcher (the featured player when he is the one fielding)
@@ -110,7 +117,7 @@ def moment_event(m: dict) -> dict:
         "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
             "title": f'{m["away_team_abbr"]} {m["away_score"]} - {m["home_team_abbr"]} {m["home_score"]} {tri} {m["inning"]}',
-            "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), "tag": m["game_code"]}}
+            "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), **icon_for(logos, m["off_team_abbr"])}}
 
 
 def biggest_play_text(plays: list[dict], labels: dict) -> str:
@@ -126,12 +133,12 @@ def biggest_play_text(plays: list[dict], labels: dict) -> str:
     return f'{top.get("featured_name") or ""} · {labels.get(top["result"], top["result"])} · WPA {"+" if delta >= 0 else ""}{delta:.1f}%'
 
 
-def final_event(g: dict, plays: list[dict], labels: dict) -> dict:
+def final_event(g: dict, plays: list[dict], labels: dict, logos: dict | None = None) -> dict:
     a, h = g["away_team_abbr"], g["home_team_abbr"]
     return {"teams": {a, h}, "kind": "e", "player_ids": set(), "game": g["game_code"], "payload": {
         "title": f"Final: {a} {g['away_score']} - {h} {g['home_score']}",
         "body": biggest_play_text(plays, labels),
-        "url": link(g["game_code"]), "tag": g["game_code"]}}
+        "url": link(g["game_code"]), **icon_for(logos, a if g["away_score"] > g["home_score"] else h if g["home_score"] > g["away_score"] else None)}}
 
 
 def wants(sub: dict, ev: dict) -> bool:
@@ -151,7 +158,7 @@ def messages_for(sub: dict, events: list[dict]) -> list[dict]:
     if len(mine) <= MAX_PER_SUB:
         return mine
     # the first MAX_PER_SUB in time order, then one summary for the rest
-    return mine[:MAX_PER_SUB] + [{"title": f"{len(mine) - MAX_PER_SUB} more new plays", "body": "Open MLN Gameday to catch up", "url": SITE, "tag": "more"}]
+    return mine[:MAX_PER_SUB] + [{"title": f"{len(mine) - MAX_PER_SUB} more new plays", "body": "Open MLN Gameday to catch up", "url": SITE}]
 
 
 def api(endpoint: str, body: dict | None = None, params: dict | None = None) -> dict:
@@ -247,13 +254,14 @@ def main() -> int:
             print(f"push: no previous build to compare with ({exc}); nothing sent")
             return 0
 
+    logos = {abbr: SITE + t["logo_url"].lstrip("/") for abbr, t in (new_meta.get("teams") or {}).items() if t.get("logo_url")}
     labels = new_meta.get("result_labels") or {}   # full names, as the slideshow recap uses
     old_final = final_games(old_meta)
     by_game: dict[str, list[dict]] = {}
     for m in new_plays.values():
         by_game.setdefault(m["game_code"], []).append(m)
-    events = [moment_event(m) for m in sorted((m for mid, m in new_plays.items() if mid not in seen), key=lambda m: (m["timestamp"], m["play_num"]))]
-    events += [final_event(g, by_game.get(code, []), labels) for code, g in final_games(new_meta).items() if code not in old_final]
+    events = [moment_event(m, logos) for m in sorted((m for mid, m in new_plays.items() if mid not in seen), key=lambda m: (m["timestamp"], m["play_num"]))]
+    events += [final_event(g, by_game.get(code, []), labels, logos) for code, g in final_games(new_meta).items() if code not in old_final]
     print(f"push: {len(events)} new events")
     if not events:
         return 0
