@@ -1,6 +1,6 @@
 """Send web-push notifications for what is new in this build compared with the live site.
 
-  python tools/push_send.py [--dry-run] [--subs-file subs.json] [--old-base URL_OR_DIR]
+  python tools/push_send.py [--dry-run] [--subs-file subs.json] [--old-base URL_OR_DIR] [--replay N]
 
 Runs in the Build Key Moments workflow after the data is built and BEFORE it deploys, so the live site still holds the
 previous build: "new" means in docs/data/ now and not in <old-base>/ (default https://mlngameday.com/data). No state of
@@ -110,14 +110,23 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print who would get what, send nothing")
     ap.add_argument("--subs-file", help="read subscriptions from this JSON file ({subs: [...]}) instead of the Apps Script endpoint")
     ap.add_argument("--old-base", default=LIVE_DATA, help="URL or directory holding the previous build's key_moments.json and meta.json")
+    ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N moments and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
-    try:
-        old_moments, old_meta = read(args.old_base, "key_moments.json"), read(args.old_base, "meta.json")
-    except Exception as exc:  # noqa: BLE001 - any failure here means "no baseline"
-        print(f"push: no previous build to compare with ({exc}); nothing sent")
-        return 0
     new_moments, new_meta = read(NEW_DIR, "key_moments.json"), read(NEW_DIR, "meta.json")
+    if args.replay:
+        latest = sorted(new_moments, key=lambda m: m["timestamp"])[-args.replay:]
+        old_moments = [m for m in new_moments if m not in latest]
+        old_meta = json.loads(json.dumps(new_meta))
+        done = final_games(old_meta)
+        if done:
+            done[sorted(done)[-1]]["is_game_final"] = False   # game codes are SSNNGG, so the biggest code is the latest game
+    else:
+        try:
+            old_moments, old_meta = read(args.old_base, "key_moments.json"), read(args.old_base, "meta.json")
+        except Exception as exc:  # noqa: BLE001 - any failure here means "no baseline"
+            print(f"push: no previous build to compare with ({exc}); nothing sent")
+            return 0
 
     seen = {m["moment_id"] for m in old_moments}
     labels = new_meta.get("result_short") or new_meta.get("result_labels") or {}
