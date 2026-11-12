@@ -98,19 +98,20 @@ jobs:
       - name: Build player accomplishments
         run: python -u accomplishments_build.py
 
-      # Web-push alerts for what is new versus the still-live previous build (see tools/push_send.py). Runs before the deploy
-      # so the live site is still the old build to compare against. Never blocks the deploy; does nothing until the
-      # PUSH_ENDPOINT / PUSH_SECRET / VAPID_PRIVATE_KEY / VAPID_SUBJECT secrets exist.
-      - name: Send push notifications
+      # Web-push alerts, step 1 of 2: save the still-live previous build as the baseline for "what is new" (see
+      # tools/push_send.py). The alerts themselves go out in the notify job below, once the deploy is live, so a tapped
+      # alert always finds its play. Needs no secrets and never blocks the deploy.
+      - name: Save the live data for the push diff
         continue-on-error: true
-        env:
-          PUSH_ENDPOINT: ${{ secrets.PUSH_ENDPOINT }}
-          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
-          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
-          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: |
-          if [ -n "$PUSH_SECRET" ]; then pip install pywebpush; fi
-          python -u tools/push_send.py
+        run: python -u tools/push_send.py --snapshot push_baseline
+
+      - name: Keep the baseline for the notify job
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: push-baseline
+          path: push_baseline
+          if-no-files-found: ignore
 
       # What the gate compared against next time: the sheet's hash and when this deploy happened (ships with the site)
       - name: Record the build hash
@@ -139,3 +140,35 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # Web-push alerts, step 2 of 2: after the deploy is live, wait until the site serves this build, then send what is new
+  # compared with the baseline saved before the deploy. Does nothing until the PUSH_ENDPOINT / PUSH_SECRET /
+  # VAPID_PRIVATE_KEY / VAPID_SUBJECT secrets exist, and a failure here never fails the run.
+  notify:
+    needs: [gate, build, deploy]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout the sender
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/push_send.py
+          sparse-checkout-cone-mode: false
+
+      - name: Get the baseline
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: push-baseline
+          path: push_baseline
+
+      - name: Send push notifications
+        env:
+          PUSH_ENDPOINT: ${{ secrets.PUSH_ENDPOINT }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          STATE: ${{ needs.gate.outputs.state }}
+        run: |
+          if [ -n "$PUSH_SECRET" ]; then pip install pywebpush; fi
+          python3 -u tools/push_send.py --old-base push_baseline --new-base https://mlngameday.com/data --expect-state "$STATE"

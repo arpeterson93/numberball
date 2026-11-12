@@ -15,6 +15,16 @@
   var standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   var state = { teams: null, prefs: { teams: {}, favs: 0 }, sub: null, saveTimer: 0, modal: null };
 
+  // A tapped notification while the app is already open: the service worker (sw.js) sends the link, we go there.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", function (e) {
+      var d = e.data;
+      if (!d || d.type !== "mln-open" || typeof d.url !== "string") return;
+      try { if (new URL(d.url).origin !== location.origin) return; } catch (err) { return; }
+      location.href = d.url;
+    });
+  }
+
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function endpoint() { return cfg.FAVORITES_ENDPOINT || ""; }

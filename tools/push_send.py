@@ -2,9 +2,12 @@
 
   python tools/push_send.py [--dry-run] [--subs-file subs.json] [--old-base URL_OR_DIR] [--replay N]
 
-Runs in the Build Key Moments workflow after the data is built and BEFORE it deploys, so the live site still holds the
-previous build: "new" means in docs/data/ now and not in <old-base>/ (default https://mlngameday.com/data). No state of
-its own. If the old data cannot be read (first run, site down) it sends nothing - a baseline, never a flood.
+Runs in the Build Key Moments workflow in two steps, so an alert is only sent once its play is really on the site:
+  1. before the deploy:  python tools/push_send.py --snapshot DIR   saves the still-live previous build (the baseline)
+  2. after the deploy:   python tools/push_send.py --old-base DIR --new-base https://mlngameday.com/data --expect-state JSON
+     waits until the live site serves the new build (its build_hash.json matches), then sends what is new.
+"new" means in the new data and not in the baseline. With no flags it compares docs/data/ with the live site, which is how
+to try it locally. No state of its own. If the baseline cannot be read (first run, site down) it sends nothing - never a flood.
 
 Events (prefs per subscription, see docs/js/push.js):
   team "m"  plays where the team is batting or fielding: 1 = key moments only, 2 = every play
@@ -39,9 +42,20 @@ MAX_NEW_EVENTS = 250     # a rebuild that "creates" far more than this is a data
 
 def read(base: str, name: str):
     if base.startswith("http"):
-        req = urllib.request.Request(f"{base.rstrip('/')}/{name}", headers={"User-Agent": "mln-gameday-push/1"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read().decode("utf-8"))
+        # a throwaway query keeps the CDN from handing back a copy cached before the deploy; the site is flaky now and then
+        # (a 503 cost a run its baseline once), so a few tries before giving up. A 404 is an answer, not a failure.
+        for attempt in range(4):
+            req = urllib.request.Request(f"{base.rstrip('/')}/{name}?cb={int(time.time())}", headers={"User-Agent": "mln-gameday-push/1"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    return json.loads(r.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404 or attempt == 3:
+                    raise
+            except (urllib.error.URLError, TimeoutError):
+                if attempt == 3:
+                    raise
+            time.sleep(3)
     with open(os.path.join(base, name), encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -149,6 +163,45 @@ def api(endpoint: str, body: dict | None = None, params: dict | None = None) -> 
         return json.loads(r.read().decode("utf-8"))
 
 
+def snapshot(dest: str) -> int:
+    """Save the live site's meta.json and the plays files of the two newest sessions into dest, for the post-deploy run to
+    diff against. meta.json goes in last, so a half-written baseline never looks complete; with no meta.json there is no baseline."""
+    new_meta = read(NEW_DIR, "meta.json")
+    os.makedirs(dest, exist_ok=True)
+    try:
+        old_meta = read(LIVE_DATA, "meta.json")
+        for sess in (new_meta.get("sessions") or [])[:2]:
+            try:
+                rows = read(LIVE_DATA, f"plays_{sess:02d}.json")
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    raise
+                continue
+            with open(os.path.join(dest, f"plays_{sess:02d}.json"), "w", encoding="utf-8") as fh:
+                json.dump(rows, fh)
+        with open(os.path.join(dest, "meta.json"), "w", encoding="utf-8") as fh:
+            json.dump(old_meta, fh)
+    except Exception as exc:  # noqa: BLE001
+        print(f"push: could not save the live data as a baseline ({exc}); the alerts for this build will be skipped")
+        return 0
+    print(f"push: baseline saved in {dest}")
+    return 0
+
+
+def wait_for_deploy(base: str, state_json: str, tries: int = 24, gap: float = 10.0) -> bool:
+    """Poll the live site's build_hash.json until it carries the hash this build wrote (the deploy has gone out)."""
+    want = json.loads(state_json).get("hash")
+    for i in range(tries):
+        try:
+            if read(base, "build_hash.json").get("hash") == want:
+                print(f"push: the site is serving the new build (after {i * gap:.0f}s)")
+                return True
+        except Exception:  # noqa: BLE001 - not there yet
+            pass
+        time.sleep(gap)
+    return False
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # the triangles in titles; a Windows console is cp1252
@@ -156,12 +209,21 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print who would get what, send nothing")
     ap.add_argument("--subs-file", help="read subscriptions from this JSON file ({subs: [...]}) instead of the Apps Script endpoint")
     ap.add_argument("--old-base", default=LIVE_DATA, help="URL or directory holding the previous build's key_moments.json and meta.json")
+    ap.add_argument("--new-base", help="URL or directory holding the NEW build's data (default: this checkout's docs/data); the workflow points it at the live site after the deploy")
+    ap.add_argument("--expect-state", help="build state JSON from the gate; with an http --new-base, wait until the site's build_hash.json carries the same hash")
+    ap.add_argument("--snapshot", metavar="DIR", help="save the live site's current meta.json and plays files into DIR (the baseline for a later run) and exit")
     ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N plays and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
-    new_meta = read(NEW_DIR, "meta.json")
+    if args.snapshot:
+        return snapshot(args.snapshot)
+    new_base = args.new_base or NEW_DIR
+    if args.expect_state and new_base.startswith("http") and not wait_for_deploy(new_base, args.expect_state):
+        print("push: the site never showed the new build; nothing sent")
+        return 0
+    new_meta = read(new_base, "meta.json")
     sessions = (new_meta.get("sessions") or [])[:2]          # the live session and the one before it
-    new_plays = {m["moment_id"]: m for sess in sessions for m in read(NEW_DIR, f"plays_{sess:02d}.json") if m.get("result") is not None}
+    new_plays = {m["moment_id"]: m for sess in sessions for m in read(new_base, f"plays_{sess:02d}.json") if m.get("result") is not None}
     if args.replay:
         newest = sorted(new_plays.values(), key=lambda m: m["timestamp"])[-args.replay:]
         seen = set(new_plays) - {m["moment_id"] for m in newest}
@@ -179,6 +241,8 @@ def main() -> int:
                 except urllib.error.HTTPError as exc:
                     if exc.code != 404:      # a session the live site does not have yet is empty; any other failure is "no baseline"
                         raise
+                except FileNotFoundError:    # the same, for a saved baseline (the snapshot skips sessions the site did not have)
+                    pass
         except Exception as exc:  # noqa: BLE001 - any failure here means "no baseline"
             print(f"push: no previous build to compare with ({exc}); nothing sent")
             return 0

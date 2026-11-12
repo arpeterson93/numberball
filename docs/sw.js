@@ -24,8 +24,10 @@ self.addEventListener("notificationclick", function (event) {
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
-      if (new URL(c.url).origin === new URL(target).origin && "navigate" in c) {
-        return c.focus().then(function () { return c.navigate(target); });
+      if (new URL(c.url).origin === new URL(target).origin && "postMessage" in c) {
+        // WindowClient.navigate() is unreliable in an installed iOS web app (it comes to the front on whatever screen it was on),
+        // so hand the URL to the page and let it navigate itself (docs/js/push.js)
+        return c.focus().then(function () { c.postMessage({ type: "mln-open", url: target }); });
       }
     }
     return self.clients.openWindow(target);
