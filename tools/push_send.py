@@ -87,9 +87,9 @@ def scoring_line(m: dict) -> str:
 
 def diamond(m: dict) -> str:
     """The base state after the play on one row, 3rd 2nd 1st, then the outs:  ◇ ◆ ◇   1 out
-    (obc_after is 1st-2nd-3rd occupancy, e.g. '010' = runner on 2nd)"""
+    (obc_after is already in that order, 3rd-2nd-1st: '001' = runner on 1st, '100' = runner on 3rd)"""
     obc = m.get("obc_after") or "000"
-    dots = " ".join("\u25c6" if obc[i] == "1" else "\u25c7" for i in (2, 1, 0))
+    dots = " ".join("\u25c6" if obc[i] == "1" else "\u25c7" for i in (0, 1, 2))
     outs = m.get("outs_after")
     return dots if outs is None else f"{dots}   {outs} out" + ("" if outs == 1 else "s")
 
