@@ -69,7 +69,7 @@ def scoring_line(m: dict) -> str:
 
 
 def moment_event(m: dict) -> dict:
-    """Title  HFX @ GHG · ▲1   (▲ top of the inning, ▼ bottom)
+    """Title  HFX @ GHG ▲1   (▲ top of the inning, ▼ bottom)
     Body   Brody Page HR / Costanza scores (only when someone scored) / HFX 1 - GHG 0"""
     who = m.get("featured_name") or m.get("batter_name") or ""
     tri = "▲" if m["half"] == "top" else "▼"
@@ -77,7 +77,7 @@ def moment_event(m: dict) -> dict:
     return {
         "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
-            "title": f'{m["away_team_abbr"]} @ {m["home_team_abbr"]} · {tri}{m["inning"]}',
+            "title": f'{m["away_team_abbr"]} @ {m["home_team_abbr"]} {tri}{m["inning"]}',
             "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), "tag": m["game_code"]}}
 
 
