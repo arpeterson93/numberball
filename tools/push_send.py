@@ -19,9 +19,11 @@ Environment (GitHub secrets): PUSH_ENDPOINT (the Apps Script /exec URL), PUSH_SE
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +33,7 @@ NEW_DIR = os.path.join(ROOT, "docs", "data")
 LIVE_DATA = "https://mlngameday.com/data"
 SITE = "https://mlngameday.com/"
 MAX_PER_SUB = 5
+SEND_GAP = 1.0           # seconds between rounds of sends, so one device never gets a burst of pushes in the same instant
 MAX_NEW_EVENTS = 250     # a rebuild that "creates" far more than this is a data reset, not live play: send nothing
 
 
@@ -79,10 +82,16 @@ def diamond(m: dict) -> str:
 
 def moment_event(m: dict) -> dict:
     """Title  HFX 1 - GHG 0 ▲ 1   (▲ top of the inning, ▼ bottom)
-    Body   Brody Page HR / Costanza scores (only when someone scored) / the base diamond with the outs"""
-    who = m.get("featured_name") or m.get("batter_name") or ""
+    Body   Brody Page HR / vs Pitcher Name (a steal: Runner SB2 / vs Catcher) / Costanza scores (only when someone scored) / the base diamond with the outs"""
+    if m["result"][:2] in ("SB", "CS"):    # a steal: runner and result, against the catcher (the featured player when he is the one fielding)
+        top = f'{m.get("runner_name") or m.get("batter_name") or ""} {m["result"]}'
+        catcher = m.get("featured_name") if m.get("featured_side") == "fielding" else m.get("counterpart_name")
+        vs = f"vs {catcher}" if catcher else ""
+    else:
+        top = f'{m.get("batter_name") or m.get("featured_name") or ""} {m["result"]}'
+        vs = f'vs {m["pitcher_name"]}' if m.get("pitcher_name") else ""
     tri = "▲" if m["half"] == "top" else "▼"
-    lines = [f'{who} {m["result"]}', scoring_line(m), diamond(m)]
+    lines = [top, vs, scoring_line(m), diamond(m)]
     return {
         "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
@@ -216,18 +225,29 @@ def main() -> int:
         return 0
     from pywebpush import WebPushException, webpush  # imported late so --dry-run needs nothing installed
 
-    dead, ok = [], []
-    for s, msgs in plan:
-        for m in msgs:
+    def who(sub: dict) -> str:   # a short anonymous id and the push service, enough to trace one device without naming anyone in the log
+        host = urllib.parse.urlparse(sub["endpoint"]).netloc.split(".")[-2:]
+        return f'{hashlib.sha1(sub["endpoint"].encode()).hexdigest()[:6]}@{".".join(host)}'
+
+    dead, ok, failed = [], [], set()
+    rounds = max(len(msgs) for _, msgs in plan)
+    for i in range(rounds):
+        if i:
+            time.sleep(SEND_GAP)
+        for s, msgs in plan:
+            if i >= len(msgs) or s["endpoint"] in failed:
+                continue
+            m = msgs[i]
             try:
-                webpush(subscription_info=s["subscription"], data=json.dumps(m), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600)
+                resp = webpush(subscription_info=s["subscription"], data=json.dumps(m), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600)
                 ok.append(s["endpoint"])
+                print(f"push: {who(s)} {i + 1}/{len(msgs)} {getattr(resp, 'status_code', '?')} {m['title']}")
             except WebPushException as exc:
                 code = getattr(exc.response, "status_code", None)
-                print(f"push: {s.get('key')}: {code} {exc}"[:200])
+                print(f"push: {who(s)} {i + 1}/{len(msgs)} FAILED {code} {m['title']} {exc}"[:240])
                 if code in (404, 410):
                     dead.append(s["endpoint"])
-                    break
+                failed.add(s["endpoint"])
     if endpoint and secret and not args.subs_file:
         if dead:
             api(endpoint, {"action": "push_prune", "secret": secret, "endpoints": sorted(set(dead))})
