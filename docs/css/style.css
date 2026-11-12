@@ -3308,6 +3308,10 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .xt-min{width:70px;padding:5px 8px;}
 .xt-plain thead th:first-child{position:sticky;}
 .xt-plain tfoot td:first-child{position:sticky;}
+/* Game log: the Sn column stays frozen at every width while the stat columns scroll sideways */
+#career-body.pm-stats .xt-scroll .xt-plain td:first-child{position:sticky;left:0;background:var(--row-bg,var(--card));z-index:3;}
+#career-body.pm-stats .xt-scroll .xt-plain thead th:first-child{left:0;z-index:7;}
+#career-body.pm-stats .xt-scroll .xt-plain tfoot td:first-child{left:0;z-index:6;}
 
 /* Phones: the player panel nearly fills the screen, controls and tables shrink,
    hints drop out, and the first column (Season / Date / Player) stays pinned
@@ -3448,6 +3452,17 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .acc-pl .xt-link{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
 .acc-ctx{color:var(--muted);}
 .acc-n{width:1%;text-align:right;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
+/* Feats tab (career.js renderFeats): per-session groups of accomplishment rows, same row styling as the Accomplishments modal */
+#feats-view{padding:0 0 24px;}
+.feats-bar{display:flex;gap:8px;align-items:center;margin:4px 0 8px;}
+.feats-bar .acc-kind{flex:1 1 auto;width:auto;}
+.feats-head{margin:16px 0 6px;font-size:13px;font-weight:800;letter-spacing:.03em;color:var(--muted);}
+.feats-table{table-layout:fixed;}   /* one column grid for every session's table, so they line up down the page */
+.feats-table .acc-when{width:76px;}
+.feats-table .acc-pl{width:210px;}
+.feats-table .acc-ctx{white-space:normal;}
+.feats-title{color:var(--text);}
+.feats-more{display:block;margin:12px auto 0;}
 .acc-click{cursor:pointer;}
 .acc-click:hover td{background:var(--tint);}
 /* Small screens: each row stacks, season/session and player on the first line, the context and stat line under them */

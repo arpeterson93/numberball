@@ -150,6 +150,7 @@
   <div class="view-tabs" id="view-tabs">
     <button type="button" class="view-tab active" data-view="plays">Plays</button>
     <button type="button" class="view-tab" data-view="stats">Stats</button>
+    <button type="button" class="view-tab" data-view="feats">Feats</button>
   </div>
 
   <div id="plays-view">
@@ -288,6 +289,8 @@
        expands that player's plays this session beneath it (reuses the same
        lazily-loaded data.playsBySession the Plays tab already fetches). -->
   <div id="stats-view" hidden></div>
+  <!-- Feats: accomplishments earned in the picked session / season / All-Time (career.js's renderFeats) -->
+  <div id="feats-view" hidden></div>
 
 
 </div>

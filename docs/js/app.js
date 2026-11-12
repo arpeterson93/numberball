@@ -1679,6 +1679,13 @@
 
   function renderActiveView() {
     if (activeView === "stats") renderStats();
+    else if (activeView === "feats") renderFeats();
+  }
+
+  // Feats tab: the accomplishments earned in whatever the season/session picker is on (career.js builds the list)
+  function renderFeats() {
+    var el = $("feats-view");
+    if (el && window.MLNExtras) window.MLNExtras.render("feats", el);
   }
 
   function toggleStatsExpand(rowKey) {
@@ -1813,7 +1820,9 @@
     });
     $("plays-view").hidden = view !== "plays";
     $("stats-view").hidden = view !== "stats";
+    $("feats-view").hidden = view !== "feats";
     if (view === "stats") renderStats();
+    else if (view === "feats") renderFeats();
     else if (view === "plays") applyAllTimeMode();
   }
 
@@ -17312,6 +17321,7 @@
         statsExpandedKey = null;
         applyAllTimeMode();
         if (activeView === "stats") renderStats();
+        else if (activeView === "feats") renderFeats();
         return;
       }
       var wasAllTime = allTime;
@@ -18002,6 +18012,7 @@
       openPlay: openCrossSeasonPlay,
       copyLink: copyLinkToClipboard,
       rerenderStats: function () { if (activeView === "stats") renderStats(); },
+      scope: function () { return { allTime: allTime, season: season.active, session: filters.session }; },
       resultLabels: function () { return data.meta.result_labels || {}; },
       seasonList: function () {
         return seasonSessionGroups().map(function (g) { return g.season; }).sort(function (a, b) { return b - a; });

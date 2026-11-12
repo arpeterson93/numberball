@@ -211,7 +211,7 @@
     m.addEventListener("click", function (e) {
       if (e.target.closest("#career-copy")) { if (pm.id) B.copyLink(playerLinkUrl()); return; }
       var sub = e.target.closest("[data-pside]");
-      if (sub) { pm.side = sub.getAttribute("data-pside"); pm.season = "all"; pm.sortSeason = { key: "s", dir: "asc" }; pm.sortLog = { key: "d", dir: "desc" }; renderPlayer(); return; }
+      if (sub) { pm.side = sub.getAttribute("data-pside"); pm.season = "all"; pm.sortSeason = { key: "s", dir: "asc" }; pm.sortLog = { key: "sn", dir: "desc" }; renderPlayer(); return; }
       var gtb = e.target.closest("[data-pgt]");
       if (gtb) { pm.gt = gtb.getAttribute("data-pgt"); pm.season = "all"; renderPlayer(); return; }
       var psk = e.target.closest("[data-psk]");
@@ -1054,7 +1054,7 @@
     // game log
     var shown = all.filter(function (r) { return pm.season === "all" || String(r.s) === pm.season; });
     // GSc and WPA sit right after Opp, then the decision (pitchers), the counting stats, DPA and the swing columns.
-    var gcols = [["d", "Date"], ["sn", "Sn"], ["awr", "Awards"], ["o", "Opp"], ["gsc", "GSc", side === "bat" ? 1 : null], ["wpa", "WPA", 1]]
+    var gcols = [["sn", "Sn"], ["awr", "Awards"], ["o", "Opp"], ["gsc", "GSc", side === "bat" ? 1 : null], ["wpa", "WPA", 1]]
       .concat(side === "pit" ? [["dec", "Dec"]] : []).concat(cols).concat([["dpa", side === "pit" ? "DBF" : "DPA", 1]]).concat(swingCols(side));
     var grows = shown.map(function (r) {
       var rr = withGaps(Object.assign({}, r, { sn: r.s * 100 + r.n, dpa: r.dn ? (r.ds || 0) / r.dn : null,
@@ -1071,7 +1071,6 @@
       return '<tr class="xt-click" data-pgame="' + esc(r.g) + '" data-s="' + r.s + '" data-n="' + r.n + '" title="Open this game">' +
         gcols.map(function (c) {
           var k = c[0];
-          if (k === "d") return "<td>" + (r.d ? esc(fmtDate(r.d)) : "-") + "</td>";
           if (k === "sn") return "<td>S" + r.s + " \u00B7 " + r.n + (r.po ? " (PS)" : "") + "</td>";
           if (k === "awr") return "<td>" + B.awardBadges(r.aw, r.ga) + "</td>";
           if (k === "o") return "<td>" + (r.hm ? "vs " : "@ ") + esc(r.o) + "</td>";
@@ -1083,9 +1082,9 @@
     var tl = lineFrom(shown, side);
     var gfoot = "<tr>" + gcols.map(function (c) {
       var k = c[0];
-      if (k === "d") return "<td>Total</td>";
+      if (k === "sn") return "<td>Total</td>";
       if (k === "o") return "<td>" + shown.length + " G</td>";
-      if (k === "sn" || k === "awr" || k === "dec" || k === "gsc") return "<td></td>";
+      if (k === "awr" || k === "dec" || k === "gsc") return "<td></td>";
       return "<td>" + cell(tl[k] == null ? (NULLABLE[k] ? null : 0) : tl[k], c[2], k) + "</td>";
     }).join("") + "</tr>";
 
@@ -2125,6 +2124,100 @@
       (rows.length ? '<div class="acc-count">' + count + "</div>" + body : '<p class="modal-note">Nobody yet.</p>');
   }
 
+  // ── Feats tab (home page): every accomplishment earned in whatever the season/session picker is on ──────
+  // One session, a whole season (its sessions newest first, with the season's league-leader titles on top), or All-Time.
+  // Reads the same data/accomplishments.json as the modal above: [key, player id, season, game, detail, opponent, play numbers];
+  // the game code is SSNNGG (season, session, game), so the session comes from it. Season titles have no game.
+  var feats = { kind: "", favs: false, shown: 60, wired: null };
+  var FEATS_PAGE = 60;
+
+  function featsScopeLabel(sc) {
+    if (sc.allTime) return "All-Time";
+    return sc.session == null ? "Season " + sc.season : "Season " + sc.season + " · Session " + sc.session;
+  }
+
+  function renderFeats(el) {
+    if (!el || !B) return;
+    if (feats.wired !== el) { feats.wired = el; wireFeats(el); }
+    var sc = B.scope();
+    if (!acc.rows || !at.names) {
+      el.innerHTML = '<p class="modal-note">Loading&hellip;</p>';
+      Promise.all([acc.rows ? acc.rows : getJ("data/accomplishments.json"), loadNames()]).then(function (r) {
+        acc.rows = r[0]; renderFeats(el);
+      }, function () { el.innerHTML = '<p class="modal-note">Could not load the feats.</p>'; });
+      return;
+    }
+    var meta = {}, order = {};
+    AW_ACC.forEach(function (m, i) { meta[m[0]] = m; order[m[0]] = i; });
+    var sessOf = function (r) { return r[3] ? Number(String(r[3]).slice(2, 4)) : 0; };   // 0 = a season title
+    var rows = acc.rows.filter(function (r) {
+      if (!meta[r[0]]) return false;
+      if (!sc.allTime) {
+        if (r[2] !== sc.season) return false;
+        if (sc.session != null && sessOf(r) !== sc.session) return false;
+      }
+      if (feats.kind && r[0] !== feats.kind) return false;
+      if (feats.favs && !(B.isFavorite && B.isFavorite(r[1]))) return false;
+      return true;
+    });
+    // newest first: season, then session (season titles lead their season), then game, then the editor's feat order
+    var rank = function (r) { return sessOf(r) || 999; };   // a season's title rows lead its block
+    rows.sort(function (a, b) {
+      return b[2] - a[2] || rank(b) - rank(a) || String(b[3]).localeCompare(String(a[3])) || order[a[0]] - order[b[0]];
+    });
+    var kinds = AW_ACC_GROUPS.map(function (G) {
+      return '<optgroup label="' + esc(G[1]) + '">' + AW_ACC.filter(function (m) { return m[2] === G[0]; }).map(function (m) {
+        return '<option value="' + m[0] + '"' + (m[0] === feats.kind ? " selected" : "") + ">" + esc(m[1]) + "</option>";
+      }).join("") + "</optgroup>";
+    }).join("");
+    var shortName = function (id) { var n = nameOf(id); return B.nameDisplay ? B.nameDisplay(Number(id), n) : n; };
+    var who = function (id) { return '<span class="xt-link" data-accp="' + id + '" role="link" tabindex="0" title="' + esc(nameOf(id)) + '">' + esc(shortName(id)) + "</span>"; };
+    var shown = rows.slice(0, feats.shown), html = "", groupKey = null;
+    shown.forEach(function (r) {
+      var s = sessOf(r), key = r[2] + "|" + s;
+      if (key !== groupKey) {
+        if (groupKey !== null) html += "</tbody></table></div>";
+        groupKey = key;
+        html += '<h3 class="feats-head">' + (s ? "Season " + r[2] + " &middot; Session " + s : "Season " + r[2] + " leaders") + "</h3>" +
+          '<div class="acc-scroll"><table class="acc-table feats-table"><tbody>';
+      }
+      var m = meta[r[0]], n = s;
+      var ctx = r[4] ? esc(r[4]) : "";
+      var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + n + '"' : ' class="acc-season"';
+      html += "<tr" + click + '><td class="acc-when">' + (r[5] ? "vs " + esc(r[5]) : "") + '</td><td class="acc-pl">' + who(r[1]) +
+        '</td><td class="acc-ctx"><strong class="feats-title" title="' + esc(m[3]) + '">' + esc(m[1]) + "</strong>" + (ctx ? " &middot; " + ctx : "") + "</td></tr>";
+    });
+    if (groupKey !== null) html += "</tbody></table></div>";
+    var more = rows.length > shown.length ? '<button type="button" class="chip feats-more" data-featsmore="1">Show ' + Math.min(FEATS_PAGE, rows.length - shown.length) + " more</button>" : "";
+    el.innerHTML = '<div class="feats-bar"><select id="feats-kind" class="acc-kind" aria-label="Feat">' + '<option value="">All feats</option>' + kinds + "</select>" +
+      '<button type="button" class="chip' + (feats.favs ? " active" : "") + '" data-featsfav="1">Favorites</button></div>' +
+      '<div class="acc-count">' + esc(featsScopeLabel(sc)) + " &middot; " + rows.length + (rows.length === 1 ? " feat" : " feats") + "</div>" +
+      (rows.length ? html + more : '<p class="modal-note">No feats here yet.</p>');
+  }
+
+  function wireFeats(el) {
+    el.addEventListener("change", function (e) {
+      if (e.target.id === "feats-kind") { feats.kind = e.target.value; feats.shown = FEATS_PAGE; renderFeats(el); }
+    });
+    el.addEventListener("click", function (e) {
+      if (e.target.closest("[data-featsmore]")) { feats.shown += FEATS_PAGE; renderFeats(el); return; }
+      if (e.target.closest("[data-featsfav]")) { feats.favs = !feats.favs; feats.shown = FEATS_PAGE; renderFeats(el); return; }
+      var p = e.target.closest("[data-accp]");
+      if (p) { var pid = Number(p.getAttribute("data-accp")); openPlayer(pid, nameOf(pid)); return; }
+      var sl = e.target.closest("[data-pslide]");
+      if (sl && sl.getAttribute("data-pslide")) {
+        var rp = $("replay-modal");
+        if (rp) rp.classList.remove("over-player", "over-acc", "over-stack");
+        var pns = sl.getAttribute("data-pslide").split(",").map(Number), s = Number(sl.getAttribute("data-s"));
+        var n = Number(sl.getAttribute("data-n")), g = sl.getAttribute("data-pgame");
+        B.playSlideshow(pns.map(function (pn) { return { s: s, n: n, g: g, pn: pn }; }));
+      }
+    });
+    el.addEventListener("keydown", function (e) {
+      if ((e.key === "Enter" || e.key === " ") && e.target.hasAttribute && e.target.hasAttribute("data-accp")) { e.preventDefault(); e.target.click(); }
+    });
+  }
+
   // ── public ──────────────────────────────────────────────────────────────────────
 
   var wired = false;
@@ -2135,6 +2228,7 @@
     },
     render: function (view, el) {
       if (view === "alltime") renderAllTime(el);
+      else if (view === "feats") renderFeats(el);
     },
     renderGran: renderGran,
     statsAllTime: statsAllTime,
