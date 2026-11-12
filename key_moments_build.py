@@ -1663,6 +1663,7 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         "teams": {
             abbr: {
                 "name": ref["team_by_abbrev"].get(abbr, {}).get("full_team") or abbr,
+                "nickname": ref["team_by_abbrev"].get(abbr, {}).get("team_name") or "",   # "Peregrines" (the Teams tab's Team Name)
                 "sub_league": ref["team_by_abbrev"].get(abbr, {}).get("sub_league") or "",
                 "primary_hex": ref["team_by_abbrev"].get(abbr, {}).get("primary_hex") or "",
                 "secondary_hex": SECONDARY_HEX.get(abbr, ""),

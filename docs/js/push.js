@@ -114,7 +114,7 @@
     return Object.keys(t).sort().map(function (abbr) {
       var p = state.prefs.teams[abbr] || {}, name = t[abbr].name || abbr;
       var logo = t[abbr].logo_url ? '<img class="push-logo" src="' + esc(t[abbr].logo_url) + '" alt="' + esc(abbr) + '" title="' + esc(name) + '" loading="lazy">' : "<strong>" + esc(abbr) + "</strong>";
-      return '<tr><td class="push-team"><div class="push-team-in">' + logo + '<span class="push-name">' + esc(name) + "</span></div></td>" +
+      return '<tr><td class="push-team"><div class="push-team-in">' + logo + '<span class="push-name">' + esc(t[abbr].nickname || name) + "</span></div></td>" +
         "<td>" + levelSelect('data-pteam="' + abbr + '" data-pkind="m"', String(p.m || 0), name + " plays") + "</td>" +
         '<td><input type="checkbox" data-pteam="' + abbr + '" data-pkind="e"' + (p.e ? " checked" : "") + ' aria-label="' + esc(name) + ' game ends"></td></tr>';
     }).join("");

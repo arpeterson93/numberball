@@ -10,8 +10,19 @@
 .stats-table.push-grid th,.stats-table.push-grid td{padding:6px 8px;text-align:center;}
 .stats-table.push-grid th:first-child,.stats-table.push-grid td.push-team{text-align:left;}
 .stats-table.push-grid tbody td:first-child{position:static;z-index:auto;background:transparent;}
+.stats-table.push-grid td.push-team,.stats-table.push-grid th:first-child{width:100%;max-width:0;}   /* the team column takes what is left and truncates */
+.stats-table.push-grid th,.stats-table.push-grid td:not(.push-team){white-space:nowrap;}
 .push-team-in{display:flex;align-items:center;gap:8px;min-width:0;}
 .push-logo{width:28px;height:28px;object-fit:contain;flex:0 0 auto;}
 .push-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.push-level{font:inherit;font-size:13px;padding:4px 6px;max-width:100%;}
+.push-level{font:inherit;font-size:13px;padding:4px 6px;min-width:112px;}   /* always wide enough for "Key moments"; the team name gives way instead */
 .push-grid input[type=checkbox]{width:18px;height:18px;vertical-align:middle;}
+@media (max-width:600px){
+  .stats-table.push-grid th,.stats-table.push-grid td{padding:6px 4px;}
+  .push-logo{width:24px;height:24px;}
+  .push-team-in{gap:6px;}
+  .push-level{font-size:12px;padding:4px 2px;min-width:100px;}
+  #push-body{padding-left:12px;padding-right:12px;}
+  .push-name{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:12px;overflow-wrap:anywhere;}   /* wrap a long nickname rather than cut it */
+  .stats-table.push-grid th{white-space:normal;line-height:1.1;}                                                         /* "Game end" may wrap to two lines */
+}
