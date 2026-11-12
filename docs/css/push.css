@@ -1,0 +1,17 @@
+/* Notifications panel (push.js): team grid with a Plays level and a Game end checkbox per team.
+   style.css gives every .stats-table header a sticky offset meant for the page (title row + toolbar), which is wrong inside
+   a modal, so the headers here all stick to the top of the panel's own scroll area. */
+/* A sticky header sticks inside the scroll area's padding, so with .modal-body's 16px of top padding rows were visible
+   scrolling past in the gap above the header. No top padding here (the first child carries the space) closes that gap. */
+#push-body{padding-top:0;}
+#push-body > :first-child{margin-top:16px;}
+.push-grid{width:100%;margin-top:8px;border-collapse:separate;border-spacing:0;}
+.stats-table.push-grid thead th,.stats-table.push-grid thead th:first-child{position:sticky;top:0;left:auto;z-index:5;background:var(--card);cursor:default;}
+.stats-table.push-grid th,.stats-table.push-grid td{padding:6px 8px;text-align:center;}
+.stats-table.push-grid th:first-child,.stats-table.push-grid td.push-team{text-align:left;}
+.stats-table.push-grid tbody td:first-child{position:static;z-index:auto;background:transparent;}
+.push-team-in{display:flex;align-items:center;gap:8px;min-width:0;}
+.push-logo{width:28px;height:28px;object-fit:contain;flex:0 0 auto;}
+.push-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.push-level{font:inherit;font-size:13px;padding:4px 6px;max-width:100%;}
+.push-grid input[type=checkbox]{width:18px;height:18px;vertical-align:middle;}

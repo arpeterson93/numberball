@@ -24,6 +24,7 @@ on:
       - 'accomplishments_build.py'
       - 'tools/accomplishment_frequency.py'
       - 'tools/season_milestones.py'
+      - 'tools/push_send.py'
       - 'rookie_tags.py'
       - 'requirements.txt'
       - '.github/workflows/key_moments.yml'
@@ -96,6 +97,20 @@ jobs:
       # patches "acc" into each player's career file, so it must run after career_build.py.
       - name: Build player accomplishments
         run: python -u accomplishments_build.py
+
+      # Web-push alerts for what is new versus the still-live previous build (see tools/push_send.py). Runs before the deploy
+      # so the live site is still the old build to compare against. Never blocks the deploy; does nothing until the
+      # PUSH_ENDPOINT / PUSH_SECRET / VAPID_PRIVATE_KEY / VAPID_SUBJECT secrets exist.
+      - name: Send push notifications
+        continue-on-error: true
+        env:
+          PUSH_ENDPOINT: ${{ secrets.PUSH_ENDPOINT }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: |
+          if [ -n "$PUSH_SECRET" ]; then pip install pywebpush; fi
+          python -u tools/push_send.py
 
       # What the gate compared against next time: the sheet's hash and when this deploy happened (ships with the site)
       - name: Record the build hash

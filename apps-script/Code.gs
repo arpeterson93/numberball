@@ -40,6 +40,9 @@ function doGet(e) {
     if (params.action === 'trigger_refresh') {
       return json_(triggerRefresh_());
     }
+    if (params.action === 'push_list') {
+      return json_(pushList_(params.secret));
+    }
     var key = normalizeKey_(params.key);
     if (!key) {
       return json_({ error: 'missing key' });
@@ -55,6 +58,9 @@ function doPost(e) {
     // Sent as text/plain so the browser skips the CORS preflight Apps Script
     // cannot answer; the body is still JSON.
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (String(body.action || '').indexOf('push_') === 0) {
+      return json_(pushAction_(body));
+    }
     var key = normalizeKey_(body.key);
     if (!key) {
       return json_({ error: 'missing key' });
@@ -209,6 +215,152 @@ function markSeen_(key, iso) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+// ── push subscriptions ────────────────────────────────────────────────────────
+//
+// One row per browser subscription in the 'push' tab, keyed by the endpoint URL (unique per browser and device). `key`
+// is the Catch Me Up name slug, so the sender can look up that name's favorites; one name can have several rows (phone
+// and laptop). There are no accounts: knowing your own endpoint is what authorizes changing your own row, and the
+// endpoint is never returned by a public read - the sender's push_list needs PUSH_SECRET from Script Properties.
+
+var PUSH_SHEET = 'push';
+var PUSH_HEADERS = ['key', 'endpoint', 'subscription_json', 'prefs_json', 'created_at_iso', 'last_ok_iso'];
+
+function pushSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(PUSH_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(PUSH_SHEET);
+  }
+  if (sh.getLastRow() === 0) {
+    sh.appendRow(PUSH_HEADERS);
+  }
+  return sh;
+}
+
+function pushFindRow_(sh, endpoint) {
+  var last = sh.getLastRow();
+  if (last < 2 || !endpoint) return -1;
+  var eps = sh.getRange(2, 2, last - 1, 1).getValues();
+  for (var i = 0; i < eps.length; i++) {
+    if (String(eps[i][0]) === endpoint) return i + 2;
+  }
+  return -1;
+}
+
+function pushSecretOk_(secret) {
+  var want = PropertiesService.getScriptProperties().getProperty('PUSH_SECRET');
+  return !!want && String(secret || '') === want;
+}
+
+function cleanPrefs_(prefs) {
+  // Tiny whitelist so a client cannot stuff arbitrary data into the sheet:
+  //   teams: { ABC: { m: 0|1|2 (off / key moments / every play), e: 0|1 (game ends) } }, favs: 0|1 (key moments from my favorites)
+  var out = { teams: {}, favs: prefs && prefs.favs ? 1 : 0 };
+  var t = (prefs && prefs.teams) || {};
+  Object.keys(t).slice(0, 64).forEach(function (abbr) {
+    var a = String(abbr).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+    if (!a) return;
+    var m = Math.max(0, Math.min(2, parseInt(t[abbr] && t[abbr].m, 10) || 0));
+    var g = t[abbr] && t[abbr].e ? 1 : 0;
+    if (m || g) out.teams[a] = { m: m, e: g };
+  });
+  return out;
+}
+
+function pushAction_(body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sh = pushSheet_();
+    var sub = body.subscription || {};
+    var endpoint = String(body.endpoint || sub.endpoint || '');
+    var now = new Date().toISOString();
+
+    if (body.action === 'push_prune') {
+      if (!pushSecretOk_(body.secret)) return { error: 'forbidden' };
+      var dead = (body.endpoints || []).map(String);
+      var removed = 0;
+      // bottom-up so row numbers stay valid while deleting
+      for (var r = sh.getLastRow(); r >= 2; r--) {
+        if (dead.indexOf(String(sh.getRange(r, 2).getValue())) !== -1) {
+          sh.deleteRow(r);
+          removed++;
+        }
+      }
+      return { removed: removed };
+    }
+    if (body.action === 'push_ok') {
+      if (!pushSecretOk_(body.secret)) return { error: 'forbidden' };
+      var okEps = (body.endpoints || []).map(String);
+      var lastRow = sh.getLastRow();
+      if (lastRow >= 2) {
+        var eps = sh.getRange(2, 2, lastRow - 1, 1).getValues();
+        for (var i = 0; i < eps.length; i++) {
+          if (okEps.indexOf(String(eps[i][0])) !== -1) sh.getRange(i + 2, 6).setValue(now);
+        }
+      }
+      return { ok: true };
+    }
+
+    if (endpoint.indexOf('https://') !== 0) return { error: 'missing endpoint' };
+    var row = pushFindRow_(sh, endpoint);
+
+    if (body.action === 'push_subscribe') {
+      var key = normalizeKey_(body.key);
+      var rec = [key, endpoint, JSON.stringify(sub), JSON.stringify(cleanPrefs_(body.prefs)), now, ''];
+      if (row === -1) {
+        sh.appendRow(rec);
+      } else {
+        // same browser re-subscribing (or switching name): keep created_at, refresh the rest
+        var created = sh.getRange(row, 5).getValue() || now;
+        rec[4] = created;
+        sh.getRange(row, 1, 1, PUSH_HEADERS.length).setValues([rec]);
+      }
+      return { subscribed: true };
+    }
+    if (body.action === 'push_prefs') {
+      if (row === -1) return { error: 'not subscribed' };
+      sh.getRange(row, 4).setValue(JSON.stringify(cleanPrefs_(body.prefs)));
+      return { saved: true };
+    }
+    if (body.action === 'push_get') {
+      if (row === -1) return { subscribed: false };
+      var p = {};
+      try { p = JSON.parse(sh.getRange(row, 4).getValue() || '{}'); } catch (err) { p = {}; }
+      return { subscribed: true, prefs: p, key: String(sh.getRange(row, 1).getValue()) };
+    }
+    if (body.action === 'push_unsubscribe') {
+      if (row !== -1) sh.deleteRow(row);
+      return { unsubscribed: true };
+    }
+    return { error: 'unknown push action' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// For the sender only (GitHub Actions): every subscription with its prefs and its name's favorites.
+function pushList_(secret) {
+  if (!pushSecretOk_(secret)) return { error: 'forbidden' };
+  var sh = pushSheet_();
+  var last = sh.getLastRow();
+  var out = [];
+  var favCache = {};
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, PUSH_HEADERS.length).getValues();
+    vals.forEach(function (v) {
+      var sub = null, prefs = {};
+      try { sub = JSON.parse(v[2]); } catch (err) { return; }
+      try { prefs = JSON.parse(v[3] || '{}'); } catch (err) { prefs = {}; }
+      var key = String(v[0]);
+      if (!(key in favCache)) favCache[key] = key ? readFavorites_(key).player_ids : [];
+      out.push({ key: key, endpoint: String(v[1]), subscription: sub, prefs: prefs, player_ids: favCache[key] });
+    });
+  }
+  return { subs: out };
 }
 
 // ── util ──────────────────────────────────────────────────────────────────────
