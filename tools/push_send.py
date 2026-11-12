@@ -311,7 +311,8 @@ def main() -> int:
                 continue
             m = msgs[i]
             try:
-                resp = webpush(subscription_info=s["subscription"], data=json.dumps(m), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600)
+                resp = webpush(subscription_info=s["subscription"], data=json.dumps(m), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600,
+                              headers={"Urgency": "high"})   # Apple maps this to immediate delivery; the default can be held back on an idle phone
                 ok.append(s["endpoint"])
                 print(f"push: {who(s)} {i + 1}/{len(msgs)} {getattr(resp, 'status_code', '?')} {m['title']}")
             except WebPushException as exc:
