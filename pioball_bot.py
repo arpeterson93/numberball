@@ -704,10 +704,54 @@ async def _timer_before_loop() -> None:
 @app_commands.choices(hours=[app_commands.Choice(name="12 hours (default)", value=12),
                              app_commands.Choice(name="6 hours (10 if overnight ET)", value=6)])
 async def timer_command(interaction: discord.Interaction, hours: app_commands.Choice[int]) -> None:
-    pioball_timers.save_settings({"hours": hours.value})
+    pioball_timers.save_settings({**pioball_timers.load_settings(), "hours": hours.value})
     await interaction.response.send_message(
         f"Timers are now {'6 hours (10 if it starts or would expire from 12am to 7am ET)' if hours.value == 6 else '12 hours'}, "
         "starting with the next timer.", ephemeral=True)
+
+
+notimerday = app_commands.Group(name="notimerday", description="League no-timer days (12am ET that day to 7am ET the next): the clock is paused")
+
+
+def _fmt_days(days: list[str]) -> str:
+    return "\n".join(f"{datetime.strptime(d, '%Y-%m-%d'):%a %b} {int(d[8:])}, {d[:4]}" for d in days) or "none"
+
+
+@notimerday.command(name="add", description="Add a no-timer day (the day the window starts, e.g. 2026-11-26 or 11/26/2026)")
+async def notimerday_add(interaction: discord.Interaction, date: str) -> None:
+    d = pioball_timers.parse_day(date)
+    if d is None:
+        await interaction.response.send_message("Couldn't read that date - use 2026-11-26 or 11/26/2026.", ephemeral=True)
+        return
+    settings = pioball_timers.load_settings()
+    settings["no_timer_days"] = sorted({*settings["no_timer_days"], d.isoformat()})
+    pioball_timers.save_settings(settings)
+    _timers.recompute()
+    await interaction.response.send_message(
+        f"Added {d.isoformat()}: the clock is paused from 12am ET that day to 7am ET the next.", ephemeral=True)
+
+
+@notimerday.command(name="remove", description="Remove a no-timer day")
+async def notimerday_remove(interaction: discord.Interaction, date: str) -> None:
+    d = pioball_timers.parse_day(date)
+    settings = pioball_timers.load_settings()
+    if d is None or d.isoformat() not in settings["no_timer_days"]:
+        await interaction.response.send_message("That date isn't on the list (see /notimerday list).", ephemeral=True)
+        return
+    settings["no_timer_days"].remove(d.isoformat())
+    pioball_timers.save_settings(settings)
+    _timers.recompute()
+    await interaction.response.send_message(f"Removed {d.isoformat()}.", ephemeral=True)
+
+
+@notimerday.command(name="list", description="Show the no-timer days")
+async def notimerday_list(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message(
+        f"No-timer days (each 12am ET to 7am ET the next day):\n{_fmt_days(pioball_timers.load_settings()['no_timer_days'])}",
+        ephemeral=True)
+
+
+bot.tree.add_command(notimerday)
 
 
 def _timers_text() -> str:

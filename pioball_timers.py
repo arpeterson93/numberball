@@ -11,6 +11,7 @@ The pioneerss results feed drives it (pioball_bot.py passes every parsed feed me
                         (pinch hitter) keeps the first ping's clock.
   "swing is in"      -> the swing timer ends.
 A timer is 12 hours by default; in 6-hour mode (/timer) it is 6 hours, or 10 if it starts or would expire from 12am to 7am ET.
+On a no-timer day (12am ET to 7am ET the next day, /notimerday) the clock is paused: the deadline moves out by the overlap.
 
 Two alerts per timer, each sent at most once (a tick that finds both due sends one message):
   soon   - 2 hours or less left
@@ -26,7 +27,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import live_sheet
@@ -48,13 +49,33 @@ _SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pioba
 
 # ------------------------------------------------------------- settings
 
+# League no-timer days (Season 13 schedule). Each runs from 12am ET on its date to 7am ET the next day; the clock is paused
+# for the whole window. Used until /notimerday saves a list of its own.
+DEFAULT_NO_TIMER_DAYS = ("2026-07-04", "2026-10-12", "2026-11-11", "2026-11-26", "2026-11-27", "2026-12-31",
+                         "2027-01-18", "2027-02-14", "2027-02-15")
+
+
+def parse_day(text: str) -> date | None:
+    """2026-11-11 or 11/11/2026 (or 11/11/26) -> date; None if it isn't one."""
+    s = str(text).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
 def load_settings() -> dict:
+    """{"hours": 12 | 6, "no_timer_days": sorted ISO date strings}."""
     try:
         with open(_SETTINGS_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         data = {}
-    return {"hours": 6 if data.get("hours") == 6 else 12}
+    raw = data.get("no_timer_days", DEFAULT_NO_TIMER_DAYS)
+    days = sorted({d.isoformat() for d in (parse_day(x) for x in raw) if d})
+    return {"hours": 6 if data.get("hours") == 6 else 12, "no_timer_days": days}
 
 
 def save_settings(settings: dict) -> None:
@@ -71,6 +92,41 @@ def timer_length(start: datetime, hours: int) -> timedelta:
     end = start + timedelta(hours=6)
     overnight = start.astimezone(EASTERN).hour < 7 or end.astimezone(EASTERN).hour < 7
     return timedelta(hours=10) if overnight else timedelta(hours=6)
+
+
+def no_timer_windows(days: list[str]) -> list[tuple[datetime, datetime]]:
+    """UTC (start, end) of each no-timer window, 12am ET on the date to 7am ET the next day, touching ones merged."""
+    out: list[tuple[datetime, datetime]] = []
+    for d in sorted(parse_day(x) for x in days if parse_day(x)):
+        s = datetime(d.year, d.month, d.day, tzinfo=EASTERN).astimezone(timezone.utc)
+        nxt = d + timedelta(days=1)
+        e = datetime(nxt.year, nxt.month, nxt.day, 7, tzinfo=EASTERN).astimezone(timezone.utc)
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def timer_deadline(start: datetime, hours: int, days: list[str] | None = None) -> tuple[datetime, bool]:
+    """(deadline, paused): start plus the timer length, with the clock stopped inside every no-timer window. paused says
+    whether any window pushed the deadline out."""
+    length = timer_length(start, hours)
+    if days is None:
+        days = load_settings()["no_timer_days"]
+    cur, left = start, length
+    for w_start, w_end in no_timer_windows(days):
+        if w_end <= cur:
+            continue
+        if w_start <= cur:
+            cur = w_end            # starts inside a window: counting begins when it ends
+            continue
+        if w_start - cur >= left:
+            break                  # finishes before this window starts
+        left -= w_start - cur
+        cur = w_end
+    deadline = cur + left
+    return deadline, deadline - start > length
 
 
 def is_night(now: datetime) -> bool:
@@ -134,6 +190,8 @@ class Timer:
     ping_name: str | None = None
     game_code: str | None = None
     sent: set = field(default_factory=set)
+    hours: int = 12            # the length setting the timer was made under
+    paused: bool = False       # a no-timer day is included in the deadline
 
     def lead(self) -> str:
         if self.ping_id:
@@ -146,6 +204,8 @@ class Timer:
         """The message body shared by both alerts and /timers: the expiration first, then the game state."""
         label = "Pitch" if self.kind == "pitch" else "Swing"
         text = f"{label} timer expires **{fmt_deadline(self.deadline, now)}** ({fmt_left(self.deadline - now)} left)."
+        if self.paused:
+            text += " Includes a no-timer day."
         st = state_text(self.state)
         return f"{text} {st}." if st else text
 
@@ -268,8 +328,9 @@ def resolve_pending(pending: Pending, game_code: str, hours: int, now: datetime)
         return "none", None
     name = our_pitcher(game_row)
     start = pending.ts
-    return "timer", Timer("pitch", start, start + timer_length(start, hours), st,
-                          ping_id=roster_discord_id(name), ping_name=name, game_code=str(game_code))
+    deadline, paused = timer_deadline(start, hours)
+    return "timer", Timer("pitch", start, deadline, st, ping_id=roster_discord_id(name), ping_name=name,
+                          game_code=str(game_code), hours=hours, paused=paused)
 
 
 # ------------------------------------------------------------- tracker
@@ -299,11 +360,18 @@ class Tracker:
                 # pinch hitter / re-ping: the batting side's clock keeps running from the first ping
                 self.timer.state, self.timer.ping_id, self.timer.ping_name = state, ping_id, state.get("batter")
                 return
-            self.timer = Timer("swing", ts, ts + timer_length(ts, hours), state, ping_id=ping_id,
-                               ping_name=state.get("batter"))
+            deadline, paused = timer_deadline(ts, hours)
+            self.timer = Timer("swing", ts, deadline, state, ping_id=ping_id, ping_name=state.get("batter"),
+                               hours=hours, paused=paused)
         elif kind == "swing_in":
             if self.timer is not None and self.timer.kind == "swing":
                 self.timer = None
+
+    def recompute(self) -> None:
+        """Re-derive the running timer's deadline (the no-timer days changed). Alerts already sent stay sent."""
+        t = self.timer
+        if t is not None:
+            t.deadline, t.paused = timer_deadline(t.start, t.hours)
 
     def describe(self, now: datetime) -> str:
         if self.timer is not None:
