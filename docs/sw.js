@@ -4,6 +4,25 @@
 self.addEventListener("install", function () { self.skipWaiting(); });
 self.addEventListener("activate", function (e) { e.waitUntil(self.clients.claim()); });
 
+// Delivery receipts (see apps-script/Code.gs push_received): after showing a notification the phone tells the sheet, so a
+// missing alert can be traced. Same endpoint as docs/js/config.js FAVORITES_ENDPOINT. Anonymous: a short hash of the push
+// endpoint (matches the id push_send.py logs), the title and the first line of the body. Never allowed to break an alert.
+var RECEIPT_URL = "https://script.google.com/macros/s/AKfycbwm83cpSNFulJ8i4Lmvj6kraY1ssHl4sNOYyBhWetSEgd4HDeakQ9yxSTg_fl4SskZ66g/exec";
+var deviceId = "";
+function receipt(d, shown) {
+  var id = deviceId ? Promise.resolve(deviceId) : self.registration.pushManager.getSubscription().then(function (sub) {
+    if (!sub) throw new Error("no subscription");
+    return crypto.subtle.digest("SHA-1", new TextEncoder().encode(sub.endpoint)).then(function (buf) {
+      deviceId = Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("").slice(0, 6);
+      return deviceId;
+    });
+  });
+  return id.then(function (id) {
+    return fetch(RECEIPT_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "push_received", id: id, title: d.title || "", body: String(d.body || "").split("\n")[0], shown: shown }) });
+  }).catch(function () {});
+}
+
 self.addEventListener("push", function (event) {
   var d = {};
   try { d = event.data ? event.data.json() : {}; } catch (err) { d = { body: event.data ? event.data.text() : "" }; }
@@ -13,7 +32,8 @@ self.addEventListener("push", function (event) {
     badge: "favicon.png",
     data: { url: d.url || "./" },
   };
-  event.waitUntil(self.registration.showNotification(d.title || "MLN Gameday", opts));
+  event.waitUntil(self.registration.showNotification(d.title || "MLN Gameday", opts).then(function () { return receipt(d, true); },
+    function (err) { return receipt(d, false).then(function () { throw err; }); }));
 });
 
 self.addEventListener("notificationclick", function (event) {

@@ -240,6 +240,22 @@ function pushSheet_() {
   return sh;
 }
 
+// Delivery receipts: each phone's service worker reports a push the moment it shows it (docs/sw.js), so a missing alert
+// can be told apart: sent by the sender log but no receipt = never reached the phone; receipt but nothing on screen = iOS
+// hid it (Focus, notification summary). `id` is the first 6 hex chars of sha1(endpoint), the same id push_send.py logs.
+var RECEIPT_SHEET = 'push_receipts';
+var RECEIPT_KEEP = 600;
+
+function receiptSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(RECEIPT_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(RECEIPT_SHEET);
+    sh.appendRow(['received_at_iso', 'device_id', 'title', 'body', 'shown']);
+  }
+  return sh;
+}
+
 function pushFindRow_(sh, endpoint) {
   var last = sh.getLastRow();
   if (last < 2 || !endpoint) return -1;
@@ -274,6 +290,15 @@ function pushAction_(body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    if (body.action === 'push_received') {
+      var id = String(body.id || '');
+      if (!/^[0-9a-f]{6}$/.test(id)) return { error: 'bad id' };
+      var rs = receiptSheet_();
+      rs.appendRow([new Date().toISOString(), id, String(body.title || '').slice(0, 120), String(body.body || '').slice(0, 160), body.shown ? 'yes' : 'no']);
+      var over = rs.getLastRow() - 1 - RECEIPT_KEEP;
+      if (over > 100) rs.deleteRows(2, over);   // keep the newest RECEIPT_KEEP rows, trimmed in batches
+      return { ok: true };
+    }
     var sh = pushSheet_();
     var sub = body.subscription || {};
     var endpoint = String(body.endpoint || sub.endpoint || '');
