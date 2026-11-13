@@ -45,7 +45,7 @@ self.addEventListener("notificationclick", function (event) {
   var stash = self.caches.open("mln-push").then(function (cache) {
     return cache.put(new Request(self.registration.scope + "__pending"), new Response(JSON.stringify({ url: target, t: Date.now() })));
   }).catch(function () {});
-  event.waitUntil(stash.then(function () { return self.clients.matchAll({ type: "window", includeUncontrolled: true }); }).then(function (list) {
+  var chain = stash.then(function () { return self.clients.matchAll({ type: "window", includeUncontrolled: true }); }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
       if (new URL(c.url).origin === new URL(target).origin && "postMessage" in c) {
@@ -55,5 +55,7 @@ self.addEventListener("notificationclick", function (event) {
       }
     }
     return self.clients.openWindow(target);
-  }));
+  });
+  // a receipt for the tap itself (title "CLICK: ..."), so a tap that never reaches the page can be told from one that does
+  event.waitUntil(Promise.all([chain, receipt({ title: "CLICK: " + (event.notification.title || ""), body: target }, true)]));
 });

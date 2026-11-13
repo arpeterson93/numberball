@@ -1994,7 +1994,10 @@
       fav.markSeenNow(data.meta.built_at);
       return Promise.resolve([]);
     }
-    return loadAllSessions().then(function (bySession) {
+    // Opened from a notification or shared game link (?game=...): give the replay the connection first. This pulls in every
+    // session's plays file (~10 downloads) and would otherwise compete with the one download the replay is waiting on.
+    var hold = /[?&]game=/.test(location.search) ? new Promise(function (r) { window.setTimeout(r, 6000); }) : Promise.resolve();
+    return hold.then(loadAllSessions).then(function (bySession) {
       // Both sides are naive Central "YYYY-MM-DDTHH:mm:ss" strings in the same
       // source zone (see favorites.js's centralNowIso), so lexicographic order
       // is chronological order and no timezone math is needed here.

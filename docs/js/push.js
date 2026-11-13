@@ -20,6 +20,7 @@
     navigator.serviceWorker.addEventListener("message", function (e) {
       var d = e.data;
       if (!d || d.type !== "mln-open" || typeof d.url !== "string") return;
+      report("OPEN: message", d.url);
       go(d.url, true);
     });
     // ...and the same link is parked in the cache by the service worker: pick it up on load and whenever the app comes back
@@ -27,6 +28,37 @@
     window.addEventListener("pageshow", checkPending);
     window.addEventListener("focus", checkPending);
     checkPending();
+    // a cold start from a tap can load the page a moment before the service worker has parked the link, so look again a few times
+    [1000, 2500, 5000, 10000].forEach(function (ms) { window.setTimeout(checkPending, ms); });
+    // arriving on a game link (a tapped alert or a shared link): say whether the replay actually opened
+    if (/[?&]game=/.test(location.search)) {
+      window.setTimeout(function () {
+        var m = document.getElementById("replay-modal");
+        report("OPEN: landed", (m && !m.hidden ? "replay open " : "replay NOT open ") + location.search.slice(0, 60));
+      }, 6000);
+    }
+  }
+
+  // Tiny anonymous trace lines into the push_receipts tab (same device id as the sender log), only from a subscribed browser.
+  var deviceIdP = null;
+  function deviceId() {
+    if (!deviceIdP) {
+      deviceIdP = navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub) return "";
+        return crypto.subtle.digest("SHA-1", new TextEncoder().encode(sub.endpoint)).then(function (buf) {
+          return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("").slice(0, 6);
+        });
+      }).catch(function () { return ""; });
+    }
+    return deviceIdP;
+  }
+  function report(label, detail) {
+    if (!cfg.FAVORITES_ENDPOINT || !window.crypto || !crypto.subtle) return;
+    deviceId().then(function (id) {
+      if (!id) return;
+      return fetch(cfg.FAVORITES_ENDPOINT, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "push_received", id: id, title: label, body: String(detail || "").slice(0, 150), shown: true }) });
+    }).catch(function () {});
   }
 
   var going = "";
@@ -53,7 +85,7 @@
           if (!r) return;
           return r.json().then(function (p) {
             c.delete(k);
-            if (p && p.url && Date.now() - p.t < 120000) go(p.url, false);   // an old, unclaimed tap is dropped
+            if (p && p.url && Date.now() - p.t < 120000) { report("OPEN: cache", p.url); go(p.url, false); }   // an old, unclaimed tap is dropped
           });
         });
       });
