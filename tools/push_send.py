@@ -153,6 +153,16 @@ def wants(sub: dict, ev: dict) -> bool:
     return bool(ev["kind"] == "m" and ev["key"] and prefs.get("favs") and ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
 
 
+def wire(sub: dict, msg: dict) -> dict:
+    """What actually goes over the wire for this subscription. Apple subscriptions get a Declarative Web Push message (WebKit, iOS and
+    iPadOS 18.4+): the system builds the notification from it and, on a tap, opens `navigate` itself, with no service worker click
+    event in between (which iOS was not always delivering to a closed app). docs/sw.js shows the same alert the old way on an iOS that
+    predates it. PUSH_DECLARATIVE=0 turns this off. Everything else (FCM / Android) keeps the plain message."""
+    if os.environ.get("PUSH_DECLARATIVE") == "0" or "web.push.apple.com" not in sub["endpoint"]:
+        return msg
+    return {"web_push": 8030, "notification": {"title": msg["title"], "body": msg.get("body", ""), "navigate": msg.get("url") or SITE}}
+
+
 def messages_for(sub: dict, events: list[dict]) -> list[dict]:
     mine = [e["payload"] for e in events if wants(sub, e)]
     if len(mine) <= MAX_PER_SUB:
@@ -246,7 +256,7 @@ def send_test(key_name: str, icon_abbr: str = "", sample: bool = False) -> int:
         if icon_abbr:   # the same icon URL the real play alerts carry, to see whether a remote icon changes what iOS does
             msg["icon"] = f"{SITE}data/push_icons/{icon_abbr}.png"
         try:
-            resp = webpush(subscription_info=s["subscription"], data=json.dumps(msg), vapid_private_key=vkey, vapid_claims={"sub": subject}, ttl=3600,
+            resp = webpush(subscription_info=s["subscription"], data=json.dumps(wire(s, msg)), vapid_private_key=vkey, vapid_claims={"sub": subject}, ttl=3600,
                            headers={"Urgency": "high"})
             print(f"push test: {who(s)} {getattr(resp, 'status_code', '?')}")
         except WebPushException as exc:
@@ -358,7 +368,7 @@ def main() -> int:
                 continue
             m = msgs[i]
             try:
-                resp = webpush(subscription_info=s["subscription"], data=json.dumps(m), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600,
+                resp = webpush(subscription_info=s["subscription"], data=json.dumps(wire(s, m)), vapid_private_key=key, vapid_claims={"sub": subject}, ttl=3600,
                               headers={"Urgency": "high"})   # Apple maps this to immediate delivery; the default can be held back on an idle phone
                 ok.append(s["endpoint"])
                 print(f"push: {who(s)} {i + 1}/{len(msgs)} {getattr(resp, 'status_code', '?')} {m['title']}")

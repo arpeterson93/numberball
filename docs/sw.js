@@ -26,6 +26,13 @@ function receipt(d, shown) {
 self.addEventListener("push", function (event) {
   var d = {};
   try { d = event.data ? event.data.json() : {}; } catch (err) { d = { body: event.data ? event.data.text() : "" }; }
+  if (d.web_push === 8030 && d.notification) {
+    // Declarative Web Push (tools/push_send.py wire): on iOS 18.4+ the system shows this notification itself and opens its `navigate`
+    // link on a tap, so showing one here would replace it and bring the unreliable click path back. Only report it. A browser that
+    // does not know the format hands the event no `notification`, so show it the ordinary way.
+    d = { title: d.notification.title, body: d.notification.body, url: d.notification.navigate, declarative: !!event.notification };
+    if (d.declarative) { event.waitUntil(receipt(d, true)); return; }
+  }
   var opts = {
     body: d.body || "",
     icon: d.icon || "apple-touch-icon.png",
