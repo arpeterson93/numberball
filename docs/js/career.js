@@ -1199,7 +1199,7 @@
     var hasPost = d.bat.concat(d.pit).some(function (r) { return r.po; });
 
     var tabs = topTabs +
-      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["season", "Season"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
+      '<div class="view-tabs xt-ptabs">' + [["stats", "Career"], ["season", "Season"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
         return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
       }).join("") + (sideTabs.length ? "" : LINK_BTN) + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "") + (side === "pit" && everything.some(function (r) { return r.gs; }) && everything.some(function (r) { return !r.gs; })
         ? '<div class="stats-subtabs">' + [["all", "All outings"], ["gs", "Starts"], ["rp", "Relief"]].map(function (x) {
