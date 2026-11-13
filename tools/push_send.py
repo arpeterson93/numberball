@@ -215,7 +215,7 @@ def who(sub: dict) -> str:
     return f'{hashlib.sha1(sub["endpoint"].encode()).hexdigest()[:6]}@{".".join(host)}'
 
 
-def send_test(key_name: str, icon_abbr: str = "") -> int:
+def send_test(key_name: str, icon_abbr: str = "", sample: bool = False) -> int:
     """One labelled test alert to each subscription saved under `key_name`, naming the device id in the body so the person can
     see which of their phones is which (the same id the phones' delivery receipts and this log carry)."""
     endpoint, secret = os.environ.get("PUSH_ENDPOINT", ""), os.environ.get("PUSH_SECRET", "")
@@ -230,9 +230,19 @@ def send_test(key_name: str, icon_abbr: str = "") -> int:
     mine = [s for s in res["subs"] if s.get("key") == key_name]
     print(f"push test: {len(mine)} subscriptions under that name")
     from pywebpush import WebPushException, webpush
+    real = None
+    if sample:   # a real alert exactly as the sender builds it (title, lines, diamonds, icon), for the newest play on the live site
+        meta = read(LIVE_DATA, "meta.json")
+        plays = [m for sess in (meta.get("sessions") or [])[:1] for m in read(LIVE_DATA, f"plays_{sess:02d}.json") if m.get("result") is not None]
+        newest = sorted(plays, key=lambda m: (m["timestamp"], m["play_num"]))[-1]
+        logos = {abbr: f"{SITE}data/push_icons/{abbr}.png" for abbr, t in (meta.get("teams") or {}).items() if t.get("logo_url")}
+        real = moment_event(newest, logos)["payload"]
+        print(f"push test: sample is play {newest['play_num']}: {real['title']} | {real['body']!r}")
     for s in mine:
         dev = hashlib.sha1(s["endpoint"].encode()).hexdigest()[:6]
         msg = {"title": "MLN Gameday test", "body": f"Device {dev} \u00b7 this is only a test alert" + (f" with the {icon_abbr} icon" if icon_abbr else ""), "url": SITE}
+        if real:
+            msg = real
         if icon_abbr:   # the same icon URL the real play alerts carry, to see whether a remote icon changes what iOS does
             msg["icon"] = f"{SITE}data/push_icons/{icon_abbr}.png"
         try:
@@ -257,11 +267,12 @@ def main() -> int:
     ap.add_argument("--snapshot", metavar="DIR", help="save the live site's current meta.json and plays files into DIR (the baseline for a later run) and exit")
     ap.add_argument("--test", metavar="KEY", help="send one labelled test alert to every subscription saved under this name (the key column) and exit")
     ap.add_argument("--test-icon", metavar="ABBR", default="", help="with --test: give the alert that team's logo as its icon, as the real play alerts do")
+    ap.add_argument("--test-sample", action="store_true", help="with --test: send the newest real play as a real-format alert instead of the labelled test text")
     ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N plays and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
     if args.test:
-        return send_test(args.test, args.test_icon.upper())
+        return send_test(args.test, args.test_icon.upper(), args.test_sample)
     if args.snapshot:
         return snapshot(args.snapshot)
     new_base = args.new_base or NEW_DIR

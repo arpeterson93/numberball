@@ -13,6 +13,10 @@ on:
         description: 'Optional team abbreviation: give the alert that team logo as its icon, like the real play alerts'
         required: false
         default: ''
+      sample:
+        description: 'true: send the newest real play as a real-format alert instead of the test text'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -33,6 +37,8 @@ jobs:
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           KEY: ${{ inputs.key }}
           ICON: ${{ inputs.icon }}
+          SAMPLE: ${{ inputs.sample }}
         run: |
           pip install pywebpush
-          python3 -u tools/push_send.py --test "$KEY" --test-icon "$ICON"
+          if [ "$SAMPLE" = "true" ]; then EXTRA=--test-sample; else EXTRA=""; fi
+          python3 -u tools/push_send.py --test "$KEY" --test-icon "$ICON" $EXTRA
