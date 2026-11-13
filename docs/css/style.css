@@ -3454,8 +3454,9 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .acc-n{width:1%;text-align:right;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
 /* Feats tab (career.js renderFeats): per-session groups of accomplishment rows, same row styling as the Accomplishments modal */
 #feats-view{padding:0 0 24px;}
-.feats-bar{display:flex;gap:8px;align-items:center;margin:4px 0 8px;}
-.feats-bar .acc-kind{flex:1 1 auto;width:auto;}
+.feats-bar{display:flex;gap:8px;align-items:stretch;margin:4px 0 8px;}   /* stretch: the dropdown and the Favorites button come out the same height */
+.feats-bar .acc-kind{flex:1 1 auto;width:auto;height:auto;min-height:36px;}
+.feats-bar .chip{min-height:36px;}
 .feats-head{margin:16px 0 6px;font-size:13px;font-weight:800;letter-spacing:.03em;color:var(--muted);}
 .feats-table{table-layout:fixed;}   /* one column grid for every session's table, so they line up down the page */
 .feats-table .acc-when{width:76px;}
