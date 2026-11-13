@@ -209,6 +209,40 @@ def wait_for_deploy(base: str, state_json: str, tries: int = 24, gap: float = 10
     return False
 
 
+def who(sub: dict) -> str:
+    """A short anonymous id and the push service, enough to trace one device without naming anyone in the log."""
+    host = urllib.parse.urlparse(sub["endpoint"]).netloc.split(".")[-2:]
+    return f'{hashlib.sha1(sub["endpoint"].encode()).hexdigest()[:6]}@{".".join(host)}'
+
+
+def send_test(key_name: str) -> int:
+    """One labelled test alert to each subscription saved under `key_name`, naming the device id in the body so the person can
+    see which of their phones is which (the same id the phones' delivery receipts and this log carry)."""
+    endpoint, secret = os.environ.get("PUSH_ENDPOINT", ""), os.environ.get("PUSH_SECRET", "")
+    vkey, subject = os.environ.get("VAPID_PRIVATE_KEY", ""), os.environ.get("VAPID_SUBJECT", "")
+    if not (endpoint and secret and vkey and subject):
+        print("push test: PUSH_ENDPOINT / PUSH_SECRET / VAPID_PRIVATE_KEY / VAPID_SUBJECT not all set")
+        return 1
+    res = api(endpoint, params={"action": "push_list", "secret": secret})
+    if "error" in res:
+        print("push test: could not list subscriptions:", res["error"])
+        return 1
+    mine = [s for s in res["subs"] if s.get("key") == key_name]
+    print(f"push test: {len(mine)} subscriptions under that name")
+    from pywebpush import WebPushException, webpush
+    for s in mine:
+        dev = hashlib.sha1(s["endpoint"].encode()).hexdigest()[:6]
+        msg = {"title": "MLN Gameday test", "body": f"Device {dev} \u00b7 this is only a test alert", "url": SITE}
+        try:
+            resp = webpush(subscription_info=s["subscription"], data=json.dumps(msg), vapid_private_key=vkey, vapid_claims={"sub": subject}, ttl=3600,
+                           headers={"Urgency": "high"})
+            print(f"push test: {who(s)} {getattr(resp, 'status_code', '?')}")
+        except WebPushException as exc:
+            print(f"push test: {who(s)} FAILED {getattr(exc.response, 'status_code', None)} {exc}"[:240])
+        time.sleep(SEND_GAP)
+    return 0
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # the triangles in titles; a Windows console is cp1252
@@ -219,9 +253,12 @@ def main() -> int:
     ap.add_argument("--new-base", help="URL or directory holding the NEW build's data (default: this checkout's docs/data); the workflow points it at the live site after the deploy")
     ap.add_argument("--expect-state", help="build state JSON from the gate; with an http --new-base, wait until the site's build_hash.json carries the same hash")
     ap.add_argument("--snapshot", metavar="DIR", help="save the live site's current meta.json and plays files into DIR (the baseline for a later run) and exit")
+    ap.add_argument("--test", metavar="KEY", help="send one labelled test alert to every subscription saved under this name (the key column) and exit")
     ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N plays and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
+    if args.test:
+        return send_test(args.test)
     if args.snapshot:
         return snapshot(args.snapshot)
     new_base = args.new_base or NEW_DIR
@@ -296,10 +333,6 @@ def main() -> int:
         print("push: VAPID_PRIVATE_KEY / VAPID_SUBJECT not set; nothing sent")
         return 0
     from pywebpush import WebPushException, webpush  # imported late so --dry-run needs nothing installed
-
-    def who(sub: dict) -> str:   # a short anonymous id and the push service, enough to trace one device without naming anyone in the log
-        host = urllib.parse.urlparse(sub["endpoint"]).netloc.split(".")[-2:]
-        return f'{hashlib.sha1(sub["endpoint"].encode()).hexdigest()[:6]}@{".".join(host)}'
 
     dead, ok, failed = [], [], set()
     rounds = max(len(msgs) for _, msgs in plan)

@@ -1,0 +1,33 @@
+name: Push test alert
+
+# Manual only: sends one labelled test alert to every push subscription saved under a name (default: the owner's), so a phone
+# can be checked end to end. Each alert names its device id (the same id the delivery receipts and the sender log use).
+on:
+  workflow_dispatch:
+    inputs:
+      key:
+        description: 'Name the subscriptions are saved under (the key column of the push sheet)'
+        required: true
+        default: 'mickey-scales'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/push_send.py
+          sparse-checkout-cone-mode: false
+      - name: Send the test alert
+        env:
+          PUSH_ENDPOINT: ${{ secrets.PUSH_ENDPOINT }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          KEY: ${{ inputs.key }}
+        run: |
+          pip install pywebpush
+          python3 -u tools/push_send.py --test "$KEY"
