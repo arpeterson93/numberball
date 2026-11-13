@@ -3456,14 +3456,14 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 #feats-view{padding:0 0 24px;}
 .feats-bar{display:flex;gap:8px;align-items:stretch;margin:4px 0 8px;}   /* stretch: the dropdown and the Favorites button come out the same height */
 .feats-bar .acc-kind{flex:1 1 auto;width:auto;height:auto;min-height:36px;}
-.feats-bar .chip{min-height:36px;}
+.feats-bar:not(.feats-by) .chip{min-height:36px;}
 .feats-head{margin:16px 0 6px;font-size:13px;font-weight:800;letter-spacing:.03em;color:var(--muted);}
 .feats-table{table-layout:fixed;}   /* one column grid for every session's table, so they line up down the page */
 .feats-table .acc-when{width:76px;}
 .feats-table .acc-pl{width:210px;}
 .feats-table .acc-ctx{white-space:normal;}
 .feats-title{color:var(--text);}
-.feats-by{margin:0 0 8px;}
+.feats-by{align-items:center;gap:10px 14px;margin:0 0 12px;}   /* By session / By feat: plain chips, the same as the Records tab's Per session / Per season */
 .feats-n{font-weight:700;color:var(--muted);margin-left:4px;}
 .feats-head + .acc-scroll + .feats-more{margin:8px 0 0;}
 .feats-more{display:block;margin:12px auto 0;}
