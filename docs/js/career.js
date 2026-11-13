@@ -975,12 +975,12 @@
           if (!mine.length) return "";
           mine.sort(function (a, b) { return a.s - b.s || String(a.g).localeCompare(String(b.g)); });
           return '<details class="aw-det"><summary title="' + esc(m[3]) + '"><span class="aw-dname">' + esc(m[1]) + '</span><span class="aw-total">&times;' + mine.length + "</span>" +
-            '<button type="button" class="play-jump-btn play-profile-btn aw-who" data-pacc="' + m[0] + '" title="Everyone with this accomplishment" aria-label="Everyone with ' + esc(m[1]) + '">' + AW_WHO_SVG + "</button></summary>" +
+            '<button type="button" class="play-jump-btn play-profile-btn aw-who" data-pacc="' + m[0] + '" title="Everyone with this feat" aria-label="Everyone with ' + esc(m[1]) + '">' + AW_WHO_SVG + "</button></summary>" +
             '<div class="aw-list">' + mine.map(function (i) { return accRow(i, G[0]); }).join("") + "</div></details>";
         }).join("");
         return kinds ? '<div class="aw-subgroup">' + esc(G[1]) + "</div>" + kinds : "";
       }).join("");
-      html += '<div class="xt-sub aw-head">Accomplishments</div><div class="aw-dets">' + grp + "</div>";
+      html += '<div class="xt-sub aw-head">Feats</div><div class="aw-dets">' + grp + "</div>";
     }
     return '<div class="aw-case">' + html + "</div>";
   }
@@ -2040,7 +2040,7 @@
     if ($("acc-modal")) return;
     var m = document.createElement("div");
     m.className = "modal"; m.id = "acc-modal"; m.hidden = true;
-    m.innerHTML = '<div class="modal-card"><div class="modal-head"><strong>Accomplishments</strong>' +
+    m.innerHTML = '<div class="modal-card"><div class="modal-head"><strong>Feats</strong>' +
       '<button type="button" class="ph-x" id="acc-close" aria-label="Close">&times;</button></div>' +
       '<div class="modal-body" id="acc-body"></div></div>';
     document.body.appendChild(m);
@@ -2082,7 +2082,7 @@
     $("acc-body").innerHTML = '<p class="modal-note">Loading&hellip;</p>';
     Promise.all([acc.rows ? acc.rows : getJ("data/accomplishments.json"), loadNames()]).then(function (r) {
       acc.rows = r[0]; renderAcc();
-    }, function () { $("acc-body").innerHTML = '<p class="modal-note">Could not load the accomplishments.</p>'; });
+    }, function () { $("acc-body").innerHTML = '<p class="modal-note">Could not load the feats.</p>'; });
   }
 
   function renderAcc() {
@@ -2117,7 +2117,7 @@
           return "<tr" + click + '><td class="acc-when">S' + r[2] + (r[3] ? " &middot; SN" + n : "") + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + ctx + "</td></tr>";
         }).join("") + "</tbody></table></div>";
     }
-    $("acc-body").innerHTML = '<select id="acc-kind" class="acc-kind" aria-label="Accomplishment">' + sel + "</select>" +
+    $("acc-body").innerHTML = '<select id="acc-kind" class="acc-kind" aria-label="Feat">' + sel + "</select>" +
       (m ? '<p class="modal-note">' + esc(m[3]) + "</p>" : "") +
       '<div class="acc-views"><button type="button" class="chip' + (acc.view === "list" ? " active" : "") + '" data-accview="list">Every time</button>' +
       '<button type="button" class="chip' + (acc.view === "players" ? " active" : "") + '" data-accview="players">By player</button></div>' +
