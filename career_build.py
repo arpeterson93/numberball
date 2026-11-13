@@ -118,6 +118,61 @@ def _compact(d: dict) -> dict:
     return {k: v for k, v in d.items() if v not in (0, 0.0, None)}
 
 
+def pa_events(grows: list[dict]) -> dict:
+    """One game's play-by-play for the player modal's Season tab: every plate appearance for the batter and every batter faced
+    for the pitcher, in order, plus who started on the mound for each team.
+
+    bat[pid]  = [[result, wpa x100, leverage, play_num, rbi, inning], ...]   (real turns only, steals are not plate appearances)
+    pit[pid]  = [[result, game-score change, wpa x100, play_num, batter name, inning], ...]
+    The pitcher's changes are exactly the terms of the Game Score v2 formula in key_moments_build._session_stats (outs, K, BB, H,
+    ER, HR), so 40 + the sum of a game's changes is that game's GSc. An earned run charged back to a pitcher who has left (an
+    inherited runner scoring) is its own row with an empty result."""
+    bat: dict[int, list] = defaultdict(list)
+    pit: dict[int, list] = defaultdict(list)
+    starters: dict[str, int] = {}
+    for m in sorted(grows, key=lambda m: m["play_num"]):
+        res = m["result"]
+        runs = m["runs"] or 0
+        wpa = m.get("wpa") or 0.0
+        inning = m.get("inning")
+        pid = m.get("pitcher_id")
+        if pid and m.get("def_team_abbr") not in starters:
+            starters[m.get("def_team_abbr")] = pid
+        bid = m.get("batter_id")
+        if bid and res not in kmb.NON_TURN_CODES:
+            bat[bid].append([res, round(wpa * 100, 1), m.get("leverage"), m["play_num"], runs, inning])
+        if not pid:
+            continue
+        delta = 2 * max(0, (m["outs_after"] or 0) - (m["outs_before"] or 0))
+        if res in kmb.HIT_CODES:
+            delta -= 2
+        if res in kmb.HOME_RUN_CODES:
+            delta -= 6
+        if res in kmb.WALK_CODES:
+            delta -= 2
+        elif res in kmb.STRIKEOUT_CODES:
+            delta += 1
+        er_ids = list(m.get("er_ids") or [])
+        if len(er_ids) < runs:
+            er_ids = er_ids + [pid] * (runs - len(er_ids))
+        others: dict[int, int] = defaultdict(int)
+        for er_pid in er_ids:
+            if not er_pid:
+                continue
+            if er_pid == pid:
+                delta -= 3
+            else:
+                others[er_pid] += 3
+        steal = res in kmb.NON_TURN_CODES
+        if not steal or delta:
+            # a steal credits the catcher's WPA, not the pitcher's (key_moments_build), so it is 0 here
+            pit[pid].append([res, delta, 0 if steal and (m.get("defense") or {}).get("C") else round(-wpa * 100, 1),
+                             m["play_num"], m.get("batter_name") or "", inning])
+        for er_pid, pts in others.items():
+            pit[er_pid].append(["", -pts, 0, m["play_num"], "", inning])
+    return {"bat": bat, "pit": pit, "starters": starters}
+
+
 def game_teams(rows: list[dict], name_to_id: dict) -> dict[int, str]:
     """player_id -> team abbr for one game, from what each id did in its plays
     (batters/runners/scorers are on the offense, pitchers/catchers the defense)."""
@@ -155,6 +210,7 @@ def main() -> None:
     n_res = len(dm.model()["GC"]) if dm.available() else 0
     game_lines: dict[tuple, dict] = {}         # (season, session, game_code) -> both teams' stats combined
     game_swings: dict[tuple, dict] = {}        # (season, session) -> {game_code: {"a": [...], "h": [...]}} packed swings, for the scorecard's Diffs tab
+    pa_out: dict[tuple, dict] = {}             # (pid, season) -> {"b": {game: PA rows}, "p": {game: batter-faced rows}}, for the Season tab
     player_sessions: dict[tuple, dict] = {}   # (pid, season, session) -> {"t","bat","pit"}
     seasons_meta = []
     session_stat_rows: list[tuple] = []        # (season, session, side, row, postseason) straight from each season's meta.stats
@@ -239,6 +295,10 @@ def main() -> None:
                 decisions = {int(k): v for k, v in (g.get("decisions") or {}).items()}
                 tmap = game_teams(grows, name_to_id)
                 stats = kmb._session_stats(grows, session, season, ref, {}, {})
+                pae = pa_events(grows)
+                for side_key, evs in (("b", pae["bat"]), ("p", pae["pit"])):
+                    for ev_pid, rows_ in evs.items():
+                        pa_out.setdefault((ev_pid, season), {"b": {}, "p": {}})[side_key][code] = rows_
                 _, swing_dist = dm.game_metrics(grows, season)
                 sw = dm.game_swings(grows, season)
                 if sw["a"] or sw["h"]:
@@ -335,6 +395,8 @@ def main() -> None:
                     row["gsc"] = line["gsc"]
                     if pid in decisions:
                         row["dec"] = decisions[pid]
+                    if pae["starters"].get(team) == pid:
+                        row["gs"] = 1   # began the game on the mound
                     player_games[pid]["pit"].append(row)
                     _add(team_sessions[(season, session, team)]["pit"], line, PIT_KEYS)
                     _add(gr["pit"], line, PIT_KEYS)
@@ -449,6 +511,12 @@ def main() -> None:
     for side in lg_gsc:
         for acc in lg_gsc[side].values():
             acc[0] = round(acc[0], 1)
+    pa_dir = os.path.join(DATA, "career", "pa")
+    if os.path.isdir(pa_dir):
+        for f in os.listdir(pa_dir):
+            os.remove(os.path.join(pa_dir, f))
+    for (pid, season), ev in pa_out.items():
+        _write(os.path.join(pa_dir, f"{pid}_{season}.json"), {k: v for k, v in ev.items() if v})
     for (gs, gn), games in game_swings.items():
         _write(os.path.join(DATA, "career", "gd", f"{gs}_{gn}.json"), games)
     _write(os.path.join(DATA, "career", "model.json"), {

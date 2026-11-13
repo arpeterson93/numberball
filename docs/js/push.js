@@ -30,6 +30,16 @@
     checkPending();
     // a cold start from a tap can load the page a moment before the service worker has parked the link, so look again a few times
     [1000, 2500, 5000, 10000].forEach(function (ms) { window.setTimeout(checkPending, ms); });
+    // every launch of the app, tapped alert or not (at most one per 3 minutes), so a tap whose click never reached the service worker still
+    // leaves a row: standalone = opened from the home screen, ctrl = a service worker is in charge, link = what the address carried
+    try {
+      var lastBoot = Number(window.localStorage.getItem("mln-boot-report") || 0);
+      if (Date.now() - lastBoot > 180000) {
+        window.localStorage.setItem("mln-boot-report", String(Date.now()));
+        report("OPEN: launch", "standalone=" + ((window.navigator.standalone || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)) ? 1 : 0) +
+          " ctrl=" + (navigator.serviceWorker.controller ? 1 : 0) + " link=" + (location.search.slice(0, 50) || "none"));
+      }
+    } catch (e) { /* storage blocked: skip */ }
     // arriving on a game link (a tapped alert or a shared link): say whether the replay actually opened
     if (/[?&]game=/.test(location.search)) {
       window.setTimeout(function () {

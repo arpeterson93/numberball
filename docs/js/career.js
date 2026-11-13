@@ -220,6 +220,12 @@
       if (plk) { pm.sortLog = nextSort(pm.sortLog, plk.getAttribute("data-plk")); renderPlayer(); return; }
       var pv = e.target.closest("[data-pview]");
       if (pv) { pm.view = pv.getAttribute("data-pview"); renderPlayer(); return; }
+      var rlb = e.target.closest("[data-prole]");
+      if (rlb) { pm.role = rlb.getAttribute("data-prole"); pm.season = "all"; pm.sg = ""; renderPlayer(); return; }
+      var svb = e.target.closest("[data-psv]");
+      if (svb) { pm.sv = svb.getAttribute("data-psv"); pm.sg = ""; renderPlayer(); return; }
+      var sgb = e.target.closest("[data-psg]");
+      if (sgb) { pm.sg = sgb.getAttribute("data-psg"); renderPlayer(); return; }
       var ssn = e.target.closest("[data-pseason]");
       if (ssn) { var sv = ssn.getAttribute("data-pseason"); pm.season = pm.season === sv ? "all" : sv; renderPlayer(); return; }
       var dxb = e.target.closest("[data-pdx]");
@@ -234,7 +240,8 @@
         // normally sits above the replay (a player opened from one), so lift the replay for this open only
         var rp = $("replay-modal");
         if (rp) rp.classList.add(stacked() ? "over-stack" : "over-player");
-        B.openPlay({ s: Number(g.getAttribute("data-s")), n: Number(g.getAttribute("data-n")), g: g.getAttribute("data-pgame") });
+        B.openPlay({ s: Number(g.getAttribute("data-s")), n: Number(g.getAttribute("data-n")), g: g.getAttribute("data-pgame"),
+          pn: g.getAttribute("data-pn") ? Number(g.getAttribute("data-pn")) : undefined });
       }
     });
   }
@@ -517,6 +524,185 @@
     $("career-body").innerHTML = tabs + '<div class="xt-sub">Season</div>' + pills + '<div class="xt-diffs">' + body + "</div>";
   }
 
+  // ── Season view: one season's ups and downs as pictures (WPA game by game, every plate appearance, every batter faced) ──
+  // Per-play detail comes from data/career/pa/<id>_<season>.json (career_build.py pa_events), loaded when the tab opens.
+
+  var RES_COL = { HR: "#1a7d35", "3B": "#2ca02c", "2BWH": "#57b857", "2B": "#93d493", "1BWH2": "#aedda2", "1BWH": "#c4e8a4", "1B": "#e5f5c3",
+    IF1B: "#fff7bc", BB: "#fee391", GORA: "#fec44f", DSacF: "#fe9929", DFO: "#fd8c15", SacF: "#fd7a1a", FO: "#f56010", PO: "#f03b20",
+    FCH: "#d42020", FC: "#c42020", FC3rd: "#b82020", GO: "#aa1020", LO: "#c8102e", K: "#b10026", DPRun: "#920026", DP: "#880026",
+    DP21: "#800026", DP31: "#5a001a", DPH1: "#3d0014", LODP: "#2d000f", TP: "#220009", LOTP: "#180006", SB: "#2ca02c", CS: "#b10026" };   // the scouting colours (utils._RESULT_ZONE_COLORS)
+  var RES_ALIAS = { B1B: "1B", B1BWH: "1BWH", SacB: "SacF", DSacB: "DSacF", BFC: "FC", BGO: "GO", IBB: "BB", AutoBB: "BB", AutoK: "K", KCS: "K", bAuto: "K" };
+  var RES_TXT = { "1BWH": "1B", "1BWH2": "1B", IF1B: "1B", B1B: "1B", B1BWH: "1B", "2BWH": "2B", AutoBB: "BB", AutoK: "K", KCS: "K", bAuto: "K",
+    SacF: "SF", DSacF: "SF", SacB: "SH", DFO: "FO", BFC: "FC", BGO: "GO", FC3rd: "FC", FCH: "FC", DPRun: "DP", DP21: "DP", DP31: "DP", DPH1: "DP",
+    LODP: "DP", GORA: "GO" };
+  var RES_NAME = { HR: "Home run", "3B": "Triple", "2B": "Double", "2BWH": "Double", "1B": "Single", "1BWH": "Single", "1BWH2": "Single", IF1B: "Infield single",
+    B1B: "Bunt single", BB: "Walk", IBB: "Intentional walk", K: "Strikeout", GO: "Groundout", FO: "Flyout", PO: "Popout", LO: "Lineout",
+    FC: "Fielder's choice", SacF: "Sacrifice fly", DSacF: "Sacrifice fly", SacB: "Sacrifice bunt", GORA: "Groundout, runner advances", DFO: "Deep flyout",
+    DP: "Double play", DP21: "Double play", DP31: "Double play", TP: "Triple play", CS: "Caught stealing", SB: "Stolen base" };
+  function resCol(r) { return RES_COL[r] || RES_COL[RES_ALIAS[r]] || "#9aa4b2"; }
+  function resTxt(r) { return RES_TXT[r] || (r.length > 3 ? r.slice(0, 3) : r); }
+  function inkOn(hex) {
+    var l = (0.299 * parseInt(hex.slice(1, 3), 16) + 0.587 * parseInt(hex.slice(3, 5), 16) + 0.114 * parseInt(hex.slice(5, 7), 16)) / 255;
+    return l > 0.6 ? "#161715" : "#fff";
+  }
+  function sgn(v, nd) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(nd == null ? 1 : nd); }
+  function rate3(v) { return v == null ? "-" : v.toFixed(3).replace(/^0/, ""); }
+  function gameLbl(g) { return g.n + (g.po ? " PS" : "") + " " + (g.hm ? "vs " : "@ ") + g.o; }
+  function gameAttrs(g, pn) {
+    return ' data-pgame="' + esc(g.g) + '" data-s="' + g.s + '" data-n="' + g.n + '"' + (pn ? ' data-pn="' + pn + '"' : "");
+  }
+
+  var paCache = {};
+  function renderSeason(tabs, all) {
+    var side = pm.side, seasons = {};
+    all.forEach(function (r) { seasons[r.s] = 1; });
+    var list = Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; });
+    if (!pm.sv || !seasons[pm.sv]) pm.sv = String(list[list.length - 1]);   // the newest season this player has games in
+    var pills = '<div class="stats-subtabs">' + list.map(function (sn) {
+      return '<button type="button" class="stats-subtab' + (String(sn) === pm.sv ? " active" : "") + '" data-psv="' + sn + '">S' + sn + "</button>";
+    }).join("") + "</div>";
+    var head = tabs + pills;
+    var key = pm.id + "_" + pm.sv;
+    if (!paCache[key]) {
+      $("career-body").innerHTML = head + '<div class="stats-empty">Loading the season...</div>';
+      var pid = pm.id, sv = pm.sv;
+      getJ("data/career/pa/" + key + ".json").catch(function () { return {}; }).then(function (d) {
+        paCache[key] = d;
+        if (pm.id === pid && pm.sv === sv && pm.view === "season") renderPlayer();
+      });
+      return;
+    }
+    var pa = paCache[key][side === "bat" ? "b" : "p"] || {};
+    var games = all.filter(function (r) { return String(r.s) === pm.sv; }).sort(function (a, b) {
+      return a.n - b.n || (a.d < b.d ? -1 : a.d > b.d ? 1 : 0) || (a.g < b.g ? -1 : a.g > b.g ? 1 : 0);
+    });
+    var ln = lineFrom(games, side), sum, body = "";
+    if (side === "bat") {
+      sum = ln.g + " G · " + (ln.pa || 0) + " PA · " + rate3(ln.avg) + "/" + rate3(ln.obp) + "/" + rate3(ln.slg) + " · WPA " + sgn(ln.wpa || 0);
+    } else {
+      var gs = games.filter(function (r) { return r.gs; }).length;
+      sum = ln.g + " G" + (gs ? " (" + gs + " GS)" : "") + " · " + ln.ip + " IP · " + (ln.era == null ? "-" : ln.era.toFixed(2)) + " ER6 · WPA " + sgn(ln.wpa || 0);
+    }
+    body += '<div class="sv-sum">' + esc(sum) + "</div>";
+    body += side === "bat" ? paGrid(games, pa) : gscChart(games, pa);
+    body += wpaChart(games);
+    $("career-body").innerHTML = head + '<div class="xt-diffs sv-wrap">' + body + "</div>";
+  }
+
+  // Every plate appearance, one row per game, a coloured block per result (scouting colours). A ring = drove in a run.
+  function paGrid(games, pa) {
+    var rows = games.filter(function (g) { return pa[g.g] && pa[g.g].length; }).map(function (g) {
+      var marks = pa[g.g].map(function (p) {
+        var col = resCol(p[0]);
+        var tip = (p[5] ? "Inning " + p[5] + " · " : "") + (RES_NAME[p[0]] || p[0]) + " · WPA " + sgn(p[1]) + (p[4] ? " · " + p[4] + " RBI" : "") +
+          (p[2] != null ? " · leverage " + Number(p[2]).toFixed(1) : "");
+        return '<span class="sv-pa xt-click' + (p[4] ? " sv-rbi" : "") + '" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(resTxt(p[0])) + "</span>";
+      }).join("");
+      return '<div class="sv-row"><div class="sv-lbl xt-click"' + gameAttrs(g) + ' title="Open this game">' + esc(gameLbl(g)) + '</div><div class="sv-marks">' + marks +
+        '</div><div class="sv-wpa ' + ((g.wpa || 0) < 0 ? "neg" : "pos") + '">' + sgn(g.wpa || 0) + "</div></div>";
+    }).join("");
+    if (!rows) return '<div class="stats-empty">No play-by-play for this season.</div>';
+    return '<div class="xt-sub">Plate appearances <span class="xt-hint">tap one to watch it &middot; ring = drove in a run &middot; right: game WPA</span></div>' +
+      '<div class="sv-grid">' + rows + "</div>" + resLegend();
+  }
+  function resLegend() {
+    return '<div class="dx-legend">' + [["HR", "Home run"], ["2B", "Extra base"], ["1B", "Single"], ["BB", "Walk"], ["FO", "Fly out"], ["GO", "Ground out"], ["K", "Strikeout"], ["DP", "Double play"]].map(function (x) {
+      return '<span><i style="background:' + resCol(x[0]) + '"></i>' + x[1] + "</span>";
+    }).join("") + "</div>";
+  }
+
+  // A pitcher's Game Score building up batter by batter, one line per appearance (starts solid, relief dashed), from the 40 every
+  // game begins with. The chosen game is drawn on top with a dot per batter faced; below it, the same batters as coloured blocks.
+  function gscChart(games, pa) {
+    var gl = games.filter(function (g) { return pa[g.g] && pa[g.g].length; });
+    if (!gl.length) return '<div class="stats-empty">No play-by-play for this season.</div>';
+    if (!pm.sg || !gl.some(function (g) { return g.g === pm.sg; })) pm.sg = gl[gl.length - 1].g;
+    var lines = gl.map(function (g) {
+      var run = 40, x = 0, pts = [[0, 40]];
+      pa[g.g].forEach(function (p) {
+        run += p[1];
+        if (p[0] !== "" && !/^(SB|CS|Balk)/.test(p[0])) x++;
+        pts.push([x, run, p]);
+      });
+      return { g: g, pts: pts, end: run };
+    });
+    var xmax = 6, ymin = 40, ymax = 40;
+    lines.forEach(function (l) { l.pts.forEach(function (q) { xmax = Math.max(xmax, q[0]); ymin = Math.min(ymin, q[1]); ymax = Math.max(ymax, q[1]); }); });
+    ymin = Math.floor((ymin - 2) / 10) * 10; ymax = Math.ceil((ymax + 2) / 10) * 10;
+    var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), H = Math.round(W * 0.42) + 18, L = 36, R = 16, T = 14, Bm = 26;
+    var pw = W - L - R, ph = H - T - Bm;
+    var X = function (v) { return L + v / xmax * pw; }, Y = function (v) { return T + ph - (v - ymin) / (ymax - ymin) * ph; };
+    var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Game Score by batter faced">';
+    for (var v = ymin; v <= ymax; v += 10) svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (Y(v) + 3).toFixed(1) + '" text-anchor="end">' + v + "</text>";
+    for (var bx = 0; bx <= xmax; bx += xmax > 30 ? 10 : 5) svg += '<text x="' + X(bx).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + bx + "</text>";
+    svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(40).toFixed(1) + '" y2="' + Y(40).toFixed(1) + '" class="dx-mk-lg"/>';
+    var path = function (l) {
+      return l.pts.map(function (q, i) { return (i ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1); }).join("");
+    };
+    var chosen = null;
+    lines.forEach(function (l) {
+      if (l.g.g === pm.sg) { chosen = l; return; }
+      var tip = gameLbl(l.g) + "\nGame Score " + Math.round(l.end);
+      svg += '<path d="' + path(l) + '" class="sv-ln' + (l.g.gs ? "" : " sv-rel") + '"/><path d="' + path(l) + '" class="sv-hit" data-psg="' + esc(l.g.g) + '"><title>' + esc(tip) + "</title></path>";
+    });
+    if (chosen) {
+      svg += '<path d="' + path(chosen) + '" class="sv-ln-on"/>';
+      chosen.pts.forEach(function (q) {
+        if (!q[2]) return;
+        var d = q[2][1];
+        svg += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="3.4" class="' + (d < 0 ? "sv-dn" : "sv-up") + '"><title>' +
+          esc((q[2][4] ? q[2][4] + " · " : "") + (RES_NAME[q[2][0]] || q[2][0] || "earned run charged") + " · " + sgn(d, 0)) + "</title></circle>";
+      });
+      var last = chosen.pts[chosen.pts.length - 1];
+      svg += '<text x="' + Math.min(W - R, X(last[0]) + 6).toFixed(1) + '" y="' + (Y(last[1]) - 7).toFixed(1) + '" text-anchor="' + (X(last[0]) > W - 60 ? "end" : "start") + '" class="sv-end">' + Math.round(chosen.end) + "</text>";
+    }
+    svg += "</svg>";
+    var chips = gl.map(function (g) {
+      var ln = lines.filter(function (l) { return l.g === g; })[0];
+      return '<button type="button" class="stats-subtab' + (g.g === pm.sg ? " active" : "") + (g.gs ? " sv-gs" : "") + '" data-psg="' + esc(g.g) + '" title="' + (g.gs ? "Started · " : "Relief · ") + 'Game Score ' + Math.round(ln.end) + '">' +
+        esc(gameLbl(g)) + " · " + Math.round(ln.end) + "</button>";
+    }).join("");
+    var blocks = "";
+    if (chosen) {
+      var g = chosen.g;
+      blocks = '<div class="xt-sub">' + esc(gameLbl(g)) + (g.gs ? " · started" : " · relief") + ' <span class="xt-hint">tap a batter to watch it</span></div><div class="sv-marks sv-bf">' +
+        pa[g.g].map(function (p) {
+          var col = p[0] === "" ? "#9aa4b2" : resCol(p[0]);
+          var tip = (p[4] ? "vs " + p[4] + " · " : "") + (p[5] ? "inning " + p[5] + " · " : "") + (RES_NAME[p[0]] || p[0] || "earned run charged to him") + " · Game Score " + sgn(p[1], 0) + " · WPA " + sgn(p[2]);
+          return '<span class="sv-pa xt-click" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(p[0] === "" ? "ER" : resTxt(p[0])) + "<small>" + sgn(p[1], 0) + "</small></span>";
+        }).join("") + "</div>";
+    }
+    return '<div class="xt-sub">Game Score by batter faced <span class="xt-hint">across: batters faced &middot; every game starts at 40 &middot; dashed = relief</span></div>' +
+      '<div class="dx-chart">' + svg + '</div><div class="sv-chips">' + chips + "</div>" + blocks;
+  }
+
+  // WPA game by game as a waterfall: each bar starts where the last one ended, green for a game that added win probability, red for one that cost it.
+  function wpaChart(games) {
+    var gl = games.filter(function (g) { return g.wpa != null; });
+    if (gl.length < 2) return "";
+    var run = 0, bars = gl.map(function (g) { var a = run; run += g.wpa; return { g: g, a: a, b: run }; });
+    var lo = 0, hi = 0;
+    bars.forEach(function (b) { lo = Math.min(lo, b.a, b.b); hi = Math.max(hi, b.a, b.b); });
+    var step = [1, 2, 5, 10, 20, 25, 50, 100].filter(function (s) { return (hi - lo) / s <= 5; })[0] || 100;
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step; if (hi === lo) hi = lo + step;
+    var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), H = Math.round(W * 0.38) + 18, L = 40, R = 18, T = 14, Bm = 26;
+    var pw = W - L - R, ph = H - T - Bm, n = bars.length, bw = pw / n;
+    var Y = function (v) { return T + ph - (v - lo) / (hi - lo) * ph; };
+    var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Win probability added by game">';
+    for (var v = lo; v <= hi + step / 1e6; v += step) svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '" class="' + (v === 0 ? "sv-zero" : "dx-grid") + '"/><text x="' + (L - 4) + '" y="' + (Y(v) + 3).toFixed(1) + '" text-anchor="end">' + sgn(v, 0).replace(/^\+/, "") + "</text>";
+    var every = Math.ceil(n / Math.floor(pw / 26));
+    bars.forEach(function (b, i) {
+      var x = L + i * bw + Math.min(3, bw * 0.15), w = Math.max(2, bw - 2 * Math.min(3, bw * 0.15)), y1 = Y(Math.max(b.a, b.b)), y2 = Y(Math.min(b.a, b.b));
+      var tip = gameLbl(b.g) + "\nWPA " + sgn(b.g.wpa) + " · season so far " + sgn(b.b);
+      svg += '<rect x="' + x.toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + Math.max(1.5, y2 - y1).toFixed(1) + '" class="' + (b.g.wpa < 0 ? "sv-bar-dn" : "sv-bar-up") + '" rx="1.5"/>';
+      if (i < n - 1) svg += '<line x1="' + (x + w).toFixed(1) + '" x2="' + (x + bw).toFixed(1) + '" y1="' + Y(b.b).toFixed(1) + '" y2="' + Y(b.b).toFixed(1) + '" class="sv-link"/>';
+      svg += '<rect x="' + (L + i * bw).toFixed(1) + '" y="' + T + '" width="' + bw.toFixed(1) + '" height="' + ph + '" fill="transparent" class="xt-click"' + gameAttrs(b.g) + "><title>" + esc(tip) + "</title></rect>";
+      if (i % every === 0) svg += '<text x="' + (L + (i + 0.5) * bw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + b.g.n + "</text>";
+    });
+    svg += "</svg>";
+    return '<div class="xt-sub">WPA game by game <span class="xt-hint">season total ' + sgn(run) + " &middot; tap a bar to open the game</span></div>" + '<div class="dx-chart">' + svg + "</div>";
+  }
+
   // Closing walks back over the entry opening pushed; a panel that was landed on (shared link) has nothing behind it,
   // so its params are stripped from the address bar instead. fromPop: the browser already moved, only hide.
   // A player opened from the Accomplishments modal sits above it (stack = the player underneath it, if any). The one
@@ -686,7 +872,7 @@
       // a shared link can ask for a side / view, honoured when this player has rows for it
       if (opts && opts.side && d[opts.side] && d[opts.side].length) pm.side = opts.side;
       if (opts && opts.side === "awd" && awardsFor(d).any) pm.side = "awd";
-      if (opts && (opts.view === "diffs" || opts.view === "gsc")) pm.view = opts.view;
+      if (opts && (opts.view === "diffs" || opts.view === "gsc" || opts.view === "season")) pm.view = opts.view;
       if (opts.gt === "reg" || (opts.gt === "post" && (d[pm.side] || []).some(function (r) { return r.po; }))) pm.gt = opts.gt;
       if (opts.season && (d[pm.side] || []).some(function (r) { return String(r.s) === String(opts.season); })) pm.season = String(opts.season);
       $("career-title").textContent = d.name;
@@ -714,6 +900,7 @@
       // A pitcher's game row carries its decision as "dec" (W / L / SV / H), not as w / l / sv / hd counts.
       var dk = side === "pit" && DEC_KEY[r.dec];
       if (dk) s[dk] = (s[dk] || 0) + 1;
+      if (side === "pit" && r.gs) s.gs = (s.gs || 0) + 1;   // began the game on the mound
     });
     s.g = rows.length;
     return side === "bat" ? withBatRates(s) : withPitRates(s);
@@ -1005,17 +1192,23 @@
     $("career-body").classList.remove("pm-stats");   // set again below, only for the Stats view
     if (side === "awd") { $("career-body").innerHTML = topTabs + awardsCase(aw); return; }
     var everything = d[side];
-    var all = everything.filter(function (r) { return gtOk(pm.gt, r.po); });
+    // pitchers: All / Starts / Relief narrows every view (a start = the pitcher took the mound to begin the game, r.gs)
+    var role = side === "pit" && (pm.role === "gs" || pm.role === "rp") ? pm.role : "all";
+    var all = everything.filter(function (r) { return gtOk(pm.gt, r.po) && (role === "all" || (role === "gs") === !!r.gs); });
     var cols = side === "bat" ? PBAT : PPIT;
     var hasPost = d.bat.concat(d.pit).some(function (r) { return r.po; });
 
     var tabs = topTabs +
-      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
+      '<div class="view-tabs xt-ptabs">' + [["stats", "Stats"], ["season", "Season"], ["diffs", "Diffs"], ["gsc", "Game Scores"]].map(function (v) {
         return '<button type="button" class="view-tab' + (pm.view === v[0] ? " active" : "") + '" data-pview="' + v[0] + '">' + v[1] + "</button>";
-      }).join("") + (sideTabs.length ? "" : LINK_BTN) + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "");
+      }).join("") + (sideTabs.length ? "" : LINK_BTN) + "</div>" + (hasPost ? gtPills(pm.gt, "data-pgt") : "") + (side === "pit" && everything.some(function (r) { return r.gs; }) && everything.some(function (r) { return !r.gs; })
+        ? '<div class="stats-subtabs">' + [["all", "All outings"], ["gs", "Starts"], ["rp", "Relief"]].map(function (x) {
+          return '<button type="button" class="stats-subtab' + (role === x[0] ? " active" : "") + '" data-prole="' + x[0] + '">' + x[1] + "</button>";
+        }).join("") + "</div>" : "");
 
     if (all.length && pm.view === "diffs") { renderDiffs(d, tabs, all); return; }
     if (all.length && pm.view === "gsc") { renderGsc(tabs, all); return; }
+    if (all.length && pm.view === "season") { renderSeason(tabs, all); return; }
 
     if (!all.length) {
       $("career-body").innerHTML = tabs + '<div class="stats-empty">No ' + (side === "bat" ? "batting" : "pitching") + " games.</div>";
@@ -1028,7 +1221,7 @@
     var snums = Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; });
     var seasonCols = side === "bat"
       ? cols.concat([["avg", "AVG", 3], ["obp", "OBP", 3], ["slg", "SLG", 3], ["ops", "OPS", 3], ["dpa", "DPA", 1], ["wpa", "WPA", 1]].concat(swingCols("bat")))
-      : [["w", "W"], ["l", "L"], ["sv", "SV"], ["hd", "HD"]].concat(cols).concat([["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DBF", 1], ["wpa", "WPA", 1]]).concat(swingCols("pit"));
+      : [["gs", "GS"], ["w", "W"], ["l", "L"], ["sv", "SV"], ["hd", "HD"]].concat(cols).concat([["era", "ER6", 2], ["whip", "WHIP", 2], ["dpa", "DBF", 1], ["wpa", "WPA", 1]]).concat(swingCols("pit"));
     var allSeasonCols = [["s", "Season"], ["team", "Team"], ["g", "G"]].concat(seasonCols);
     var srows = snums.map(function (sn) {
       var rows = seasons[sn], line = lineFrom(rows, side);
@@ -1068,7 +1261,7 @@
     var ghead = sortHead("data-plk", gcols, pm.sortLog);
     var gbody = grows.map(function (r) {
       var rr = side === "pit" ? Object.assign({}, r, { ip: fmtIP(r.outs || 0) }) : r;
-      return '<tr class="xt-click" data-pgame="' + esc(r.g) + '" data-s="' + r.s + '" data-n="' + r.n + '" title="Open this game">' +
+      return '<tr class="xt-click' + (r.gs ? " xt-gs" : "") + '" data-pgame="' + esc(r.g) + '" data-s="' + r.s + '" data-n="' + r.n + '" title="Open this game' + (r.gs ? " (started)" : "") + '">' +
         gcols.map(function (c) {
           var k = c[0];
           if (k === "sn") return "<td>S" + r.s + " \u00B7 " + r.n + (r.po ? " (PS)" : "") + "</td>";
@@ -1091,7 +1284,7 @@
     $("career-body").classList.add("pm-stats");
     $("career-body").innerHTML = tabs +
       '<div class="xt-sub">By season <span class="xt-hint">click a season to filter the game log, click it again to clear</span></div>' + seasonTable +
-      '<div class="xt-sub">Game log' + (pm.season === "all" ? "" : " \u00B7 S" + esc(pm.season)) + '<span class="xt-hint">click a game to open it</span></div>' +
+      '<div class="xt-sub">Game log' + (pm.season === "all" ? "" : " \u00B7 S" + esc(pm.season)) + '<span class="xt-hint">click a game to open it' + (side === "pit" ? " &middot; a bar on the left marks a start" : "") + '</span></div>' +
       '<div class="stats-table-wrap xt-table xt-scroll"><table class="stats-table xt-plain"><thead><tr>' + ghead +
       "</tr></thead><tbody>" + gbody + "</tbody><tfoot>" + gfoot + "</tfoot></table></div>";
     capGameLog();
@@ -2172,7 +2365,9 @@
     }).join("");
     var shortName = function (id) { var n = nameOf(id); return B.nameDisplay ? B.nameDisplay(Number(id), n) : n; };
     var who = function (id) { return '<span class="xt-link" data-accp="' + id + '" role="link" tabindex="0" title="' + esc(nameOf(id)) + '">' + esc(shortName(id)) + "</span>"; };
-    var byFeat = feats.by === "feat";
+    // one session picked: the by-session grouping would be a single block, so it is always by feat and the switch goes away
+    var single = !sc.allTime && sc.session != null;
+    var byFeat = single || feats.by === "feat";
     var rowHtml = function (r) {
       var s = sessOf(r), m = meta[r[0]], ctx = r[4] ? esc(r[4]) : "";
       var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + s + '"' : ' class="acc-season"';
@@ -2209,10 +2404,10 @@
       if (groupKey !== null) html += shut;
       more = rows.length > shown.length ? '<button type="button" class="chip feats-more" data-featsmore="1">Show ' + Math.min(FEATS_PAGE, rows.length - shown.length) + " more</button>" : "";
     }
-    var seg = function (v, label) { return '<button type="button" class="chip' + ((feats.by === "feat") === (v === "feat") ? " active" : "") + '" data-featsby="' + v + '">' + label + "</button>"; };
+    var seg = function (v, label) { return '<button type="button" class="chip' + (byFeat === (v === "feat") ? " active" : "") + '" data-featsby="' + v + '">' + label + "</button>"; };
     el.innerHTML = '<div class="feats-bar"><select id="feats-kind" class="acc-kind" aria-label="Feat">' + '<option value="">All feats</option>' + kinds + "</select>" +
       '<button type="button" class="chip' + (feats.favs ? " active" : "") + '" data-featsfav="1">Favorites</button></div>' +
-      '<div class="feats-bar feats-by">' + seg("session", "By session") + seg("feat", "By feat") + "</div>" +
+      (single ? "" : '<div class="feats-bar feats-by">' + seg("session", "By session") + seg("feat", "By feat") + "</div>") +
       '<div class="acc-count">' + esc(featsScopeLabel(sc)) + " &middot; " + rows.length + (rows.length === 1 ? " feat" : " feats") + "</div>" +
       (rows.length ? html + more : '<p class="modal-note">No feats here yet.</p>');
   }

@@ -3654,3 +3654,36 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 #career-head .ph-nav[hidden]{display:none;}
 #career-head .ph-next{right:8px;}
 #career-head .ph-prev{right:40px;}
+
+/* player modal: Season view */
+.sv-sum{text-align:center;font-size:13px;font-weight:700;color:var(--text);margin:2px 0 6px;}
+.sv-grid{display:flex;flex-direction:column;gap:5px;margin:6px 0 4px;}
+.sv-row{display:flex;align-items:center;gap:8px;}
+.sv-lbl{flex:0 0 78px;font-size:11.5px;font-weight:700;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sv-lbl.xt-click:hover{color:var(--text);}
+.sv-marks{display:flex;flex-wrap:wrap;gap:3px;flex:1;min-width:0;}
+.sv-pa{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 3px;border-radius:5px;font-size:10.5px;font-weight:800;line-height:1;box-sizing:border-box;}
+.sv-pa small{font-size:8.5px;font-weight:700;opacity:0.85;margin-top:1px;}
+.sv-bf .sv-pa{height:32px;min-width:30px;}
+.sv-pa.xt-click:hover{filter:brightness(1.12);outline:2px solid var(--text);outline-offset:-1px;}
+.sv-rbi{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--text);margin:2px 3px 2px 2px;}
+.sv-wpa{flex:0 0 44px;text-align:right;font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+.sv-wpa.pos{color:#2f9e44;}
+.sv-wpa.neg{color:#d6394a;}
+.sv-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 4px;}
+.sv-chips .stats-subtab{padding:4px 9px;font-size:11.5px;}
+.sv-chips .stats-subtab.sv-gs:not(.active){border-left:3px solid var(--accent);}
+.sv-ln{fill:none;stroke:var(--muted);stroke-width:1.6;opacity:0.5;stroke-linejoin:round;}
+.sv-ln.sv-rel{stroke-dasharray:4 3;}
+.sv-hit{fill:none;stroke:transparent;stroke-width:10;cursor:pointer;}
+.sv-ln-on{fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;}
+.sv-up{fill:#2f9e44;}
+.sv-dn{fill:#d6394a;}
+.dx-chart text.sv-end{fill:var(--text);font-weight:800;font-size:12.5px;}
+.dx-chart text.sv-axis{font-size:10.5px;}
+.sv-zero{stroke:var(--muted);stroke-width:1.5;}
+.sv-bar-up{fill:#2f9e44;}
+.sv-bar-dn{fill:#d6394a;}
+.sv-link{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 2;}
+.stats-table tbody tr.xt-gs td:first-child{box-shadow:inset 3px 0 0 var(--accent);}
+@media (max-width:700px){.sv-lbl{flex-basis:64px;font-size:10.5px;}.sv-pa{min-width:23px;height:22px;font-size:9.5px;}}
