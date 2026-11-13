@@ -2128,8 +2128,8 @@
   // One session, a whole season (its sessions newest first, with the season's league-leader titles on top), or All-Time.
   // Reads the same data/accomplishments.json as the modal above: [key, player id, season, game, detail, opponent, play numbers];
   // the game code is SSNNGG (season, session, game), so the session comes from it. Season titles have no game.
-  var feats = { kind: "", favs: false, shown: 60, wired: null };
-  var FEATS_PAGE = 60;
+  var feats = { kind: "", favs: false, by: "session", open: {}, shown: 60, wired: null };
+  var FEATS_PAGE = 60, FEATS_GROUP = 10;   // by feat: how many rows each group shows before "Show all"
 
   function featsScopeLabel(sc) {
     if (sc.allTime) return "All-Time";
@@ -2172,25 +2172,47 @@
     }).join("");
     var shortName = function (id) { var n = nameOf(id); return B.nameDisplay ? B.nameDisplay(Number(id), n) : n; };
     var who = function (id) { return '<span class="xt-link" data-accp="' + id + '" role="link" tabindex="0" title="' + esc(nameOf(id)) + '">' + esc(shortName(id)) + "</span>"; };
-    var shown = rows.slice(0, feats.shown), html = "", groupKey = null;
-    shown.forEach(function (r) {
-      var s = sessOf(r), key = r[2] + "|" + s;
-      if (key !== groupKey) {
-        if (groupKey !== null) html += "</tbody></table></div>";
-        groupKey = key;
-        html += '<h3 class="feats-head">' + (s ? "Season " + r[2] + " &middot; Session " + s : "Season " + r[2] + " leaders") + "</h3>" +
-          '<div class="acc-scroll"><table class="acc-table feats-table"><tbody>';
-      }
-      var m = meta[r[0]], n = s;
-      var ctx = r[4] ? esc(r[4]) : "";
-      var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + n + '"' : ' class="acc-season"';
-      html += "<tr" + click + '><td class="acc-when">' + (r[5] ? "vs " + esc(r[5]) : "") + '</td><td class="acc-pl">' + who(r[1]) +
-        '</td><td class="acc-ctx"><strong class="feats-title" title="' + esc(m[3]) + '">' + esc(m[1]) + "</strong>" + (ctx ? " &middot; " + ctx : "") + "</td></tr>";
-    });
-    if (groupKey !== null) html += "</tbody></table></div>";
-    var more = rows.length > shown.length ? '<button type="button" class="chip feats-more" data-featsmore="1">Show ' + Math.min(FEATS_PAGE, rows.length - shown.length) + " more</button>" : "";
+    var byFeat = feats.by === "feat";
+    var rowHtml = function (r) {
+      var s = sessOf(r), m = meta[r[0]], ctx = r[4] ? esc(r[4]) : "";
+      var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + s + '"' : ' class="acc-season"';
+      // by session the left column is the opponent and the feat is named in the line; by feat the group header names the feat,
+      // so the left column says when (season and session) and the opponent moves into the line
+      var when = byFeat ? "S" + r[2] + (s ? " &middot; SN" + s : "") : (r[5] ? "vs " + esc(r[5]) : "");
+      var line = byFeat ? [r[5] ? "vs " + esc(r[5]) : "", ctx].filter(Boolean).join(" &middot; ")
+                        : '<strong class="feats-title" title="' + esc(m[3]) + '">' + esc(m[1]) + "</strong>" + (ctx ? " &middot; " + ctx : "");
+      return "<tr" + click + '><td class="acc-when">' + when + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + line + "</td></tr>";
+    };
+    var open = '<div class="acc-scroll"><table class="acc-table feats-table"><tbody>', shut = "</tbody></table></div>";
+    var html = "", more = "";
+    if (byFeat) {
+      var groups = {};
+      rows.forEach(function (r) { (groups[r[0]] || (groups[r[0]] = [])).push(r); });   // rows are already newest first
+      AW_ACC.forEach(function (m) {
+        var g = groups[m[0]];
+        if (!g) return;
+        var all = feats.kind || feats.open[m[0]], list = all ? g : g.slice(0, FEATS_GROUP);
+        html += '<h3 class="feats-head" title="' + esc(m[3]) + '">' + esc(m[1]) + ' <span class="feats-n">' + g.length + "</span></h3>" + open + list.map(rowHtml).join("") + shut +
+          (g.length > list.length ? '<button type="button" class="chip feats-more" data-featsopen="' + m[0] + '">Show all ' + g.length + "</button>" : "");
+      });
+    } else {
+      var shown = rows.slice(0, feats.shown), groupKey = null;
+      shown.forEach(function (r) {
+        var s = sessOf(r), key = r[2] + "|" + s;
+        if (key !== groupKey) {
+          if (groupKey !== null) html += shut;
+          groupKey = key;
+          html += '<h3 class="feats-head">' + (s ? "Season " + r[2] + " &middot; Session " + s : "Season " + r[2] + " leaders") + "</h3>" + open;
+        }
+        html += rowHtml(r);
+      });
+      if (groupKey !== null) html += shut;
+      more = rows.length > shown.length ? '<button type="button" class="chip feats-more" data-featsmore="1">Show ' + Math.min(FEATS_PAGE, rows.length - shown.length) + " more</button>" : "";
+    }
+    var seg = function (v, label) { return '<button type="button" class="chip' + ((feats.by === "feat") === (v === "feat") ? " active" : "") + '" data-featsby="' + v + '">' + label + "</button>"; };
     el.innerHTML = '<div class="feats-bar"><select id="feats-kind" class="acc-kind" aria-label="Feat">' + '<option value="">All feats</option>' + kinds + "</select>" +
       '<button type="button" class="chip' + (feats.favs ? " active" : "") + '" data-featsfav="1">Favorites</button></div>' +
+      '<div class="feats-bar feats-by">' + seg("session", "By session") + seg("feat", "By feat") + "</div>" +
       '<div class="acc-count">' + esc(featsScopeLabel(sc)) + " &middot; " + rows.length + (rows.length === 1 ? " feat" : " feats") + "</div>" +
       (rows.length ? html + more : '<p class="modal-note">No feats here yet.</p>');
   }
@@ -2201,6 +2223,10 @@
     });
     el.addEventListener("click", function (e) {
       if (e.target.closest("[data-featsmore]")) { feats.shown += FEATS_PAGE; renderFeats(el); return; }
+      var by = e.target.closest("[data-featsby]");
+      if (by) { feats.by = by.getAttribute("data-featsby"); renderFeats(el); return; }
+      var op = e.target.closest("[data-featsopen]");
+      if (op) { feats.open[op.getAttribute("data-featsopen")] = true; renderFeats(el); return; }
       if (e.target.closest("[data-featsfav]")) { feats.favs = !feats.favs; feats.shown = FEATS_PAGE; renderFeats(el); return; }
       var p = e.target.closest("[data-accp]");
       if (p) { var pid = Number(p.getAttribute("data-accp")); openPlayer(pid, nameOf(pid)); return; }

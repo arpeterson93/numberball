@@ -3462,6 +3462,9 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .feats-table .acc-pl{width:210px;}
 .feats-table .acc-ctx{white-space:normal;}
 .feats-title{color:var(--text);}
+.feats-by{margin:0 0 8px;}
+.feats-n{font-weight:700;color:var(--muted);margin-left:4px;}
+.feats-head + .acc-scroll + .feats-more{margin:8px 0 0;}
 .feats-more{display:block;margin:12px auto 0;}
 .acc-click{cursor:pointer;}
 .acc-click:hover td{background:var(--tint);}
