@@ -215,7 +215,7 @@ def who(sub: dict) -> str:
     return f'{hashlib.sha1(sub["endpoint"].encode()).hexdigest()[:6]}@{".".join(host)}'
 
 
-def send_test(key_name: str) -> int:
+def send_test(key_name: str, icon_abbr: str = "") -> int:
     """One labelled test alert to each subscription saved under `key_name`, naming the device id in the body so the person can
     see which of their phones is which (the same id the phones' delivery receipts and this log carry)."""
     endpoint, secret = os.environ.get("PUSH_ENDPOINT", ""), os.environ.get("PUSH_SECRET", "")
@@ -232,7 +232,9 @@ def send_test(key_name: str) -> int:
     from pywebpush import WebPushException, webpush
     for s in mine:
         dev = hashlib.sha1(s["endpoint"].encode()).hexdigest()[:6]
-        msg = {"title": "MLN Gameday test", "body": f"Device {dev} \u00b7 this is only a test alert", "url": SITE}
+        msg = {"title": "MLN Gameday test", "body": f"Device {dev} \u00b7 this is only a test alert" + (f" with the {icon_abbr} icon" if icon_abbr else ""), "url": SITE}
+        if icon_abbr:   # the same icon URL the real play alerts carry, to see whether a remote icon changes what iOS does
+            msg["icon"] = f"{SITE}data/push_icons/{icon_abbr}.png"
         try:
             resp = webpush(subscription_info=s["subscription"], data=json.dumps(msg), vapid_private_key=vkey, vapid_claims={"sub": subject}, ttl=3600,
                            headers={"Urgency": "high"})
@@ -254,11 +256,12 @@ def main() -> int:
     ap.add_argument("--expect-state", help="build state JSON from the gate; with an http --new-base, wait until the site's build_hash.json carries the same hash")
     ap.add_argument("--snapshot", metavar="DIR", help="save the live site's current meta.json and plays files into DIR (the baseline for a later run) and exit")
     ap.add_argument("--test", metavar="KEY", help="send one labelled test alert to every subscription saved under this name (the key column) and exit")
+    ap.add_argument("--test-icon", metavar="ABBR", default="", help="with --test: give the alert that team's logo as its icon, as the real play alerts do")
     ap.add_argument("--replay", type=int, metavar="N", help="testing: pretend the latest N plays and the latest finished game are new (no previous build needed)")
     args = ap.parse_args()
 
     if args.test:
-        return send_test(args.test)
+        return send_test(args.test, args.test_icon.upper())
     if args.snapshot:
         return snapshot(args.snapshot)
     new_base = args.new_base or NEW_DIR

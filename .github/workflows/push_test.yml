@@ -9,6 +9,10 @@ on:
         description: 'Name the subscriptions are saved under (the key column of the push sheet)'
         required: true
         default: 'mickey-scales'
+      icon:
+        description: 'Optional team abbreviation: give the alert that team logo as its icon, like the real play alerts'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           KEY: ${{ inputs.key }}
+          ICON: ${{ inputs.icon }}
         run: |
           pip install pywebpush
-          python3 -u tools/push_send.py --test "$KEY"
+          python3 -u tools/push_send.py --test "$KEY" --test-icon "$ICON"
