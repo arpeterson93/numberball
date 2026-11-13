@@ -20,9 +20,44 @@
     navigator.serviceWorker.addEventListener("message", function (e) {
       var d = e.data;
       if (!d || d.type !== "mln-open" || typeof d.url !== "string") return;
-      try { if (new URL(d.url).origin !== location.origin) return; } catch (err) { return; }
-      location.href = d.url;
+      go(d.url, true);
     });
+    // ...and the same link is parked in the cache by the service worker: pick it up on load and whenever the app comes back
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) checkPending(); });
+    window.addEventListener("pageshow", checkPending);
+    window.addEventListener("focus", checkPending);
+    checkPending();
+  }
+
+  var going = "";
+  // Navigate to a notification's link (same origin only). `force`: a tap while on that very link reloads it so the replay reruns.
+  function go(url, force) {
+    try { if (new URL(url).origin !== location.origin) return; } catch (err) { return; }
+    forgetPending();
+    if (going === url) return;
+    if (url === location.href) { if (force) { going = url; location.reload(); } return; }
+    going = url;
+    location.href = url;
+  }
+
+  function pendingKey() { return navigator.serviceWorker.ready.then(function (reg) { return reg.scope + "__pending"; }); }
+  function forgetPending() {
+    if (!window.caches) return;
+    pendingKey().then(function (k) { return caches.open("mln-push").then(function (c) { return c.delete(k); }); }).catch(function () {});
+  }
+  function checkPending() {
+    if (!window.caches) return;
+    pendingKey().then(function (k) {
+      return caches.open("mln-push").then(function (c) {
+        return c.match(k).then(function (r) {
+          if (!r) return;
+          return r.json().then(function (p) {
+            c.delete(k);
+            if (p && p.url && Date.now() - p.t < 120000) go(p.url, false);   // an old, unclaimed tap is dropped
+          });
+        });
+      });
+    }).catch(function () {});
   }
 
   function $(id) { return document.getElementById(id); }

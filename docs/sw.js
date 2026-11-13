@@ -19,12 +19,18 @@ self.addEventListener("push", function (event) {
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
   var target = new URL((event.notification.data && event.notification.data.url) || "./", self.location.href).href;
-  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
+  // iOS is unreliable about delivering a tap to the page (a postMessage can land before the page is awake, openWindow can open
+  // the start page instead of the link), so the link is also written to the cache first; the page checks it whenever it
+  // loads or comes to the front (docs/js/push.js) and goes there itself.
+  var stash = self.caches.open("mln-push").then(function (cache) {
+    return cache.put(new Request(self.registration.scope + "__pending"), new Response(JSON.stringify({ url: target, t: Date.now() })));
+  }).catch(function () {});
+  event.waitUntil(stash.then(function () { return self.clients.matchAll({ type: "window", includeUncontrolled: true }); }).then(function (list) {
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
       if (new URL(c.url).origin === new URL(target).origin && "postMessage" in c) {
         // WindowClient.navigate() is unreliable in an installed iOS web app (it comes to the front on whatever screen it was on),
-        // so hand the URL to the page and let it navigate itself (docs/js/push.js)
+        // so hand the URL to the page and let it navigate itself
         return c.focus().then(function () { c.postMessage({ type: "mln-open", url: target }); });
       }
     }
