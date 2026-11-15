@@ -111,6 +111,24 @@ def game_rows():
     return out
 
 
+_SUFFIX = {"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"}
+
+
+def _last_names():
+    """player id -> last name, from the roster file (current players); retired players fall back to the play row's full name."""
+    try:
+        with open(os.path.join(DATA, "players.json"), encoding="utf-8") as fh:
+            return {p["id"]: p.get("last_name") for p in json.load(fh) if p.get("id")}
+    except (OSError, ValueError):
+        return {}
+
+
+def _last_of(full):
+    """'Ronald Eagle V' -> 'Eagle': the last word that is not a generational suffix."""
+    words = [w for w in (full or "").split() if w.lower() not in _SUFFIX]
+    return words[-1] if words else ""
+
+
 def enrich(rows, by_game):
     """(key, id, season, game, detail, pns) -> same shape with the replay plays and the opponent filled in.
 
@@ -120,6 +138,7 @@ def enrich(rows, by_game):
     """
     out = []
     grows = game_rows()
+    lasts = _last_names()
     for key, i, season, game, detail, pns in rows:
         gp = {p["play_num"]: p for p in by_game[game]}
         hitter = key in BAT_GAME or key in BAT_PLAY
@@ -136,8 +155,14 @@ def enrich(rows, by_game):
             detail = f"{tri}{first['inning']}"
             if key in ("walk_off", "zero_diff_bat", "zero_diff_pit", "five_hundred_bat", "five_hundred_pit"):
                 detail += f" · {first['result']}"
-            if "diff" in key or key.startswith("zero") or key.startswith("five"):
+            if key.startswith("zero"):
+                detail += f" · pitch/swing {first['pitch']}"   # a 0 diff is the same number twice
+            elif "diff" in key or key.startswith("five"):
                 detail += f" · pitch {first['pitch']}, swing {first['swing']}"
+            if key in ("grand_slam", "walk_off"):
+                pl = lasts.get(first.get("pitcher_id")) or _last_of(first.get("pitcher_name"))
+                if pl:
+                    detail += f" · vs {pl}"
         elif key in BAT_GAME or key in PIT_GAME:
             side = "bat" if key in BAT_GAME else "pit"
             row = grows.get((i, game, side))
