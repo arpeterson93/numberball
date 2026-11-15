@@ -1313,6 +1313,11 @@ def draft_order_fig(rows: list[dict], teams_by_abbrev: dict[str, dict], title: s
     align = ["center", "center", "center", "center", "left", "center", "left", "left", "center", "center", "center"]
     row_colors = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
     widths = list(DRAFT_ORDER_COL_WIDTHS)
+    # a cell that wraps makes its row taller than DRAFT_ORDER_ROW_HEIGHT, which pushes every later logo out of line and
+    # grows the table past the figure (clipping the last rows) - so size the text columns to their longest string
+    for col, key in ((6, "tiebreak"), (7, "notes")):
+        longest = max((len(r.get(key) or "") for r in rows), default=0)
+        widths[col] = max(widths[col], int(longest * 6.6) + 20)
     if any(r.get("finish") for r in rows):     # playoff games have been played: add where each team finished
         header_vals.insert(6, "Finish")
         cell_vals.insert(6, [r.get("finish") or "" for r in rows])
