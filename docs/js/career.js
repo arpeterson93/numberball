@@ -2373,8 +2373,11 @@
       var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + s + '"' : ' class="acc-season"';
       // by session the left column is the opponent and the feat is named in the line; by feat the group header names the feat,
       // so the left column says when (season and session) and the opponent moves into the line
-      var when = byFeat ? "S" + r[2] + (s ? " &middot; SN" + s : "") : (r[5] ? "vs " + esc(r[5]) : "");
-      var line = byFeat ? [r[5] ? "vs " + esc(r[5]) : "", ctx].filter(Boolean).join(" &middot; ")
+      // the left column drops what the page header already says: one session picked = just the opponent (season and session are at the
+      // top); a whole season = the session only; All-Time = season and session
+      var opp = r[5] ? "vs " + esc(r[5]) : "";
+      var when = !byFeat ? opp : single ? opp : sc.allTime ? "S" + r[2] + (s ? " &middot; SN" + s : "") : (s ? "SN" + s : "Title");
+      var line = byFeat ? (single ? ctx : [opp, ctx].filter(Boolean).join(" &middot; "))
                         : '<strong class="feats-title" title="' + esc(m[3]) + '">' + esc(m[1]) + "</strong>" + (ctx ? " &middot; " + ctx : "");
       return "<tr" + click + '><td class="acc-when">' + when + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + line + "</td></tr>";
     };
