@@ -26,3 +26,5 @@
   .push-name{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:12px;overflow-wrap:anywhere;}   /* wrap a long nickname rather than cut it */
   .stats-table.push-grid th{white-space:normal;line-height:1.1;}                                                         /* "Game end" may wrap to two lines */
 }
+.push-tags{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 10px;}
+.push-tag{display:inline-flex;align-items:center;gap:4px;font-size:.9rem;}

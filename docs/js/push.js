@@ -2,7 +2,8 @@
  *
  * No accounts: the browser's own push subscription is the identity. It is stored in the Apps Script sheet's `push` tab
  * next to the Catch Me Up name slug (so the sender can look up that name's favorites), and the preferences ride along:
- *   { teams: { ABC: { m: 1, e: 0 } }, favs: 1 }   m = every play / key moment for the team, e = game ends, favs = plays from favorites
+ *   { teams: { ABC: { m: 1, e: 0 } }, favs: 1, tags: ["steal", ...] }   m = every play / key moment for the team, e = game ends,
+ *   favs = favorites plays (0 off, 1 key moments, 2 all plays), tags = own key moment definition (optional; absent = the site default)
  * Needs KM_CONFIG.VAPID_PUBLIC_KEY and the Apps Script FAVORITES_ENDPOINT; with either missing the Settings row stays hidden.
  * iOS only allows web push from an installed (Home Screen) PWA, so there it explains that instead of asking for permission.
  */
@@ -237,7 +238,27 @@
       '<div class="settings-row"><span>' + (on ? "Alerts are on" : "Alerts are off") + '</span>' +
       '<button type="button" class="chip' + (on ? "" : " active") + '" data-push="toggle"' + (denied ? " disabled" : "") + ">" + (on ? "Turn off" : "Turn on") + "</button></div>" +
       (on
-        ? '<label class="settings-row"><span>Plays from my favorites</span><input type="checkbox" data-pfavs' + (state.prefs.favs ? " checked" : "") + "></label>" +
+        ? '<div class="settings-row"><span>What counts as a key moment (for your alerts only)</span>' +
+          '<button type="button" class="link-btn" data-push="tagsreset"' + (Array.isArray(state.prefs.tags) ? "" : " hidden") + ">Reset</button></div>" +
+          '<div class="push-tags">' + tagRows() + "</div>" +
+          '<div class="settings-row"><span>Favorites</span>' + levelSelect("data-pfavs", String(state.prefs.favs || 0), "Favorites plays") + "</div>" +
+  // Own definition of a key moment: prefs.tags, a list of play tag slugs. Absent = the site's default, which is every tag except the
+  // filter-only ones (FILTER_ONLY_TAGS in key_moments_build.py). Saved only when the choice differs from that default.
+  var DEFAULT_OFF = { risp: 1 };
+  function tagSlugs() { return Object.keys(state.tagLabels || {}); }
+  function tagOn(slug) { return Array.isArray(state.prefs.tags) ? state.prefs.tags.indexOf(slug) !== -1 : !DEFAULT_OFF[slug]; }
+  function tagRows() {
+    var labels = state.tagLabels || {};
+    return tagSlugs().map(function (s) {
+      return '<label class="push-tag"><input type="checkbox" data-ptag="' + esc(s) + '"' + (tagOn(s) ? " checked" : "") + "> " + esc(labels[s]) + "</label>";
+    }).join("");
+  }
+  function setTags() {
+    var picked = tagSlugs().filter(function (s) { return state.modal.querySelector('input[data-ptag="' + s + '"]').checked; });
+    var isDefault = tagSlugs().every(function (s) { return (picked.indexOf(s) !== -1) === !DEFAULT_OFF[s]; });
+    if (isDefault) delete state.prefs.tags; else state.prefs.tags = picked;
+  }
+
           '<table class="stats-table push-grid"><thead><tr><th>Team</th><th>Plays</th><th>Game end</th></tr></thead><tbody>' +
           '<tr><td class="push-team"><div class="push-team-in"><em>All teams</em></div></td><td>' + levelSelect('data-pall="m"', allValue("m"), "All teams plays") + "</td>" +
           '<td><input type="checkbox" data-pall="e"' + (allValue("e") === "1" ? " checked" : "") + ' aria-label="All teams game ends"></td></tr>' + teamRows() + "</tbody></table>"
@@ -264,7 +285,14 @@
   function onChange(e) {
     var t = e.target;
     if (!t.hasAttribute) return;
-    if (t.hasAttribute("data-pfavs")) { state.prefs.favs = t.checked ? 1 : 0; queueSave(); return; }
+    if (t.hasAttribute("data-pfavs")) { state.prefs.favs = parseInt(t.value, 10) || 0; queueSave(); return; }
+    if (t.hasAttribute("data-ptag")) {
+      setTags();
+      queueSave();
+      var rb = state.modal.querySelector('[data-push="tagsreset"]');
+      if (rb) rb.hidden = !Array.isArray(state.prefs.tags);
+      return;
+    }
     var val = t.type === "checkbox" ? (t.checked ? 1 : 0) : parseInt(t.value, 10) || 0;
     if (t.hasAttribute("data-pteam")) {
       setTeam(t.getAttribute("data-pteam"), t.getAttribute("data-pkind"), val);
@@ -272,6 +300,7 @@
       refreshAll();
     } else if (t.hasAttribute("data-pall")) {
       var kind = t.getAttribute("data-pall");
+    if (t.getAttribute("data-push") === "tagsreset") { delete state.prefs.tags; queueSave(); render(); return; }
       Object.keys(state.teams || {}).forEach(function (abbr) { setTeam(abbr, kind, val); });
       queueSave();
       Array.prototype.forEach.call(state.modal.querySelectorAll('[data-pteam][data-pkind="' + kind + '"]'), function (c) {
@@ -293,14 +322,16 @@
   function open() {
     ensureModal().hidden = false;
     $("push-body").innerHTML = '<p class="modal-note">Loading...</p>';
-    var teams = state.teams ? Promise.resolve() : fetch("data/meta.json").then(function (r) { return r.json(); }).then(function (m) { state.teams = m.teams || {}; });
+    var teams = state.teams ? Promise.resolve() : fetch("data/meta.json").then(function (r) { return r.json(); }).then(function (m) { state.teams = m.teams || {}; state.tagLabels = m.tag_labels || {}; });
     var sub = supported ? currentSub().then(function (s) { state.sub = s; }).catch(function () { state.sub = null; }) : Promise.resolve();
     Promise.all([teams, sub]).then(function () {
       syncButton();
       if (!state.sub) return;
       // the sheet's copy wins on a fresh device that already has a subscription
       return post({ action: "push_get", endpoint: state.sub.endpoint }).then(function (r) {
-        if (r && r.subscribed && r.prefs) { state.prefs = { teams: r.prefs.teams || {}, favs: r.prefs.favs ? 1 : 0 }; storePrefs(); }
+        if (r && r.subscribed && r.prefs) { state.prefs = { teams: r.prefs.teams || {}, favs: parseInt(r.prefs.favs, 10) || 0 };
+          if (Array.isArray(r.prefs.tags)) state.prefs.tags = r.prefs.tags;
+          storePrefs(); }
       }).catch(function () { /* keep the local copy */ });
     }).then(render, render);
   }

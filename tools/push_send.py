@@ -12,7 +12,9 @@ to try it locally. No state of its own. If the baseline cannot be read (first ru
 Events (prefs per subscription, see docs/js/push.js):
   team "m"  plays where the team is batting or fielding: 1 = key moments only, 2 = every play
   team "e"  the team's game just ended
-  favs      key moments featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet)
+  favs      plays featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet): 1 = key moments only, 2 = every play
+"Key moment" is the build's is_key_moment unless the subscription has prefs.tags (its own list of tag slugs): then a play counts
+when it carries any of them.
 Each subscription gets at most MAX_PER_SUB notifications per run (the rest are folded into one "N more new plays" summary), and
 every notification stands alone (no tag), so a later play never replaces an earlier one on the device. Android and desktop
 Chrome show the batting team's logo (the winner's, for a game end); iOS always shows the app icon and ignores it.
@@ -114,7 +116,7 @@ def moment_event(m: dict, logos: dict | None = None) -> dict:
     tri = "▲" if m["half"] == "top" else "▼"
     lines = [top, vs, scoring_line(m), diamond(m)]
     return {
-        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
+        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "tags": set(m.get("tags") or []), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
             "title": f'{m["away_team_abbr"]} {m["away_score"]} - {m["home_team_abbr"]} {m["home_score"]} {tri} {m["inning"]}',
             "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), **icon_for(logos, m["off_team_abbr"])}}
@@ -141,16 +143,27 @@ def final_event(g: dict, plays: list[dict], labels: dict, logos: dict | None = N
         "url": link(g["game_code"]), **icon_for(logos, a if g["away_score"] > g["home_score"] else h if g["home_score"] > g["away_score"] else None)}}
 
 
+def is_key(prefs: dict, ev: dict) -> bool:
+    """Whether this play is a key moment for this subscriber. prefs["tags"] (a list of tag slugs) is their own definition: any of
+    those tags on the play counts. Without it, the build's is_key_moment applies. The public feed is never affected."""
+    tags = prefs.get("tags")
+    if isinstance(tags, list):
+        return bool(ev["tags"] & set(tags))
+    return ev["key"]
+
+
 def wants(sub: dict, ev: dict) -> bool:
     prefs = sub.get("prefs") or {}
     teams = prefs.get("teams") or {}
+    key = ev["kind"] == "m" and is_key(prefs, ev)
     for abbr in ev["teams"]:
         level = int((teams.get(abbr) or {}).get(ev["kind"]) or 0)
         if ev["kind"] == "e" and level:
             return True
-        if ev["kind"] == "m" and (level >= 2 or (level == 1 and ev["key"])):
+        if ev["kind"] == "m" and (level >= 2 or (level == 1 and key)):
             return True
-    return bool(ev["kind"] == "m" and ev["key"] and prefs.get("favs") and ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
+    favs = int(prefs.get("favs") or 0)   # 0 off, 1 key moments, 2 every play (older saves only ever hold 0 or 1)
+    return bool(ev["kind"] == "m" and (favs >= 2 or (favs == 1 and key)) and ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
 
 
 def wire(sub: dict, msg: dict) -> dict:

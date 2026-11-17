@@ -273,8 +273,8 @@ function pushSecretOk_(secret) {
 
 function cleanPrefs_(prefs) {
   // Tiny whitelist so a client cannot stuff arbitrary data into the sheet:
-  //   teams: { ABC: { m: 0|1|2 (off / key moments / every play), e: 0|1 (game ends) } }, favs: 0|1 (key moments from my favorites)
-  var out = { teams: {}, favs: prefs && prefs.favs ? 1 : 0 };
+  //   teams: { ABC: { m: 0|1|2 (off / key moments / every play), e: 0|1 (game ends) } }, favs: 0|1|2 (off / key moments / every play from my favorites)
+  var out = { teams: {}, favs: Math.max(0, Math.min(2, parseInt(prefs && prefs.favs, 10) || 0)) };
   var t = (prefs && prefs.teams) || {};
   Object.keys(t).slice(0, 64).forEach(function (abbr) {
     var a = String(abbr).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -283,6 +283,11 @@ function cleanPrefs_(prefs) {
     var g = t[abbr] && t[abbr].e ? 1 : 0;
     if (m || g) out.teams[a] = { m: m, e: g };
   });
+  // tags: this subscriber's own "key moment" definition, a list of play tag slugs (absent = the site's default). An empty list is valid (nothing counts).
+  if (prefs && Array.isArray(prefs.tags)) {
+    out.tags = prefs.tags.slice(0, 30).map(function (s) { return String(s); })
+      .filter(function (s) { return /^[a-z_]{1,30}$/.test(s); });
+  }
   return out;
 }
 
