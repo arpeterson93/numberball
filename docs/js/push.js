@@ -216,6 +216,23 @@
     return first === null ? "0" : first;
   }
 
+  // Own definition of a key moment: prefs.tags, a list of play tag slugs. Absent = the site's default, which is every tag except the
+  // filter-only ones (FILTER_ONLY_TAGS in key_moments_build.py). Saved only when the choice differs from that default.
+  var DEFAULT_OFF = { risp: 1 };
+  function tagSlugs() { return Object.keys(state.tagLabels || {}); }
+  function tagOn(slug) { return Array.isArray(state.prefs.tags) ? state.prefs.tags.indexOf(slug) !== -1 : !DEFAULT_OFF[slug]; }
+  function tagRows() {
+    var labels = state.tagLabels || {};
+    return tagSlugs().map(function (s) {
+      return '<label class="push-tag"><input type="checkbox" data-ptag="' + esc(s) + '"' + (tagOn(s) ? " checked" : "") + "> " + esc(labels[s]) + "</label>";
+    }).join("");
+  }
+  function setTags() {
+    var picked = tagSlugs().filter(function (s) { return state.modal.querySelector('input[data-ptag="' + s + '"]').checked; });
+    var isDefault = tagSlugs().every(function (s) { return (picked.indexOf(s) !== -1) === !DEFAULT_OFF[s]; });
+    if (isDefault) delete state.prefs.tags; else state.prefs.tags = picked;
+  }
+
   function render() {
     var body = $("push-body");
     if (!body) return;
@@ -242,23 +259,6 @@
           '<button type="button" class="link-btn" data-push="tagsreset"' + (Array.isArray(state.prefs.tags) ? "" : " hidden") + ">Reset</button></div>" +
           '<div class="push-tags">' + tagRows() + "</div>" +
           '<div class="settings-row"><span>Favorites</span>' + levelSelect("data-pfavs", String(state.prefs.favs || 0), "Favorites plays") + "</div>" +
-  // Own definition of a key moment: prefs.tags, a list of play tag slugs. Absent = the site's default, which is every tag except the
-  // filter-only ones (FILTER_ONLY_TAGS in key_moments_build.py). Saved only when the choice differs from that default.
-  var DEFAULT_OFF = { risp: 1 };
-  function tagSlugs() { return Object.keys(state.tagLabels || {}); }
-  function tagOn(slug) { return Array.isArray(state.prefs.tags) ? state.prefs.tags.indexOf(slug) !== -1 : !DEFAULT_OFF[slug]; }
-  function tagRows() {
-    var labels = state.tagLabels || {};
-    return tagSlugs().map(function (s) {
-      return '<label class="push-tag"><input type="checkbox" data-ptag="' + esc(s) + '"' + (tagOn(s) ? " checked" : "") + "> " + esc(labels[s]) + "</label>";
-    }).join("");
-  }
-  function setTags() {
-    var picked = tagSlugs().filter(function (s) { return state.modal.querySelector('input[data-ptag="' + s + '"]').checked; });
-    var isDefault = tagSlugs().every(function (s) { return (picked.indexOf(s) !== -1) === !DEFAULT_OFF[s]; });
-    if (isDefault) delete state.prefs.tags; else state.prefs.tags = picked;
-  }
-
           '<table class="stats-table push-grid"><thead><tr><th>Team</th><th>Plays</th><th>Game end</th></tr></thead><tbody>' +
           '<tr><td class="push-team"><div class="push-team-in"><em>All teams</em></div></td><td>' + levelSelect('data-pall="m"', allValue("m"), "All teams plays") + "</td>" +
           '<td><input type="checkbox" data-pall="e"' + (allValue("e") === "1" ? " checked" : "") + ' aria-label="All teams game ends"></td></tr>' + teamRows() + "</tbody></table>"
@@ -270,6 +270,7 @@
     var t = e.target;
     if (!t.getAttribute) return;
     if (t.getAttribute("data-push") === "fav") { state.modal.hidden = true; window.KMFavorites.openPanel(); return; }
+    if (t.getAttribute("data-push") === "tagsreset") { delete state.prefs.tags; queueSave(); render(); return; }
     if (t.getAttribute("data-push") === "toggle") {
       t.disabled = true;
       (state.sub ? unsubscribe() : subscribe()).then(function () { syncButton(); render(); }).catch(function (err) {
@@ -300,7 +301,6 @@
       refreshAll();
     } else if (t.hasAttribute("data-pall")) {
       var kind = t.getAttribute("data-pall");
-    if (t.getAttribute("data-push") === "tagsreset") { delete state.prefs.tags; queueSave(); render(); return; }
       Object.keys(state.teams || {}).forEach(function (abbr) { setTeam(abbr, kind, val); });
       queueSave();
       Array.prototype.forEach.call(state.modal.querySelectorAll('[data-pteam][data-pkind="' + kind + '"]'), function (c) {
