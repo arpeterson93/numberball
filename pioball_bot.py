@@ -10,7 +10,7 @@ a 60s loop grades from Supabase `plays` once the 5-minute sync lands.
 
 Requires PIOBALL_BOT_TOKEN, the Message Content intent (enabled in the Discord
 dev portal), and the SUPABASE_URL / SUPABASE_KEY env vars database.py reads.
-Optional: PIOBALL_RESULTS_CHANNEL_ID, PIOBALL_GUILD_ID (instant command sync while developing), SWING_TEAM.
+Optional: PIOBALL_RESULTS_CHANNEL_ID, PIOBALL_REMINDER_CHANNEL_ID (the PioBall channel: where results and timer alerts go when nobody has /guess-ed), PIOBALL_GUILD_ID (instant command sync while developing), SWING_TEAM.
 """
 from __future__ import annotations
 
@@ -490,6 +490,15 @@ async def _results_channel(pitch_row: dict):
     knows what's cached, so fall back to asking Discord; log when it truly can't be found
     (the pitch is already graded by then, so a silent skip would lose the post)."""
     cid = int(pitch_row.get("channel_id") or _post_channel or 0)
+    if not cid:   # nobody guessed on this pitch since the bot started: use the channel of the game's last guessed pitch, then the reminder channel
+        try:
+            rows = await asyncio.to_thread(
+                lambda: swing_game._t("swing_pitches").select("channel_id").eq("game_code", str(pitch_row.get("game_code")))
+                .not_.is_("channel_id", "null").order("id", desc=True).limit(1).execute().data)
+            cid = int((rows or [{}])[0].get("channel_id") or 0)
+        except Exception as e:
+            print(f"results channel lookup failed: {e!r}")
+        cid = cid or _REMINDER_CHANNEL_ENV
     if not cid:
         print(f"results NOT posted for pitch {pitch_row.get('id')}: no channel on file")
         return None
