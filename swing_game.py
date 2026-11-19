@@ -509,7 +509,7 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
                play_num: int | None) -> dict | None:
     """Grade every guess on pitch row p against the real pitch, record the
     manager's actual swing as a benchmark row, and mark the pitch graded.
-    Returns the message payload, or None if nobody guessed (the pitch, Actual and Model are still recorded)."""
+    Returns the message payload; guesses is empty when nobody guessed (the table then shows just Actual and Model)."""
     try:
         _sync_hitter_guess(p, swing)
     except Exception as e:  # a nicety - never block grading on it
@@ -548,8 +548,6 @@ def _grade_row(p: dict, pitch: int, swing: int | None, result: str | None,
              "guess": int(p["model_swing"]), "diff": md, "result": mres},
             on_conflict="pitch_id,user_id").execute()
         model = {"swing": int(p["model_swing"]), "diff": md, "result": mres}
-    if not graded:
-        return None  # nobody guessed: the pitch is still recorded and graded, there's just nothing to post
     return {"pitch_row": p, "pitch": pitch, "actual": actual, "model": model, "guesses": graded}
 
 
@@ -593,7 +591,7 @@ def grade_ready() -> list[dict]:
             continue
         g = _grade_row(p, int(actual["pitch"]), actual.get("swing"), actual.get("result"),
                        int(actual["play_num"]))
-        if g:
+        if g and g["guesses"]:   # the sync fallback stays quiet for pitches nobody guessed on (no backlog posts after downtime)
             out.append(g)
     return out
 
