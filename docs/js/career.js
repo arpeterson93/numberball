@@ -539,6 +539,19 @@
     B1B: "Bunt single", BB: "Walk", IBB: "Intentional walk", K: "Strikeout", GO: "Groundout", FO: "Flyout", PO: "Popout", LO: "Lineout",
     FC: "Fielder's choice", SacF: "Sacrifice fly", DSacF: "Sacrifice fly", SacB: "Sacrifice bunt", GORA: "Groundout, runner advances", DFO: "Deep flyout",
     DP: "Double play", DP21: "Double play", DP31: "Double play", TP: "Triple play", CS: "Caught stealing", SB: "Stolen base" };
+  // A pitcher's view of a result, in five groups: green is good for the pitcher, red is bad (the opposite of the batter's scouting colours above).
+  var PIT_TIER = [
+    ["#1a7d35", /^(K|TP|LOTP|LODP|DP.*)$/],             // great: strikeouts, double and triple plays
+    ["#7cc87a", /^(GO|LO|PO|FO|CS\d*)$/],                  // good: plain outs, caught stealing
+    ["#fee391", /^(FC.*|DFO|SacF|DSacF|GORA)$/],        // mixed: an out, but the batter is safe or a runner moves up or scores
+    ["#fd8c15", /^(BB|1B|1BWH|1BWH2|IF1B|SB\d*|Balk)$/],        // bad: the batter or runner reached
+    ["#c8102e", /^(2B|2BWH|3B|HR|)$/]                   // worst: extra bases, a home run, earned runs charged after he left (empty result)
+  ];
+  function pitCol(r) {
+    r = RES_ALIAS[r] || r;
+    for (var i = 0; i < PIT_TIER.length; i++) if (PIT_TIER[i][1].test(r)) return PIT_TIER[i][0];
+    return "#9aa4b2";
+  }
   function resCol(r) { return RES_COL[r] || RES_COL[RES_ALIAS[r]] || "#9aa4b2"; }
   function resTxt(r) { return RES_TXT[r] || (r.length > 3 ? r.slice(0, 3) : r); }
   function inkOn(hex) {
@@ -641,20 +654,25 @@
       svg += '<path d="' + path(l) + '" class="sv-ln' + (l.g.gs ? "" : " sv-rel") + '"/><path d="' + path(l) + '" class="sv-hit" data-psg="' + esc(l.g.g) + '"><title>' + esc(tip) + "</title></path>";
     });
     if (chosen) {
-      svg += '<path d="' + path(chosen) + '" class="sv-ln-on"/>';
+      // each stretch of line, from the last point up to a result, and the dot at it, take that result's colour
+      chosen.pts.forEach(function (q, i) {
+        if (!i || !q[2]) return;
+        var pq = chosen.pts[i - 1];
+        svg += '<path d="M' + X(pq[0]).toFixed(1) + " " + Y(pq[1]).toFixed(1) + "L" + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1) + '" class="sv-ln-on" style="stroke:' + pitCol(q[2][0]) + '"/>';
+      });
       // one dot per batter faced (a result), at the running Game Score (the earned runs on his own play are part of that play's change; the
       // squares below show a white dot for each). Every earned run charged after he left (empty result rows) is ONE hollow dot at the end of
       // the line. Steals get no dot.
       chosen.pts.forEach(function (q) {
         if (!q[2] || q[2][0] === "" || /^(SB|CS|Balk)/.test(q[2][0])) return;
         var d = q[2][1];
-        svg += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="3.4" class="' + (d < 0 ? "sv-dn" : "sv-up") + '"><title>' +
+        svg += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="3" class="sv-dot" style="fill:' + pitCol(q[2][0]) + '"><title>' +
           esc((q[2][4] ? q[2][4] + " · " : "") + (RES_NAME[q[2][0]] || q[2][0]) + " · " + sgn(d, 0)) + "</title></circle>";
       });
       var late = chosen.pts.filter(function (q) { return q[2] && q[2][0] === ""; });
       if (late.length) {
         var lsum = late.reduce(function (a, q) { return a + q[2][1]; }, 0), lend = chosen.pts[chosen.pts.length - 1], lruns = Math.max(1, Math.round(-lsum / 3));
-        svg += '<circle cx="' + X(lend[0]).toFixed(1) + '" cy="' + Y(lend[1]).toFixed(1) + '" r="3.4" class="sv-tail"><title>' +
+        svg += '<circle cx="' + X(lend[0]).toFixed(1) + '" cy="' + Y(lend[1]).toFixed(1) + '" r="3" class="sv-tail"><title>' +
           esc(lruns + (lruns === 1 ? " earned run" : " earned runs") + " charged to him after he left · " + sgn(lsum, 0)) + "</title></circle>";
       }
       var last = chosen.pts[chosen.pts.length - 1];
@@ -672,10 +690,9 @@
       blocks = '<div class="xt-sub">' + esc(gameLbl(g)) + (g.gs ? " · started" : " · relief") + ' <span class="xt-hint">tap a batter to watch it</span></div>' +
         (awStatLine({ rows: { bat: [], pit: [g] } }) ? '<div class="sv-stat">' + esc(awStatLine({ rows: { bat: [], pit: [g] } })) + "</div>" : "") + '<div class="sv-marks sv-bf">' +
         pa[g.g].map(function (p) {
-          var col = p[0] === "" ? "#9aa4b2" : resCol(p[0]);
+          var col = pitCol(p[0]);
           var tip = (p[4] ? "vs " + p[4] + " · " : "") + (p[5] ? "inning " + p[5] + " · " : "") + (RES_NAME[p[0]] || p[0] || "earned run charged to him") + " · Game Score " + sgn(p[1], 0) + (p[6] ? " · " + p[6] + (p[6] === 1 ? " earned run" : " earned runs") : "") + " · WPA " + sgn(p[2]);
-          var ers = ""; for (var e = 0; e < (p[6] || 0); e++) ers += "<i></i>";   // a white dot for each earned run on this play
-          return '<span class="sv-pa xt-click" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(p[0] === "" ? "ER" : resTxt(p[0])) + "<small>" + sgn(p[1], 0) + "</small>" + (ers ? '<span class="sv-er">' + ers + "</span>" : "") + "</span>";
+          return '<span class="sv-pa xt-click' + (p[6] ? " sv-rbi" : "") + '" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(p[0] === "" ? "ER" : resTxt(p[0])) + "<small>" + sgn(p[1], 0) + "</small></span>";   // a ring = earned runs on the play, the same ring the plate appearance grid uses for a run driven in
         }).join("") + "</div>";
     }
     return '<div class="xt-sub">Game Score by batter faced <span class="xt-hint">every game starts at 40 &middot; dashed = relief</span></div>' +
