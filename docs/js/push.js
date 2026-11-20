@@ -130,9 +130,9 @@
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function endpoint() { return cfg.FAVORITES_ENDPOINT || ""; }
 
-  function post(body) {
+  function post(body, keepalive) {
     // text/plain keeps this a "simple" request, so the browser skips the CORS preflight Apps Script cannot answer.
-    return fetch(endpoint(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) })
+    return fetch(endpoint(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), keepalive: !!keepalive })
       .then(function (r) { return r.json(); });
   }
   function b64ToBytes(b64) {
@@ -184,13 +184,26 @@
     var ep = sub.endpoint;
     return sub.unsubscribe().then(function () { return post({ action: "push_unsubscribe", endpoint: ep }); });
   }
+  // The sheet's copy wins when the app next opens, so a save that never arrives looks like settings resetting. Two ways one went missing:
+  // the app was closed inside the 600 ms wait (flushSave sends it the moment the page is hidden), or the script answered with an error
+  // (not subscribed, busy) that used to be ignored.
+  function flushSave() {
+    if (!state.saveTimer) return;
+    clearTimeout(state.saveTimer);
+    state.saveTimer = 0;
+    if (!state.sub) return;
+    post({ action: "push_prefs", endpoint: state.sub.endpoint, prefs: state.prefs }, true).then(function (r) {
+      if (r && r.error) setStatus(r.error === "not subscribed" ? "Could not save: this device's alert subscription is missing. Turn alerts off and on again." : "Could not save: " + r.error);
+      else setStatus("");
+    }).catch(function () { setStatus("Could not save - check your connection."); });
+  }
   function queueSave() {
     storePrefs();
     clearTimeout(state.saveTimer);
-    state.saveTimer = setTimeout(function () {
-      if (state.sub) post({ action: "push_prefs", endpoint: state.sub.endpoint, prefs: state.prefs }).catch(function () { setStatus("Could not save - check your connection."); });
-    }, 600);
+    state.saveTimer = setTimeout(flushSave, 600);
   }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") flushSave(); });
+  window.addEventListener("pagehide", flushSave);
 
   // ── UI ───────────────────────────────────────────────────────────────────────
   function setStatus(t) { var el = $("push-status"); if (el) el.textContent = t || ""; }
@@ -298,9 +311,12 @@
     if (!F) return "";
     var f = curFmt(), used = {}, cur = JSON.stringify(f);
     f.l.forEach(function (l) { l.forEach(function (id) { used[id] = 1; }); });
+    var matched = false;
     var presets = F.PRESETS.map(function (p, i) {
-      return '<button type="button" class="chip' + (JSON.stringify(F.normalize(p[1])) === cur ? " active" : "") + '" data-pfmtpreset="' + i + '">' + esc(p[0]) + "</button>";
-    }).join("");
+      var on = JSON.stringify(F.normalize(p[1])) === cur;
+      if (on) matched = true;
+      return '<button type="button" class="chip' + (on ? " active" : "") + '" data-pfmtpreset="' + i + '">' + esc(p[0]) + "</button>";
+    }).join("") + (matched ? "" : '<span class="chip active" aria-current="true">Custom</span>');   // a layout that is none of the presets
     var samples = F.SAMPLES.map(function (s, i) { return '<option value="' + i + '"' + (i === (state.sample || 0) ? " selected" : "") + ">" + esc(s.name) + "</option>"; }).join("");
     var lines = f.l.map(function (l, i) {
       return '<div class="push-line-label">' + (i === 0 ? "Title" : "Line " + (i + 1)) +
