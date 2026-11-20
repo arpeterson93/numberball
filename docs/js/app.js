@@ -1419,6 +1419,15 @@
     return out;
   }
 
+  // The row's team logo, just left of the name. Past-season abbreviations (All-Time rows) come from the names file's team list.
+  function statsRowLogoHtml(row) {
+    var abbr = row.team != null ? row.team : teamForPlayerId(row.player_id);
+    if (!abbr) return "";
+    var ex = window.MLNExtras && window.MLNExtras.teamLogo ? window.MLNExtras.teamLogo(abbr) : "";
+    var url = allTime ? (ex || teamLogoUrl(abbr)) : (teamLogoUrl(abbr) || ex);
+    return url ? '<img class="sp-logo" src="' + escapeHtml(url) + '" alt="' + escapeHtml(abbr) + '" title="' + escapeHtml(abbr) + '" loading="lazy">' : "";
+  }
+
   function statsTableHtml(rows, cols, emptyNoun, sort, nameSuffixFn, isBattingTable, limit) {
     if (!rows.length) return '<div class="stats-empty">No ' + emptyNoun + ' match.</div>';
     var sorted = sortStatsRows(rows, sort);
@@ -1441,7 +1450,7 @@
         // sp-full / sp-short: once the table is scrolled sideways (.scrolled on
         // the wrap, see the scroll listener below) only the short last name shows,
         // so the frozen Player column stops eating the screen on small viewports.
-        '<td class="stats-col-player" title="' + escapeHtml(row.name) + '">' +
+        '<td class="stats-col-player" title="' + escapeHtml(row.name) + '">' + statsRowLogoHtml(row) +
           '<span class="sp-full">' + escapeHtml(statsPlayerNameDisplay(row.player_id, row.name)) +
           (nameSuffixFn ? nameSuffixFn(row) : "") + statsAwardBadgeHtml(row.award) +
           statsGameAwardBadgeHtml(row.game_award) + "</span>" +
