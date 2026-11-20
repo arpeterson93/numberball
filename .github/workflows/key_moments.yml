@@ -25,6 +25,7 @@ on:
       - 'tools/accomplishment_frequency.py'
       - 'tools/season_milestones.py'
       - 'tools/push_send.py'
+      - 'tools/push_format.py'
       - 'tools/push_icons.py'
       - 'rookie_tags.py'
       - 'requirements.txt'
@@ -157,7 +158,9 @@ jobs:
       - name: Checkout the sender
         uses: actions/checkout@v4
         with:
-          sparse-checkout: tools/push_send.py
+          sparse-checkout: |
+            tools/push_send.py
+            tools/push_format.py
           sparse-checkout-cone-mode: false
 
       - name: Get the baseline

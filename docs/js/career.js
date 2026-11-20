@@ -723,7 +723,7 @@
     if (pushed) { pushed = false; try { window.history.back(); } catch (e) { /* ignore */ } return; }
     var u = new URL(location.href);
     if (!u.searchParams.has("player")) return;
-    ["player", "side", "pview", "season", "gt"].forEach(function (k) { u.searchParams.delete(k); });
+    ["player", "side", "pview", "season", "gt", "feat"].forEach(function (k) { u.searchParams.delete(k); });
     try { window.history.replaceState(null, "", u.pathname + u.search + u.hash); } catch (e) { /* ignore */ }
   }
 
@@ -879,9 +879,22 @@
       styleHead(d);
       fitCard();
       renderPlayer();
+      if (opts.feat) playFeatFromLink(d, opts.feat);
     }).catch(function () {
       $("career-body").innerHTML = '<div class="stats-empty">No career log found for this player.</div>';
     });
+  }
+
+  // A feat alert's link (?player=<id>&side=awd&feat=<key>:<season>:<game>) opens that feat's replay over the player's Awards tab, the
+  // same replay tapping its row starts. A feat with no plays to replay (a season title) just leaves the Awards tab open.
+  function playFeatFromLink(d, feat) {
+    var p = String(feat).split(":");
+    var row = (d.acc || []).filter(function (a) { return a[0] === p[0] && String(a[1]) === p[1] && String(a[2] || "") === (p[2] || ""); })[0];
+    if (!row || !row[5] || !row[5].length || !row[2]) return;
+    var s = Number(row[1]), n = Number(String(row[2]).slice(2, 4));
+    var rp = $("replay-modal");
+    if (rp) { rp.classList.remove("over-player", "over-acc", "over-stack"); rp.classList.add("over-player"); }
+    B.playSlideshow(row[5].map(function (pn) { return { s: s, n: n, g: row[2], pn: pn }; }));
   }
 
   function cell(v, dec, key) {
@@ -974,7 +987,7 @@
     ["cycle", "Cycle", "game", "Single, double, triple and home run in one game"],
     ["multi_hr_2plus", "Multi-HR Game", "game", "Two or more home runs in a game"],
     ["cg_shutout", "Complete Game Shutout", "game", "Pitched the whole game, no runs allowed", "pit"],
-    ["reached_5plus", "Reached Base 5+", "game", "Hits plus walks, five or more in a game"],
+    ["reached_5plus", "5+ Hit+BB Game", "game", "Hits plus walks, five or more in a game"],
     ["hits_4plus", "4+ Hit Game", "game", "Four or more hits in a game"],
     ["rbi_5plus", "5+ RBI Game", "game", "Five or more RBI in a game"],
     ["k_10plus", "10+ K Game", "game", "Ten or more strikeouts by a pitcher in a game (auto strikeouts count)", "pit"],
@@ -2353,10 +2366,19 @@
       if (feats.favs && !(B.isFavorite && B.isFavorite(r[1]))) return false;
       return true;
     });
-    // newest first: season, then session (season titles lead their season), then game, then the editor's feat order
+    // one session picked: the by-session grouping would be a single block, so it is always by feat and the switch goes away
+    var single = !sc.allTime && sc.session != null;
+    var byFeat = single || feats.by === "feat";
+    // newest first: season, then session (season titles lead their season). Inside a session: by session lists feats in the editor's
+    // feat order, then player name; by feat has one feat per block, so newest play first (game, then the last play id: play ids run in
+    // game order, and a game-level feat is dated by its final play). There is no wall-clock time on a feat row, so game id stands in.
     var rank = function (r) { return sessOf(r) || 999; };   // a season's title rows lead its block
+    var lastPlay = function (r) { return r[6] && r[6].length ? r[6][r[6].length - 1] : 0; };
     rows.sort(function (a, b) {
-      return b[2] - a[2] || rank(b) - rank(a) || String(b[3]).localeCompare(String(a[3])) || order[a[0]] - order[b[0]];
+      var d = b[2] - a[2] || rank(b) - rank(a);
+      if (d) return d;
+      if (!byFeat) return order[a[0]] - order[b[0]] || nameOf(a[1]).localeCompare(nameOf(b[1])) || String(b[3]).localeCompare(String(a[3])) || lastPlay(b) - lastPlay(a);
+      return String(b[3]).localeCompare(String(a[3])) || lastPlay(b) - lastPlay(a) || order[a[0]] - order[b[0]];
     });
     var kinds = AW_ACC_GROUPS.map(function (G) {
       return '<optgroup label="' + esc(G[1]) + '">' + AW_ACC.filter(function (m) { return m[2] === G[0]; }).map(function (m) {
@@ -2365,9 +2387,6 @@
     }).join("");
     var shortName = function (id) { var n = nameOf(id); return B.nameDisplay ? B.nameDisplay(Number(id), n) : n; };
     var who = function (id) { return '<span class="xt-link" data-accp="' + id + '" role="link" tabindex="0" title="' + esc(nameOf(id)) + '">' + esc(shortName(id)) + "</span>"; };
-    // one session picked: the by-session grouping would be a single block, so it is always by feat and the switch goes away
-    var single = !sc.allTime && sc.session != null;
-    var byFeat = single || feats.by === "feat";
     var rowHtml = function (r) {
       var s = sessOf(r), m = meta[r[0]], ctx = r[4] ? esc(r[4]) : "";
       var click = r[6] && r[6].length ? ' class="acc-click" data-pslide="' + r[6].join(",") + '" data-pgame="' + esc(r[3]) + '" data-s="' + r[2] + '" data-n="' + s + '"' : ' class="acc-season"';
@@ -2379,7 +2398,9 @@
       var when = !byFeat ? opp : single ? opp : sc.allTime ? "S" + r[2] + (s ? " &middot; SN" + s : "") : (s ? "SN" + s : "Title");
       var line = byFeat ? (single ? ctx : [opp, ctx].filter(Boolean).join(" &middot; "))
                         : '<strong class="feats-title" title="' + esc(m[3]) + '">' + esc(m[1]) + "</strong>" + (ctx ? " &middot; " + ctx : "");
-      return "<tr" + click + '><td class="acc-when">' + when + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + line + "</td></tr>";
+      var tl = r[7] && at.teams && at.teams[r[7]] && at.teams[r[7]].logo;
+      var logo = '<td class="acc-logo">' + (tl ? '<img class="acc-logo-img" src="' + esc(tl) + '" alt="' + esc(r[7]) + '" title="' + esc(r[7]) + '" loading="lazy">' : "") + "</td>";
+      return "<tr" + click + ">" + logo + '<td class="acc-when">' + when + '</td><td class="acc-pl">' + who(r[1]) + '</td><td class="acc-ctx">' + line + "</td></tr>";
     };
     var open = '<div class="acc-scroll"><table class="acc-table feats-table"><tbody>', shut = "</tbody></table></div>";
     var html = "", more = "";
@@ -2458,6 +2479,7 @@
     statsAllTime: statsAllTime,
     loadStatsAllTime: loadStatsAllTime,
     franchiseAbbr: franchiseAbbr,
+    teamLogo: function (abbr) { var t = at.teams && at.teams[abbr]; return (t && t.logo) || ""; },
     franchises: franchiseList,
     statsAggregate: statsAggregate,
     aggCols: function (isBatting) { return isBatting ? AGG_BAT_COLS : AGG_PIT_COLS; },

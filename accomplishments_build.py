@@ -129,6 +129,20 @@ def _last_of(full):
     return words[-1] if words else ""
 
 
+def season_teams():
+    """(player id, season) -> the team they played the most games for that season, from the career files."""
+    seen = {}
+    for path in glob.glob(os.path.join(DATA, "career", "p", "*.json")):
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        for side in ("bat", "pit"):
+            for r in d.get(side, []):
+                if r.get("t"):
+                    c = seen.setdefault((af.pid(d["id"]), r["s"]), {})
+                    c[r["t"]] = c.get(r["t"], 0) + 1
+    return {k: max(v, key=v.get) for k, v in seen.items()}
+
+
 def enrich(rows, by_game):
     """(key, id, season, game, detail, pns) -> same shape with the replay plays and the opponent filled in.
 
@@ -167,7 +181,10 @@ def enrich(rows, by_game):
             side = "bat" if key in BAT_GAME else "pit"
             row = grows.get((i, game, side))
             detail = stat_line(row, side) if row else ""
-        out.append((key, i, season, game, detail, opp, pns))
+        team = ""
+        if first:
+            team = first["off_team_abbr"] if hitter else first["def_team_abbr"]
+        out.append((key, i, season, game, detail, opp, pns, team))
     return out
 
 
@@ -177,7 +194,8 @@ def build_rows():
     # 3-HR game (the multi-HR game already covers it). An immaculate inning combined across pitchers has no owner.
     rows = [r for r in game if r[1] is not None and r[0] not in EXCLUDE]
     rows = enrich(rows, by_game)
-    rows += [(k, i, s, g, d, "", []) for k, i, s, g, d, _ in season_leaders()]
+    st = season_teams()
+    rows += [(k, i, s, g, d, "", [], st.get((i, s), "")) for k, i, s, g, d, _ in season_leaders()]
     names = dict(names)
     for k, v in sm.load()[2].items():
         names.setdefault(int(k), v)
@@ -186,11 +204,11 @@ def build_rows():
 
 def main():
     rows, names = build_rows()
-    rows.sort(key=lambda r: (r[0], r[2], str(r[3]), r[1]))
+    rows.sort(key=lambda r: (r[0], r[2], str(r[3]), r[1]))   # (team, the 8th field, only rides along to accomplishments.json)
     with open(os.path.join(DATA, "accomplishments.json"), "w", encoding="utf-8") as fh:
-        json.dump([[k, i, s, g, d, o, pn] for k, i, s, g, d, o, pn in rows], fh, separators=(",", ":"), ensure_ascii=False)
+        json.dump([[k, i, s, g, d, o, pn, t] for k, i, s, g, d, o, pn, t in rows], fh, separators=(",", ":"), ensure_ascii=False)
     by_player: dict[int, list] = {}
-    for k, i, s, g, d, o, pn in rows:
+    for k, i, s, g, d, o, pn, _t in rows:
         by_player.setdefault(i, []).append([k, s, g, d, o, pn])
     patched = 0
     for pid, acc in by_player.items():

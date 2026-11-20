@@ -28,3 +28,28 @@
 }
 .push-tags{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 10px;}
 .push-tag{display:inline-flex;align-items:center;gap:4px;font-size:.9rem;}
+.push-preset-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px;}
+.push-preview-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;}
+.push-card{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border,rgba(128,128,128,.35));margin-bottom:10px;}
+.push-card-logo{width:40px;height:40px;border-radius:8px;object-fit:contain;flex:none;}
+.push-card-title{font-weight:700;white-space:pre-wrap;}
+.push-card-line{white-space:pre-wrap;}
+.push-line-label{font-size:.8rem;opacity:.75;margin:8px 0 3px;}
+.push-line{display:flex;flex-wrap:wrap;gap:6px;min-height:38px;padding:5px;border:1px dashed rgba(128,128,128,.55);border-radius:8px;align-items:center;}
+.push-line.over{background:rgba(128,128,128,.18);border-style:solid;}
+.push-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:999px;border:1px solid rgba(128,128,128,.6);background:var(--card);font-size:.85rem;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}
+.push-chip.dragging{opacity:.35;}
+.push-chip-x{border:0;background:none;color:inherit;font-size:1rem;line-height:1;padding:0 0 0 2px;cursor:pointer;}
+.push-ghost{position:fixed;z-index:10000;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.35);}
+.push-drop-hint{font-size:.8rem;opacity:.55;}
+.push-fmt-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px;}
+.push-tabs{display:flex;gap:0;margin:8px 0 12px;border-bottom:1px solid var(--border);}   /* real tabs: they switch the whole view, so they read differently from the chips that set a choice */
+.push-tabs .chip{flex:1;text-align:center;background:transparent;border:0;border-bottom:3px solid transparent;border-radius:0;margin-bottom:-1px;padding:9px 13px;font-size:14px;color:var(--muted);}
+.push-tabs .chip.active{background:transparent;color:var(--text);border-bottom-color:var(--accent);}
+.push-opts{display:flex;flex-direction:column;gap:12px;margin:6px 0 4px;}
+.push-opts .settings-row{min-height:32px;}
+#push-modal .modal-card{max-width:640px;}   /* wide enough for the six layout presets to sit on one line */
+#push-modal .push-preset-row .chip{white-space:nowrap;}
+.push-palette{flex-direction:column;align-items:stretch;gap:8px;}
+.push-pal-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.push-pal-label{flex:0 0 70px;font-size:.72rem;font-weight:800;color:var(--muted);}

@@ -170,7 +170,7 @@ button{font-family:inherit;cursor:pointer;}
    this same line; built-at's margin-left:auto keeps it right-justified
    either way. */
 .section-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
-.scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.6px;text-transform:uppercase;}
+.scoreboard-head{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0;text-transform:uppercase;}
 .built-at{font-size:12px;color:var(--muted);margin-left:auto;}
 .scoreboard{margin-bottom:10px;}
 
@@ -301,7 +301,7 @@ button{font-family:inherit;cursor:pointer;}
    than .stats-table thead th (1 class + 2 types) and would win the z-index
    cascade with its own left-sticky-only value (2) instead. */
 .stats-table thead th.stats-col-session{z-index:12;}
-.stats-table th{color:var(--muted);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;cursor:pointer;user-select:none;}
+.stats-table th{color:var(--muted);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0;cursor:pointer;user-select:none;}
 .stats-table th:hover{color:var(--text);}
 .stats-table th.active{color:var(--text);}
 .stats-table tbody tr.stats-player-row{cursor:pointer;}
@@ -342,7 +342,7 @@ button{font-family:inherit;cursor:pointer;}
    lighter-weight one); HM is plain muted, one tier quieter still. */
 .game-award-badge{
   display:inline-block;margin-left:4px;padding:1px 4px;border-radius:3px;
-  font-size:9px;font-weight:800;letter-spacing:0.3px;vertical-align:1px;line-height:1.4;
+  font-size:9px;font-weight:800;letter-spacing:0;vertical-align:1px;line-height:1.4;
 }
 .game-award-potg{color:var(--gold);border:1px solid var(--gold);}
 .game-award-hm{color:var(--muted);border:1px solid var(--border);}
@@ -450,7 +450,7 @@ button{font-family:inherit;cursor:pointer;}
    every tile) regardless of abbreviation length ("BBEG" vs "KC") - right
    next to its own team instead of pushed out to the tile's far edge, where
    it read as belonging to the diamond/outs cluster instead. */
-.sb-abbr{letter-spacing:0.2px;min-width:47px;}
+.sb-abbr{letter-spacing:0;min-width:47px;}
 /* min-width+center so a 1-digit and 2-digit score sit on the same centre
    point instead of both left-aligning right after the abbreviation. */
 .sb-score{font-size:14px;font-weight:800;min-width:18px;text-align:center;}
@@ -477,7 +477,7 @@ button{font-family:inherit;cursor:pointer;}
 }
 .sb-lev{
   font-size:10px;font-weight:800;color:var(--muted);white-space:nowrap;
-  background:var(--tint);border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0.2px;
+  background:var(--tint);border:1px solid var(--border);border-radius:20px;padding:2px 8px;letter-spacing:0;
 }
 .sb-lev.hot{color:var(--red-dark);background:var(--tint-red);border-color:var(--tint-red-border);}
 
@@ -489,7 +489,7 @@ button{font-family:inherit;cursor:pointer;}
 .filters-toggle{
   display:none;width:100%;align-items:center;justify-content:space-between;gap:10px;
   background:none;border:none;padding:0;font-size:13px;font-weight:800;color:var(--text);
-  letter-spacing:0.3px;
+  letter-spacing:0;
 }
 .filters-toggle .caret{color:var(--muted);font-size:11px;}
 .filter-row{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:16px;}
@@ -541,7 +541,7 @@ button{font-family:inherit;cursor:pointer;}
 .filter-group.wide{flex:1 1 100%;}
 .filter-group label.group-label{
   display:block;font-size:11px;font-weight:800;color:var(--muted);
-  letter-spacing:0.6px;margin-bottom:8px;text-transform:uppercase;
+  letter-spacing:0;margin-bottom:8px;text-transform:uppercase;
 }
 .group-hint{font-weight:600;letter-spacing:0;text-transform:none;opacity:0.75;margin-left:6px;}
 .chip-row{display:flex;flex-wrap:nowrap;gap:8px;}
@@ -647,7 +647,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .counterpart-name:hover{text-decoration:underline;}
 .counterpart-fav{color:var(--gold);}
 
-.result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0.3px;white-space:nowrap;}
+.result-pill, .diff-pill{font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;border:1px solid;letter-spacing:0;white-space:nowrap;}
 .result-pill.offense, .diff-pill.zero{color:var(--blue);border-color:var(--tint-blue-border);background:var(--tint-blue);}
 .result-pill.defense, .diff-pill.five{color:var(--red-dark);border-color:var(--tint-red-border);background:var(--tint-red);}
 
@@ -657,7 +657,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
 .wpa-pos{color:var(--green);font-weight:700;}
 .wpa-neg{color:var(--red-dark);font-weight:700;}
 .why-line{display:flex;gap:6px;flex-wrap:wrap;}
-.why-tag{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--tint);border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:0.3px;}
+.why-tag{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--tint);border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:0;}
 /* Phone-only duplicate (10c/6d note) - hidden until the phone breakpoint
    swaps which copy is visible. */
 .why-line-bottom{display:none;}
@@ -705,7 +705,7 @@ select, input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--bord
   100%{background:var(--red);border-color:var(--red);transform:scale(1);}
 }
 .state-badge{
-  font-size:10.5px;font-weight:800;letter-spacing:0.6px;padding:5px 9px;
+  font-size:10.5px;font-weight:800;letter-spacing:0;padding:5px 9px;
   border-radius:4px;border:1px solid var(--border);color:var(--muted);background:var(--tint);
   white-space:nowrap;
 }
@@ -789,7 +789,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
 .about-chev{font-size:20px;line-height:1;color:var(--muted);}
 .about-article[hidden],.about-list[hidden]{display:none;}
 .about-article{display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:1.5;}
-.about-article h4{margin:6px 0 0;font-size:13px;letter-spacing:0.3px;}
+.about-article h4{margin:6px 0 0;font-size:13px;letter-spacing:0;}
 .about-article p{margin:0;}
 .about-formula{padding:12px 14px;border-radius:8px;border-left:3px solid var(--accent);background:var(--tint);font-family:inherit;font-size:clamp(12.5px,3.7vw,14px);font-weight:600;line-height:1.75;font-variant-numeric:tabular-nums;white-space:nowrap;overflow-x:auto;}
 /* Every formula line stays on one line (the box scrolls sideways as a last resort). Ledger rows line the sign,
@@ -827,7 +827,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
 .catchup-banner{
   display:block;width:100%;margin:0 0 10px;padding:10px 14px;border-radius:8px;
   border:1px solid var(--navy);background:var(--navy);color:var(--on-navy);
-  font-size:13.5px;font-weight:700;letter-spacing:0.2px;text-align:left;cursor:pointer;
+  font-size:13.5px;font-weight:700;letter-spacing:0;text-align:left;cursor:pointer;
 }
 .catchup-banner[hidden]{display:none;}
 .catchup-play-icon{width:9px;height:9px;fill:currentColor;vertical-align:-1px;margin-right:1px;}
@@ -944,7 +944,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
   position:absolute;top:8px;right:118px;z-index:2;
   border:none;background:transparent;color:var(--muted);
   min-width:34px;height:30px;padding:5px 6px;cursor:pointer;border-radius:6px;
-  font-size:12px;font-weight:800;letter-spacing:0.2px;
+  font-size:12px;font-weight:800;letter-spacing:0;
 }
 .catchup-speed:hover{color:var(--text);background:var(--tint);}
 
@@ -966,7 +966,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
    the X occupies the top ~36px of the card. */
 .catchup-progress{
   position:relative;flex:0 0 auto;padding:30px 44px 10px 18px;
-  font-size:11.5px;font-weight:700;letter-spacing:0.4px;color:var(--muted);
+  font-size:11.5px;font-weight:700;letter-spacing:0;color:var(--muted);
   /* border-box min-height must cover the 40px of padding plus a text line, or
      an empty counter (the "done" slide has no "Play x of y") collapses to just
      the padding and the bar underneath sits ~15px too high. */
@@ -1017,13 +1017,13 @@ html:has(.modal:not([hidden])){overflow:hidden;}
 .catchup-title{text-align:center;padding:20px 10px;}
 .catchup-title-teams{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-  font-size:20px;font-weight:800;letter-spacing:0.3px;line-height:1.3;
+  font-size:20px;font-weight:800;letter-spacing:0;line-height:1.3;
 }
 .catchup-title-team{display:flex;align-items:center;gap:10px;}
 .catchup-title-logo{width:34px;height:34px;object-fit:contain;}
 .catchup-at{color:var(--muted);font-weight:600;}
 .catchup-title-stadium{margin-top:4px;font-size:13px;font-weight:600;font-style:italic;color:var(--muted);}
-.catchup-title-sub{margin-top:10px;font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0.3px;}
+.catchup-title-sub{margin-top:10px;font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0;}
 
 /* ---- Play Scene (slideshow play slide) ---- */
 /* The scene fills the slide rather than sitting as a small block centred in
@@ -1602,7 +1602,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
   animation:recapIn calc(420ms / var(--play-speed,1)) ease calc(260ms / var(--play-speed,1)) both;
 }
 .scene-recap.live{background:var(--tint);color:var(--muted);border:1px solid var(--border);}
-.scene-recap-head{font-size:12px;font-weight:800;letter-spacing:0.4px;}
+.scene-recap-head{font-size:12px;font-weight:800;letter-spacing:0;}
 .scene-recap-top{font-size:10.5px;font-weight:600;opacity:0.82;}
 @keyframes recapIn{from{opacity:0;transform:translateY(-5px);}to{opacity:1;transform:none;}}
 
@@ -1725,7 +1725,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
   position:absolute;left:0;right:0;top:38%;font-size:19px;font-weight:800;letter-spacing:-0.3px;
 }
 .scene-meter.hot .scene-meter-val{color:var(--red-dark);}
-.scene-meter-lbl{font-size:8.5px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-top:-6px;}
+.scene-meter-lbl{font-size:8.5px;font-weight:700;letter-spacing:0;color:var(--muted);margin-top:-6px;}
 
 /* Centred to match the diamond and meter above it - left-aligned, the block
    stranded a wide empty margin on the right of an otherwise centred scene. */
@@ -1740,7 +1740,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
 .mu-side{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0;}
 .mu-role{
   display:flex;align-items:center;justify-content:center;gap:5px;
-  font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--muted);
+  font-size:8.5px;font-weight:800;letter-spacing:0;color:var(--muted);
 }
 .mu-logo{width:15px;height:15px;object-fit:contain;flex-shrink:0;}
 .mu-name{display:flex;align-items:center;gap:5px;font-size:15px;font-weight:800;min-width:0;}
@@ -1768,10 +1768,10 @@ html:has(.modal:not([hidden])){overflow:hidden;}
    monospace-ish chips so they read as telemetry rather than another tag. */
 .scene-flight-readout{
   display:inline-flex;gap:7px;font-family:ui-monospace,"SF Mono",Consolas,monospace;
-  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.2px;
+  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0;
 }
 .itp-pill{
-  font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:3px 9px;border-radius:20px;
+  font-size:10.5px;font-weight:800;letter-spacing:0;padding:3px 9px;border-radius:20px;
   color:var(--gold-dark,var(--muted));border:1px solid var(--tint-red-border);background:var(--tint);
 }
 /* Pitch/swing wheel (refinements round F1) - a debugging readout. DIFF shows
@@ -1805,7 +1805,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
    above it (Alex's call - the ring has the room once exit velo (was the
    center-small text) moved to sceneFlightReadoutHtml only). */
 .wheel-title{
-  font-size:9px;font-weight:800;letter-spacing:0.6px;fill:var(--muted);text-anchor:middle;
+  font-size:9px;font-weight:800;letter-spacing:0;fill:var(--muted);text-anchor:middle;
   paint-order:stroke;stroke:var(--card);stroke-width:2px;stroke-linejoin:round;
 }
 .wheel-svg{width:100%;height:auto;overflow:visible;}
@@ -1946,7 +1946,7 @@ html:has(.modal:not([hidden])){overflow:hidden;}
 .dm-break-pill rect{fill:#f2f0e6;stroke:#9aa1ab;stroke-width:1.5;}
 .dm-break-pill text{
   font-size:13px;font-weight:800;fill:#1a2029;text-anchor:middle;
-  dominant-baseline:middle;letter-spacing:0.3px;
+  dominant-baseline:middle;letter-spacing:0;
 }
 /* Now a direct .play-scene child, between the defense line and the field
    (Alex's call - moved out of .scene-detail, which used to sit below the
@@ -1980,7 +1980,7 @@ html[data-km-debug="1"] .scene-debug{
   font-size:10.5px;color:var(--text);max-height:340px;overflow:auto;text-align:left;
 }
 .scene-debug-section + .scene-debug-section{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
-.scene-debug-head{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;font-size:9px;margin-bottom:3px;}
+.scene-debug-head{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0;font-size:9px;margin-bottom:3px;}
 .scene-debug-note{color:var(--muted);font-style:italic;}
 .scene-debug-table{width:100%;border-collapse:collapse;}
 .scene-debug-table th{text-align:left;color:var(--muted);font-weight:600;padding:1px 6px 1px 0;white-space:nowrap;}
@@ -2014,7 +2014,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 .km-tuning-body{overflow:auto;padding:8px 10px;}
 .km-tuning-panel.collapsed .km-tuning-body{display:none;}
 .km-tuning-group + .km-tuning-group{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
-.km-tuning-group-title{color:var(--muted);text-transform:uppercase;letter-spacing:0.3px;font-size:9px;margin-bottom:3px;}
+.km-tuning-group-title{color:var(--muted);text-transform:uppercase;letter-spacing:0;font-size:9px;margin-bottom:3px;}
 .km-tuning-row{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:2px 0;}
 .km-tuning-input-wrap{display:flex;align-items:center;gap:3px;flex:0 0 auto;}
 .km-tuning-input-wrap input{
@@ -2039,7 +2039,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 .rb-y{position:absolute;left:0;pointer-events:none;}
 .rb-y span{
   display:inline-block;padding:1px 5px;border-radius:3px;
-  font-size:8px;font-weight:800;letter-spacing:0.5px;color:var(--muted);
+  font-size:8px;font-weight:800;letter-spacing:0;color:var(--muted);
   background:var(--card);opacity:0.85;
 }
 .rb-y-top{top:0;}
@@ -2051,7 +2051,7 @@ html[data-km-debug="1"] .km-tuning-panel{
 .rb-axis{position:relative;height:14px;margin-top:6px;}
 .rb-axis-tick{
   position:absolute;top:0;transform:translateX(-50%);
-  font-size:8.5px;font-weight:700;color:var(--muted);letter-spacing:0.2px;white-space:nowrap;
+  font-size:8.5px;font-weight:700;color:var(--muted);letter-spacing:0;white-space:nowrap;
 }
 /* Half-innings the game has not reached yet - present so the remaining
    regulation is visible, dimmed so it does not read as already played. */
@@ -2168,7 +2168,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 
 .catchup-pause-hint{
   flex:0 0 auto;text-align:center;padding:8px 12px 12px;
-  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.3px;
+  font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0;
 }
 .catchup-pause-hint[hidden]{display:none;}
 
@@ -2419,7 +2419,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
   .state-stack{gap:3px;}
   .state-stack svg{width:24px;height:24px;}
   .outs-dots .dot{width:6px;height:6px;}
-  .state-badge{font-size:9.5px;padding:4px 7px;letter-spacing:0.4px;}
+  .state-badge{font-size:9.5px;padding:4px 7px;letter-spacing:0;}
 }
 
 /* ---- Tablet + widescreen main feed ---- */
@@ -2534,7 +2534,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .live-grid-btn{
   display:inline-flex;align-items:center;gap:6px;
   border:1px solid var(--tint-red-border);border-radius:7px;background:var(--tint-red);
-  color:var(--red-dark);font-size:13px;font-weight:800;letter-spacing:0.3px;
+  color:var(--red-dark);font-size:13px;font-weight:800;letter-spacing:0;
   padding:6px 14px;cursor:pointer;box-shadow:0 1px 3px var(--shadow);
   transition:transform 120ms ease,box-shadow 120ms ease,background 120ms ease;
 }
@@ -2614,7 +2614,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .live-grid-live-pill{
   position:absolute;right:6px;bottom:4px;
   border:1px solid var(--tint-red-border);border-radius:5px;background:var(--tint-red);
-  color:var(--red-dark);font-size:9px;font-weight:800;letter-spacing:0.5px;
+  color:var(--red-dark);font-size:9px;font-weight:800;letter-spacing:0;
   padding:2px 6px;pointer-events:none;opacity:0.95;transition:opacity 200ms ease;
 }
 .live-grid-live-pill[hidden]{display:block;opacity:0;}
@@ -2839,7 +2839,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
   50%{opacity:0.3;transform:scale(0.65);}
 }
 .live-grid-cut-text{
-  font-size:12.5px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;
+  font-size:12.5px;font-weight:800;letter-spacing:0;text-transform:uppercase;
   color:var(--muted);
 }
 
@@ -2858,7 +2858,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
   animation:liveGridLogoPulse 1.6s ease-in-out infinite;
 }
 .live-grid-overlay-text{
-  font-size:19px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text);
+  font-size:19px;font-weight:800;letter-spacing:0;text-transform:uppercase;color:var(--text);
 }
 
 /* ---- Scorecard (Alex's ask - traditional batting-order x half-inning box
@@ -3044,7 +3044,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 }
 .sc-head{
   background:var(--tint);font-weight:800;color:var(--muted);justify-content:center;
-  font-size:11px;letter-spacing:0.2px;
+  font-size:11px;letter-spacing:0;
 }
 /* Frozen Batter column (Alex's ask) - sticky within .sc-grid-scroll above,
    opaque via .sc-cell's own background so scrolled-under content doesn't
@@ -3116,7 +3116,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
    mode). */
 .bb-result{
   position:absolute;top:0;left:0;z-index:1;
-  font-size:10px;font-weight:800;letter-spacing:0.2px;line-height:1;
+  font-size:10px;font-weight:800;letter-spacing:0;line-height:1;
   padding:2px 4px;border:1px solid #fff;border-top:none;border-left:none;
   border-bottom-right-radius:4px;background:#000;color:#fff;
 }
@@ -3255,7 +3255,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .xt-lbl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:700;}
 .xt-hint{font-size:12px;color:var(--muted);font-weight:500;}
 .xt-foot{margin:10px 0 24px;}
-.xt-sub{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.xt-sub{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .xt-table{margin-bottom:14px;overflow-x:auto;flex-shrink:0;}
 .xt-scroll{max-height:46vh;overflow:auto;}
 .xt-plain th{cursor:default;position:static;}
@@ -3425,7 +3425,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .aw-dname{font-size:13px;font-weight:800;}
 .aw-total{font-size:12px;font-weight:800;color:var(--navy);}
 .aw-list{display:flex;flex-direction:column;border-top:1px solid var(--border);}
-.aw-subgroup{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:8px;}
+.aw-subgroup{font-size:11px;font-weight:800;letter-spacing:0;text-transform:uppercase;color:var(--muted);margin-top:8px;}
 .aw-subgroup:first-child{margin-top:0;}
 .aw-who{margin-left:6px;}
 .aw-who svg{width:12px;height:12px;fill:currentColor;}
@@ -3445,10 +3445,13 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .acc-players{border:1px solid var(--border);border-radius:8px;}
 .acc-table{width:100%;border-collapse:collapse;font-size:12.5px;}
 .acc-scroll .acc-table{min-width:470px;}
-.acc-table th{position:sticky;top:0;background:var(--card);text-align:left;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
+.acc-table th{position:sticky;top:0;background:var(--card);text-align:left;font-size:11px;font-weight:800;letter-spacing:0;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
 .acc-table td{padding:6px 10px;white-space:nowrap;border-top:1px solid var(--border);}
 .acc-table thead + tbody tr:first-child td,.acc-players tr:first-child td{border-top:0;}
 .acc-when{width:1%;color:var(--muted);font-variant-numeric:tabular-nums;}
+.acc-table td.acc-logo{width:1%;padding-right:0;}
+.acc-logo-img{display:block;width:20px;height:20px;object-fit:contain;}
+.acc-table.feats-table td.acc-logo{width:44px;padding-right:6px;}   /* must out-rank ".acc-table td.acc-logo{width:1%}", which in a fixed layout left the cell too narrow and the logo ran into the "vs XXX" column */
 .acc-pl .xt-link{display:inline-block;max-width:190px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
 .acc-ctx{color:var(--muted);}
 .acc-n{width:1%;text-align:right;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;}
@@ -3457,7 +3460,7 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
 .feats-bar{display:flex;gap:8px;align-items:stretch;margin:4px 0 8px;}   /* stretch: the dropdown and the Favorites button come out the same height */
 .feats-bar .acc-kind{flex:1 1 auto;width:auto;height:auto;min-height:36px;}
 .feats-bar:not(.feats-by) .chip{min-height:36px;}
-.feats-head{margin:16px 0 6px;font-size:13px;font-weight:800;letter-spacing:.03em;color:var(--muted);}
+.feats-head{margin:16px 0 6px;font-size:13px;font-weight:800;letter-spacing:0;color:var(--muted);}
 .feats-table{table-layout:fixed;}   /* one column grid for every session's table, so they line up down the page */
 .feats-table .acc-when{width:76px;}
 .feats-table .acc-pl{width:210px;}
@@ -3479,6 +3482,16 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
   .acc-scroll .acc-table .acc-ctx{grid-column:1 / -1;white-space:normal;}
   .acc-scroll .acc-pl .xt-link{max-width:100%;}
   .acc-scroll .acc-table tr.acc-season{grid-template-columns:auto minmax(0,1fr) auto;}
+  /* the Feats rows have a logo cell first: it spans both lines (a season-title row is one line, so just that one) */
+  .acc-scroll .feats-table tr{grid-template-columns:auto auto minmax(0,1fr);column-gap:10px;}
+  .acc-scroll .feats-table tr.acc-season{grid-template-columns:auto auto minmax(0,1fr) auto;}
+  .acc-scroll .feats-table td.acc-logo{grid-column:1;grid-row:1 / span 2;align-self:center;}
+  .acc-scroll .feats-table tr.acc-season td.acc-logo{grid-row:1;}
+  .acc-scroll .feats-table td.acc-when{grid-column:2;}
+  .acc-scroll .feats-table td.acc-pl{grid-column:3;}
+  .acc-scroll .feats-table td.acc-ctx{grid-column:2 / -1;}
+  .acc-scroll .feats-table .acc-logo-img{width:38px;height:38px;}
+  .acc-scroll .feats-table tr.acc-season .acc-logo-img{width:24px;height:24px;}
   .acc-scroll .acc-table tr.acc-season .acc-ctx{grid-column:auto;white-space:nowrap;text-align:right;font-weight:700;}
 }
 #acc-modal .modal-card,#dx-modal .modal-card{max-width:640px;}
@@ -3516,6 +3529,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 /* Player column collapses to just the last name (no award/decision badges) once
    the table has been scrolled sideways (app.js adds .scrolled to the wrap). */
 .stats-col-player .sp-short{display:none;}
+.stats-col-player .sp-logo{width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:6px;}
 @media (max-width:700px){
   .stats-table-wrap.scrolled .stats-col-player .sp-full{display:none;}
   .stats-table-wrap.scrolled .stats-col-player .sp-short{display:inline-block;max-width:9ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;}
@@ -3534,7 +3548,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 #career-head .ph-right{display:flex;align-items:center;gap:12px;flex-shrink:0;}
 #career-head .ph-logo{height:36px;width:auto;max-width:60px;object-fit:contain;}
 #career-head .ph-pos{display:inline-flex;gap:4px;}
-#career-head .ph-pill{font-size:10.5px;font-weight:800;letter-spacing:0.3px;padding:1px 6px;border-radius:4px;border:1px solid currentColor;opacity:0.85;}
+#career-head .ph-pill{font-size:10.5px;font-weight:800;letter-spacing:0;padding:1px 6px;border-radius:4px;border:1px solid currentColor;opacity:0.85;}
 #career-head.ph-colored .link-btn{color:inherit;}
 
 /* Player modal: Stats / Diffs underline tabs sit under Batting / Pitching, a step lighter. */
@@ -3543,7 +3557,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 #career-head{align-items:flex-start;}
 #career-head .ph-left{display:flex;flex-direction:column;gap:4px;min-width:0;}
 #career-head .ph-build{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:11.5px;font-weight:600;opacity:0.9;}
-#career-head .ph-build b{font-weight:800;letter-spacing:0.3px;opacity:0.75;}
+#career-head .ph-build b{font-weight:800;letter-spacing:0;opacity:0.75;}
 #career-head .ph-build:empty{display:none;}
 #career-head .ph-right{align-self:center;}
 /* Close is the same x as the slideshow's, just inline in the header (inherits the header's text colour). */
@@ -3615,7 +3629,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 @media (max-width:600px){.hs-field{width:100%;}}
 .hs-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border:none;background:none;border-radius:6px;font-size:14px;font-weight:600;color:var(--text);cursor:pointer;}
 .hs-item:hover,.hs-item.on{background:var(--tint);}
-.hs-team{font-size:11px;font-weight:800;letter-spacing:0.3px;color:var(--muted);flex-shrink:0;}
+.hs-team{font-size:11px;font-weight:800;letter-spacing:0;color:var(--muted);flex-shrink:0;}
 .hs-empty{padding:10px;font-size:12.5px;color:var(--muted);text-align:center;}
 #header-search-btn.active{color:var(--text);background:var(--tint);}
 @media (max-width:600px){

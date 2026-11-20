@@ -755,6 +755,16 @@ def replay_game(plays: list[dict], game: dict | None, archive_mode: bool = False
         leverage = utils.compute_leverage_re24(
             remaining, outs_before, obc_before, lead_before
         )
+        # Leverage of the situation the play leaves behind (what the push alerts show as LI): the next batter's state, so an inning-ending
+        # out looks ahead to the other team leading off the next half, and a game-ending play has none.
+        if ended:
+            leverage_after = None
+        elif outs_after >= 3:
+            # a tie after the last scheduled half-inning goes to extras, which the lookup treats as one more half-inning left
+            rem_next = remaining - 1 if remaining - 1 >= 1 else (1 if lead_after == 0 else None)
+            leverage_after = None if rem_next is None else utils.compute_leverage_re24(rem_next, 0, "000", -lead_after)
+        else:
+            leverage_after = utils.compute_leverage_re24(remaining, outs_after, obc_after, lead_after)
 
         states.append({
             "play": play,
@@ -774,6 +784,7 @@ def replay_game(plays: list[dict], game: dict | None, archive_mode: bool = False
             "wp_after": wp_after,
             "wpa": None if (wp_before is None or wp_after is None) else wp_after - wp_before,
             "leverage": leverage,
+            "leverage_after": leverage_after,
             "game_ended": ended,
             "game_winning": False,
             "walk_off": False,
@@ -1014,6 +1025,12 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         # client-side today.
         "er_ids": er_ids,
 
+        # last names beside each name below, for the push alerts' "last name only" option (docs/js/push_format.js, tools/push_format.py)
+        "batter_last": feat["batter"]["last_name"],
+        "pitcher_last": feat["pitcher"]["last_name"],
+        "runner_last": feat["runner"]["last_name"],
+        "featured_last": feat["player"]["last_name"],
+        "counterpart_last": feat["counterpart"]["last_name"],
         "batter_name": feat["batter"]["name"],
         "batter_id": feat["batter"]["id"],
         "batter_hand": feat["batter"]["hand"],
@@ -1047,6 +1064,7 @@ def build_moment(ref: dict, state: dict, game: dict | None, tags: list[str],
         "win_prob_after": None if wp_after is None else round(wp_after, 4),
         "wpa": None if wpa is None else round(wpa, 4),
         "leverage": None if state["leverage"] is None else round(state["leverage"], 2),
+        "leverage_after": None if state.get("leverage_after") is None else round(state["leverage_after"], 2),
 
         "rookie": feat["player"]["rookie"],
         "is_key_moment": any(t not in FILTER_ONLY_TAGS for t in tags),

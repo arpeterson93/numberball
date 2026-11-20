@@ -13,8 +13,12 @@ Events (prefs per subscription, see docs/js/push.js):
   team "m"  plays where the team is batting or fielding: 1 = key moments only, 2 = every play
   team "e"  the team's game just ended
   favs      plays featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet): 1 = key moments only, 2 = every play
+  feats     a new game feat or season title (accomplishments.json): 1 = by players on my teams or my favorites, 2 = anyone's; a tap opens
+            that player's Awards tab and replays the feat (see feat_event)
 "Key moment" is the build's is_key_moment unless the subscription has prefs.tags (its own list of tag slugs): then a play counts
 when it carries any of them.
+prefs.fmt is the subscriber's own notification layout for plays (tools/push_format.py), prefs.fmtk the one for their key moments (absent = the
+Spotlight preset); a play without a layout uses the standard one below. Feat alerts have one fixed format (feat_event).
 Each subscription gets at most MAX_PER_SUB notifications per run (the rest are folded into one "N more new plays" summary), and
 every notification stands alone (no tag), so a later play never replaces an earlier one on the device. Android and desktop
 Chrome show the batting team's logo (the winner's, for a game end); iOS always shows the app icon and ignores it.
@@ -28,11 +32,16 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
+from collections import Counter
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import push_format  # noqa: E402  custom notification layouts (prefs.fmt)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NEW_DIR = os.path.join(ROOT, "docs", "data")
@@ -40,6 +49,9 @@ LIVE_DATA = "https://mlngameday.com/data"
 SITE = "https://mlngameday.com/"
 MAX_PER_SUB = 5
 SEND_GAP = 1.0           # seconds between rounds of sends, so one device never gets a burst of pushes in the same instant
+LABELS: dict = {}        # meta.json result_labels / result_short, set by main(), for the custom layouts
+SHORT: dict = {}
+MAX_NEW_FEATS = 40       # more new feats than this at once is a new feat type backfilling its history, not live play: send no feat alerts
 MAX_NEW_EVENTS = 250     # a rebuild that "creates" far more than this is a data reset, not live play: send nothing
 
 
@@ -94,7 +106,7 @@ def diamond(m: dict) -> str:
     obc = m.get("obc_after") or "000"
     dots = " ".join("\u25c6" if obc[i] == "1" else "\u25c7" for i in (0, 1, 2))
     outs = m.get("outs_after")
-    return dots if outs is None else f"{dots}   {outs} out" + ("" if outs == 1 else "s")
+    return dots if outs is None else f"{dots} · {outs} out" + ("" if outs == 1 else "s")
 
 
 def icon_for(logos: dict | None, abbr: str | None) -> dict:
@@ -105,18 +117,20 @@ def icon_for(logos: dict | None, abbr: str | None) -> dict:
 
 def moment_event(m: dict, logos: dict | None = None) -> dict:
     """Title  HFX 1 - GHG 0 ▲ 1   (▲ top of the inning, ▼ bottom)
-    Body   Brody Page HR / vs Pitcher Name (a steal: Runner SB2 / vs Catcher) / Costanza scores (only when someone scored) / the base diamond with the outs"""
+    Body   Brody Page / vs Pitcher Name (a steal: Runner / vs Catcher) / Costanza scores (only when someone scored) / HR · the base diamond with the outs
+    (the same as the Classic layout in push_format.py)"""
     if m["result"][:2] in ("SB", "CS"):    # a steal: runner and result, against the catcher (the featured player when he is the one fielding)
-        top = f'{m.get("runner_name") or m.get("batter_name") or ""} {m["result"]}'
+        top = m.get("runner_name") or m.get("batter_name") or ""
         catcher = m.get("featured_name") if m.get("featured_side") == "fielding" else m.get("counterpart_name")
         vs = f"vs {catcher}" if catcher else ""
     else:
-        top = f'{m.get("batter_name") or m.get("featured_name") or ""} {m["result"]}'
+        top = m.get("batter_name") or m.get("featured_name") or ""
         vs = f'vs {m["pitcher_name"]}' if m.get("pitcher_name") else ""
     tri = "▲" if m["half"] == "top" else "▼"
-    lines = [top, vs, scoring_line(m), diamond(m)]
+    res = SHORT.get(m["result"], m["result"])
+    lines = [top, vs, scoring_line(m), f"{res} · {diamond(m)}"]
     return {
-        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "tags": set(m.get("tags") or []), "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
+        "teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "m", "key": bool(m.get("is_key_moment")), "tags": set(m.get("tags") or []), "play": m, "player_ids": {m.get("featured_id"), m.get("batter_id"), m.get("pitcher_id"), m.get("runner_id")} - {None},
         "game": m["game_code"], "payload": {
             "title": f'{m["away_team_abbr"]} {m["away_score"]} - {m["home_team_abbr"]} {m["home_score"]} {tri} {m["inning"]}',
             "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), **icon_for(logos, m["off_team_abbr"])}}
@@ -143,6 +157,41 @@ def final_event(g: dict, plays: list[dict], labels: dict, logos: dict | None = N
         "url": link(g["game_code"]), **icon_for(logos, a if g["away_score"] > g["home_score"] else h if g["home_score"] > g["away_score"] else None)}}
 
 
+def feat_titles() -> dict:
+    """feat key -> its title, read from the AW_ACC list in docs/js/career.js (the one place the Awards tab's wording is kept)."""
+    try:
+        src = open(os.path.join(ROOT, "docs", "js", "career.js"), encoding="utf-8").read()
+    except OSError:
+        return {}
+    return dict(re.findall(r'^\s*\["([a-z0-9_]+)", "([^"]+)", "(?:season|game|play)"', src, re.M))
+
+
+def feat_event(row: list, names: dict, titles: dict, logos: dict | None = None) -> dict:
+    """One accomplishments.json row [key, player id, season, game, detail, opponent, play numbers, team] as an alert:
+    Title  Brody Page: No-hitter      Body  6.0 IP, 0 H, 7 K / HMH vs RLY   (a season-long feat, HR Leader: 6 HR / SUN · S12)
+    The link opens the player's Awards tab and replays the feat."""
+    key, pid, season, game, detail, opp, _pns, team = (list(row) + [""] * 8)[:8]
+    where = f"{team} vs {opp}" if team and opp else team
+    return {"teams": {team} if team else set(), "kind": "f", "player_ids": {int(pid)}, "game": game or "", "payload": {
+        "title": f"{names.get(str(pid)) or 'A player'}: {titles.get(key) or key.replace('_', ' ').title()}",
+        "body": "\n".join(x for x in (detail, where if game else f"{where} · S{season}" if where else f"S{season}") if x),   # a game or moment feat is dated by when it happens, so only a season-long one names its season
+        "url": SITE + "?" + urllib.parse.urlencode({"player": pid, "side": "awd", "feat": f"{key}:{season}:{game or ''}"}, safe=":"), **icon_for(logos, team)}}
+
+
+def new_feats(old: list, new: list) -> list:
+    """The rows in `new` that `old` does not have (a player can earn the same feat twice in a game, so counted, not just compared),
+    oldest season and game first."""
+    ident = lambda r: (r[0], r[1], r[2], r[3], r[4])  # noqa: E731
+    left = Counter(ident(r) for r in old)
+    out = []
+    for r in new:
+        if left[ident(r)] > 0:
+            left[ident(r)] -= 1
+        else:
+            out.append(r)
+    return sorted(out, key=lambda r: (r[2], str(r[3])))
+
+
 def is_key(prefs: dict, ev: dict) -> bool:
     """Whether this play is a key moment for this subscriber. prefs["tags"] (a list of tag slugs) is their own definition: any of
     those tags on the play counts. Without it, the build's is_key_moment applies. The public feed is never affected."""
@@ -155,6 +204,14 @@ def is_key(prefs: dict, ev: dict) -> bool:
 def wants(sub: dict, ev: dict) -> bool:
     prefs = sub.get("prefs") or {}
     teams = prefs.get("teams") or {}
+    if ev["kind"] == "f":
+        level = int(prefs.get("feats") or 0)
+        if level >= 2:
+            return True
+        if level == 1:
+            followed = any(int((teams.get(a) or {}).get("m") or 0) or int((teams.get(a) or {}).get("e") or 0) for a in ev["teams"])
+            return followed or (int(prefs.get("favs") or 0) > 0 and bool(ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []}))
+        return False
     key = ev["kind"] == "m" and is_key(prefs, ev)
     for abbr in ev["teams"]:
         level = int((teams.get(abbr) or {}).get(ev["kind"]) or 0)
@@ -176,8 +233,25 @@ def wire(sub: dict, msg: dict) -> dict:
     return {"web_push": 8030, "notification": {"title": msg["title"], "body": msg.get("body", ""), "navigate": msg.get("url") or SITE}}
 
 
+def payload_for(sub: dict, ev: dict) -> dict:
+    """The event's message, in the subscriber's own layout (prefs.fmt) when they designed one. Same link and icon either way."""
+    if ev["kind"] != "m":
+        return ev["payload"]
+    prefs = sub.get("prefs") or {}
+    if is_key(prefs, ev):   # key moments: their own layout, Spotlight until the subscriber designs another
+        fmt = prefs.get("fmtk") if isinstance(prefs.get("fmtk"), dict) else push_format.SPOTLIGHT
+    else:
+        fmt = prefs.get("fmt")
+    if not isinstance(fmt, dict):
+        return ev["payload"]
+    out = push_format.render(ev["play"], fmt, LABELS, SHORT)
+    if not out:
+        return ev["payload"]
+    return {**ev["payload"], "title": out[0], "body": out[1]}
+
+
 def messages_for(sub: dict, events: list[dict]) -> list[dict]:
-    mine = [e["payload"] for e in events if wants(sub, e)]
+    mine = [payload_for(sub, e) for e in events if wants(sub, e)]
     if len(mine) <= MAX_PER_SUB:
         return mine
     # the first MAX_PER_SUB in time order, then one summary for the rest
@@ -209,6 +283,12 @@ def snapshot(dest: str) -> int:
                 continue
             with open(os.path.join(dest, f"plays_{sess:02d}.json"), "w", encoding="utf-8") as fh:
                 json.dump(rows, fh)
+        try:   # the feats baseline; a live site without the file yet just means no feat alerts this run
+            with open(os.path.join(dest, "accomplishments.json"), "w", encoding="utf-8") as fh:
+                json.dump(read(LIVE_DATA, "accomplishments.json"), fh)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
         with open(os.path.join(dest, "meta.json"), "w", encoding="utf-8") as fh:
             json.dump(old_meta, fh)
     except Exception as exc:  # noqa: BLE001
@@ -330,17 +410,32 @@ def main() -> int:
 
     logos = {abbr: f"{SITE}data/push_icons/{abbr}.png" for abbr, t in (new_meta.get("teams") or {}).items() if t.get("logo_url")}   # tools/push_icons.py
     labels = new_meta.get("result_labels") or {}   # full names, as the slideshow recap uses
+    LABELS.update(labels)
+    SHORT.update(new_meta.get("result_short") or {})
     old_final = final_games(old_meta)
     by_game: dict[str, list[dict]] = {}
     for m in new_plays.values():
         by_game.setdefault(m["game_code"], []).append(m)
     events = [moment_event(m, logos) for m in sorted((m for mid, m in new_plays.items() if mid not in seen), key=lambda m: (m["timestamp"], m["play_num"]))]
     events += [final_event(g, by_game.get(code, []), labels, logos) for code, g in final_games(new_meta).items() if code not in old_final]
-    print(f"push: {len(events)} new events")
-    if not events:
-        return 0
     if len(events) > MAX_NEW_EVENTS:
         print("push: far too many at once (data reset?); nothing sent")
+        return 0
+    try:   # new feats: rows in the new accomplishments.json the baseline did not have (no baseline file = none this run)
+        new_acc = read(new_base, "accomplishments.json")
+        old_acc = new_acc[:-3] if args.replay else read(args.old_base, "accomplishments.json")
+        fresh = new_feats(old_acc, new_acc)
+        if len(fresh) > MAX_NEW_FEATS:
+            print(f"push: {len(fresh)} new feats at once (a new feat type backfilling?); no feat alerts")
+            fresh = []
+        if fresh:
+            names = read(new_base, "search/names.json").get("n") or {}
+            titles = feat_titles()
+            events += [feat_event(r, names, titles, logos) for r in fresh]
+    except Exception as exc:  # noqa: BLE001 - feats are extra; never let them cost the play alerts
+        print(f"push: no feat alerts this run ({exc})")
+    print(f"push: {len(events)} new events")
+    if not events:
         return 0
 
     endpoint, secret = os.environ.get("PUSH_ENDPOINT", ""), os.environ.get("PUSH_SECRET", "")

@@ -22,7 +22,7 @@ import accomplishments_build as ab  # noqa: E402
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accomplishment_highlights_out")
 LABEL = {
     "multi_hr_2plus": "Multi-HR game", "multi_hr_3plus": "3-HR game", "hits_4plus": "4+ hit game", "cycle": "Cycle",
-    "grand_slam": "Grand slam", "rbi_5plus": "5+ RBI game", "sb_3plus": "3+ SB game", "reached_5plus": "Reached base 5+",
+    "grand_slam": "Grand slam", "rbi_5plus": "5+ RBI game", "sb_3plus": "3+ SB game", "reached_5plus": "5+ Hit+BB game",
     "golden_sombrero": "Golden sombrero", "walk_off": "Walk-off", "k_10plus": "10+ K game", "cg_shutout": "CG shutout",
     "no_hitter": "No-hitter", "perfect_game": "Perfect game", "immaculate_inning": "Immaculate inning",
     "lead_hr": "HR leader", "lead_rbi": "RBI leader", "lead_h": "Hits leader", "lead_sb": "SB leader",

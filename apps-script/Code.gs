@@ -271,10 +271,36 @@ function pushSecretOk_(secret) {
   return !!want && String(secret || '') === want;
 }
 
+function pick_(v, allowed, dflt) { return allowed.indexOf(v) !== -1 ? v : dflt; }
+
+function cleanFmt_(f) {
+  // a notification layout (tools/push_format.py): l = up to 5 lines of up to 12 component ids, plus the display options bs nb np wm pv
+  if (!(f && Array.isArray(f.l))) return null;
+  var out = {
+    l: f.l.slice(0, 5).map(function (line) {
+      return (Array.isArray(line) ? line : []).slice(0, 12).map(function (s) { return String(s); }).filter(function (s) { return /^[a-z_]{1,12}$/.test(s); });
+    }),
+    bs: pick_(f.bs, ['glyph', 'words'], 'glyph'),
+    nb: pick_(f.nb, ['full', 'last'], 'full'),
+    np: pick_(f.np, ['full', 'last'], 'full'),
+    wm: pick_(f.wm, ['after', 'change'], 'after'),
+    pv: pick_(f.pv, ['hit', 'feat'], 'hit')
+  };
+  // an older save from a client that has not upgraded yet (b = bases and outs together, r = result wording): the sender upgrades it
+  if (['glyph', 'emoji', 'words'].indexOf(f.b) !== -1 && f.bs === undefined) {
+    out.b = f.b;
+    delete out.bs;
+  }
+  if (f.r === 'code' || f.r === 'label') out.r = f.r;
+  return out;
+}
+
 function cleanPrefs_(prefs) {
   // Tiny whitelist so a client cannot stuff arbitrary data into the sheet:
   //   teams: { ABC: { m: 0|1|2 (off / key moments / every play), e: 0|1 (game ends) } }, favs: 0|1|2 (off / key moments / every play from my favorites)
   var out = { teams: {}, favs: Math.max(0, Math.min(2, parseInt(prefs && prefs.favs, 10) || 0)) };
+  var feats = Math.max(0, Math.min(2, parseInt(prefs && prefs.feats, 10) || 0));   // new feat alerts: 0 off, 1 my teams and favorites, 2 everyone
+  if (feats) out.feats = feats;
   var t = (prefs && prefs.teams) || {};
   Object.keys(t).slice(0, 64).forEach(function (abbr) {
     var a = String(abbr).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
@@ -288,6 +314,11 @@ function cleanPrefs_(prefs) {
     out.tags = prefs.tags.slice(0, 30).map(function (s) { return String(s); })
       .filter(function (s) { return /^[a-z_]{1,30}$/.test(s); });
   }
+  // fmt: this subscriber's own layout for regular plays, fmtk: for key moments (absent = the same as fmt). See cleanFmt_.
+  var fmt = cleanFmt_(prefs && prefs.fmt);
+  if (fmt) out.fmt = fmt;
+  var fmtk = cleanFmt_(prefs && prefs.fmtk);
+  if (fmtk) out.fmtk = fmtk;
   return out;
 }
 

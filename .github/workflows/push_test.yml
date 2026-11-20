@@ -27,7 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: tools/push_send.py
+          sparse-checkout: |
+            tools/push_send.py
+            tools/push_format.py
           sparse-checkout-cone-mode: false
       - name: Send the test alert
         env:
