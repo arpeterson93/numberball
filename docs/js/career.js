@@ -603,12 +603,7 @@
     }).join("");
     if (!rows) return '<div class="stats-empty">No play-by-play for this season.</div>';
     return '<div class="xt-sub">Plate appearances <span class="xt-hint">tap one to watch it &middot; ring = drove in a run &middot; right: game WPA</span></div>' +
-      '<div class="sv-grid">' + rows + "</div>" + resLegend();
-  }
-  function resLegend() {
-    return '<div class="dx-legend">' + [["HR", "Home run"], ["2B", "Extra base"], ["1B", "Single"], ["BB", "Walk"], ["FO", "Fly out"], ["GO", "Ground out"], ["K", "Strikeout"], ["DP", "Double play"]].map(function (x) {
-      return '<span><i style="background:' + resCol(x[0]) + '"></i>' + x[1] + "</span>";
-    }).join("") + "</div>";
+      '<div class="sv-grid">' + rows + "</div>";   // no legend: every block names its own result
   }
 
   // A pitcher's Game Score building up batter by batter, one line per appearance (starts solid, relief dashed), from the 40 every
@@ -626,9 +621,9 @@
       });
       return { g: g, pts: pts, end: run };
     });
-    var xmax = 6, ymin = 40, ymax = 40;
+    var xmax = 6, ymin = 20, ymax = 80;   // a standard 20-80 scale so games and players compare at a glance; it widens only when the data goes past it
     lines.forEach(function (l) { l.pts.forEach(function (q) { xmax = Math.max(xmax, q[0]); ymin = Math.min(ymin, q[1]); ymax = Math.max(ymax, q[1]); }); });
-    ymin = Math.floor((ymin - 2) / 10) * 10; ymax = Math.ceil((ymax + 2) / 10) * 10;
+    ymin = Math.min(20, Math.floor((ymin - 2) / 10) * 10); ymax = Math.max(80, Math.ceil((ymax + 2) / 10) * 10);
     var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), H = Math.round(W * 0.42) + 18, L = 36, R = 16, T = 14, Bm = 26;
     var pw = W - L - R, ph = H - T - Bm;
     var X = function (v) { return L + v / xmax * pw; }, Y = function (v) { return T + ph - (v - ymin) / (ymax - ymin) * ph; };
@@ -647,12 +642,21 @@
     });
     if (chosen) {
       svg += '<path d="' + path(chosen) + '" class="sv-ln-on"/>';
+      // one dot per batter faced (a result), at the running Game Score (the earned runs on his own play are part of that play's change; the
+      // squares below show a white dot for each). Every earned run charged after he left (empty result rows) is ONE hollow dot at the end of
+      // the line. Steals get no dot.
       chosen.pts.forEach(function (q) {
-        if (!q[2]) return;
+        if (!q[2] || q[2][0] === "" || /^(SB|CS|Balk)/.test(q[2][0])) return;
         var d = q[2][1];
         svg += '<circle cx="' + X(q[0]).toFixed(1) + '" cy="' + Y(q[1]).toFixed(1) + '" r="3.4" class="' + (d < 0 ? "sv-dn" : "sv-up") + '"><title>' +
-          esc((q[2][4] ? q[2][4] + " · " : "") + (RES_NAME[q[2][0]] || q[2][0] || "earned run charged") + " · " + sgn(d, 0)) + "</title></circle>";
+          esc((q[2][4] ? q[2][4] + " · " : "") + (RES_NAME[q[2][0]] || q[2][0]) + " · " + sgn(d, 0)) + "</title></circle>";
       });
+      var late = chosen.pts.filter(function (q) { return q[2] && q[2][0] === ""; });
+      if (late.length) {
+        var lsum = late.reduce(function (a, q) { return a + q[2][1]; }, 0), lend = chosen.pts[chosen.pts.length - 1], lruns = Math.max(1, Math.round(-lsum / 3));
+        svg += '<circle cx="' + X(lend[0]).toFixed(1) + '" cy="' + Y(lend[1]).toFixed(1) + '" r="3.4" class="sv-tail"><title>' +
+          esc(lruns + (lruns === 1 ? " earned run" : " earned runs") + " charged to him after he left · " + sgn(lsum, 0)) + "</title></circle>";
+      }
       var last = chosen.pts[chosen.pts.length - 1];
       svg += '<text x="' + Math.min(W - R, X(last[0]) + 6).toFixed(1) + '" y="' + (Y(last[1]) - 7).toFixed(1) + '" text-anchor="' + (X(last[0]) > W - 60 ? "end" : "start") + '" class="sv-end">' + Math.round(chosen.end) + "</text>";
     }
@@ -665,14 +669,16 @@
     var blocks = "";
     if (chosen) {
       var g = chosen.g;
-      blocks = '<div class="xt-sub">' + esc(gameLbl(g)) + (g.gs ? " · started" : " · relief") + ' <span class="xt-hint">tap a batter to watch it</span></div><div class="sv-marks sv-bf">' +
+      blocks = '<div class="xt-sub">' + esc(gameLbl(g)) + (g.gs ? " · started" : " · relief") + ' <span class="xt-hint">tap a batter to watch it</span></div>' +
+        (awStatLine({ rows: { bat: [], pit: [g] } }) ? '<div class="sv-stat">' + esc(awStatLine({ rows: { bat: [], pit: [g] } })) + "</div>" : "") + '<div class="sv-marks sv-bf">' +
         pa[g.g].map(function (p) {
           var col = p[0] === "" ? "#9aa4b2" : resCol(p[0]);
-          var tip = (p[4] ? "vs " + p[4] + " · " : "") + (p[5] ? "inning " + p[5] + " · " : "") + (RES_NAME[p[0]] || p[0] || "earned run charged to him") + " · Game Score " + sgn(p[1], 0) + " · WPA " + sgn(p[2]);
-          return '<span class="sv-pa xt-click" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(p[0] === "" ? "ER" : resTxt(p[0])) + "<small>" + sgn(p[1], 0) + "</small></span>";
+          var tip = (p[4] ? "vs " + p[4] + " · " : "") + (p[5] ? "inning " + p[5] + " · " : "") + (RES_NAME[p[0]] || p[0] || "earned run charged to him") + " · Game Score " + sgn(p[1], 0) + (p[6] ? " · " + p[6] + (p[6] === 1 ? " earned run" : " earned runs") : "") + " · WPA " + sgn(p[2]);
+          var ers = ""; for (var e = 0; e < (p[6] || 0); e++) ers += "<i></i>";   // a white dot for each earned run on this play
+          return '<span class="sv-pa xt-click" style="background:' + col + ";color:" + inkOn(col) + '"' + gameAttrs(g, p[3]) + ' title="' + esc(tip) + '">' + esc(p[0] === "" ? "ER" : resTxt(p[0])) + "<small>" + sgn(p[1], 0) + "</small>" + (ers ? '<span class="sv-er">' + ers + "</span>" : "") + "</span>";
         }).join("") + "</div>";
     }
-    return '<div class="xt-sub">Game Score by batter faced <span class="xt-hint">across: batters faced &middot; every game starts at 40 &middot; dashed = relief</span></div>' +
+    return '<div class="xt-sub">Game Score by batter faced <span class="xt-hint">every game starts at 40 &middot; dashed = relief</span></div>' +
       '<div class="dx-chart">' + svg + '</div><div class="sv-chips">' + chips + "</div>" + blocks;
   }
 
@@ -700,7 +706,7 @@
       if (i % every === 0) svg += '<text x="' + (L + (i + 0.5) * bw).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + b.g.n + "</text>";
     });
     svg += "</svg>";
-    return '<div class="xt-sub">WPA game by game <span class="xt-hint">season total ' + sgn(run) + " &middot; tap a bar to open the game</span></div>" + '<div class="dx-chart">' + svg + "</div>";
+    return '<div class="xt-sub">WPA by Game</div>' + '<div class="dx-chart">' + svg + "</div>";
   }
 
   // Closing walks back over the entry opening pushed; a panel that was landed on (shared link) has nothing behind it,

@@ -123,9 +123,10 @@ def pa_events(grows: list[dict]) -> dict:
     for the pitcher, in order, plus who started on the mound for each team.
 
     bat[pid]  = [[result, wpa x100, leverage, play_num, rbi, inning], ...]   (real turns only, steals are not plate appearances)
-    pit[pid]  = [[result, game-score change, wpa x100, play_num, batter name, inning], ...]
+    pit[pid]  = [[result, game-score change, wpa x100, play_num, batter name, inning, earned runs on the play], ...]
     The pitcher's changes are exactly the terms of the Game Score v2 formula in key_moments_build._session_stats (outs, K, BB, H,
-    ER, HR), so 40 + the sum of a game's changes is that game's GSc. An earned run charged back to a pitcher who has left (an
+    ER, HR), so 40 + the sum of a game's changes is that game's GSc. The earned runs charged to the pitcher on the mound are part of
+    that play's change (the last field counts them, the page draws a dot for each); one charged back to a pitcher who has left (an
     inherited runner scoring) is its own row with an empty result."""
     bat: dict[int, list] = defaultdict(list)
     pit: dict[int, list] = defaultdict(list)
@@ -156,18 +157,20 @@ def pa_events(grows: list[dict]) -> dict:
         if len(er_ids) < runs:
             er_ids = er_ids + [pid] * (runs - len(er_ids))
         others: dict[int, int] = defaultdict(int)
+        own_er = 0
         for er_pid in er_ids:
             if not er_pid:
                 continue
             if er_pid == pid:
                 delta -= 3
+                own_er += 1
             else:
                 others[er_pid] += 3
         steal = res in kmb.NON_TURN_CODES
         if not steal or delta:
             # a steal credits the catcher's WPA, not the pitcher's (key_moments_build), so it is 0 here
             pit[pid].append([res, delta, 0 if steal and (m.get("defense") or {}).get("C") else round(-wpa * 100, 1),
-                             m["play_num"], m.get("batter_name") or "", inning])
+                             m["play_num"], m.get("batter_name") or "", inning, own_er])
         for er_pid, pts in others.items():
             pit[er_pid].append(["", -pts, 0, m["play_num"], "", inning])
     return {"bat": bat, "pit": pit, "starters": starters}
