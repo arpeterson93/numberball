@@ -286,10 +286,17 @@
     var raw = fmtSlot() === "fmtk" ? (state.prefs.fmtk || F.SPOTLIGHT) : state.prefs.fmt;
     return F.normalize(raw ? JSON.parse(JSON.stringify(raw)) : F.CLASSIC);
   }
+  // The layout a user built that matches no preset is kept as a copy (prefs.fmtc for plays, prefs.fmtkc for key moments) so choosing a
+  // preset does not lose it: the Custom chip then restores it. The sender ignores the copies.
+  function copyKey() { return fmtSlot() + "c"; }
+  function isPreset(f) { var s = JSON.stringify(F.normalize(f)); return F.PRESETS.some(function (p) { return JSON.stringify(F.normalize(p[1])) === s; }); }
+  function stashCustom(f) { if (!isPreset(f)) state.prefs[copyKey()] = F.normalize(JSON.parse(JSON.stringify(f))); }
   function editFmt(fn) {
     var f = curFmt();
+    stashCustom(f);   // about to change it: if it is a custom layout, the copy keeps it
     fn(f);
     f = F.normalize(f);
+    stashCustom(f);   // and if the result is a custom layout, it is the new copy
     if (fmtSlot() === "fmtk") {
       if (JSON.stringify(f) === JSON.stringify(F.normalize(F.SPOTLIGHT))) delete state.prefs.fmtk; else state.prefs.fmtk = f;   // the standard layout is just "no custom layout"
     } else if (JSON.stringify(f) === JSON.stringify(F.normalize(F.CLASSIC))) delete state.prefs.fmt; else state.prefs.fmt = f;   // the standard layout is just "no custom layout"
@@ -316,7 +323,8 @@
       var on = JSON.stringify(F.normalize(p[1])) === cur;
       if (on) matched = true;
       return '<button type="button" class="chip' + (on ? " active" : "") + '" data-pfmtpreset="' + i + '">' + esc(p[0]) + "</button>";
-    }).join("") + (matched ? "" : '<span class="chip active" aria-current="true">Custom</span>');   // a layout that is none of the presets
+    }).join("") + (!matched ? '<span class="chip active" aria-current="true">Custom</span>'   // a layout that is none of the presets
+      : state.prefs[copyKey()] ? '<button type="button" class="chip" data-pfmtcustom="1">Custom</button>' : "");   // not in use, but the saved copy can be brought back
     var samples = F.SAMPLES.map(function (s, i) { return '<option value="' + i + '"' + (i === (state.sample || 0) ? " selected" : "") + ">" + esc(s.name) + "</option>"; }).join("");
     var lines = f.l.map(function (l, i) {
       return '<div class="push-line-label">' + (i === 0 ? "Title" : "Line " + (i + 1)) +
@@ -459,7 +467,8 @@
     if (t.hasAttribute("data-rmline")) { var ri = parseInt(t.getAttribute("data-rmline"), 10); editFmt(function (f) { if (f.l.length > 1) f.l.splice(ri, 1); }); return; }
     if (t.getAttribute("data-pfmt") === "addline") { editFmt(function (f) { if (f.l.length < MAX_LINES) f.l.push([]); }); return; }
     if (t.hasAttribute("data-pfmtkind")) { state.fmtKey = t.getAttribute("data-pfmtkind"); renderComposer(); return; }
-    if (t.getAttribute("data-pfmt") === "reset") { delete state.prefs[fmtSlot()]; queueSave(); renderComposer(); return; }
+    if (t.hasAttribute("data-pfmtcustom")) { var cp = JSON.parse(JSON.stringify(state.prefs[copyKey()] || {})); editFmt(function (f) { Object.keys(cp).forEach(function (k) { f[k] = cp[k]; }); }); return; }
+    if (t.getAttribute("data-pfmt") === "reset") { stashCustom(curFmt()); delete state.prefs[fmtSlot()]; queueSave(); renderComposer(); return; }
     if (t.getAttribute("data-push") === "tagsreset") { delete state.prefs.tags; queueSave(); render(); return; }
     if (t.getAttribute("data-push") === "toggle") {
       t.disabled = true;
@@ -527,6 +536,8 @@
           if (r.prefs.feats) state.prefs.feats = parseInt(r.prefs.feats, 10) || 0;
           if (r.prefs.fmt && Array.isArray(r.prefs.fmt.l)) state.prefs.fmt = r.prefs.fmt;
           if (r.prefs.fmtk && Array.isArray(r.prefs.fmtk.l)) state.prefs.fmtk = r.prefs.fmtk;
+          if (r.prefs.fmtc && Array.isArray(r.prefs.fmtc.l)) state.prefs.fmtc = r.prefs.fmtc;
+          if (r.prefs.fmtkc && Array.isArray(r.prefs.fmtkc.l)) state.prefs.fmtkc = r.prefs.fmtkc;
           storePrefs(); }
       }).catch(function () { /* keep the local copy */ });
     }).then(render, render);

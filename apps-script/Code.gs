@@ -319,6 +319,11 @@ function cleanPrefs_(prefs) {
   if (fmt) out.fmt = fmt;
   var fmtk = cleanFmt_(prefs && prefs.fmtk);
   if (fmtk) out.fmtk = fmtk;
+  // fmtc / fmtkc: the last custom layout of each kind, kept so choosing a preset does not lose it (the sender ignores them)
+  var fmtc = cleanFmt_(prefs && prefs.fmtc);
+  if (fmtc) out.fmtc = fmtc;
+  var fmtkc = cleanFmt_(prefs && prefs.fmtkc);
+  if (fmtkc) out.fmtkc = fmtkc;
   return out;
 }
 
