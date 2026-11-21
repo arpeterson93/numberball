@@ -13,6 +13,8 @@ Events (prefs per subscription, see docs/js/push.js):
   team "m"  plays where the team is batting or fielding: 1 = key moments only, 2 = every play
   team "e"  the team's game just ended
   favs      plays featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet): 1 = key moments only, 2 = every play
+  pitching change  a team replaced its pitcher mid-game (a "Now Batting" placeholder already lists the new pitcher, or a play shows a different
+            pitcher than the team's previous one): sent for followed teams (either side) and favorite pitchers, unless prefs.pc is 0; see pitching_changes
   feats     a new game feat or season title (accomplishments.json): 1 = by players on my teams or my favorites, 2 = anyone's; a tap opens
             that player's Awards tab and replays the feat (see feat_event)
 "Key moment" is the build's is_key_moment unless the subscription has prefs.tags (its own list of tag slugs): then a play counts
@@ -136,6 +138,56 @@ def moment_event(m: dict, logos: dict | None = None) -> dict:
             "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m["play_num"]), **icon_for(logos, m["off_team_abbr"])}}
 
 
+def pitching_changes(plays: list[dict]) -> dict:
+    """key -> pitching change, for every team that replaced its pitcher in a game. Two sources feed the one key (game:team:new pitcher id), so
+    a change seen first on the lineup and again on the play that follows is the same change and alerts once:
+      - a "Now Batting" placeholder carrying `pitching_change` (the Lineups tab already lists the new pitcher), and
+      - the catch-all: a real play whose pitcher differs from the previous play of the same defending team in the same game (the lineup
+        change was missed, or the plate appearance came in with it). A team's first pitcher is the starter, never a change.
+    The sender has no state of its own, so "new" is a key the previous build did not have (the same function runs over both builds)."""
+    out: dict = {}
+    by_game: dict[str, list[dict]] = {}
+    for m in plays:
+        by_game.setdefault(m.get("game_code"), []).append(m)
+    for code, rows in by_game.items():
+        last: dict = {}   # defending team -> (pitcher id, name) of the pitcher who last threw for it
+        for m in sorted((r for r in rows if r.get("result") is not None), key=lambda r: r["play_num"]):
+            team, pid = m.get("def_team_abbr"), m.get("pitcher_id")
+            if not team or not pid:
+                continue
+            prev = last.get(team)
+            if prev and prev[0] != pid:
+                out[f"{code}:{team}:{pid}"] = {"game": code, "team": team, "from_id": prev[0], "from_name": prev[1], "to_id": pid, "to_name": m.get("pitcher_name") or "", "play": m}
+            last[team] = (pid, m.get("pitcher_name") or "")
+        for m in rows:
+            pc = m.get("pitching_change")
+            if m.get("is_on_deck") and pc and pc.get("to_id"):
+                out.setdefault(f"{code}:{pc['team']}:{pc['to_id']}", {"game": code, "team": pc["team"], "from_id": pc.get("from_id"), "from_name": pc.get("from_name") or "",
+                                                                       "to_id": pc["to_id"], "to_name": pc.get("to_name") or "", "play": m})
+    return out
+
+
+def pitching_event(c: dict, logos: dict | None = None) -> dict:
+    """Title  Pitching change · POR      Body  Old Pitcher → New Pitcher / HFX 1 - GHG 0 ▲ 1 / the base diamond with the outs, as the plate appearance is about to start
+    (a fixed format, like the feat alerts; the layout designer does not cover it)"""
+    m = c["play"]
+    away, home = m.get("away_score") or 0, m.get("home_score") or 0
+    if m.get("result") is not None:   # a real play: its scores are after it, the alert is for the moment before
+        runs = m.get("runs") or 0
+        if m.get("batting_is_home"):
+            home -= runs
+        else:
+            away -= runs
+    tri = "▲" if m["half"] == "top" else "▼"
+    state = {"obc_after": m.get("obc_before"), "outs_after": m.get("outs_before")}
+    lines = [f'{c["from_name"]} → {c["to_name"]}' if c["from_name"] else c["to_name"],
+             f'{m["away_team_abbr"]} {away} - {m["home_team_abbr"]} {home} {tri} {m["inning"]}', diamond(state)]
+    teams = {c["team"], m.get("off_team_abbr"), m.get("def_team_abbr")} - {None, ""}
+    return {"teams": teams, "kind": "p", "key": False, "tags": set(), "play": m, "player_ids": {c["to_id"], c["from_id"]} - {None},
+            "game": c["game"], "sort": (m.get("timestamp") or "", m.get("play_num") or 0), "payload": {
+        "title": f'Pitching change · {c["team"]}', "body": "\n".join(x for x in lines if x), "url": link(c["game"], m.get("play_num")), **icon_for(logos, c["team"])}}
+
+
 def biggest_play_text(plays: list[dict], labels: dict) -> str:
     """The game's biggest swing by win probability, worded like the end of the game slideshow without the 'Biggest play:' lead
     (app.js buildGameReplaySlides / sceneRecapHtml): 'Brody Page · Home Run · WPA +10.3%'."""
@@ -212,6 +264,12 @@ def wants(sub: dict, ev: dict) -> bool:
             followed = any(int((teams.get(a) or {}).get("m") or 0) or int((teams.get(a) or {}).get("e") or 0) for a in ev["teams"])
             return followed or (int(prefs.get("favs") or 0) > 0 and bool(ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []}))
         return False
+    if ev["kind"] == "p":   # on unless the subscriber unticked it (prefs.pc == 0); for a followed team (either side of the game) or a favorite pitcher
+        if str(prefs.get("pc", 1)) == "0":
+            return False
+        if any(int((teams.get(a) or {}).get("m") or 0) >= 1 for a in ev["teams"]):
+            return True
+        return int(prefs.get("favs") or 0) >= 1 and bool(ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
     key = ev["kind"] == "m" and is_key(prefs, ev)
     for abbr in ev["teams"]:
         level = int((teams.get(abbr) or {}).get(ev["kind"]) or 0)
@@ -384,11 +442,14 @@ def main() -> int:
         return 0
     new_meta = read(new_base, "meta.json")
     sessions = (new_meta.get("sessions") or [])[:2]          # the live session and the one before it
-    new_plays = {m["moment_id"]: m for sess in sessions for m in read(new_base, f"plays_{sess:02d}.json") if m.get("result") is not None}
+    new_raw = [m for sess in sessions for m in read(new_base, f"plays_{sess:02d}.json")]   # with the "Now Batting" placeholders (pitching changes ride on them)
+    new_plays = {m["moment_id"]: m for m in new_raw if m.get("result") is not None}
+    old_raw: list[dict] = []
     if args.replay:
         newest = sorted(new_plays.values(), key=lambda m: m["timestamp"])[-args.replay:]
         seen = set(new_plays) - {m["moment_id"] for m in newest}
         old_meta = json.loads(json.dumps(new_meta))
+        replayed = {m["moment_id"] for m in newest}
         done = final_games(old_meta)
         if done:
             done[sorted(done)[-1]]["is_game_final"] = False   # game codes are SSNNGG, so the biggest code is the latest game
@@ -398,7 +459,9 @@ def main() -> int:
             seen = set()
             for sess in sessions:
                 try:
-                    seen |= {m["moment_id"] for m in read(args.old_base, f"plays_{sess:02d}.json")}
+                    old_rows = read(args.old_base, f"plays_{sess:02d}.json")
+                    old_raw += old_rows
+                    seen |= {m["moment_id"] for m in old_rows}
                 except urllib.error.HTTPError as exc:
                     if exc.code != 404:      # a session the live site does not have yet is empty; any other failure is "no baseline"
                         raise
@@ -417,6 +480,9 @@ def main() -> int:
     for m in new_plays.values():
         by_game.setdefault(m["game_code"], []).append(m)
     events = [moment_event(m, logos) for m in sorted((m for mid, m in new_plays.items() if mid not in seen), key=lambda m: (m["timestamp"], m["play_num"]))]
+    new_pc = pitching_changes(new_raw)
+    old_pc = {k for k, c in new_pc.items() if c["play"]["moment_id"] not in replayed} if args.replay else set(pitching_changes(old_raw))
+    events += sorted((pitching_event(c, logos) for k, c in new_pc.items() if k not in old_pc), key=lambda e: e["sort"])
     events += [final_event(g, by_game.get(code, []), labels, logos) for code, g in final_games(new_meta).items() if code not in old_final]
     if len(events) > MAX_NEW_EVENTS:
         print("push: far too many at once (data reset?); nothing sent")

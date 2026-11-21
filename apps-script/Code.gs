@@ -309,6 +309,8 @@ function cleanPrefs_(prefs) {
     var g = t[abbr] && t[abbr].e ? 1 : 0;
     if (m || g) out.teams[a] = { m: m, e: g };
   });
+  // pc: pitching change alerts are on unless this is 0 (absent = on)
+  if (prefs && String(prefs.pc) === '0') out.pc = 0;
   // tags: this subscriber's own "key moment" definition, a list of play tag slugs (absent = the site's default). An empty list is valid (nothing counts).
   if (prefs && Array.isArray(prefs.tags)) {
     out.tags = prefs.tags.slice(0, 30).map(function (s) { return String(s); })

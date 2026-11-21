@@ -640,6 +640,13 @@
       '<path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"></path></svg></button>';
   }
 
+  // A "Now Batting" placeholder that follows a pitching change (key_moments_build.py's pitching_change): the matchup already shows the new
+  // pitcher, this says who he replaced.
+  function pcNote(m) {
+    var pc = m.is_on_deck && m.pitching_change;
+    return pc ? '<span class="pc-note">' + (pc.from_name ? escapeHtml(pc.from_name) + " &rarr; " : "") + escapeHtml(pc.to_name) + "</span>" : "";
+  }
+
   // noProfile: the Stats tab's expanded player row already carries the profile button for the whole list.
   function card(m, noProfile) {
     var labels = data.meta.tag_labels || {};
@@ -655,7 +662,7 @@
     }).join("");
     // On-deck has no result yet - "Now Batting" in the same blue pill a real
     // hitting result gets, rather than a broken lookup on a null result.
-    var resultLabel = m.is_on_deck ? "Now Batting" : ((data.meta.result_labels || {})[m.result] || m.result);
+    var resultLabel = m.is_on_deck ? (m.pitching_change ? "Pitching Change" : "Now Batting") : ((data.meta.result_labels || {})[m.result] || m.result);
     var resultCat = m.is_on_deck ? "hitting" : m.result_category;
     var pillTone = m.is_on_deck ? "offense" : resultPillTone(m);
     var counterpart = (m.counterpart_id && m.counterpart_id !== m.featured_id)
@@ -700,7 +707,7 @@
           '<span class="result-pill ' + pillTone + '">' +
             escapeHtml(resultLabel) + "</span>" +
           diffPill(m) +
-          counterpart +
+          counterpart + pcNote(m) +
         "</div>" +
         scoringLine(m) +
         '<div class="meta-line">' + wpFragment(m) + levText + "</div>" +
@@ -12237,7 +12244,7 @@
       // (resultCat: "hitting" in card()); the slideshow's had its own
       // separate on-deck treatment until now.
       return '<div class="scene-result-line">' +
-        '<span class="result-pill offense">Now Batting</span>' +
+        '<span class="result-pill offense">' + (m.pitching_change ? "Pitching Change" : "Now Batting") + "</span>" + pcNote(m) +
       "</div>";
     }
     var resultLabel = (data.meta.result_labels || {})[m.result] || m.result;

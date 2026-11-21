@@ -143,6 +143,7 @@
     var nm = m.scoring_names || [];
     var scoring = !nm.length ? "" : (nm.length === 1 ? nm[0] + " scores" : nm.join(", ") + " score");
     var tags = TAG_ORDER.filter(function (t) { return (m.tags || []).indexOf(t) !== -1; }).map(function (t) { return TAG_TEXT[t]; }).slice(0, 1);   // one tag, the most notable
+    if (tags.length === 1 && tags[0] === TAG_TEXT.steal && /^(SB|CS)/.test(m.result || "")) tags = [String(labels[m.result] || tags[0]).toUpperCase()];   // a steal names what happened: STOLEN BASE / CAUGHT STEALING
     var lev = m.leverage_after;   // leverage of the situation the play leaves behind
     var abbr, wpa, after, before;
     if (f.pv === "feat") {

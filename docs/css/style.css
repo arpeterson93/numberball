@@ -3670,6 +3670,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 #career-head .ph-prev{right:40px;}
 
 /* player modal: Season view */
+.pc-note{font-size:12.5px;font-weight:700;color:var(--muted);margin-left:6px;}
 .sv-stat{text-align:center;font-size:12.5px;font-weight:700;color:var(--muted);margin:-2px 0 6px;}
 .sv-sum{text-align:center;font-size:13px;font-weight:700;color:var(--text);margin:2px 0 6px;}
 .sv-grid{display:flex;flex-direction:column;gap:5px;margin:6px 0 4px;}

@@ -1270,6 +1270,20 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         cur_pitcher_id = _lineup_pitcher_id(ref, game_lineup_rows, deff["abbrev"])
     pitcher_view = _player_view(ref, cur_pitcher_id)
 
+    # A pitching change: the Lineups tab already lists a different pitcher for the defense than the one who last pitched to this
+    # lineup. Only a REPLACEMENT counts (the defense has pitched before in this game; its first pitcher is just the starter), and a
+    # Lineups name that does not resolve to a player is never guessed at. The placeholder then shows the new pitcher as the matchup
+    # and carries `pitching_change`, which the site words as "Pitching Change" and the push sender turns into an alert. It lives
+    # only as long as the placeholder does; when the plate appearance is played the new pitcher is simply on the play.
+    pitching_change = None
+    if team_plays and cur_pitcher_id:
+        lineup_pitcher_id = _lineup_pitcher_id(ref, game_lineup_rows, deff["abbrev"])
+        if lineup_pitcher_id and lineup_pitcher_id != cur_pitcher_id:
+            new_view = _player_view(ref, lineup_pitcher_id)
+            pitching_change = {"team": deff["abbrev"], "from_id": pitcher_view["id"], "from_name": pitcher_view["name"],
+                               "to_id": new_view["id"], "to_name": new_view["name"]}
+            pitcher_view = new_view
+
     # Situational leverage of the at-bat that's about to happen, computed
     # fresh off the current score/outs/OBC (last_moment's own leverage
     # describes a different, already-resolved situation) - same formula
@@ -1326,6 +1340,8 @@ def _next_batter_moment(ref: dict, game_plays: list[dict], last_state: dict,
         "is_half_inning_final": False, "is_game_final": False,
         "is_on_deck": True, "on_deck_order_slot": next_up["order_slot"],
     })
+    if pitching_change:
+        m["pitching_change"] = pitching_change
     # Omitted entirely (not an empty dict) when nobody's on - same convention
     # as "defense" above, so the client's existing missing-data handling
     # needs no special casing.
@@ -2484,8 +2500,9 @@ def _build_and_write(sheet_id: str, archive_season: int | None = None, out_root:
         print(f"FATAL ({label}): {exc}", file=sys.stderr)
         sys.exit(1)
 
-    moments = [m for m in rows if m["is_key_moment"]]
-    if not moments:
+    # A pitching-change placeholder rides in the key moments feed too (it is never is_key_moment itself, so no count or slideshow changes)
+    moments = [m for m in rows if m["is_key_moment"] or m.get("pitching_change")]
+    if not any(m["is_key_moment"] for m in moments):
         print(f"FATAL ({label}): no key moments produced - refusing to publish an empty feed.", file=sys.stderr)
         sys.exit(1)
 

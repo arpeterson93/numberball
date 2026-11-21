@@ -3,7 +3,7 @@
  * No accounts: the browser's own push subscription is the identity. It is stored in the Apps Script sheet's `push` tab
  * next to the Catch Me Up name slug (so the sender can look up that name's favorites), and the preferences ride along:
  *   { teams: { ABC: { m: 1, e: 0 } }, favs: 1, tags: ["steal", ...] }   m = every play / key moment for the team, e = game ends,
- *   fmt = own layout for plays (absent = Classic), fmtk = own layout for key moments (absent = Spotlight); see push_format.js, favs = favorites plays (0 off, 1 key moments, 2 all plays), feats = new feat alerts (0 off, 1 my teams and favorites, 2 everyone), tags = own key moment definition (optional; absent = the site default)
+ *   fmt = own layout for plays (absent = Classic), fmtk = own layout for key moments (absent = Spotlight); see push_format.js, favs = favorites plays (0 off, 1 key moments, 2 all plays), feats = new feat alerts (0 off, 1 my teams and favorites, 2 everyone), pc = pitching change alerts (absent = on, 0 = off), tags = own key moment definition (optional; absent = the site default)
  * Needs KM_CONFIG.VAPID_PUBLIC_KEY and the Apps Script FAVORITES_ENDPOINT; with either missing the Settings row stays hidden.
  * iOS only allows web push from an installed (Home Screen) PWA, so there it explains that instead of asking for permission.
  */
@@ -269,6 +269,10 @@
       return '<label class="push-tag"><input type="checkbox" data-ptag="' + esc(s) + '"' + (tagOn(s) ? " checked" : "") + "> " + esc(labels[s]) + "</label>";
     }).join("");
   }
+  // Pitching change alerts ride with the key moment settings: on unless unticked (saved as pc: 0, absent = on).
+  function pcRow() {
+    return '<label class="push-tag"><input type="checkbox" data-ppc="1"' + (String(state.prefs.pc) === "0" ? "" : " checked") + "> Pitching change</label>";
+  }
   function setTags() {
     var picked = tagSlugs().filter(function (s) { return state.modal.querySelector('input[data-ptag="' + s + '"]').checked; });
     var isDefault = tagSlugs().every(function (s) { return (picked.indexOf(s) !== -1) === !DEFAULT_OFF[s]; });
@@ -444,7 +448,7 @@
       (on
         ? '<div class="settings-row"><span>What counts as a key moment (for your alerts only)</span>' +
           '<button type="button" class="link-btn" data-push="tagsreset"' + (Array.isArray(state.prefs.tags) ? "" : " hidden") + ">Reset</button></div>" +
-          '<div class="push-tags">' + tagRows() + "</div>" +
+          '<div class="push-tags">' + tagRows() + pcRow() + "</div>" +
           '<div class="settings-row"><span>Favorites</span>' + levelSelect("data-pfavs", String(state.prefs.favs || 0), "Favorites plays") + "</div>" +
           '<div class="settings-row"><span>Feats</span>' + featSelect(String(state.prefs.feats || 0)) + "</div>" +
           '<table class="stats-table push-grid"><thead><tr><th>Team</th><th>Plays</th><th>Game end</th></tr></thead><tbody>' +
@@ -489,6 +493,7 @@
     if (t.hasAttribute("data-pfavs")) { state.prefs.favs = parseInt(t.value, 10) || 0; queueSave(); return; }
     if (t.hasAttribute("data-psample")) { state.sample = parseInt(t.value, 10) || 0; var pv = $("push-preview"); if (pv) pv.innerHTML = previewHtml(curFmt()); return; }
     if (t.hasAttribute("data-pfmtopt")) { var ok = t.getAttribute("data-pfmtopt"), ov = t.value; editFmt(function (f) { f[ok] = ov; }); return; }
+    if (t.hasAttribute("data-ppc")) { if (t.checked) delete state.prefs.pc; else state.prefs.pc = 0; queueSave(); return; }
     if (t.hasAttribute("data-ptag")) {
       setTags();
       queueSave();
@@ -534,6 +539,7 @@
         if (r && r.subscribed && r.prefs) { state.prefs = { teams: r.prefs.teams || {}, favs: parseInt(r.prefs.favs, 10) || 0 };
           if (Array.isArray(r.prefs.tags)) state.prefs.tags = r.prefs.tags;
           if (r.prefs.feats) state.prefs.feats = parseInt(r.prefs.feats, 10) || 0;
+          if (String(r.prefs.pc) === "0") state.prefs.pc = 0;
           if (r.prefs.fmt && Array.isArray(r.prefs.fmt.l)) state.prefs.fmt = r.prefs.fmt;
           if (r.prefs.fmtk && Array.isArray(r.prefs.fmtk.l)) state.prefs.fmtk = r.prefs.fmtk;
           if (r.prefs.fmtc && Array.isArray(r.prefs.fmtc.l)) state.prefs.fmtc = r.prefs.fmtc;
