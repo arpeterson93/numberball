@@ -3682,7 +3682,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 .sv-pa small{font-size:8.5px;font-weight:700;opacity:0.85;margin-top:1px;}
 .sv-bf .sv-pa{height:32px;min-width:30px;}
 .sv-pa.xt-click:hover{filter:brightness(1.12);outline:2px solid var(--text);outline-offset:-1px;}
-.sv-rbi{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--text);margin:2px 3px 2px 2px;}
+.sv-rbi{box-shadow:inset 0 0 0 1.5px var(--text),inset 0 0 0 3px var(--card);}   /* the ring sits inside the square: no extra size or margin, so it lines up with the others and nothing is clipped at the edge */
 .sv-wpa{flex:0 0 44px;text-align:right;font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;}
 .sv-wpa.pos{color:#2f9e44;}
 .sv-wpa.neg{color:#d6394a;}
@@ -3691,6 +3691,7 @@ button.aw-row.aw-gold:hover,button.aw-row.aw-silver:hover{filter:brightness(0.96
 .sv-chips .stats-subtab.sv-gs:not(.active){border-left:3px solid var(--accent);}
 .sv-ln{fill:none;stroke:var(--muted);stroke-width:1.6;opacity:0.5;stroke-linejoin:round;}
 .sv-ln.sv-rel{stroke-dasharray:4 3;}
+.sv-all .sv-ln{opacity:0.28;}
 .sv-hit{fill:none;stroke:transparent;stroke-width:10;cursor:pointer;}
 .sv-ln-on{fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linejoin:round;}
 .sv-up{fill:#2f9e44;}

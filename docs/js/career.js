@@ -225,7 +225,10 @@
       var svb = e.target.closest("[data-psv]");
       if (svb) { pm.sv = svb.getAttribute("data-psv"); pm.sg = ""; renderPlayer(); return; }
       var sgb = e.target.closest("[data-psg]");
-      if (sgb) { pm.sg = sgb.getAttribute("data-psg"); renderPlayer(); return; }
+      if (sgb) {
+        if (pm.sv === "all" && sgb.getAttribute("data-s")) pm.sv = sgb.getAttribute("data-s");   // a line on the all-seasons chart opens that game in its own season
+        pm.sg = sgb.getAttribute("data-psg"); renderPlayer(); return;
+      }
       var ssn = e.target.closest("[data-pseason]");
       if (ssn) { var sv = ssn.getAttribute("data-pseason"); pm.season = pm.season === sv ? "all" : sv; renderPlayer(); return; }
       var dxb = e.target.closest("[data-pdx]");
@@ -570,24 +573,28 @@
     var side = pm.side, seasons = {};
     all.forEach(function (r) { seasons[r.s] = 1; });
     var list = Object.keys(seasons).map(Number).sort(function (a, b) { return a - b; });
-    if (!pm.sv || !seasons[pm.sv]) pm.sv = String(list[list.length - 1]);   // the newest season this player has games in
-    var pills = '<div class="stats-subtabs">' + list.map(function (sn) {
+    var isAll = side === "pit" && pm.sv === "all";   // the pitching Season view has an All chip: every season's Game Score lines on one chart
+    if (!isAll && (!pm.sv || !seasons[pm.sv])) pm.sv = String(list[list.length - 1]);   // the newest season this player has games in
+    var pills = '<div class="stats-subtabs">' + (side === "pit" ? '<button type="button" class="stats-subtab' + (isAll ? " active" : "") + '" data-psv="all">All</button>' : "") + list.map(function (sn) {
       return '<button type="button" class="stats-subtab' + (String(sn) === pm.sv ? " active" : "") + '" data-psv="' + sn + '">S' + sn + "</button>";
     }).join("") + "</div>";
     var head = tabs + pills;
-    var key = pm.id + "_" + pm.sv;
-    if (!paCache[key]) {
-      $("career-body").innerHTML = head + '<div class="stats-empty">Loading the season...</div>';
+    var keys = (isAll ? list : [pm.sv]).map(function (sn) { return pm.id + "_" + sn; });
+    var missing = keys.filter(function (k) { return !paCache[k]; });
+    if (missing.length) {
+      $("career-body").innerHTML = head + '<div class="stats-empty">Loading ' + (isAll ? "every season" : "the season") + "...</div>";
       var pid = pm.id, sv = pm.sv;
-      getJ("data/career/pa/" + key + ".json").catch(function () { return {}; }).then(function (d) {
-        paCache[key] = d;
+      Promise.all(missing.map(function (k) {
+        return getJ("data/career/pa/" + k + ".json").catch(function () { return {}; }).then(function (d) { paCache[k] = d; });
+      })).then(function () {
         if (pm.id === pid && pm.sv === sv && pm.view === "season") renderPlayer();
       });
       return;
     }
-    var pa = paCache[key][side === "bat" ? "b" : "p"] || {};
-    var games = all.filter(function (r) { return String(r.s) === pm.sv; }).sort(function (a, b) {
-      return a.n - b.n || (a.d < b.d ? -1 : a.d > b.d ? 1 : 0) || (a.g < b.g ? -1 : a.g > b.g ? 1 : 0);
+    var pa = {};
+    keys.forEach(function (k) { var d = paCache[k][side === "bat" ? "b" : "p"] || {}; Object.keys(d).forEach(function (g) { pa[g] = d[g]; }); });   // game codes are unique across seasons
+    var games = all.filter(function (r) { return isAll || String(r.s) === pm.sv; }).sort(function (a, b) {
+      return a.s - b.s || a.n - b.n || (a.d < b.d ? -1 : a.d > b.d ? 1 : 0) || (a.g < b.g ? -1 : a.g > b.g ? 1 : 0);
     });
     var ln = lineFrom(games, side), sum, body = "";
     if (side === "bat") {
@@ -597,8 +604,8 @@
       sum = ln.g + " G" + (gs ? " (" + gs + " GS)" : "") + " · " + ln.ip + " IP · " + (ln.era == null ? "-" : ln.era.toFixed(2)) + " ER6 · WPA " + sgn(ln.wpa || 0);
     }
     body += '<div class="sv-sum">' + esc(sum) + "</div>";
-    body += side === "bat" ? paGrid(games, pa) : gscChart(games, pa);
-    body += wpaChart(games);
+    body += side === "bat" ? paGrid(games, pa) : gscChart(games, pa, isAll);
+    if (!isAll) body += wpaChart(games);
     $("career-body").innerHTML = head + '<div class="xt-diffs sv-wrap">' + body + "</div>";
   }
 
@@ -621,10 +628,11 @@
 
   // A pitcher's Game Score building up batter by batter, one line per appearance (starts solid, relief dashed), from the 40 every
   // game begins with. The chosen game is drawn on top with a dot per batter faced; below it, the same batters as coloured blocks.
-  function gscChart(games, pa) {
+  // allMode (the All chip): every season's appearances as muted lines only, no chosen game, chips or squares; tapping a line opens that game in its season.
+  function gscChart(games, pa, allMode) {
     var gl = games.filter(function (g) { return pa[g.g] && pa[g.g].length; });
     if (!gl.length) return '<div class="stats-empty">No play-by-play for this season.</div>';
-    if (!pm.sg || !gl.some(function (g) { return g.g === pm.sg; })) pm.sg = gl[gl.length - 1].g;
+    if (!allMode && (!pm.sg || !gl.some(function (g) { return g.g === pm.sg; }))) pm.sg = gl[gl.length - 1].g;
     var lines = gl.map(function (g) {
       var run = 40, x = 0, pts = [[0, 40]];
       pa[g.g].forEach(function (p) {
@@ -640,7 +648,7 @@
     var W = Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), H = Math.round(W * 0.42) + 18, L = 36, R = 16, T = 14, Bm = 26;
     var pw = W - L - R, ph = H - T - Bm;
     var X = function (v) { return L + v / xmax * pw; }, Y = function (v) { return T + ph - (v - ymin) / (ymax - ymin) * ph; };
-    var svg = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Game Score by batter faced">';
+    var svg = '<svg' + (allMode ? ' class="sv-all"' : "") + ' viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Game Score by batter faced">';
     for (var v = ymin; v <= ymax; v += 10) svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v).toFixed(1) + '" y2="' + Y(v).toFixed(1) + '" class="dx-grid"/><text x="' + (L - 4) + '" y="' + (Y(v) + 3).toFixed(1) + '" text-anchor="end">' + v + "</text>";
     for (var bx = 0; bx <= xmax; bx += xmax > 30 ? 10 : 5) svg += '<text x="' + X(bx).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + bx + "</text>";
     svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(40).toFixed(1) + '" y2="' + Y(40).toFixed(1) + '" class="dx-mk-lg"/>';
@@ -649,9 +657,9 @@
     };
     var chosen = null;
     lines.forEach(function (l) {
-      if (l.g.g === pm.sg) { chosen = l; return; }
-      var tip = gameLbl(l.g) + "\nGame Score " + Math.round(l.end);
-      svg += '<path d="' + path(l) + '" class="sv-ln' + (l.g.gs ? "" : " sv-rel") + '"/><path d="' + path(l) + '" class="sv-hit" data-psg="' + esc(l.g.g) + '"><title>' + esc(tip) + "</title></path>";
+      if (!allMode && l.g.g === pm.sg) { chosen = l; return; }
+      var tip = (allMode ? "S" + l.g.s + " " : "") + gameLbl(l.g) + "\nGame Score " + Math.round(l.end);
+      svg += '<path d="' + path(l) + '" class="sv-ln' + (l.g.gs ? "" : " sv-rel") + '"/><path d="' + path(l) + '" class="sv-hit" data-psg="' + esc(l.g.g) + '"' + (allMode ? ' data-s="' + l.g.s + '"' : "") + '><title>' + esc(tip) + "</title></path>";
     });
     if (chosen) {
       // each stretch of line, from the last point up to a result, and the dot at it, take that result's colour
@@ -679,6 +687,10 @@
       svg += '<text x="' + Math.min(W - R, X(last[0]) + 6).toFixed(1) + '" y="' + (Y(last[1]) - 7).toFixed(1) + '" text-anchor="' + (X(last[0]) > W - 60 ? "end" : "start") + '" class="sv-end">' + Math.round(chosen.end) + "</text>";
     }
     svg += "</svg>";
+    if (allMode) {
+      return '<div class="xt-sub">Game Score by batter faced <span class="xt-hint">' + lines.length + ' appearances &middot; every game starts at 40 &middot; dashed = relief &middot; tap a line to open that game</span></div>' +
+        '<div class="dx-chart">' + svg + "</div>";
+    }
     var chips = gl.map(function (g) {
       var ln = lines.filter(function (l) { return l.g === g; })[0];
       return '<button type="button" class="stats-subtab' + (g.g === pm.sg ? " active" : "") + (g.gs ? " sv-gs" : "") + '" data-psg="' + esc(g.g) + '" title="' + (g.gs ? "Started · " : "Relief · ") + 'Game Score ' + Math.round(ln.end) + '">' +
