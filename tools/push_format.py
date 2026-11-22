@@ -128,6 +128,8 @@ def parts(m: dict, labels: dict, short: dict, f: dict) -> dict[str, str]:
     tags = [TAG_TEXT[t] for t in TAG_ORDER if t in (m.get("tags") or [])][:1]   # one tag, the most notable
     if tags == [TAG_TEXT["steal"]] and str(m.get("result") or "")[:2] in ("SB", "CS"):   # a steal names what happened: STOLEN BASE / CAUGHT STEALING
         tags = [str(labels.get(m["result"]) or tags[0]).upper()]
+    elif tags == [TAG_TEXT["lead_change"]] and m.get("home_score") == m.get("away_score"):   # the "lead change" that evens the score is a tie: TIED UP
+        tags = ["TIED UP"]
     pitch, swing, diff = m.get("pitch"), m.get("swing"), m.get("diff")
     lev = m.get("leverage_after")   # leverage of the situation the play leaves behind
     if f["pv"] == "feat":
