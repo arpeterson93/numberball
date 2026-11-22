@@ -232,8 +232,9 @@ def feat_event(row: list, names: dict, titles: dict, logos: dict | None = None) 
 
 def new_feats(old: list, new: list) -> list:
     """The rows in `new` that `old` does not have (a player can earn the same feat twice in a game, so counted, not just compared),
-    oldest season and game first."""
-    ident = lambda r: (r[0], r[1], r[2], r[3], r[4])  # noqa: E731
+    oldest season and game first. The detail text is not part of the identity: a feat earned mid-game keeps growing ("4 H" becomes
+    "5 H", "10 K" becomes "11 K"), and that is still the same feat, alerted once when it was first crossed."""
+    ident = lambda r: (r[0], r[1], r[2], r[3])  # noqa: E731
     left = Counter(ident(r) for r in old)
     out = []
     for r in new:
