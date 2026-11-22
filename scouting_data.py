@@ -120,6 +120,25 @@ def load_run_lookup() -> dict:
 _LAST2_ROLE_ID_COL = {"pitch": "pitcher_id", "swing": "batter_id", "throw_num": "catcher_id"}
 
 
+@st.cache_data(ttl=3600)
+def load_prev_pitch_map(data_v: int = 0) -> dict[int, int]:
+    """{play id: the same pitcher's previous pitch in that game}, league-wide. Same row rules as
+    utils.enrich_df (steals and zero-roll autos are skipped, so they never count as the previous
+    pitch); a pitcher's first pitch of a game has no entry."""
+    rows = db.get_all_pitch_sequence()
+    if not rows:
+        return {}
+    d = pd.DataFrame(rows)
+    d = d[d["play_type"].fillna("").str.lower() != "steal"]
+    for c in ("pitch", "swing"):
+        d[c] = pd.to_numeric(d[c], errors="coerce")
+    d = d[d["pitch"].notna() & d["swing"].notna() & (d["pitch"] != 0) & (d["swing"] != 0)]
+    d = d.sort_values(["game_id", "id"])
+    d["prev"] = d.groupby(["game_id", "pitcher_id"])["pitch"].shift(1)
+    d = d[d["prev"].notna()]
+    return dict(zip(d["id"].astype(int), d["prev"].astype(int)))
+
+
 @st.cache_data(ttl=86400)
 def _load_last2_digit_league_data() -> dict[str, dict]:
     """Per pitch/swing/throw_num: the league-wide last-2-digit frequency

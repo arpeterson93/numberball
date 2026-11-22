@@ -5250,6 +5250,12 @@ with tab_team:
                    for name in _tt_roster]
         _tt_dfs = [d for d in _tt_dfs if not d.empty]
         df_team = pd.concat(_tt_dfs, ignore_index=True) if _tt_dfs else pd.DataFrame()
+        if not df_team.empty:
+            # The pitcher's previous pitch in that game (league-wide lookup; batter frames only hold own rows).
+            try:
+                df_team["prev_pitch"] = df_team["id"].map(scouting_data.load_prev_pitch_map(st.session_state.get("_data_v", 0)))
+            except Exception as _tt_pp_err:
+                st.caption(f"Couldn't load previous pitches ({type(_tt_pp_err).__name__}) - Doubled down column hidden.")
 
     if df_team.empty:
         st.info("No batting data for this team/league selection.")

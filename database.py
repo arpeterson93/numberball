@@ -282,6 +282,17 @@ def get_all_play_values() -> list[dict]:
         "pitch, swing, throw_num, pitcher_id, batter_id, catcher_id"))
 
 
+def get_all_pitch_sequence() -> list[dict]:
+    """Minimal columns (id, game, pitcher, pitch, swing, play type) of every play, to find each
+    swing's previous pitch from the same pitcher in the same game. The batter-scoped loaders only
+    hold that batter's own rows, so they can't see it. No games join - this pulls the whole table."""
+    local = _local_data()
+    if local is not None:
+        keep = ("id", "game_id", "pitcher_id", "pitch", "swing", "play_type")
+        return [{k: p.get(k) for k in keep} for p in local["plays"]]
+    return _fetch_all(_client().table("plays").select("id, game_id, pitcher_id, pitch, swing, play_type"))
+
+
 @_local_first("pitcher_name")
 def get_plays_for_pitcher(pitcher_name: str, leagues: list[str] | None = None) -> list[dict]:
     q = (

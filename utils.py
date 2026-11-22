@@ -2692,6 +2692,15 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
     pa = work.groupby("batter_name").size()
     counts = work.groupby(["batter_name", "swing_last2"]).size()
 
+    # Doubled down: swing within +/-50 (circular, 1-1000 wheel) of the pitcher's previous pitch in
+    # that game. Needs a "prev_pitch" column (the page attaches it); frequency = count / ALL swings.
+    dd_counts = None
+    if "prev_pitch" in work.columns:
+        prev = pd.to_numeric(work["prev_pitch"], errors="coerce")
+        gap = (work["swing"].astype(float) - prev).abs()
+        gap = np.minimum(gap, 1000 - gap)
+        dd_counts = (gap <= 50).groupby(work["batter_name"]).sum()
+
     windows: dict[str, list[tuple[int, float]]] = {}
     for b, n in pa.items():
         arr = np.zeros(100)
@@ -2721,6 +2730,9 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
     if plan:
         header = (f"<th>Pitch to</th><th>Expected {plan_label}</th><th>{plan_label} gain</th>"
                   f"<th>Confidence</th>") + header
+    if dd_counts is not None:
+        header = ("<th title='Swings within +/-50 of the pitcher&#39;s previous pitch, and that count "
+                  "divided by all of his swings'>Doubled down</th>") + header
     body_rows = []
     for row_i, b in enumerate(batters):
         cells = []
@@ -2737,12 +2749,16 @@ def team_swing_cheatsheet_html(df: pd.DataFrame, top_n: int = 5, bucket_size: in
                 f"<div class='tsc-pct'>{pct:.1f}%</div></td>"
             )
         plan_cells = ""
+        if dd_counts is not None:
+            n_dd = int(dd_counts.get(b, 0))
+            plan_cells += (f"<td class='tsc-cell'><div class='tsc-digit'>{n_dd / int(pa[b]) * 100:.1f}%</div>"
+                           f"<div class='tsc-pct'>{n_dd} of {int(pa[b])}</div></td>")
         if plan:
             r = plan[b]
             gbg, gtxt = _swing_heat_color(r["gain"], gmax, dark_mode)
             rel = (r["gain"] / r["base"] * 100) if r["base"] > 0 else 0.0
             alts = ", ".join(f"x{p:02d}" for p in r["picks"][1:])
-            plan_cells = (
+            plan_cells += (
                 f"<td class='tsc-cell'><div class='tsc-digit'>x{r['picks'][0]:02d}</div>"
                 f"<div class='tsc-pct'>then {alts}</div></td>"
                 f"<td class='tsc-cell'><div class='tsc-digit'>{r['best_val']:.3f}</div>"
