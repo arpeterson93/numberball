@@ -282,13 +282,14 @@
   // ── own notification layout (prefs.fmt, rendered by tools/push_format.py for the real alerts, docs/js/push_format.js for the preview) ──
   var F = window.MLNPushFmt, compLabel = {}, MAX_LINES = 5;
   var PAL_GROUPS = [["Game", ["score", "inning", "bases", "bases_words", "outs"]], ["Matchup", ["batter", "batter_last", "pitcher", "pitcher_last"]],
-    ["Result", ["result", "result_full", "scoring", "diff", "tags"]], ["Analytics", ["lev", "wpa", "wp", "wp_change"]]];
+    ["Result", ["result", "result_full", "scoring", "diff", "diff_short", "tags"]], ["Analytics", ["lev", "wpa", "wp", "wp_change"]],
+    ["Logic", ["or"]]];   // "or" is not a component: it splits a line into alternatives, and the first one with any text is shown (push_format.py)
   if (F) F.COMPONENTS.forEach(function (c) { compLabel[c[0]] = c[1]; });
   // two layouts are designed here: "fmt" (regular plays, Classic until changed) and "fmtk" (key moments, Spotlight until changed); feat alerts are fixed
   function fmtSlot() { return state.fmtKey === "fmtk" ? "fmtk" : "fmt"; }
   function curFmt() {
     var raw = fmtSlot() === "fmtk" ? (state.prefs.fmtk || F.SPOTLIGHT) : state.prefs.fmt;
-    return F.normalize(raw ? JSON.parse(JSON.stringify(raw)) : F.CLASSIC);
+    return F.normalize(JSON.parse(JSON.stringify(raw || F.CLASSIC)));   // always a copy: the editor changes its lines in place, and F.CLASSIC / the presets must not change with them
   }
   // The layout a user built that matches no preset is kept as a copy (prefs.fmtc for plays, prefs.fmtkc for key moments) so choosing a
   // preset does not lose it: the Custom chip then restores it. The sender ignores the copies.
@@ -307,9 +308,11 @@
     queueSave();
     renderComposer();
   }
-  function chipHtml(id, from) {
-    return '<span class="push-chip" data-comp="' + esc(id) + '" data-from="' + from + '"><span>' + esc(compLabel[id] || id) + "</span>" +
-      (from === "pal" ? "" : '<button type="button" class="push-chip-x" data-rm="' + esc(id) + '" aria-label="Remove ' + esc(compLabel[id] || id) + '">&times;</button>') + "</span>";
+  // idx: the chip's place in its line, which an "or" needs (a line can hold several of them, so the id alone does not say which one)
+  function chipHtml(id, from, idx) {
+    var rm = id === "or" ? 'data-rmor="' + from + ":" + idx + '"' : 'data-rm="' + esc(id) + '"';
+    return '<span class="push-chip' + (id === "or" ? " push-or" : "") + '" data-comp="' + esc(id) + '" data-from="' + from + '"><span>' + esc(compLabel[id] || id) + "</span>" +
+      (from === "pal" ? "" : '<button type="button" class="push-chip-x" ' + rm + ' aria-label="Remove ' + esc(compLabel[id] || id) + '">&times;</button>') + "</span>";
   }
   function previewHtml(f) {
     var s = F.SAMPLES[state.sample || 0], r = F.render(s.m, f, state.resultLabels, state.resultShort) || { title: "(nothing to show)", body: [] };
@@ -322,6 +325,7 @@
     if (!F) return "";
     var f = curFmt(), used = {}, cur = JSON.stringify(f);
     f.l.forEach(function (l) { l.forEach(function (id) { used[id] = 1; }); });
+    used.or = 0;   // "or" can be used as often as the lines have room for
     var matched = false;
     var presets = F.PRESETS.map(function (p, i) {
       var on = JSON.stringify(F.normalize(p[1])) === cur;
@@ -333,7 +337,7 @@
     var lines = f.l.map(function (l, i) {
       return '<div class="push-line-label">' + (i === 0 ? "Title" : "Line " + (i + 1)) +
         (i > 0 && !l.length ? ' <button type="button" class="link-btn" data-rmline="' + i + '">remove line</button>' : "") + "</div>" +
-        '<div class="push-line" data-line="' + i + '">' + l.map(function (id) { return chipHtml(id, i); }).join("") +
+        '<div class="push-line" data-line="' + i + '">' + l.map(function (id, k) { return chipHtml(id, i, k); }).join("") +
         (l.length ? "" : '<span class="push-drop-hint">Drop components here</span>') + "</div>";
     }).join("");
     // "Not used", in labelled segments (a segment with nothing left in it is hidden); a component missing from every segment goes in the last
@@ -354,6 +358,7 @@
       '<div class="push-preview-row"><span>Preview</span><select class="push-level" data-psample>' + samples + "</select></div>" +
       '<div id="push-preview">' + previewHtml(f) + "</div>" +
       '<div class="push-line-label">Drag components between lines</div>' + lines +
+      '<p class="modal-note">Put <b>or</b> between components to show only the first group that has a value, for example Who scored <b>or</b> Pitch · swing · diff.</p>' +
       '<div class="push-line-label">Not used</div><div class="push-line push-palette" data-line="pal">' + pal + (pal ? "" : '<span class="push-drop-hint">Everything is in use</span>') + "</div>" +
       '<div class="push-line-label">Options</div>' +
       '<div class="push-opts">' + [["Win Prob Side", "pv", [["hit", "Batting team"], ["feat", "Featured player's team"]]]
@@ -368,7 +373,8 @@
   function dragStart(e) {
     var chip = e.target.closest && e.target.closest(".push-chip");
     if (!chip || e.target.closest("[data-rm]") || (e.button !== undefined && e.button > 0)) return;
-    drag = { chip: chip, id: chip.getAttribute("data-comp"), from: chip.getAttribute("data-from"), x: e.clientX, y: e.clientY, moving: false, ghost: null, over: null };
+    var siblings = chip.parentNode ? Array.prototype.slice.call(chip.parentNode.querySelectorAll(".push-chip")) : [];
+    drag = { chip: chip, idx: siblings.indexOf(chip), id: chip.getAttribute("data-comp"), from: chip.getAttribute("data-from"), x: e.clientX, y: e.clientY, moving: false, ghost: null, over: null };
     document.addEventListener("pointermove", dragMove, { passive: false });
     document.addEventListener("pointerup", dragEnd);
     document.addEventListener("pointercancel", dragEnd);
@@ -414,7 +420,9 @@
       });
     }
     editFmt(function (f) {
-      f.l.forEach(function (l) { var k = l.indexOf(d.id); if (k !== -1) l.splice(k, 1); });
+      if (d.id === "or") {   // several can be in use: only the one dragged leaves its place, and one dropped on "Not used" is just removed
+        if (d.from !== "pal" && f.l[parseInt(d.from, 10)]) f.l[parseInt(d.from, 10)].splice(d.idx, 1);
+      } else f.l.forEach(function (l) { var k = l.indexOf(d.id); if (k !== -1) l.splice(k, 1); });
       if (target !== "pal") f.l[parseInt(target, 10)].splice(idx, 0, d.id);
     });
   }
@@ -467,6 +475,7 @@
     if (t.getAttribute("data-push") === "fav") { state.modal.hidden = true; window.KMFavorites.openPanel(); return; }
     if (t.hasAttribute("data-ptab")) { state.tab = t.getAttribute("data-ptab"); render(); return; }
     if (t.hasAttribute("data-pfmtpreset")) { var pr = F.PRESETS[parseInt(t.getAttribute("data-pfmtpreset"), 10)]; if (pr) { var pf = JSON.parse(JSON.stringify(pr[1])); editFmt(function (f) { Object.keys(pf).forEach(function (k) { f[k] = pf[k]; }); }); } return; }
+    if (t.hasAttribute("data-rmor")) { var ro = t.getAttribute("data-rmor").split(":"); editFmt(function (f) { if (f.l[+ro[0]]) f.l[+ro[0]].splice(+ro[1], 1); }); return; }
     if (t.hasAttribute("data-rm")) { var rid = t.getAttribute("data-rm"); editFmt(function (f) { f.l.forEach(function (l) { var k = l.indexOf(rid); if (k !== -1) l.splice(k, 1); }); }); return; }
     if (t.hasAttribute("data-rmline")) { var ri = parseInt(t.getAttribute("data-rmline"), 10); editFmt(function (f) { if (f.l.length > 1) f.l.splice(ri, 1); }); return; }
     if (t.getAttribute("data-pfmt") === "addline") { editFmt(function (f) { if (f.l.length < MAX_LINES) f.l.push([]); }); return; }

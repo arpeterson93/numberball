@@ -2,7 +2,9 @@
 Settings > Notifications; tools/push_format_parity_test.py checks the two give identical text. Change both together.
 
 A layout is  {"l": [[component, ...], ...], plus the options below}
-  l   lines, each a list of component ids; the first line that has any text becomes the title (iOS shows it bold), the rest the body
+  l   lines, each a list of component ids; the first line that has any text becomes the title (iOS shows it bold), the rest the body.
+      An "or" in a line splits it into alternatives: the first alternative with any text is shown, the rest only when it is empty
+      (["scoring", "or", "diff"] = who scored, else the pitch / swing / diff). A line without "or" works exactly as before.
 Option (anything missing or unknown falls back to the default, see DEFAULTS):
   pv  whose side WPA and win probability are from: "hit" (the team batting) or "feat" (the team of the player the play is credited to)
 Components: batter = the batter's name (the runner's, on a steal), batter_last the last name only; pitcher / pitcher_last the same for "vs Pitcher"
@@ -14,7 +16,8 @@ upgrade() turns those into the current form: an option value becomes the matchin
 from __future__ import annotations
 
 COMPONENTS = ["score", "inning", "batter", "batter_last", "result", "result_full", "pitcher", "pitcher_last", "scoring", "bases", "bases_words", "outs",
-              "wpa", "lev", "wp", "wp_change", "diff", "tags"]
+              "wpa", "lev", "wp", "wp_change", "diff", "diff_short", "tags", "or"]
+OR = "or"   # not a component: it splits a line into alternatives, and the first alternative that has any text is the one shown
 MAX_LINES = 5
 
 DEFAULTS = {"pv": "hit"}
@@ -34,8 +37,8 @@ TAG_TEXT = {
     "high_leverage": "HIGH LEVERAGE", "wpa": "BIG WPA",
 }
 
-CLASSIC = {"l": [["score", "inning"], ["batter"], ["pitcher"], ["scoring"], ["result", "bases", "outs"]]}
-SPOTLIGHT = {"l": [["tags"], ["score", "inning"], ["batter_last", "pitcher_last"], ["scoring"], ["result_full", "bases", "outs"]]}   # the default for key moments (the Spotlight preset in push_format.js)
+CLASSIC = {"l": [["score", "inning"], ["batter"], ["pitcher"], ["scoring", "or", "diff_short"], ["result", "bases", "outs"]]}   # line 4: who scored, else P · S · D
+SPOTLIGHT = {"l": [["tags"], ["score", "inning"], ["batter_last", "pitcher_last"], ["scoring", "or", "diff_short"], ["result_full", "bases", "outs"]]}   # the default for key moments (the Spotlight preset in push_format.js)
 
 
 def upgrade(fmt: dict) -> dict:
@@ -156,7 +159,10 @@ def parts(m: dict, labels: dict, short: dict, f: dict) -> dict[str, str]:
         "lev": "" if lev is None else f"LI {_tenths(lev)}",
         "wp": wp,
         "wp_change": wp_change,
-        "diff": f"Pitch {pitch} / Swing {swing} / Diff {diff}" if pitch and swing and diff is not None else "",
+        "diff": (f"Pitch {pitch} · Swing {swing} · Diff {diff}" if pitch and swing and diff is not None
+                 else f'Throw {m["throw_num"]} · Steal {m["steal_num"]} · Diff {diff}' if m.get("throw_num") and m.get("steal_num") and diff is not None else ""),   # a steal's diff is the throw against the steal roll
+        "diff_short": (f"P {pitch} · S {swing} · D {diff}" if pitch and swing and diff is not None
+                       else f'T {m["throw_num"]} · S {m["steal_num"]} · D {diff}' if m.get("throw_num") and m.get("steal_num") and diff is not None else ""),
         "tags": " · ".join(tags),
     }
 
@@ -175,15 +181,23 @@ def render(m: dict, fmt: dict, labels: dict, short: dict) -> tuple[str, str] | N
     p = parts(m, labels, short, f)
     lines = []
     for line in f["l"]:
-        out, prev = "", ""
+        groups: list[list] = [[]]   # an "or" splits the line into alternatives
         for cid in line:
-            text = p.get(cid, "") if isinstance(cid, str) else ""
-            if not text:
-                continue
-            out += (_sep(prev, cid) if out else "") + text
-            prev = cid
-        if out:
-            lines.append(out)
+            if cid == OR:
+                groups.append([])
+            else:
+                groups[-1].append(cid)
+        for group in groups:   # the first alternative with any text is the line; later ones are only a fallback
+            out, prev = "", ""
+            for cid in group:
+                text = p.get(cid, "") if isinstance(cid, str) else ""
+                if not text:
+                    continue
+                out += (_sep(prev, cid) if out else "") + text
+                prev = cid
+            if out:
+                lines.append(out)
+                break
     if not lines:
         return None
     return lines[0], "\n".join(lines[1:])

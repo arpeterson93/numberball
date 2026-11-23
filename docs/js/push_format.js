@@ -8,7 +8,8 @@
     ["score", "Score"], ["inning", "Inning"], ["batter", "Batter"], ["batter_last", "Batter (last name)"], ["result", "Result (1B)"], ["result_full", "Result (Single)"],
     ["pitcher", "vs Pitcher"], ["pitcher_last", "vs Pitcher (last name)"], ["scoring", "Who scored"],
     ["bases", "Bases ◇ ◆ ◇"], ["bases_words", "Bases (words)"], ["outs", "Outs"], ["wpa", "WPA"], ["lev", "Leverage"],
-    ["wp", "Win prob"], ["wp_change", "Win prob (before → after)"], ["diff", "Pitch / swing / diff"], ["tags", "Key moment tags"]
+    ["wp", "Win prob"], ["wp_change", "Win prob (before → after)"], ["diff", "Pitch · swing · diff"], ["diff_short", "P · S · D (short)"], ["tags", "Key moment tags"],
+    ["or", "or"]   // not a component: splits a line into alternatives, the first with any text is shown (see render)
   ];
   var MAX_LINES = 5;
   // the one option left: whose side WPA and win probability are from. Bases, names and the win probability wording are components now
@@ -25,8 +26,8 @@
     bases_loaded: "BASES LOADED", double_play: "DOUBLE PLAY", steal: "STEAL",
     high_leverage: "HIGH LEVERAGE", wpa: "BIG WPA"
   };
-  var CLASSIC = { l: [["score", "inning"], ["batter"], ["pitcher"], ["scoring"], ["result", "bases", "outs"]] };
-  var SPOTLIGHT = { l: [["tags"], ["score", "inning"], ["batter_last", "pitcher_last"], ["scoring"], ["result_full", "bases", "outs"]] };   // the default for key moments (tools/push_format.py SPOTLIGHT)
+  var CLASSIC = { l: [["score", "inning"], ["batter"], ["pitcher"], ["scoring", "or", "diff_short"], ["result", "bases", "outs"]] };   // line 4: who scored, else P · S · D
+  var SPOTLIGHT = { l: [["tags"], ["score", "inning"], ["batter_last", "pitcher_last"], ["scoring", "or", "diff_short"], ["result_full", "bases", "outs"]] };   // the default for key moments (tools/push_format.py SPOTLIGHT)
 
   function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   // an older save: see upgrade() in push_format.py
@@ -51,7 +52,7 @@
   // every option present and valid, keys in a fixed order (push.js compares these to find the active preset)
   function normalize(fmt) {
     fmt = upgrade(fmt || {});
-    var out = { l: (fmt.l || []).map(function (line) { return Array.isArray(line) ? line : []; }).slice(0, MAX_LINES) };
+    var out = { l: (fmt.l || []).map(function (line) { return Array.isArray(line) ? line.slice() : []; }).slice(0, MAX_LINES) };   // the lines are copied: a caller that edits them must not change the layout it passed in
     OPTION_KEYS.forEach(function (k) { out[k] = CHOICES[k].indexOf(fmt[k]) !== -1 ? fmt[k] : DEFAULTS[k]; });
     return out;
   }
@@ -59,7 +60,7 @@
   var PRESETS = [
     ["Classic", P(CLASSIC.l)],
     ["Spotlight", P(SPOTLIGHT.l)],
-    ["Headline", P([["batter_last", "result_full"], ["score", "inning"], ["pitcher_last"], ["scoring"], ["bases", "outs"]])],
+    ["Headline", P([["batter_last", "result_full"], ["score", "inning"], ["pitcher_last"], ["scoring", "or", "diff_short"], ["bases", "outs"]])],
     ["Slim", P([["score", "inning", "outs"], ["batter", "result"]])],
     ["Analytics", P([["score", "inning"], ["batter", "pitcher_last"], ["result", "scoring"], ["wp", "wpa", "lev"], ["bases", "outs"]])],
     ["Detailed", P([["score", "inning"], ["batter", "pitcher_last"], ["diff"], ["result", "scoring"], ["bases", "outs"]])]
@@ -88,7 +89,7 @@
       runner_name: "Copernicus Hel", runner_last: "Hel", featured_name: "Copernicus Hel", featured_last: "Hel", featured_side: "batting",
       counterpart_name: "Milo Kerrigan", counterpart_last: "Kerrigan", featured_team_abbr: "SUN", off_team_abbr: "SUN",
       wpa: -0.031, win_prob_before: 0.511, win_prob_after: 0.48, featured_wpa: -0.031, featured_wp_after: 0.48,
-      leverage_after: 1.1, pitch: 0, swing: 0, diff: null, tags: ["steal"] } },
+      leverage_after: 1.1, pitch: null, swing: null, throw_num: 599, steal_num: 640, diff: 41, tags: ["steal"] } },
     { name: "Walk-off HR", m: { result: "HR", half: "bottom", inning: 6, away_team_abbr: "SUN", home_team_abbr: "RLY", away_score: 3, home_score: 4,
       batter_name: "Orb Hayes", batter_last: "Hayes", pitcher_name: "Eldritch Dancer", pitcher_last: "Dancer", scoring_names: ["Hel"], scoring_full: ["Copernicus Hel"],
       obc_after: "000", outs_after: 2, featured_name: "Orb Hayes", featured_last: "Hayes", featured_side: "batting", featured_team_abbr: "RLY", off_team_abbr: "RLY",
@@ -172,7 +173,10 @@
       lev: nul(lev) ? "" : "LI " + tenths(lev),
       wp: wp,
       wp_change: wpChange,
-      diff: m.pitch && m.swing && !nul(m.diff) ? "Pitch " + m.pitch + " / Swing " + m.swing + " / Diff " + m.diff : "",
+      diff: m.pitch && m.swing && !nul(m.diff) ? "Pitch " + m.pitch + " · Swing " + m.swing + " · Diff " + m.diff :
+        m.throw_num && m.steal_num && !nul(m.diff) ? "Throw " + m.throw_num + " · Steal " + m.steal_num + " · Diff " + m.diff : "",   // a steal's diff is the throw against the steal roll
+      diff_short: m.pitch && m.swing && !nul(m.diff) ? "P " + m.pitch + " · S " + m.swing + " · D " + m.diff :
+        m.throw_num && m.steal_num && !nul(m.diff) ? "T " + m.throw_num + " · S " + m.steal_num + " · D " + m.diff : "",
       tags: tags.join(" · ")
     };
   }
@@ -184,14 +188,18 @@
   function render(m, fmt, labels, short) {
     var f = normalize(fmt), p = parts(m, labels, short, f), lines = [];
     f.l.forEach(function (line) {
-      var out = "", prev = "";
-      line.forEach(function (cid) {
-        var text = typeof cid === "string" && has(p, cid) ? p[cid] : "";
-        if (!text) return;
-        out += (out ? sep(prev, cid) : "") + text;
-        prev = cid;
-      });
-      if (out) lines.push(out);
+      var groups = [[]];   // an "or" splits the line into alternatives
+      line.forEach(function (cid) { if (cid === "or") groups.push([]); else groups[groups.length - 1].push(cid); });
+      for (var g = 0; g < groups.length; g++) {   // the first alternative with any text is the line; later ones are only a fallback
+        var out = "", prev = "";
+        groups[g].forEach(function (cid) {
+          var text = typeof cid === "string" && has(p, cid) ? p[cid] : "";
+          if (!text) return;
+          out += (out ? sep(prev, cid) : "") + text;
+          prev = cid;
+        });
+        if (out) { lines.push(out); break; }
+      }
     });
     if (!lines.length) return null;
     return { title: lines[0], body: lines.slice(1) };
