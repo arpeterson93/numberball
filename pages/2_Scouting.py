@@ -2361,6 +2361,27 @@ with tab_p:
                         step=0.1, format="%.1f", key=f"ctx_leverage_thresh_p_{tab_p_pitcher}",
                     )
 
+                # Base-out leverage: a second, independent leverage filter. It looks only at the outs and
+                # runners (how much the PA can move run expectancy within the half-inning), ignoring inning
+                # and score, so it can be combined with the game leverage filter above or used alone.
+                _cf_bo_now_p = utils.compute_base_out_leverage(_cf_gs_outs_p, _cf_gs_obc_p)
+                st.markdown("**Base-out leverage" + (f" ({_cf_bo_now_p:.2f})**" if _cf_bo_now_p is not None else " (n/a)**"),
+                            help="How much the outs and runners alone can move run expectancy (RE24) in this "
+                                 "half-inning, ignoring inning and score. 1.0 = an average base-out state: bases "
+                                 "empty is about 0.5-0.8, runners on about 1.0-2.1, bases loaded 2.2-2.6.")
+                _cf_bo_label_p = st.radio(
+                    "Base-out leverage entering the play", ["Off", "Low (<)", "High (≥)"],
+                    horizontal=True, key="ctx_leverage_bo_p", label_visibility="collapsed",
+                )
+                _cf_bo_bucket_p = {"Off": None, "Low (<)": "low", "High (≥)": "high"}[_cf_bo_label_p]
+                _cf_bo_threshold_p = 1.5
+                if _cf_bo_bucket_p is not None:
+                    _cf_bo_threshold_p = st.number_input(
+                        "Threshold ", min_value=0.0, max_value=10.0,
+                        value=st.session_state.get(f"ctx_leverage_bo_thresh_p_{tab_p_pitcher}", 1.5),
+                        step=0.1, format="%.1f", key=f"ctx_leverage_bo_thresh_p_{tab_p_pitcher}",
+                    )
+
                 _cf_fp_app_on_p = st.toggle("Pitch # in Appearance", key="ctx_fp_app_p", value=False,
                                             help="On: only this pitcher's 1st pitch of the game appearance. "
                                                  "Off: all pitches.")
@@ -2449,20 +2470,22 @@ with tab_p:
                              if not df_p_pred.empty else df_p_pred)
 
             _cf_active_pitches_p = any([_cf_pitch_bucket_p, _cf_pitch_bucket2_p, _cf_result_cat_p,
-                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+                                        _cf_leverage_bucket_p, _cf_bo_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_deltas_p  = any([_cf_delta_bucket_p, _cf_delta_bucket2_p,
                                         _cf_team_swing_bucket_p, _cf_team_swing_bucket2_p,
                                         _cf_est_bucket_p, _cf_est_bucket2_p, _cf_result_cat_p,
-                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+                                        _cf_leverage_bucket_p, _cf_bo_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_delta2_p  = any([_cf_delta2_bucket_p, _cf_delta2_bucket2_p, _cf_result_cat_p,
-                                        _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+                                        _cf_leverage_bucket_p, _cf_bo_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             _cf_active_shadow_delta_p = any([_cf_shadow_delta_bucket_p, _cf_shadow_delta_bucket2_p, _cf_result_cat_p,
-                                             _cf_leverage_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
+                                             _cf_leverage_bucket_p, _cf_bo_bucket_p, _cf_fp_app_on_p, _cf_fp_inn_on_p])
             if (_cf_active_pitches_p or _cf_active_deltas_p or _cf_active_delta2_p
                     or _cf_active_shadow_delta_p) and not df_p_pred.empty:
                 _df_ctx_p = _df_cf_base_p.copy()
                 if _cf_leverage_bucket_p is not None and "_leverage" not in _df_ctx_p.columns:
                     _df_ctx_p["_leverage"] = utils.compute_play_leverage(_df_ctx_p)
+                if _cf_bo_bucket_p is not None:
+                    _df_ctx_p["_leverage_bo"] = utils.compute_play_base_out_leverage(_df_ctx_p)
                 _df_radial_pitches_p = utils.filter_by_prior_context(
                     _df_ctx_p,
                     prev_pitch_bucket=_cf_pitch_bucket_p,
@@ -2472,6 +2495,7 @@ with tab_p:
                     prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    base_out_bucket=_cf_bo_bucket_p, base_out_threshold=_cf_bo_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_pitches_p else _df_ctx_p
@@ -2487,6 +2511,7 @@ with tab_p:
                     prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    base_out_bucket=_cf_bo_bucket_p, base_out_threshold=_cf_bo_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_deltas_p else _df_ctx_p
@@ -2498,6 +2523,7 @@ with tab_p:
                     prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    base_out_bucket=_cf_bo_bucket_p, base_out_threshold=_cf_bo_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_delta2_p else _df_ctx_p
@@ -2509,6 +2535,7 @@ with tab_p:
                     prev_result_lag=_cf_result_lag_p,
                     leverage_bucket=_cf_leverage_bucket_p,
                     leverage_threshold=_cf_leverage_threshold_p,
+                    base_out_bucket=_cf_bo_bucket_p, base_out_threshold=_cf_bo_threshold_p,
                     first_pitch_appearance=_cf_fp_app_on_p,
                     first_pitch_inning=_cf_fp_inn_on_p,
                 ) if _cf_active_shadow_delta_p else _df_ctx_p

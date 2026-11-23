@@ -999,6 +999,75 @@ def compute_play_leverage(df: pd.DataFrame) -> pd.Series:
     return df.apply(_row_leverage, axis=1)
 
 
+_BASE_OUT_SWING: dict[tuple[int, str], float] | None = None
+_BASE_OUT_AVG: float | None = None
+
+
+def _post_play_run_state(result: str, outs: int, obc: str) -> tuple[float, str, int]:
+    """(runs scored, new obc, new outs) after one result - the same transition _wp_post_play uses
+    (import_BRC.csv's eOuts is the absolute ending out count), minus any win-probability step."""
+    entry = _BRC_RUN_LOOKUP.get((result, obc, outs))
+    if entry is not None:
+        runs_f, new_obc, eouts = entry
+        return float(runs_f), new_obc, min(int(eouts), 3)
+    new_obc, runs_int = advance_runners(result, obc, outs)
+    return float(runs_int), new_obc, min(outs + outs_added(result), 3)
+
+
+def _build_base_out_leverage() -> None:
+    """Per (outs, obc): the expected |run-expectancy change| of one plate appearance, i.e. the mean over
+    result_ranges_re24.csv's outcomes of |RE(after) + runs scored - RE(before)| (RE of a 3-out state = 0).
+    The baseline is the mean of that across states weighted by how often each state is visited
+    (simulated visits summed over every inning / lead, falling back to equal weights)."""
+    global _BASE_OUT_SWING, _BASE_OUT_AVG
+    swing: dict[tuple[int, str], float] = {}
+    for (outs, obc), ranges in _RE24_RANGES.items():
+        re_before = RUN_EXPECTANCY.get((outs, obc))
+        if re_before is None:
+            continue
+        total = 0.0
+        for res, lo, hi in ranges:
+            runs, new_obc, new_outs = _post_play_run_state(res, outs, obc)
+            re_after = 0.0 if new_outs >= 3 else RUN_EXPECTANCY.get((new_outs, new_obc), 0.0)
+            total += min((hi - lo + 1) * 2 / 1000, 1.0) * abs(re_after + runs - re_before)
+        swing[(outs, obc)] = total
+    state_w: dict[tuple[int, str], float] = {}
+    for (_rem, outs, obc), w in _SIM_STATE_WEIGHTS.items():
+        state_w[(outs, obc)] = state_w.get((outs, obc), 0.0) + w
+    wsum = sum(state_w.get(k, 1.0 if not state_w else 0.0) for k in swing)
+    _BASE_OUT_AVG = (sum(v * state_w.get(k, 1.0 if not state_w else 0.0) for k, v in swing.items()) / wsum
+                     if wsum else (sum(swing.values()) / len(swing) if swing else None))
+    _BASE_OUT_SWING = swing
+
+
+def compute_base_out_leverage(outs: int, obc: str) -> float | None:
+    """Leverage from the base-out state alone: how much a plate appearance here is expected to move
+    run expectancy (RE24), relative to the average state. 1.0 = average. Ignores inning and score, so a
+    close late game with the bases empty is NOT high leverage here, and a bases-loaded spot in a blowout is."""
+    if _BASE_OUT_SWING is None:
+        _build_base_out_leverage()
+    v = (_BASE_OUT_SWING or {}).get((int(outs), str(obc)))
+    return None if v is None or not _BASE_OUT_AVG else v / _BASE_OUT_AVG
+
+
+def compute_play_base_out_leverage(df: pd.DataFrame) -> pd.Series:
+    """compute_base_out_leverage entering each row's play (NaN where outs/obc are missing or unknown)."""
+    if not {"outs", "obc"} <= set(df.columns):
+        return pd.Series(np.nan, index=df.index)
+    cache: dict = {}
+
+    def _lv(o, b) -> float:
+        if pd.isna(o) or not b or pd.isna(b):
+            return np.nan
+        key = (int(o), str(b))
+        if key not in cache:
+            v = compute_base_out_leverage(*key)
+            cache[key] = np.nan if v is None else v
+        return cache[key]
+
+    return pd.Series([_lv(o, b) for o, b in zip(df["outs"], df["obc"])], index=df.index)
+
+
 def filter_by_prior_context(
     df: pd.DataFrame,
     prev_pitch_bucket: tuple[int, int] | None = None,
@@ -1017,6 +1086,8 @@ def filter_by_prior_context(
     prev_result_cat: str | None = None,
     leverage_bucket: str | None = None,
     leverage_threshold: float = 1.5,
+    base_out_bucket: str | None = None,
+    base_out_threshold: float = 1.5,
     first_pitch_appearance: bool | None = None,
     first_pitch_inning: bool | None = None,
     pitch_col: str = "pitch",
@@ -1061,7 +1132,10 @@ def filter_by_prior_context(
     1-back bucket, not a standalone one.
     leverage_bucket looks at the row's OWN leverage (the stakes it was thrown
     into, from a '_leverage' column - see compute_play_leverage), not its
-    predecessor's. first_pitch_appearance/first_pitch_inning also look at the
+    predecessor's. base_out_bucket/base_out_threshold are a second, independent leverage
+    filter on the row's base-out-only leverage ('_leverage_bo', compute_play_base_out_leverage:
+    outs and runners only, no inning or score); both can be active and then both must hold.
+    first_pitch_appearance/first_pitch_inning also look at the
     row's own is_fp_app/is_fp_inn flag (see enrich_df) - True keeps only the
     pitcher's first pitch of the game appearance/half-inning; left None, all
     pitches pass through unfiltered.
@@ -1145,6 +1219,9 @@ def filter_by_prior_context(
     if leverage_bucket is not None and "_leverage" in d.columns:
         keep &= (d["_leverage"] < leverage_threshold) if leverage_bucket == "low" \
                 else (d["_leverage"] >= leverage_threshold)
+    if base_out_bucket is not None and "_leverage_bo" in d.columns:
+        keep &= (d["_leverage_bo"] < base_out_threshold) if base_out_bucket == "low" \
+                else (d["_leverage_bo"] >= base_out_threshold)
 
     if first_pitch_appearance and fp_app_col in d.columns:
         keep &= d[fp_app_col].astype(bool)
