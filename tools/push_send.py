@@ -220,13 +220,13 @@ def feat_titles() -> dict:
 
 def feat_event(row: list, names: dict, titles: dict, logos: dict | None = None) -> dict:
     """One accomplishments.json row [key, player id, season, game, detail, opponent, play numbers, team] as an alert:
-    Title  Brody Page: No-hitter      Body  6.0 IP, 0 H, 7 K / HMH vs RLY   (a season-long feat, HR Leader: 6 HR / SUN · S12)
+    Title  No-hitter      Body  Brody Page / 6.0 IP, 0 H, 7 K / HMH vs RLY  (a season-long feat, HR Leader: 6 HR / SUN · S12)
     The link opens the player's Awards tab and replays the feat."""
     key, pid, season, game, detail, opp, _pns, team = (list(row) + [""] * 8)[:8]
     where = f"{team} vs {opp}" if team and opp else team
     return {"teams": {team} if team else set(), "kind": "f", "player_ids": {int(pid)}, "game": game or "", "payload": {
-        "title": f"{names.get(str(pid)) or 'A player'}: {titles.get(key) or key.replace('_', ' ').title()}",
-        "body": "\n".join(x for x in (detail, where if game else f"{where} · S{season}" if where else f"S{season}") if x),   # a game or moment feat is dated by when it happens, so only a season-long one names its season
+        "title": titles.get(key) or key.replace("_", " ").title(),
+        "body": "\n".join(x for x in (names.get(str(pid)) or "A player", detail, where if game else f"{where} · S{season}" if where else f"S{season}") if x),   # a game or moment feat is dated by when it happens, so only a season-long one names its season
         "url": SITE + "?" + urllib.parse.urlencode({"player": pid, "side": "awd", "feat": f"{key}:{season}:{game or ''}"}, safe=":"), **icon_for(logos, team)}}
 
 
