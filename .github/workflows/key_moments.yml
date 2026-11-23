@@ -100,6 +100,11 @@ jobs:
       - name: Build player accomplishments
         run: python -u accomplishments_build.py
 
+      # The range calculator page (docs/tools/range_calculator.html) loads the stadium sheet constants from here; the tracked copy
+      # is written by tools/export_calculator_data.py. (Its builds.json snapshot is committed.)
+      - name: Copy range calculator parameters
+        run: cp sheet_calculator_params.json docs/data/calculator_params.json
+
       # Web-push alerts, step 1 of 2: save the still-live previous build as the baseline for "what is new" (see
       # tools/push_send.py). The alerts themselves go out in the notify job below, once the deploy is live, so a tapped
       # alert always finds its play. Needs no secrets and never blocks the deploy.
