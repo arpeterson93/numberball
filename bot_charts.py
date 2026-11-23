@@ -154,6 +154,7 @@ def apply_prior_context(
     prev_value: int | None = None, value_width: int | None = None,
     result_cat: str | None = None,
     leverage: str | None = None, leverage_threshold: float = 1.5,
+    base_out: str | None = None, base_out_threshold: float = 1.5,
     first_pitch_appearance: bool = False, first_pitch_inning: bool = False,
     pitch_col: str = "pitch", delta_col: str = "pitch_circ_delta",
     delta2_col: str = "pitch_circ_delta2_signed",
@@ -162,13 +163,15 @@ def apply_prior_context(
     result_category_fn=None,
 ) -> pd.DataFrame:
     """Narrow df to rows whose prior play matches the given context."""
-    active = any([prev_value is not None, result_cat, leverage,
+    active = any([prev_value is not None, result_cat, leverage, base_out,
                   first_pitch_appearance, first_pitch_inning])
     if not active or df.empty:
         return df
     df = df.copy()
     if leverage is not None:
         df["_leverage"] = utils.compute_play_leverage(df)
+    if base_out is not None:
+        df["_leverage_bo"] = utils.compute_play_base_out_leverage(df)
     bucket_kwargs = {}
     if prev_value is not None:
         domain_hi, domain_lo = (1000, 1) if bucket_kind == "pitch" else (500, -500)
@@ -177,6 +180,7 @@ def apply_prior_context(
     return utils.filter_by_prior_context(
         df, prev_result_cat=result_cat, leverage_bucket=leverage,
         leverage_threshold=leverage_threshold,
+        base_out_bucket=base_out, base_out_threshold=base_out_threshold,
         first_pitch_appearance=first_pitch_appearance or None,
         first_pitch_inning=first_pitch_inning or None,
         pitch_col=pitch_col, delta_col=delta_col, delta2_col=delta2_col,
