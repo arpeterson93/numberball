@@ -15,12 +15,15 @@ Events (prefs per subscription, see docs/js/push.js):
   favs      plays featuring a player on the subscriber's favorites list (name slug in the Apps Script sheet): 1 = key moments only, 2 = every play
   pitching change  a team replaced its pitcher mid-game (a "Now Batting" placeholder already lists the new pitcher, or a play shows a different
             pitcher than the team's previous one): sent for followed teams (either side) and favorite pitchers, unless prefs.pc is 0; see pitching_changes
+  lead-up   HIGH LEVERAGE, sent BEFORE the play (when the same build also delivers the play just before it, a subscriber gets one alert: that
+            play with a last row "HIGH LI: Batter vs Pitcher" in last names, see messages_for): the "Now Batting" placeholder still in the new build (so still current) has leverage at or above
+            the build's threshold. For a followed team on key moments or a favorite batter/pitcher (and only if high leverage is one of the subscriber's key moment tags).
   feats     a new game feat or season title (accomplishments.json): 1 = by players on my teams or my favorites, 2 = anyone's; a tap opens
             that player's Awards tab and replays the feat (see feat_event)
 "Key moment" is the build's is_key_moment unless the subscription has prefs.tags (its own list of tag slugs): then a play counts
 when it carries any of them.
 prefs.fmt is the subscriber's own notification layout for plays (tools/push_format.py), prefs.fmtk the one for their key moments (absent = the
-Spotlight preset); a play without a layout uses the standard one below. Feat alerts have one fixed format (feat_event).
+Spotlight preset); a play without a layout uses push_format.CLASSIC (the fallback below only when that renders nothing). Feat alerts have one fixed format (feat_event).
 Each subscription gets at most MAX_PER_SUB notifications per run (the rest are folded into one "N more new plays" summary), and
 every notification stands alone (no tag), so a later play never replaces an earlier one on the device. Android and desktop
 Chrome show the batting team's logo (the winner's, for a game end); iOS always shows the app icon and ignores it.
@@ -120,7 +123,7 @@ def icon_for(logos: dict | None, abbr: str | None) -> dict:
 def moment_event(m: dict, logos: dict | None = None) -> dict:
     """Title  HFX 1 - GHG 0 ▲ 1   (▲ top of the inning, ▼ bottom)
     Body   Brody Page / vs Pitcher Name (a steal: Runner / vs Catcher) / Costanza scores (only when someone scored) / HR · the base diamond with the outs
-    (the same as the Classic layout in push_format.py)"""
+    (the plain fallback; a play with no layout of its own is rendered in push_format.CLASSIC, which also has P · S · D when nobody scored)"""
     if m["result"][:2] in ("SB", "CS"):    # a steal: runner and result, against the catcher (the featured player when he is the one fielding)
         top = m.get("runner_name") or m.get("batter_name") or ""
         catcher = m.get("featured_name") if m.get("featured_side") == "fielding" else m.get("counterpart_name")
@@ -186,6 +189,26 @@ def pitching_event(c: dict, logos: dict | None = None) -> dict:
     return {"teams": teams, "kind": "p", "key": False, "tags": set(), "play": m, "player_ids": {c["to_id"], c["from_id"]} - {None},
             "game": c["game"], "sort": (m.get("timestamp") or "", m.get("play_num") or 0), "payload": {
         "title": f'Pitching change · {c["team"]}', "body": "\n".join(x for x in lines if x), "url": link(c["game"], m.get("play_num")), **icon_for(logos, c["team"])}}
+
+
+def lead_ups(plays: list[dict], threshold: float) -> dict:
+    """key (game:play number) -> the "Now Batting" placeholder, for every game whose plate appearance about to start is high leverage.
+    A placeholder only exists while its plate appearance is still to be played, so "in the new build" is "still current". The key is the
+    number the real play will carry, so one placeholder alerts once however many builds it survives."""
+    return {f'{m["game_code"]}:{m["play_num"]}': m for m in plays
+            if m.get("is_on_deck") and m.get("result") is None and (m.get("leverage") or 0) >= threshold and not m.get("is_game_final")}
+
+
+def lead_up_event(m: dict, logos: dict | None = None) -> dict:
+    """Title  HIGH LEVERAGE      Body  Batter Name / vs Pitcher Name / HFX 1 - GHG 0 ▲ 1 / the base diamond with the outs
+    A precursor: sent while the plate appearance is still to come (a fixed format, like the pitching change alerts)."""
+    tri = "▲" if m["half"] == "top" else "▼"
+    state = {"obc_after": m.get("obc_before"), "outs_after": m.get("outs_before")}
+    lines = [m.get("batter_name") or "", f'vs {m["pitcher_name"]}' if m.get("pitcher_name") else "",
+             f'{m["away_team_abbr"]} {m.get("away_score") or 0} - {m["home_team_abbr"]} {m.get("home_score") or 0} {tri} {m["inning"]}', diamond(state)]
+    return {"teams": {m["off_team_abbr"], m["def_team_abbr"]}, "kind": "l", "key": False, "tags": set(), "play": m, "player_ids": {m.get("batter_id"), m.get("pitcher_id")} - {None},
+            "game": m["game_code"], "sort": (m.get("timestamp") or "", m.get("play_num") or 0), "payload": {
+        "title": "HIGH LEVERAGE", "body": "\n".join(x for x in lines if x), "url": link(m["game_code"], m.get("play_num")), **icon_for(logos, m["off_team_abbr"])}}
 
 
 def biggest_play_text(plays: list[dict], labels: dict) -> str:
@@ -271,6 +294,13 @@ def wants(sub: dict, ev: dict) -> bool:
         if any(int((teams.get(a) or {}).get("m") or 0) >= 1 for a in ev["teams"]):
             return True
         return int(prefs.get("favs") or 0) >= 1 and bool(ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})
+    if ev["kind"] == "l":   # a lead-up is a key moment: a followed team on key moments (or every play) or a favorite batter/pitcher, and only if high leverage counts as one for them
+        tags = prefs.get("tags")
+        if isinstance(tags, list) and "high_leverage" not in tags:
+            return False
+        if any(int((teams.get(a) or {}).get("m") or 0) >= 1 for a in ev["teams"]):
+            return True
+        return int(prefs.get("favs") or 0) >= 1 and bool(ev["player_ids"] & {int(x) for x in sub.get("player_ids") or []})   # the batter or pitcher is a favorite
     key = ev["kind"] == "m" and is_key(prefs, ev)
     for abbr in ev["teams"]:
         level = int((teams.get(abbr) or {}).get(ev["kind"]) or 0)
@@ -299,8 +329,8 @@ def payload_for(sub: dict, ev: dict) -> dict:
     prefs = sub.get("prefs") or {}
     if is_key(prefs, ev):   # key moments: their own layout, Spotlight until the subscriber designs another
         fmt = prefs.get("fmtk") if isinstance(prefs.get("fmtk"), dict) else push_format.SPOTLIGHT
-    else:
-        fmt = prefs.get("fmt")
+    else:   # plays: their own layout, Classic until the subscriber designs another (the Designer's Classic preset is "no custom layout")
+        fmt = prefs.get("fmt") if isinstance(prefs.get("fmt"), dict) else push_format.CLASSIC
     if not isinstance(fmt, dict):
         return ev["payload"]
     out = push_format.render(ev["play"], fmt, LABELS, SHORT)
@@ -309,8 +339,32 @@ def payload_for(sub: dict, ev: dict) -> dict:
     return {**ev["payload"], "title": out[0], "body": out[1]}
 
 
+def next_up_row(ev: dict) -> str:
+    """The short last-names row a lead-up adds to the result before it:  HIGH LI: Costanza vs Tuck"""
+    m = ev["play"]
+    batter, pitcher = push_format._name(m, "batter", "last"), push_format._name(m, "pitcher", "last")
+    return f"HIGH LI: {batter} vs {pitcher}" if pitcher else f"HIGH LI: {batter}"
+
+
 def messages_for(sub: dict, events: list[dict]) -> list[dict]:
-    mine = [payload_for(sub, e) for e in events if wants(sub, e)]
+    """The subscriber's notifications, in time order. A lead-up whose plate appearance directly follows a play they are also getting (the same
+    build delivers both: the result and the next high leverage moment) is not sent alone: it becomes the last row of that play's alert."""
+    wanted = [e for e in events if wants(sub, e)]
+    plays = {(e["game"], e["play"]["play_num"]): e for e in wanted if e["kind"] == "m"}
+    next_up: dict[int, str] = {}   # id of the result event -> the row to add
+    alone = []
+    for e in wanted:
+        before = plays.get((e["game"], e["play"]["play_num"] - 1)) if e["kind"] == "l" else None
+        if before is not None:
+            next_up[id(before)] = next_up_row(e)
+        else:
+            alone.append(e)
+    mine = []
+    for e in alone:
+        msg = payload_for(sub, e)
+        if id(e) in next_up:
+            msg = {**msg, "body": "\n".join(x for x in (msg.get("body"), next_up[id(e)]) if x)}
+        mine.append(msg)
     if len(mine) <= MAX_PER_SUB:
         return mine
     # the first MAX_PER_SUB in time order, then one summary for the rest
@@ -484,6 +538,9 @@ def main() -> int:
     new_pc = pitching_changes(new_raw)
     old_pc = {k for k, c in new_pc.items() if c["play"]["moment_id"] not in replayed} if args.replay else set(pitching_changes(old_raw))
     events += sorted((pitching_event(c, logos) for k, c in new_pc.items() if k not in old_pc), key=lambda e: e["sort"])
+    threshold = new_meta.get("leverage_threshold") or 1.5
+    new_lu, old_lu = lead_ups(new_raw, threshold), ({} if args.replay else lead_ups(old_raw, threshold))
+    events += sorted((lead_up_event(m, logos) for k, m in new_lu.items() if k not in old_lu), key=lambda e: e["sort"])
     events += [final_event(g, by_game.get(code, []), labels, logos) for code, g in final_games(new_meta).items() if code not in old_final]
     if len(events) > MAX_NEW_EVENTS:
         print("push: far too many at once (data reset?); nothing sent")

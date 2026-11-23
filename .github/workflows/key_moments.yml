@@ -166,6 +166,7 @@ jobs:
           sparse-checkout: |
             tools/push_send.py
             tools/push_format.py
+            docs/js/career.js
           sparse-checkout-cone-mode: false
 
       - name: Get the baseline
