@@ -3479,6 +3479,8 @@ html.clip-mode #replay-modal .scene-diamond-wrap{width:min(96%,calc((100vh - 250
   .acc-scroll .acc-table tr{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;padding:7px 10px;border-top:1px solid var(--border);}
   .acc-scroll .acc-table tbody tr:first-child{border-top:0;}
   .acc-scroll .acc-table td{display:block;padding:0;border:0;width:auto;}
+  .acc-click:hover td{background:none;}   /* the rows are grids here: tint the whole row, not the cells, so the gaps between them are covered too */
+  .acc-click:hover,.acc-click:active{background:var(--tint);}
   .acc-scroll .acc-table .acc-ctx{grid-column:1 / -1;white-space:normal;}
   .acc-scroll .acc-pl .xt-link{max-width:100%;}
   .acc-scroll .acc-table tr.acc-season{grid-template-columns:auto minmax(0,1fr) auto;}
