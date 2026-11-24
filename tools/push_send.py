@@ -268,6 +268,12 @@ def new_feats(old: list, new: list) -> list:
     return sorted(out, key=lambda r: (r[2], str(r[3])))
 
 
+def drop_superseded(fresh: list) -> list:
+    """An immaculate inning is also a struck-out side (same innings, same play numbers): alert the immaculate one only."""
+    imm = {(r[1], r[2], r[3], tuple(r[6] or [])) for r in fresh if r[0] == "immaculate_inning"}
+    return [r for r in fresh if not (r[0] == "struck_out_side" and (r[1], r[2], r[3], tuple(r[6] or [])) in imm)]
+
+
 def is_key(prefs: dict, ev: dict) -> bool:
     """Whether this play is a key moment for this subscriber. prefs["tags"] (a list of tag slugs) is their own definition: any of
     those tags on the play counts. Without it, the build's is_key_moment applies. The public feed is never affected."""
@@ -552,6 +558,7 @@ def main() -> int:
         if len(fresh) > MAX_NEW_FEATS:
             print(f"push: {len(fresh)} new feats at once (a new feat type backfilling?); no feat alerts")
             fresh = []
+        fresh = drop_superseded(fresh)
         if fresh:
             names = read(new_base, "search/names.json").get("n") or {}
             titles = feat_titles()

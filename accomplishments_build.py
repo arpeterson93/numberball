@@ -74,7 +74,7 @@ EXCLUDE = {"game_winning_result", "multi_hr_3plus"}
 BAT_GAME = {"multi_hr_2plus", "hits_4plus", "cycle", "reached_5plus", "golden_sombrero", "rbi_5plus", "sb_3plus"}
 PIT_GAME = {"k_10plus", "cg_shutout", "no_hitter", "perfect_game"}
 BAT_PLAY = {"grand_slam", "walk_off", "zero_diff_bat", "five_hundred_bat"}   # the hitter's side of the play
-PIT_PLAY = {"immaculate_inning", "zero_diff_pit", "five_hundred_pit"}        # the pitcher's side
+PIT_PLAY = {"struck_out_side", "immaculate_inning", "zero_diff_pit", "five_hundred_pit"}        # the pitcher's side
 
 
 def stat_line(row, side):

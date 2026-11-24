@@ -18,7 +18,8 @@ Definitions (agreed with Alex):
   Complete game         one pitcher recorded every defensive PA for his team in a finished game
   No-hitter / perfect   complete game with no hit allowed / also no BB and no fielder's-choice reach. A CG needs
                         15+ outs recorded, which also drops game 050607 (S5), whose play log is only 3 plays.
-  Immaculate inning     a half inning with exactly 3 batters faced, all 3 real strikeouts (result K, not AutoK)
+  Struck out the side   a half inning with exactly 3 batters faced, all 3 real strikeouts (result K, not AutoK)
+  Immaculate inning     a struck-out side where every strikeout had a diff of 450+ (IMMACULATE_MIN_DIFF)
   Walk-off / game-win   the batter of the play carrying the `walk_off` / `game_winning` tag (the repo's own
                         definition, key_moments_build._mark_game_winning), when that play was the batter's PA
                         (a steal or caught stealing that scores the run is not the batter's result)
@@ -51,6 +52,7 @@ HOMERS = {"HR"}
 HITS = SINGLES | DOUBLES | TRIPLES | HOMERS
 WALKS = {"BB", "IBB", "AutoBB"}
 REAL_K = {"K"}
+IMMACULATE_MIN_DIFF = 450   # an immaculate inning is a struck-out side where every strikeout had a diff this big
 SITE_K = {"K", "AutoK", "KCS", "bAuto"}
 # Results where the batter reaches without a hit or walk (fielder's choices)
 REACH_OTHER = {"FC", "FCH", "FC3rd", "FCLead", "BFC"}
@@ -178,9 +180,11 @@ def compute():
             if len(hp) == 3 and all(p["result"] == "K" for p in hp):
                 pit = {pid(p["pitcher_id"]) for p in hp}
                 auto_pitch = any(p["pitch"] == 0 for p in hp)
-                add("immaculate_inning", pit.pop() if len(pit) == 1 else None, season, game,
-                    f"{half} {inn}" + (" (multiple pitchers)" if len(pit) > 1 else "")
-                    + (" (a pitch==0 row)" if auto_pitch else ""), [p["play_num"] for p in hp])
+                owner = pit.pop() if len(pit) == 1 else None
+                detail = (f"{half} {inn}" + (" (multiple pitchers)" if owner is None else "") + (" (a pitch==0 row)" if auto_pitch else ""))
+                add("struck_out_side", owner, season, game, detail, [p["play_num"] for p in hp])   # three batters, three real strikeouts
+                if not auto_pitch and all((p.get("diff") or 0) >= IMMACULATE_MIN_DIFF for p in hp):   # immaculate: and every strikeout a diff of 450+
+                    add("immaculate_inning", owner, season, game, detail, [p["play_num"] for p in hp])
 
         # ---- pitching, per pitcher-game ------------------------------------------------------
         by_side = defaultdict(list)
@@ -246,7 +250,7 @@ def main() -> None:
             keys.append(k)
     order = ["multi_hr_2plus", "multi_hr_3plus", "hits_4plus", "cycle", "grand_slam", "rbi_5plus", "sb_3plus",
              "reached_5plus", "golden_sombrero", "walk_off", "game_winning_result",
-             "k_10plus", "cg_shutout", "no_hitter", "perfect_game", "immaculate_inning"]
+             "k_10plus", "cg_shutout", "no_hitter", "perfect_game", "struck_out_side", "immaculate_inning"]
     keys = [k for k in order if k in keys] + [k for k in keys if k not in order]
     rows = []
     for k in keys:

@@ -24,14 +24,14 @@ LABEL = {
     "multi_hr_2plus": "Multi-HR game", "multi_hr_3plus": "3-HR game", "hits_4plus": "4+ hit game", "cycle": "Cycle",
     "grand_slam": "Grand slam", "rbi_5plus": "5+ RBI game", "sb_3plus": "3+ SB game", "reached_5plus": "5+ Hit+BB game",
     "golden_sombrero": "Golden sombrero", "walk_off": "Walk-off", "k_10plus": "10+ K game", "cg_shutout": "CG shutout",
-    "no_hitter": "No-hitter", "perfect_game": "Perfect game", "immaculate_inning": "Immaculate inning",
+    "no_hitter": "No-hitter", "perfect_game": "Perfect game", "struck_out_side": "Struck out the side", "immaculate_inning": "Immaculate inning",
     "lead_hr": "HR leader", "lead_rbi": "RBI leader", "lead_h": "Hits leader", "lead_sb": "SB leader",
     "lead_k": "K leader", "lead_dpa": "DPA leader", "lead_dbf": "DBF leader", "lead_wpa_bat": "WPA leader (bat)",
     "lead_wpa_pit": "WPA leader (pit)", "lead_er6": "ER6 leader", "lead_whip": "WHIP leader",
     "zero_diff_bat": "0 diff (batter)", "zero_diff_pit": "0 diff allowed (pitcher)", "five_hundred_pit": "500 diff (pitcher)",
     "five_hundred_bat": "500 diff against (batter)",
 }
-PIT = {"k_10plus", "cg_shutout", "no_hitter", "perfect_game", "immaculate_inning", "lead_k", "lead_dbf",
+PIT = {"k_10plus", "cg_shutout", "no_hitter", "perfect_game", "struck_out_side", "immaculate_inning", "lead_k", "lead_dbf",
        "lead_wpa_pit", "lead_er6", "lead_whip", "zero_diff_pit", "five_hundred_pit"}
 NEGATIVE = {"golden_sombrero", "five_hundred_bat", "zero_diff_pit"}   # the unlucky side of a diff, like the sombrero
 
