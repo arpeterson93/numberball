@@ -129,6 +129,8 @@ def parts(m: dict, labels: dict, short: dict, f: dict) -> dict[str, str]:
     names = m.get("scoring_names") or []   # last names only, so a big inning stays short
     scoring = "" if not names else (f"{names[0]} scores" if len(names) == 1 else f"{', '.join(names)} score")
     tags = [TAG_TEXT[t] for t in TAG_ORDER if t in (m.get("tags") or [])][:1]   # one tag, the most notable
+    if not tags and m.get("result") == "HR" and "run_scored" in (m.get("tags") or []):   # a home run with nothing more notable on it: it is the headline
+        tags = ["HOME RUN"]
     if tags == [TAG_TEXT["steal"]] and str(m.get("result") or "")[:2] in ("SB", "CS"):   # a steal names what happened: STOLEN BASE / CAUGHT STEALING
         tags = [str(labels.get(m["result"]) or tags[0]).upper()]
     elif tags == [TAG_TEXT["lead_change"]] and m.get("home_score") == m.get("away_score"):   # the "lead change" that evens the score is a tie: TIED UP

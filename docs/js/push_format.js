@@ -144,6 +144,7 @@
     var nm = m.scoring_names || [];
     var scoring = !nm.length ? "" : (nm.length === 1 ? nm[0] + " scores" : nm.join(", ") + " score");
     var tags = TAG_ORDER.filter(function (t) { return (m.tags || []).indexOf(t) !== -1; }).map(function (t) { return TAG_TEXT[t]; }).slice(0, 1);   // one tag, the most notable
+    if (!tags.length && m.result === "HR" && (m.tags || []).indexOf("run_scored") !== -1) tags = ["HOME RUN"];   // a home run with nothing more notable on it: it is the headline
     if (tags.length === 1 && tags[0] === TAG_TEXT.steal && /^(SB|CS)/.test(m.result || "")) tags = [String(labels[m.result] || tags[0]).toUpperCase()];   // a steal names what happened: STOLEN BASE / CAUGHT STEALING
     else if (tags.length === 1 && tags[0] === TAG_TEXT.lead_change && m.home_score === m.away_score) tags = ["TIED UP"];   // the "lead change" that evens the score is a tie: TIED UP
     var lev = m.leverage_after;   // leverage of the situation the play leaves behind
