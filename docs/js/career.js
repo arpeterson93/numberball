@@ -308,14 +308,14 @@
   }
 
   function dxChart(kind, bins, lg, dpa, lgdpa, mkLabel, opts) {
-    opts = opts || {};   // bw: bucket width (20 default; 25 for one game's few swings), w: drawing width
+    opts = opts || {};   // bw: bucket width (20 default; 25 for one game's few swings), w: drawing width, hr: height as a share of the width (0.34 default)
     // Sized to the panel (so the labels stay a readable size at any width): up to 1000px wide on a big screen.
     var W = opts.w || Math.max(320, Math.min(1000, ($("career-body").clientWidth || 700) - 36)), BW = opts.bw || 20, NB = Math.round(500 / BW);
     // The DPA / League labels get their own band above the plot (two rows when they have to stack), so they
     // never sit on top of the bars.
     var withMk = kind === "count" && (dpa != null || lgdpa != null);
     var T = withMk ? 30 : 12;
-    var H = Math.round(W * 0.34) + (withMk ? 18 : 0), L = 40, R = 18, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / NB;
+    var H = Math.round(W * (opts.hr || 0.34)) + (withMk ? 18 : 0), L = 40, R = 18, Bm = 26, pw = W - L - R, ph = H - T - Bm, bw = pw / NB;
     var n = [];
     var NC = bins.length;
     for (var b = 0; b < NB; b++) { var t = 0; for (var c = 0; c < NC; c++) t += bins[c][b]; n.push(t); }
@@ -418,7 +418,7 @@
         });
         out[side] = swings.length
           ? '<div class="xt-sub">Diff Distribution <span class="xt-hint">' + swings.length + " swings</span></div>" +
-            '<div class="dx-chart">' + dxChart("count", bins, null, sum / swings.length, modelData.lgdpa, "DPA", { bw: BW, w: w }) + "</div>"
+            '<div class="dx-chart">' + dxChart("count", bins, null, sum / swings.length, modelData.lgdpa, "DPA", { bw: BW, w: w, hr: 0.24 }) + "</div>"
           : '<div class="stats-empty">No modelled swings.</div>';
       });
       return out;
