@@ -1730,8 +1730,10 @@ def build(sheet_id: str = MLN_SHEET_ID, archive_season: int | None = None,
         # - there's no result yet, it hasn't happened) - excluded here, not
         # just sorted around, since neither lookup needs (or could sensibly
         # have) an entry for "no result at all".
-        "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted({m["result"] for m in rows if m["result"] is not None})},
-        "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted({m["result"] for m in rows if m["result"] is not None})},
+        # every known result, not just the ones in this build: a play opened from an older season (All-Time) uses this season's meta,
+        # and a result that has not happened yet this season (a triple play) would otherwise show its raw code
+        "result_labels": {r: RESULT_LABELS.get(r, r) for r in sorted(set(RESULT_LABELS) | {m["result"] for m in rows if m["result"] is not None})},
+        "result_short": {r: RESULT_SHORT.get(r, r) for r in sorted(set(RESULT_LABELS) | set(RESULT_SHORT) | {m["result"] for m in rows if m["result"] is not None})},
         "tag_labels": dict(TAG_LABELS),
         "bases_svg": {obc: _diamond_svg(obc) for obc in sorted(utils.BRC_TO_OBC.values())},
         "flight": _flight_meta(archive_season),
