@@ -647,6 +647,85 @@ def strategy_table_fig(result: dict) -> go.Figure:
     return fig
 
 
+def _wrap_pitch(v: int) -> int:
+    """Fold any integer onto the 1-1000 pitch wheel."""
+    return ((int(v) - 1) % 1000) + 1
+
+
+def centered_range_windows(swing: int, lo: int, hi: int) -> list[tuple[int, int]]:
+    """Pitch windows (start, end; start > end means it wraps past 1000) that land in a result whose diff band is
+    lo..hi from a swing at `swing`: one window on each side of the swing, or a single one straddling it when the
+    band starts at 0."""
+    if lo <= 0:
+        return [(_wrap_pitch(swing - hi), _wrap_pitch(swing + hi))]
+    return [(_wrap_pitch(swing - hi), _wrap_pitch(swing - lo)), (_wrap_pitch(swing + lo), _wrap_pitch(swing + hi))]
+
+
+def _window_text(w: tuple[int, int]) -> str:
+    return str(w[0]) if w[0] == w[1] else f"{w[0]}-{w[1]}"
+
+
+def _result_text_color(hex_bg: str) -> str:
+    h = hex_bg.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return "#111111" if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "#fafafa"
+
+
+def ranges_table_fig(ranges: list, title: str, subtitle: str = "", swing: int | None = None) -> go.Figure:
+    """Result ranges as a styled table image. ranges: [(result, lo, hi)] diff bands (circular distance between
+    pitch and swing). Without a swing: result, diff band, size, chance on a random pitch. With a swing: the same
+    bands as the pitch values on each side of it, so the cutoffs read as actual numbers."""
+    rows = [(str(r), int(lo), int(hi)) for r, lo, hi in ranges]
+    n = len(rows)
+    colors = [utils._RESULT_ZONE_COLORS.get(r, "#555555") for r, _lo, _hi in rows]
+    text_colors = [_result_text_color(c) for c in colors]
+    names = [r for r, _lo, _hi in rows]
+    diffs = [f"{lo}" if lo == hi else f"{lo}-{hi}" for _r, lo, hi in rows]
+    # Each diff d in 1..499 is two pitches (one per side); 0 and 500 are one each.
+    chance = [(2 * (hi - lo + 1) - (1 if lo == 0 else 0) - (1 if hi >= 500 else 0)) / 10.0 for _r, lo, hi in rows]
+    chance_txt = [f"{c:.1f}%" for c in chance]
+    stripe = [DARK_SECONDARY_BG if i % 2 == 0 else DARK_BG for i in range(n)]
+
+    if swing is None:
+        header_vals = ["Result", "Diff from swing", "Pitches", "Chance"]
+        cell_vals = [names, diffs, [str(2 * (hi - lo + 1) - (1 if lo == 0 else 0) - (1 if hi >= 500 else 0))
+                                   for _r, lo, hi in rows], chance_txt]
+        col_widths = [90, 130, 80, 80]
+    else:
+        below, above = [], []
+        for _r, lo, hi in rows:
+            wins = centered_range_windows(swing, lo, hi)
+            if len(wins) == 1:
+                below.append(str(wins[0][0]))
+                above.append(str(wins[0][1]))
+            else:
+                below.append(_window_text(wins[0]))
+                above.append(_window_text(wins[1]))
+        header_vals = ["Result", "Diff", "Range Low", "Range High", "Chance"]
+        cell_vals = [names, diffs, below, above, chance_txt]
+        col_widths = [80, 90, 210, 160, 70]
+    align = ["left"] + ["center"] * (len(cell_vals) - 1)
+    fill = [colors] + [stripe] * (len(cell_vals) - 1)
+    font_colors = [text_colors] + [DARK_TEXT] * (len(cell_vals) - 1)
+
+    fig = go.Figure(data=[go.Table(
+        columnwidth=col_widths,
+        header=dict(values=header_vals, fill_color="#085d05", font=dict(color=DARK_TEXT, size=13), align=align,
+                    height=32, line_color="#085d05"),
+        cells=dict(values=cell_vals, fill_color=fill, align=align, font=dict(size=13, color=font_colors),
+                   height=28, line_color=DARK_GRID),
+    )])
+    sub = subtitle
+    full_title = title + (f"<br><span style='font-size:12px;color:#9aa0a6'>{sub}</span>" if sub else "")
+    fig.update_layout(
+        title=dict(text=full_title, x=0.03, xanchor="left"),
+        margin=dict(l=10, r=10, t=70, b=10),
+        width=sum(col_widths) + 40,
+        height=70 + 34 + 30 * n + 10 + 14,
+    )
+    return fig
+
+
 def substitution_table_fig(result: dict) -> go.Figure:
     """Render substitutions.analyze_substitutions' output as one styled image: the current matchup's best strategy, then
     the best hitting / pitching / catching subs (green = beats the current matchup for the sub's own team)."""

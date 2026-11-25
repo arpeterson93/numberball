@@ -336,6 +336,7 @@ catcher_group = app_commands.Group(name="catcher", description="Catcher scouting
 catcher_radial_group = app_commands.Group(name="catcher-radial", description="Catcher radial charts - throws & deltas")
 game_group = app_commands.Group(name="game", description="Tie scouting commands to a live game's active players")
 manager_group = app_commands.Group(name="manager", description="Manager decision-support tools")
+matchup_group = app_commands.Group(name="matchup", description="Matchup tools - result ranges from player ratings")
 league_group = app_commands.Group(name="league", description="League-wide tools")
 
 
@@ -1138,6 +1139,104 @@ async def game_status(interaction: discord.Interaction) -> None:
     await interaction.followup.send(f"Active game: `{_active_game_code}`\n{lines}", ephemeral=True)
 
 
+_RANGES_SWING_HELP = ("Optional swing value (1-1000): show each result's cutoffs as the actual pitch values on "
+                      "each side of that swing instead of diffs")
+_obc_choices = [app_commands.Choice(name=utils.obc_display(c), value=c)
+                for c in ("000", "001", "010", "100", "011", "101", "110", "111")]
+
+
+async def _send_table_png(interaction: discord.Interaction, fig, filename: str, content: str | None = None) -> None:
+    def _png():
+        buf = io.BytesIO()
+        _write_png(fig, buf)
+        buf.seek(0)
+        return buf
+    buf = await asyncio.to_thread(_png)
+    await interaction.followup.send(content=content, file=discord.File(buf, filename=filename))
+
+
+@game_group.command(name="ranges", description="Current result ranges for a game, optionally laid out around a swing")
+@app_commands.describe(game_code="Numberball game code (defaults to the active game set via /game set)",
+                        swing_type="Which ranges table to show (default: Normal Swing)",
+                        swing=_RANGES_SWING_HELP)
+@app_commands.choices(swing_type=_swing_type_choices)
+async def game_ranges(interaction: discord.Interaction, game_code: int | None = None,
+                       swing_type: str = "Normal Swing", swing: app_commands.Range[int, 1, 1000] | None = None) -> None:
+    gid = game_code if game_code is not None else _active_game_code
+    if gid is None:
+        await interaction.response.send_message(
+            "No game code given and no active game set - pass `game_code:` or run `/game set` first.", ephemeral=True)
+        return
+    await interaction.response.defer()
+    state = await asyncio.to_thread(scouting_data.resolve_game_state, gid)
+    if not state or not state.get("result_ranges"):
+        await interaction.followup.send(f"Couldn't read ranges for `{gid}` (no sheet on file).", ephemeral=True)
+        return
+    ranges = (state.get("bunt_ranges") or state["result_ranges"]) if swing_type == "Bunt" else state["result_ranges"]
+    pitcher, batter = state.get("pitcher") or "?", state.get("batter") or "?"
+    sub = [swing_type, f"Outs: {state.get('outs', 0)}", f"OBC: {utils.obc_display(state.get('obc', '000'))}"]
+    if swing is not None:
+        sub.append(f"Swing: {swing}")
+    fig = bot_charts.ranges_table_fig(ranges, f"{pitcher} vs {batter}", "  ·  ".join(sub), swing=swing)
+    await _send_table_png(interaction, fig, "game_ranges.png")
+
+
+def _player_row_by_name(name: str) -> dict:
+    rows = [p for p in scouting_data.load_all_players() if p.get("name") == name]
+    return max(rows, key=lambda p: p.get("season") or 0) if rows else {}
+
+
+@matchup_group.command(name="ranges", description="Result ranges for any pitcher vs batter, from their ratings")
+@app_commands.describe(pitcher="Pitcher (defaults to the active game's current pitcher)",
+                        batter="Batter (defaults to the active game's current batter)",
+                        swing_type="Which ranges table to show (default: Normal Swing)",
+                        swing=_RANGES_SWING_HELP, outs="Outs (0-2) - affects some ranges",
+                        obc="Runners on base", hit_and_run="Hit and run (batter CON -1)",
+                        infield_in="Infield in (only matters with a runner on 3rd and under 2 outs)")
+@app_commands.choices(swing_type=_swing_type_choices, obc=_obc_choices)
+@app_commands.autocomplete(pitcher=_player_autocomplete, batter=_player_autocomplete)
+async def matchup_ranges(interaction: discord.Interaction, pitcher: str | None = None, batter: str | None = None,
+                          swing_type: str = "Normal Swing", swing: app_commands.Range[int, 1, 1000] | None = None,
+                          outs: app_commands.Range[int, 0, 2] = 0, obc: str = "000", hit_and_run: bool = False,
+                          infield_in: bool = False) -> None:
+    await interaction.response.defer()
+
+    def _build():
+        p_name, b_name = pitcher, batter
+        if (not p_name or not b_name) and _active_game_code is not None:
+            roles = scouting_data.resolve_game_roles(_active_game_code)
+            p_name = p_name or roles.get("pitcher")
+            b_name = b_name or roles.get("batter")
+        p_name = p_name or _last_player["pitcher"]
+        b_name = b_name or _last_player["batter"]
+        if not p_name or not b_name:
+            return None, "Give a `pitcher:` and `batter:` (or set an active game with `/game set`)."
+        p_row, b_row = _player_row_by_name(p_name), _player_row_by_name(b_name)
+        if not p_row or not b_row:
+            return None, f"Couldn't find ratings for {p_name if not p_row else b_name}."
+        res = utils.compute_at_bat_ranges(
+            pitcher_hand=p_row.get("hand"), pitcher_mov=p_row.get("mov"), pitcher_cmd=p_row.get("cmd"),
+            pitcher_vel=p_row.get("vel"), pitcher_awr=p_row.get("awr"),
+            batter_hand=b_row.get("hand"), batter_con=b_row.get("con"), batter_eye=b_row.get("eye"),
+            batter_pow=b_row.get("pow"), batter_spd=b_row.get("spd"),
+            bunt=(swing_type == "Bunt"), hit_and_run=hit_and_run, infield_in=infield_in, outs=outs, obc=obc)
+        ranges = [(r["result"], int(r["low"]), int(r["high"])) for r in res]
+        flags = [swing_type, f"Outs: {outs}", f"OBC: {utils.obc_display(obc)}"]
+        if hit_and_run:
+            flags.append("Hit and run")
+        if infield_in:
+            flags.append("Infield in")
+        if swing is not None:
+            flags.append(f"Swing: {swing}")
+        return bot_charts.ranges_table_fig(ranges, f"{p_name} vs {b_name}", "  ·  ".join(flags), swing=swing), None
+
+    fig, err = await asyncio.to_thread(_build)
+    if err:
+        await interaction.followup.send(err, ephemeral=True)
+        return
+    await _send_table_png(interaction, fig, "matchup_ranges.png")
+
+
 @manager_group.command(name="strategy", description="Expected value / win probability by strategy for a game")
 @app_commands.describe(game_code="Numberball game code (defaults to the active game set via /game set)",
                         infield_in="Evaluate Hit-and-Run assuming the defense currently has infield in",
@@ -1276,6 +1375,7 @@ bot.tree.add_command(catcher_group)
 bot.tree.add_command(catcher_radial_group)
 bot.tree.add_command(game_group)
 bot.tree.add_command(manager_group)
+bot.tree.add_command(matchup_group)
 bot.tree.add_command(league_group)
 
 
