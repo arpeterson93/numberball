@@ -1631,7 +1631,7 @@ with tab_p:
     else:
         df_p = pd.DataFrame()
 
-    df_p_pred = df_p[df_p["id"] < hist_id] if hist_id else df_p
+    df_p_pred = df_p[df_p["id"] < hist_id] if (hist_id and "id" in df_p.columns) else df_p
 
     if df_p.empty:
         if tab_p_pitcher == "All":
@@ -4069,7 +4069,7 @@ with tab_b:
     if not df_b.empty and tab_b_team != "All":
         df_b = df_b[df_b["off_team"] == tab_b_team]
 
-    df_b_pred = df_b[df_b["id"] < hist_id] if hist_id else df_b
+    df_b_pred = df_b[df_b["id"] < hist_id] if (hist_id and "id" in df_b.columns) else df_b
 
     # ── recent PA window - shared by predictor and Last N chart ───────────────
     if tab_b_batter != "All":
@@ -4778,7 +4778,7 @@ with tab_c:
     else:
         df_c = pd.DataFrame()
 
-    df_c_pred = df_c[df_c["id"] < hist_id] if hist_id else df_c
+    df_c_pred = df_c[df_c["id"] < hist_id] if (hist_id and "id" in df_c.columns) else df_c
 
     # ── recent window - shared by Steal Analyzer weighting and Last N chart ────
     if tab_c_catcher != "All":
