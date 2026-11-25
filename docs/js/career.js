@@ -1032,6 +1032,7 @@
     ["walk_off", "Walk-off", "play", "The plate appearance that won the game in the last at-bat (hit, walk, sacrifice, GORA, anything that scored the winning run)"],
     ["immaculate_inning", "Immaculate Inning", "play", "Struck out the side with all three strikeouts a diff of 450 or more"],
     ["struck_out_side", "Struck Out the Side", "play", "Three batters faced, three strikeouts, no auto strikeouts"],
+    ["noble_tiger", "NOBLETIGER", "play", "Bases loaded with no outs, and the half inning ended without a run (No Outs, Bases Loaded, Ending with Team Incapable of Getting Easy Run)"],
     ["zero_diff_bat", "0 Diff (Batter)", "play", "Swing exactly matched the pitch"],
     ["five_hundred_pit", "500 Diff (Pitcher)", "play", "Pitch landed the maximum 500 away from the swing"],
     ["five_hundred_bat", "500 Diff Against (Batter)", "play", "Swing was the maximum 500 from the pitch"],

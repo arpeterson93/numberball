@@ -19,6 +19,7 @@ Definitions (agreed with Alex):
   No-hitter / perfect   complete game with no hit allowed / also no BB and no fielder's-choice reach. A CG needs
                         15+ outs recorded, which also drops game 050607 (S5), whose play log is only 3 plays.
   Struck out the side   a half inning with exactly 3 batters faced, all 3 real strikeouts (result K, not AutoK)
+  NOBLETIGER            bases loaded with 0 outs, then the half inning ends with no run scored; every pitcher who faced it gets it
   Immaculate inning     a struck-out side where every strikeout had a diff of 450+ (IMMACULATE_MIN_DIFF)
   Walk-off / game-win   the batter of the play carrying the `walk_off` / `game_winning` tag (the repo's own
                         definition, key_moments_build._mark_game_winning), when that play was the batter's PA
@@ -186,6 +187,16 @@ def compute():
                 if not auto_pitch and all((p.get("diff") or 0) >= IMMACULATE_MIN_DIFF for p in hp):   # immaculate: and every strikeout a diff of 450+
                     add("immaculate_inning", owner, season, game, detail, [p["play_num"] for p in hp])
 
+        # ---- NOBLETIGER: bases loaded with nobody out, then the half inning ends without a run (key_moments_build._mark_noble_tiger) ----
+        every = defaultdict(list)
+        for p in ps:
+            if p["result"] is not None:
+                every[(p["inning"], p["half"])].append(p)
+        for (inn, half), hp in every.items():
+            if (hp[-1]["outs_after"] or 0) >= 3 and not any(p["runs"] for p in hp)                     and any(p["obc_after"] == "111" and (p["outs_after"] or 0) == 0 for p in hp):
+                for i in sorted({pid(p["pitcher_id"]) for p in hp if p["pitcher_id"] is not None}):   # every pitcher who faced the string
+                    add("noble_tiger", i, season, game, f"{half} {inn}", [p["play_num"] for p in hp])
+
         # ---- pitching, per pitcher-game ------------------------------------------------------
         by_side = defaultdict(list)
         for p in ps:
@@ -250,7 +261,7 @@ def main() -> None:
             keys.append(k)
     order = ["multi_hr_2plus", "multi_hr_3plus", "hits_4plus", "cycle", "grand_slam", "rbi_5plus", "sb_3plus",
              "reached_5plus", "golden_sombrero", "walk_off", "game_winning_result",
-             "k_10plus", "cg_shutout", "no_hitter", "perfect_game", "struck_out_side", "immaculate_inning"]
+             "k_10plus", "cg_shutout", "no_hitter", "perfect_game", "struck_out_side", "immaculate_inning", "noble_tiger"]
     keys = [k for k in order if k in keys] + [k for k in keys if k not in order]
     rows = []
     for k in keys:

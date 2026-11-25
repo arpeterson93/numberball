@@ -28,10 +28,10 @@ SWAPS = (("bs", "words", "bases", "bases_words"), ("nb", "last", "batter", "batt
 
 # The key moment tags worth naming in an alert, most notable first: with one tag shown (the default) a play with several gets the first
 # one found here. risp and run_scored say little on their own and are never shown.
-TAG_ORDER = ["walk_off", "game_winning", "triple_play", "zero_diff", "five_hundred_diff", "lead_change", "bases_loaded", "double_play",
+TAG_ORDER = ["walk_off", "game_winning", "triple_play", "noble_tiger", "zero_diff", "five_hundred_diff", "lead_change", "bases_loaded", "double_play",
              "steal", "high_leverage", "wpa"]
 TAG_TEXT = {
-    "walk_off": "WALK-OFF", "game_winning": "GAME-WINNING", "triple_play": "TRIPLE PLAY",
+    "walk_off": "WALK-OFF", "game_winning": "GAME-WINNING", "triple_play": "TRIPLE PLAY", "noble_tiger": "NOBLETIGER",
     "zero_diff": "0 DIFF", "five_hundred_diff": "500 DIFF", "lead_change": "LEAD CHANGE",
     "bases_loaded": "BASES LOADED", "double_play": "DOUBLE PLAY", "steal": "STEAL",
     "high_leverage": "HIGH LEVERAGE", "wpa": "BIG WPA",

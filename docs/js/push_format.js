@@ -19,9 +19,9 @@
   var OPTION_KEYS = ["pv"];
   var SWAPS = [["bs", "words", "bases", "bases_words"], ["nb", "last", "batter", "batter_last"], ["np", "last", "pitcher", "pitcher_last"], ["wm", "change", "wp", "wp_change"]];
   // most notable first; with one tag shown (the default) a play with several gets the first one found here
-  var TAG_ORDER = ["walk_off", "game_winning", "triple_play", "zero_diff", "five_hundred_diff", "lead_change", "bases_loaded", "double_play", "steal", "high_leverage", "wpa"];
+  var TAG_ORDER = ["walk_off", "game_winning", "triple_play", "noble_tiger", "zero_diff", "five_hundred_diff", "lead_change", "bases_loaded", "double_play", "steal", "high_leverage", "wpa"];
   var TAG_TEXT = {
-    walk_off: "WALK-OFF", game_winning: "GAME-WINNING", triple_play: "TRIPLE PLAY",
+    walk_off: "WALK-OFF", game_winning: "GAME-WINNING", triple_play: "TRIPLE PLAY", noble_tiger: "NOBLETIGER",
     zero_diff: "0 DIFF", five_hundred_diff: "500 DIFF", lead_change: "LEAD CHANGE",
     bases_loaded: "BASES LOADED", double_play: "DOUBLE PLAY", steal: "STEAL",
     high_leverage: "HIGH LEVERAGE", wpa: "BIG WPA"

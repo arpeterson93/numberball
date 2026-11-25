@@ -236,6 +236,7 @@ TAG_LABELS = {
     "game_winning": "Game-winning",
     "walk_off": "Walk-off",
     "bases_loaded": "Loaded bases",
+    "noble_tiger": "NOBLETIGER",
     "steal": "Steal",
     "double_play": "Double Play",
     "triple_play": "Triple Play",
@@ -791,7 +792,21 @@ def replay_game(plays: list[dict], game: dict | None, archive_mode: bool = False
         })
 
     _mark_game_winning(states)
+    _mark_noble_tiger(states)
     return states
+
+
+def _mark_noble_tiger(states: list[dict]) -> None:
+    """NOBLETIGER: No Outs, Bases Loaded, Ending with Team Incapable of Getting Easy Run. A half inning in which the bases were loaded
+    with nobody out (so its first three batters all reached) and which then ended on the third out without a run scoring. The play
+    that makes the third out carries the flag."""
+    halves: dict[tuple, list[dict]] = {}
+    for s in states:
+        halves.setdefault((s["inning"], s["half"]), []).append(s)
+    for hs in halves.values():
+        loaded = any(s["obc_after"] == "111" and s["outs_after"] == 0 for s in hs)
+        if loaded and hs[-1]["outs_after"] >= 3 and not any(s["runs"] for s in hs):
+            hs[-1]["noble_tiger"] = True
 
 
 def _mark_game_winning(states: list[dict]) -> None:
@@ -856,6 +871,8 @@ def moment_tags(state: dict) -> list[str]:
         tags.append("walk_off")
     if state["obc_after"] == "111":
         tags.append("bases_loaded")
+    if state.get("noble_tiger"):
+        tags.append("noble_tiger")
     if result in STEAL_SUCCESS_CODES or result in CAUGHT_STEALING_CODES:
         tags.append("steal")
     if result in DOUBLE_PLAY_CODES:
