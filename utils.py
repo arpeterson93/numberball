@@ -3478,6 +3478,231 @@ def cooldown_cdf_chart(
     return fig
 
 
+# ── high/low streaks: how long a pitcher stays above / below a threshold ─────
+
+HL_HIGH_COLOR = "#E45756"
+HL_LOW_COLOR = "#4C78A8"
+
+
+def highlow_run_stats(df: pd.DataFrame, threshold: float = 500, deadband: float = 0,
+                      same_game: bool = True) -> dict | None:
+    """Consecutive-pitch runs on one side of `threshold` (high: pitch >= threshold,
+    low: pitch < threshold). deadband > 0 makes pitches within that distance of
+    the threshold neutral - they neither extend nor break a run and are not
+    counted. same_game=True ends (and discards) a run at the game boundary;
+    False lets a run continue across games.
+
+    Returns None with no usable pitches, else a dict:
+      runs: DataFrame(side 'high'/'low', length, resolved) - resolved=True means
+            the run ended by a switch to the other side; the still-open final
+            run (and, same_game, a run cut off by the game ending) is
+            resolved=False and kept out of the histogram but used as censored
+            data in the hazard.
+      share: {'high': p, 'low': 1-p} of counted pitches.
+      hazard: {side: DataFrame(k, at_risk, switches, hazard)}, k = current run
+              length, the last row pooling every k >= cap.
+      cap: pooled bucket start. current: (side, length) of the live run or None.
+    """
+    if df is None or df.empty or "pitch" not in df.columns:
+        return None
+    d = df[df["pitch"].notna() & (df["pitch"] != 0)]
+    if "game_id" in d.columns:
+        d = d.sort_values(["game_id", "id"]) if "id" in d.columns else d
+    if d.empty:
+        return None
+    pit = d["pitch"].astype(float).to_numpy()
+    gid = d["game_id"].to_numpy() if "game_id" in d.columns else np.zeros(len(d))
+    hi_cut, lo_cut = threshold + deadband, threshold - deadband
+
+    runs: list[tuple[str, int, bool]] = []
+    cur_side, cur_len, prev_g = None, 0, None
+    n_high = n_low = 0
+    live = None
+
+    def _close(resolved: bool) -> None:
+        nonlocal cur_side, cur_len
+        if cur_side is not None and cur_len:
+            runs.append((cur_side, cur_len, resolved))
+        cur_side, cur_len = None, 0
+
+    for p, g in zip(pit, gid):
+        if same_game and prev_g is not None and g != prev_g:
+            _close(False)
+        prev_g = g
+        if p >= hi_cut and p >= threshold:
+            s = "high"
+        elif p < lo_cut:
+            s = "low"
+        else:
+            continue
+        if s == "high":
+            n_high += 1
+        else:
+            n_low += 1
+        if s == cur_side:
+            cur_len += 1
+        else:
+            _close(True)
+            cur_side, cur_len = s, 1
+    live = (cur_side, cur_len) if cur_side is not None else None
+    _close(False)
+    # runs closed as a switch are flagged True above, but _close(True) is called
+    # on the NEW pitch's side change - i.e. the run that just ended. The very
+    # first call (no run yet) is a no-op.
+    if not runs:
+        return None
+    rdf = pd.DataFrame(runs, columns=["side", "length", "resolved"])
+    total = n_high + n_low
+    share = {"high": n_high / total, "low": n_low / total}
+
+    maxlen = int(rdf["length"].max())
+    q95 = int(np.ceil(rdf["length"].quantile(0.95)))
+    cap = int(min(maxlen, max(6, min(q95, 15))))
+    hazard = {}
+    for side in ("high", "low"):
+        exposure = np.zeros(cap + 1)
+        sw = np.zeros(cap + 1)
+        for L, ok in rdf.loc[rdf["side"] == side, ["length", "resolved"]].itertuples(index=False):
+            # decisions observed: k=1..L-1 continued, k=L switched (only if resolved)
+            for k in range(1, L + 1):
+                if k == L and not ok:
+                    break
+                b = min(k, cap)
+                exposure[b] += 1
+                if k == L and ok:
+                    sw[b] += 1
+        ks = np.arange(1, cap + 1)
+        hz = pd.DataFrame({"k": ks, "at_risk": exposure[1:], "switches": sw[1:]})
+        hz["hazard"] = np.where(hz["at_risk"] > 0, hz["switches"] / hz["at_risk"].where(hz["at_risk"] > 0, 1), np.nan)
+        hazard[side] = hz
+    return {"runs": rdf, "share": share, "hazard": hazard, "cap": cap, "current": live,
+            "threshold": threshold, "n_pitches": total}
+
+
+def highlow_runs_chart(stats: dict) -> go.Figure:
+    """Mirrored run-length chart: high runs go up, low runs go down. Each bar is
+    the observed count of runs of that length and the white tick across it is the
+    count a memoryless pitcher (same high/low split) would show, so a bar poking
+    past its tick is more runs than chance and a bar short of it is fewer. The
+    signed number at each bar's end is observed minus expected. The last x is
+    'cap+' (pooled)."""
+    cap = stats["cap"]
+    rdf = stats["runs"]
+    done = rdf[rdf["resolved"]]
+    xs = list(range(1, cap + 1))
+    xlabels = [str(k) if k < cap else f"{cap}+" for k in xs]
+    fig = go.Figure()
+    ymax = 1.0
+    for side, sign, color in (("high", 1, HL_HIGH_COLOR), ("low", -1, HL_LOW_COLOR)):
+        sub = done[done["side"] == side]["length"].clip(upper=cap)
+        n = len(sub)
+        counts = [int((sub == k).sum()) for k in xs]
+        p = stats["share"][side]
+        # Geometric expectation given his own side share: P(L=k) = p^(k-1) (1-p), tail pooled at cap
+        exp = [n * (p ** (k - 1)) * (1 - p) for k in xs[:-1]]
+        exp.append(n * p ** (cap - 1))
+        diffs = [c - e for c, e in zip(counts, exp)]
+        ymax = max(ymax, max(counts), max(exp))
+        label = "High (>= %g)" % stats["threshold"] if side == "high" else "Low (< %g)" % stats["threshold"]
+        fig.add_trace(go.Bar(
+            x=xlabels, y=[sign * c for c in counts], name=label, marker_color=color, width=0.42,
+            text=[f"{d:+.0f}" for d in diffs], textposition="outside", cliponaxis=False,
+            textfont=dict(size=11, color=[("#2CA58D" if d > 0 else "#E8A33D") if abs(d) >= 1 else "rgba(160,160,160,0.8)" for d in diffs]),
+            customdata=np.stack([counts, [round(e, 1) for e in exp]], axis=-1),
+            hovertemplate=f"{side.title()} runs of %{{x}}: %{{customdata[0]}} (expected %{{customdata[1]}})<extra></extra>"))
+        fig.add_trace(go.Scatter(
+            x=xlabels, y=[sign * e for e in exp], mode="markers", name="Expected (his own split)",
+            legendgroup="exp", showlegend=(side == "high"),
+            marker=dict(symbol="line-ew", size=30, line=dict(color="white", width=3)),
+            hoverinfo="skip"))
+    step = next(s for s in (1, 2, 5, 10, 20, 25, 50, 100, 200) if ymax * 1.15 / s <= 5)
+    top = step * int(np.ceil(ymax * 1.15 / step))
+    ticks = list(range(-top, top + 1, step))
+    fig.update_layout(
+        title=dict(text="Run length before switching sides", x=0.5, xanchor="center"),
+        barmode="overlay", height=380,
+        xaxis=dict(title="Consecutive pitches on one side", type="category"),
+        yaxis=dict(title="Runs (high up, low down)", range=[-top, top],
+                   tickmode="array", tickvals=ticks, ticktext=[str(abs(t)) for t in ticks],
+                   zeroline=True, zerolinecolor="rgba(200,200,200,0.7)",
+                   showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1, font=dict(size=10)),
+        margin=dict(l=50, r=10, t=70, b=45), dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+                        "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def highlow_hazard_chart(stats: dict) -> go.Figure:
+    """P(next pitch switches sides | current run is k long), per side, with each
+    side's memoryless value (1 - own share of staying) dashed for reference.
+    Marker size scales with how many decisions the point rests on."""
+    cap = stats["cap"]
+    xlabels = [str(k) if k < cap else f"{cap}+" for k in range(1, cap + 1)]
+    fig = go.Figure()
+    for side, color in (("high", HL_HIGH_COLOR), ("low", HL_LOW_COLOR)):
+        hz = stats["hazard"][side]
+        base = 1 - stats["share"][side]
+        sizes = (5 + 2.2 * np.sqrt(hz["at_risk"].clip(lower=0))).clip(upper=22)
+        fig.add_trace(go.Scatter(
+            x=xlabels, y=(hz["hazard"] * 100), mode="lines+markers",
+            name=f"After {side} run", line=dict(color=color, width=2),
+            marker=dict(size=list(sizes), color=color),
+            customdata=np.stack([hz["switches"], hz["at_risk"]], axis=-1),
+            hovertemplate=f"After {side} run of %{{x}}: %{{y:.0f}}% switch (%{{customdata[0]:.0f}} of %{{customdata[1]:.0f}})<extra></extra>",
+            connectgaps=False))
+        fig.add_trace(go.Scatter(
+            x=[xlabels[0], xlabels[-1]], y=[base * 100] * 2, mode="lines", showlegend=False,
+            line=dict(color=color, width=1.2, dash="dot"), hoverinfo="skip", opacity=0.7))
+    fig.update_layout(
+        title=dict(text="Chance the next pitch switches sides, by current run length", x=0.5, xanchor="center"),
+        height=340, xaxis=dict(title="Pitches already thrown on this side in a row", type="category"),
+        yaxis=dict(title="% switching", range=[0, 100], ticksuffix="%", showgrid=True,
+                   gridcolor="rgba(128,128,128,0.2)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1, font=dict(size=10)),
+        margin=dict(l=50, r=10, t=70, b=45), dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+                        "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
+def highlow_trace_chart(df: pd.DataFrame, threshold: float = 500, n: int = 30) -> go.Figure:
+    """Vertical pitch trace: the last n pitches as value (1-1000) over time, the
+    threshold drawn across, markers colored high/low, dotted lines at game starts."""
+    d = df[df["pitch"].notna() & (df["pitch"] != 0)]
+    if "game_id" in d.columns and "id" in d.columns:
+        d = d.sort_values(["game_id", "id"])
+    d = d.tail(n)
+    if d.empty:
+        return go.Figure()
+    y = d["pitch"].astype(float).to_numpy()
+    x = list(range(1, len(y) + 1))
+    colors = [HL_HIGH_COLOR if v >= threshold else HL_LOW_COLOR for v in y]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", line=dict(color="rgba(160,160,160,0.6)", width=1),
+                             hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=y, mode="markers", marker=dict(size=9, color=colors),
+                             hovertemplate="Pitch %{x} of last " + str(len(y)) + ": %{y:.0f}<extra></extra>",
+                             showlegend=False))
+    fig.add_hline(y=threshold, line=dict(color="rgba(220,220,220,0.8)", width=1.2))
+    if "game_id" in d.columns:
+        g = d["game_id"].to_numpy()
+        for i in range(1, len(g)):
+            if g[i] != g[i - 1]:
+                fig.add_vline(x=i + 0.5, line=dict(color="rgba(160,160,160,0.6)", width=1, dash="dot"))
+    fig.update_layout(
+        title=dict(text=f"Last {len(y)} pitches (dotted = new game)", x=0.5, xanchor="center"),
+        height=320, xaxis=dict(title="Oldest to newest", showgrid=False, dtick=5),
+        yaxis=dict(title="Pitch", range=[0, 1000], showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
+        margin=dict(l=50, r=10, t=50, b=45), dragmode=False,
+        modebar_remove=["zoom2d", "pan2d", "select2d", "lasso2d", "zoomIn2d", "zoomOut2d",
+                        "autoScale2d", "resetScale2d", "toImage"],
+    )
+    return fig
+
+
 # ── cooldown: distance from the trigger pitch, by pitches since ──────────────
 
 COOLDOWN_LAG_MAX = 15
@@ -3579,310 +3804,6 @@ def cooldown_lag_profile(
             "lo": lo, "hi": hi, "null": float(null.mean()),
         }
     return out
-
-
-ZONE_RETURN_MIN_N = 10   # a wedge whose effective sample is below this is drawn gray (too thin to read)
-ZONE_RETURN_GRID = 100   # wedges around the wheel (each 10 pitch-values wide)
-
-
-def zone_return_rings(df: pd.DataFrame, zone_width: int = 100, max_lag: int = 10, value_col: str = "pitch",
-                      lag_smooth: bool = False) -> dict:
-    """How often does he come back to where he just threw, by lag - smoothed around the wheel.
-
-    For each of ZONE_RETURN_GRID positions around the 1-1000 wheel and each lag k = 1..max_lag: take the pitches he threw
-    near that position (a triangular kernel, full weight at the position fading to zero at +/- zone_width/2, circular)
-    and ask, of those, how often was the pitch k pitches later back within +/- zone_width/2 of THAT pitch.
-    The return test is a plain hard window; only the "which pitches feed this wedge" side is smoothed, so there are no
-    zone edges anywhere. Raw rates, no baseline against his habit. Each wedge also carries its effective sample size
-    (sum of weights squared over sum of squared weights) so thin wedges can be grayed, and the share of his pitches that
-    fall within +/- zone_width/2 of its position, for context.
-
-    lag_smooth=True additionally blends each ring with its neighbors (weights 1/4, 1/2, 1/4; the first and last ring
-    re-weight over the neighbors they have) by pooling the weighted "back" counts and the weights, not by averaging the
-    finished rates. Adjacent lags are nearly uncorrelated, so unsmoothed rings read as static; this trades a little lag
-    resolution for a much calmer picture. The reported effective n is the same weighted blend of the per-lag values
-    (no extra independence is claimed).
-
-    Pitches recorded as 0 are autos / unsubmitted pitches (or intentional walks), not thrown pitches: they are left
-    out so they neither feed a wedge nor count as a return, and do not take up a lag slot.
-
-    Returns {"meta": {...}, "lags": [{"lag", "rate", "eff"}, ...]} (rate / eff are per-position arrays);
-    {} when there is too little data."""
-    d = df[df[value_col].notna() & (df[value_col] >= 1) & (df[value_col] <= 1000)].sort_values("id")
-    vals = d[value_col].astype(int).to_numpy()
-    n = len(vals)
-    if n < 30:
-        return {}
-    G = ZONE_RETURN_GRID
-    half = zone_width / 2.0
-    centers = (np.arange(G) + 0.5) * (1000.0 / G)
-    dist = _circ_abs_diff(vals[:, None], centers[None, :])            # (n, G) circular distance pitch -> position
-    W = np.clip(1.0 - dist / half, 0.0, None)                          # triangular kernel weights
-    lags = []
-    for k in range(1, max_lag + 1):
-        if k >= n:
-            break
-        # follow-ups run straight through his pitch history in order, across game boundaries
-        Wk = W[:n - k]
-        back = (_circ_abs_diff(vals[k:], vals[:n - k]) <= half).astype(float)
-        num = (Wk * back[:, None]).sum(axis=0)
-        den = Wk.sum(axis=0)
-        den2 = (Wk ** 2).sum(axis=0)
-        with np.errstate(all="ignore"):
-            eff = np.where(den2 > 0, den ** 2 / den2, 0.0)
-        lags.append({"lag": k, "num": num, "den": den, "eff": eff})
-    if lag_smooth and len(lags) > 1:
-        sm = []
-        for i, lg in enumerate(lags):
-            use = [(j, a) for j, a in ((i - 1, 0.25), (i, 0.5), (i + 1, 0.25)) if 0 <= j < len(lags)]
-            tot_a = sum(a for _, a in use)
-            sm.append({"lag": lg["lag"],
-                       "num": sum(a * lags[j]["num"] for j, a in use) / tot_a,
-                       "den": sum(a * lags[j]["den"] for j, a in use) / tot_a,
-                       "eff": sum(a * lags[j]["eff"] for j, a in use) / tot_a})
-        lags = sm
-    for lg in lags:
-        with np.errstate(all="ignore"):
-            lg["rate"] = np.where(lg["den"] > 0, lg["num"] / lg["den"], np.nan)
-    if not lags:
-        return {}
-    return {"meta": {"n": n, "G": G, "zone_width": zone_width, "last_pitch": int(vals[-1]),
-                      "share": (dist <= half).mean(axis=0), "centers": centers,
-                      # recent[k-1] = the pitch thrown k-1 pitches ago (last pitch first), across games, like the follow-ups: the live
-                      # pitch sitting at ring k, i.e. the one the NEXT pitch is k pitches after
-                      "recent": [int(vals[n - k]) for k in range(1, len(lags) + 1)]},
-            "lags": lags}
-
-
-ZONE_RETURN_HOLE = 1.2          # inner empty radius, in ring-thickness units
-ZONE_RETURN_RING_BLEND = 0.8    # smooth look: share of each ring's thickness over which it blends into the next ring
-
-
-def _zone_return_marker_info(res: dict, vmax: float) -> dict:
-    """Shared by both looks: where each live marker sits (angle in degrees, ring radius), its hover text, and an ink
-    color (black / white) that contrasts with the heat color under it (the scale runs near-white to navy). Marker k is
-    the pitch thrown k-1 pitches ago (any game); ring k is lag k."""
-    from plotly.colors import sample_colorscale
-    m, lags = res["meta"], res["lags"]
-    G, w, K = m["G"], m["zone_width"], len(lags)
-    rec = m["recent"]
-    hover, ink = [], []
-    for j, v in enumerate(rec):
-        gi = min(G - 1, (v - 1) * G // 1000)
-        lg = lags[j]
-        t = min(1.0, lg["rate"][gi] * 100 / vmax) if np.isfinite(lg["rate"][gi]) else 0.0
-        r_, g_, b_ = (int(x) for x in sample_colorscale("Blues", [t])[0][4:-1].split(","))
-        ink.append("#0b0b0b" if (0.299 * r_ + 0.587 * g_ + 0.114 * b_) / 255 > 0.5 else "#ffffff")
-        when = "last pitch" if j == 0 else f"{j} pitch{'es' if j != 1 else ''} ago"
-        head = f"<b>Lag {j + 1}: pitch {v}</b> ({when})<br>"
-        if np.isfinite(lg["rate"][gi]):
-            hover.append(head + f"Back within +/-{w // 2}: {lg['rate'][gi] * 100:.1f}%<br>"
-                         f"Eff. n: {lg['eff'][gi]:.0f}<br>Habit: {m['share'][gi] * 100:.1f}%")
-        else:
-            hover.append(head + "No pitches near here")
-    return {"theta": [v / 1000 * 360 for v in rec],
-            "r": [ZONE_RETURN_HOLE + (K - 1 - j) + 0.5 for j in range(len(rec))],
-            "hover": hover, "ink": ink, "n": len(rec)}
-
-
-def _zone_return_cell_hover(res: dict) -> tuple[list[str], np.ndarray]:
-    """Per-cell hover text (ring-major: lag 1's positions first) and the cell rates in percent."""
-    m, lags = res["meta"], res["lags"]
-    G, w = m["G"], m["zone_width"]
-    centers = m["centers"]
-    hover, rates = [], []
-    for lg in lags:
-        for i in range(G):
-            thin = lg["eff"][i] < ZONE_RETURN_MIN_N
-            rates.append(0.0 if not np.isfinite(lg["rate"][i]) else lg["rate"][i] * 100)
-            if np.isfinite(lg["rate"][i]):
-                hover.append(
-                    f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>"
-                    f"Back within +/-{w // 2}: {lg['rate'][i] * 100:.1f}%<br>"
-                    f"Eff. n: {lg['eff'][i]:.0f}{' (thin)' if thin else ''}<br>"
-                    f"Habit: {m['share'][i] * 100:.1f}%")
-            else:
-                hover.append(f"<b>Near {centers[i]:.0f} - lag {lg['lag']}</b><br>No pitches here")
-    return hover, np.array(rates)
-
-
-def zone_return_rings_chart(res: dict, dark_mode: bool = False, height: int = 520,
-                            touch: bool = False, smooth: bool = False) -> go.Figure:
-    """The Zone return map. Angle = position on the 1-1000 wheel, each ring a lag (lag 1 outermost, stepping inward).
-    Color = the raw smoothed share of pitches thrown near that position that were followed, that many pitches later,
-    by a pitch back within +/- half the zone width of that pitch (one color scale shared by every ring). Positions
-    with too small an effective sample are gray. The black arc on the rim spans his most recent pitch +/- half the zone
-    width - exactly what would count as "back". The numbered markers are the live pitches: marker k sits at the pitch
-    thrown k-1 pitches ago (so the next pitch is lag k after it), on ring k. They are see-through, with the outline and
-    number black or white depending on the color underneath.
-
-    smooth=False draws one block per position and ring. smooth=True draws a continuous image instead: every pixel
-    blends the surrounding cells (circularly around the wheel, and between neighboring rings over
-    ZONE_RETURN_RING_BLEND of a ring's thickness), so there are no cell edges. It is display interpolation only -
-    the numbers in the hover are still each cell's own.
-
-    touch=True (phones): a finger tap lands inside the heat under a marker far more often than on the 14px marker
-    itself, and the heat's hover wins - so the heat is made non-hoverable and each marker gets an invisible, larger
-    tap target that carries the hover."""
-    if smooth:
-        return _zone_return_rings_chart_smooth(res, dark_mode, height, touch)
-    m, lags = res["meta"], res["lags"]
-    G, w, K = m["G"], m["zone_width"], len(lags)
-    step = 360.0 / G
-    hole = ZONE_RETURN_HOLE
-    centers = m["centers"]
-    cell_hover, rates_arr = _zone_return_cell_hover(res)
-    rates = rates_arr.tolist()
-    theta, base, g_theta, g_base = [], [], [], []
-    for j, lg in enumerate(lags):
-        ring_base = hole + (K - 1 - j)          # lag 1 (j=0) outermost
-        for i in range(G):
-            theta.append(centers[i] / 1000 * 360)
-            base.append(ring_base)
-            if lg["eff"][i] < ZONE_RETURN_MIN_N:
-                g_theta.append(centers[i] / 1000 * 360)
-                g_base.append(ring_base)
-    vmax = max(max(rates), 1e-9)
-    ink = "#ffffff" if dark_mode else "#0b0b0b"
-    fig = go.Figure(go.Barpolar(
-        theta=theta, r=[1] * len(theta), base=base, width=[step] * len(theta),
-        marker=dict(color=rates, colorscale="Blues", cmin=0, cmax=vmax, line=dict(width=0),
-                    colorbar=dict(title=dict(text="% back within<br>+/- half a zone", side="top"), thickness=12,
-                                  len=0.55, ticksuffix="%")),
-        **(dict(hoverinfo="skip") if touch else dict(hovertext=cell_hover, hoverinfo="text"))))
-    if g_theta:
-        fig.add_trace(go.Barpolar(
-            theta=g_theta, r=[1] * len(g_theta), base=g_base, width=[step] * len(g_theta),
-            marker=dict(color="rgba(150,150,150,0.30)", line=dict(width=0)), hoverinfo="skip"))
-    mk = _zone_return_marker_info(res, vmax)
-    fig.add_trace(go.Scatterpolar(
-        theta=mk["theta"], r=mk["r"], mode="markers+text",
-        marker=dict(size=14, color="rgba(255,255,255,0.0)",   # see-through: the heat map shows inside the marker
-                    line=dict(color=mk["ink"], width=1.3)),
-        text=[f"<b>{j + 1}</b>" for j in range(mk["n"])], textfont=dict(size=8, color=mk["ink"]),
-        **(dict(hoverinfo="skip") if touch else dict(hovertext=mk["hover"], hoverinfo="text")), showlegend=False))
-    if touch:
-        fig.add_trace(go.Scatterpolar(
-            theta=mk["theta"], r=mk["r"], mode="markers", marker=dict(size=34, color="rgba(0,0,0,0)"),
-            hovertext=mk["hover"], hoverinfo="text", showlegend=False))
-    lp = m["last_pitch"]
-    arc = np.linspace((lp - w / 2) / 1000 * 360, (lp + w / 2) / 1000 * 360, 24)
-    rim = hole + K + 0.35
-    fig.add_trace(go.Scatterpolar(theta=arc, r=[rim] * len(arc), mode="lines", line=dict(color=ink, width=5),
-                                  hoverinfo="skip", showlegend=False))
-    fig.update_layout(
-        polar=dict(
-            bgcolor="rgba(0,0,0,0)",
-            radialaxis=dict(range=[0, rim + 0.2], visible=False),
-            angularaxis=dict(direction="clockwise", rotation=90, tickmode="array",
-                             tickvals=[i * 36 for i in range(10)], ticktext=[str(i * 100) for i in range(10)],
-                             tickfont=dict(size=10), gridcolor="rgba(128,128,128,0.25)"),
-        ),
-        paper_bgcolor="rgba(0,0,0,0)", showlegend=False, height=height, dragmode=False,
-        margin=dict(l=30, r=30, t=20, b=20),
-    )
-    return fig
-
-
-def _zone_return_rings_chart_smooth(res: dict, dark_mode: bool, height: int, touch: bool) -> go.Figure:
-    """zone_return_rings_chart(smooth=True): a cartesian heatmap image of the ring, computed pixel by pixel."""
-    m, lags = res["meta"], res["lags"]
-    G, w, K = m["G"], m["zone_width"], len(lags)
-    hole = ZONE_RETURN_HOLE
-    outer = hole + K
-    rim = outer + 0.35
-    lim = rim + 0.95                                  # room for the 0-900 labels
-    centers = m["centers"]
-    cell_hover, rates_arr = _zone_return_cell_hover(res)
-    R = np.array([np.nan_to_num(lg["rate"], nan=0.0) for lg in lags]) * 100        # (K, G) percent
-    E = np.array([lg["eff"] for lg in lags])                                       # (K, G) effective n
-    vmax = max(float(R.max()), 1e-9)
-    ink = "#ffffff" if dark_mode else "#0b0b0b"
-    muted = "rgba(255,255,255,0.55)" if dark_mode else "rgba(11,11,11,0.55)"
-
-    N = 440                                           # ~1 data pixel per screen pixel at the usual chart height
-    xs = np.linspace(-lim, lim, N)
-    X, Y = np.meshgrid(xs, xs)
-    rad = np.hypot(X, Y)
-    pos = (np.degrees(np.arctan2(X, Y)) % 360.0) / 360.0 * 1000.0                  # wheel position, clockwise from top
-    # around the wheel: linear between neighboring cell centers (circular)
-    u = pos / (1000.0 / G) - 0.5
-    i0 = np.floor(u).astype(int)
-    fa = u - i0
-    i0m, i1m = i0 % G, (i0 + 1) % G
-    # between rings: ring j (lag j+1) is centered at radius outer - 0.5 - j; blend only over the middle
-    # ZONE_RETURN_RING_BLEND of the gap between two centers, flat near each center
-    jf = np.clip(outer - 0.5 - rad, 0.0, K - 1.0)
-    j0 = np.minimum(np.floor(jf).astype(int), max(K - 2, 0))
-    fr = jf - j0
-    fr = np.clip((fr - 0.5) / ZONE_RETURN_RING_BLEND + 0.5, 0.0, 1.0)
-    j1 = np.minimum(j0 + 1, K - 1)
-
-    def lerp(A):
-        top = A[j0, i0m] * (1 - fa) + A[j0, i1m] * fa
-        bot = A[j1, i0m] * (1 - fa) + A[j1, i1m] * fa
-        return top * (1 - fr) + bot * fr
-
-    Z = lerp(R)
-    thin = lerp(E) < ZONE_RETURN_MIN_N
-    inside = (rad >= hole) & (rad <= outer)
-    Zm = np.where(inside, Z, np.nan).astype(np.float32)   # float32: half the payload, plenty for a color
-    Tm = np.where(inside & thin, 1.0, np.nan).astype(np.float32)
-
-    fig = go.Figure(go.Heatmap(
-        x=xs, y=xs, z=Zm, colorscale="Blues", zmin=0, zmax=vmax, zsmooth="best", hoverinfo="skip",
-        colorbar=dict(title=dict(text="% back within<br>+/- half a zone", side="top"), thickness=12, len=0.55,
-                      ticksuffix="%")))
-    if np.isfinite(Tm).any():
-        fig.add_trace(go.Heatmap(
-            x=xs, y=xs, z=Tm, zmin=0, zmax=1, showscale=False, hoverinfo="skip", zsmooth="best",
-            colorscale=[[0, "rgba(150,150,150,0.30)"], [1, "rgba(150,150,150,0.30)"]]))
-
-    def xy(r, deg):
-        a = np.radians(deg)
-        return np.asarray(r) * np.sin(a), np.asarray(r) * np.cos(a)
-
-    # hover: invisible points at every cell center (nearest one answers); off on touch
-    if not touch:
-        ring_r = np.repeat([outer - 0.5 - j for j in range(K)], G)
-        cell_deg = np.tile(centers / 1000 * 360, K)
-        cx, cy = xy(ring_r, cell_deg)
-        fig.add_trace(go.Scatter(x=cx, y=cy, mode="markers", marker=dict(size=16, color="rgba(0,0,0,0)"),
-                                 hovertext=cell_hover, hoverinfo="text", showlegend=False))
-    # faint outline of the annulus
-    ring_deg = np.linspace(0, 360, 181)
-    for rr in (hole, outer):
-        ox, oy = xy([rr] * len(ring_deg), ring_deg)
-        fig.add_trace(go.Scatter(x=ox, y=oy, mode="lines", line=dict(color="rgba(128,128,128,0.5)", width=1.5),
-                                 hoverinfo="skip", showlegend=False))
-    # live markers (see-through, contrast ink) + invisible larger tap target on touch
-    mk = _zone_return_marker_info(res, vmax)
-    mx, my = xy(mk["r"], mk["theta"])
-    fig.add_trace(go.Scatter(
-        x=mx, y=my, mode="markers+text", marker=dict(size=14, color="rgba(255,255,255,0.0)",
-                                                      line=dict(color=mk["ink"], width=1.3)),
-        text=[f"<b>{j + 1}</b>" for j in range(mk["n"])], textfont=dict(size=8, color=mk["ink"]),
-        textposition="middle center",
-        **(dict(hoverinfo="skip") if touch else dict(hovertext=mk["hover"], hoverinfo="text")), showlegend=False))
-    if touch:
-        fig.add_trace(go.Scatter(x=mx, y=my, mode="markers", marker=dict(size=34, color="rgba(0,0,0,0)"),
-                                 hovertext=mk["hover"], hoverinfo="text", showlegend=False))
-    # arc: his last pitch +/- half the zone width, on the rim
-    lp = m["last_pitch"]
-    ax_, ay_ = xy([rim] * 24, np.linspace((lp - w / 2) / 1000 * 360, (lp + w / 2) / 1000 * 360, 24))
-    fig.add_trace(go.Scatter(x=ax_, y=ay_, mode="lines", line=dict(color=ink, width=5), hoverinfo="skip",
-                             showlegend=False))
-    # wheel labels 0-900 around the outside
-    lx, ly = xy([rim + 0.6] * 10, [i * 36 for i in range(10)])
-    fig.add_trace(go.Scatter(x=lx, y=ly, mode="text", text=[str(i * 100) for i in range(10)],
-                             textfont=dict(size=10, color=muted), hoverinfo="skip", showlegend=False))
-    fig.update_layout(
-        xaxis=dict(range=[-lim, lim], visible=False, fixedrange=True),
-        yaxis=dict(range=[-lim, lim], visible=False, scaleanchor="x", scaleratio=1, fixedrange=True),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False, height=height,
-        dragmode=False, margin=dict(l=10, r=10, t=10, b=10),
-    )
-    return fig
 
 
 def cooldown_league_lag_profile(domain: str) -> dict[str, dict] | None:

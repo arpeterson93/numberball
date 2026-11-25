@@ -2,6 +2,7 @@
 from __future__ import annotations
 import pathlib
 import sys
+import time as _time
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -25,6 +26,39 @@ from pitch_likelihood_backtest import (
 )
 
 _dark_mode = st.context.theme.type == "dark"
+
+# ── per-section timer (debug) ────────────────────────────────────────────────
+# Add ?perf=1 to the page URL. Each _perf_mark("name") starts a section; the time
+# until the next mark is charged to it, and the report at the bottom lists them.
+# Server-side only: browser render time for big charts is not included. Marks inside
+# an @st.fragment only update the report on the next full-page rerun.
+_PERF_ON = str(st.query_params.get("perf", "")).lower() in ("1", "true", "on")
+_perf_marks: list = []
+
+
+def _perf_mark(name: str) -> None:
+    if _PERF_ON:
+        _perf_marks.append((name, _time.perf_counter()))
+
+
+_perf_mark("Script start (imports, cached defs)")
+
+
+def _perf_report() -> None:
+    if not _PERF_ON or len(_perf_marks) < 2:
+        return
+    _perf_marks.append(("end", _time.perf_counter()))
+    rows, by_tab, cur = [], {}, "Setup"
+    for (nm, t0), (_, t1) in zip(_perf_marks, _perf_marks[1:]):
+        if nm.startswith("Tab: "):
+            cur = nm[5:]
+        rows.append({"Section": nm, "Seconds": round(t1 - t0, 3)})
+        by_tab[cur] = by_tab.get(cur, 0.0) + (t1 - t0)
+    with st.expander("Perf: server time per section (this run)", expanded=True):
+        st.caption(f"Total {_perf_marks[-1][1] - _perf_marks[0][1]:.2f}s. By tab: "
+                   + ", ".join(f"{k} {v:.2f}s" for k, v in sorted(by_tab.items(), key=lambda kv: -kv[1])))
+        st.dataframe(pd.DataFrame(rows).sort_values("Seconds", ascending=False).head(25),
+                     hide_index=True, use_container_width=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -133,38 +167,6 @@ def _cooldown_lag_profile_cached(df: pd.DataFrame, value_col: str) -> dict:
     """utils.cooldown_lag_profile, cached on the history's own content (the
     bootstrap band is the slow part)."""
     return utils.cooldown_lag_profile(df, value_col)
-
-
-def _render_zone_return_map(df: pd.DataFrame, is_mobile: bool, dark_mode: bool) -> None:
-    """Pitch Zone Cooldown's "Zone return map": one radial, position around the wheel by lag ring - when he throws near
-    a spot, how often is the pitch 1, 2, 3... pitches later back within half the zone width of it (smoothed)."""
-    st.caption(
-        "Each ring is a lag - outermost = the very next pitch, stepping inward to 10 pitches later. Color = of the "
-        "pitches he threw near that position, the % where the pitch that many pitches later came back within +/- half "
-        "the zone width of that pitch. Darker = comes back more often near that lag. Gray = too few pitches to read. "
-        "Arc along the outside = his most recent pitch +/- half the zone width. Numbered markers = where he is right "
-        "now: marker k is the pitch thrown k-1 pitches ago (1 = his last pitch), so the next pitch is lag k after it - "
-        "read its ring color at the marker.")
-    width = st.select_slider("Zone width", options=[50, 100, 125, 200, 250], value=100, key="p_zone_return_width",
-                             help="Both how far around each position the smoothing reaches (+/- half this) and how "
-                                  "close a later pitch has to be to count as 'back'.")
-    smooth = st.toggle("Smooth across lags", value=True, key="p_zone_return_lag_smooth",
-                       help="Blends each ring with the rings on either side (1/4, 1/2, 1/4). Neighboring lags are "
-                            "nearly uncorrelated, so unsmoothed rings look like static; this calms the picture at the "
-                            "cost of some lag resolution (lag 3 now includes a little of lags 2 and 4).")
-    smooth_look = st.toggle("Smooth look", value=True, key="p_zone_return_smooth_look",
-                            help="Draws the ring as a continuous image instead of one block per position and lag: "
-                                 "each point blends the cells around it (and, a little, the neighboring rings). Display "
-                                 "only - the hover numbers are still each cell's own. Turn off for the exact blocks.")
-    res = utils.zone_return_rings(df, int(width), 10, lag_smooth=smooth)
-    if not res:
-        st.caption("Not enough pitch history for this view.")
-        return
-    st.plotly_chart(utils.zone_return_rings_chart(res, dark_mode, height=420 if is_mobile else 520, touch=is_mobile,
-                                                 smooth=smooth_look),
-                    width="stretch", config={"displayModeBar": False}, key="p_zone_return_rings")
-    if is_mobile:
-        st.caption("Tap a numbered marker to see its numbers.")
 
 
 def _render_cooldown_lag_view(df: pd.DataFrame, value_col: str, domain: str, key_prefix: str,
@@ -430,6 +432,7 @@ if _new_view != st.session_state.get("scouting_view", "complex"):
             pass
 _simple_mode = _new_view == "simple"
 
+_perf_mark("MLN quick sync")
 # ── MLN quick sync ───────────────────────────────────────────────────────────
 if "_sync_msg" in st.session_state:
     st.success(st.session_state.pop("_sync_msg"))
@@ -441,6 +444,7 @@ if "_sync_errors" in st.session_state:
 
 st.divider()
 
+_perf_mark("Data loaders")
 # ── data ─────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600)
@@ -647,6 +651,7 @@ def _load_ma_percentiles() -> dict:
 def _load_game_plays(game_id: int, data_v: int = 0) -> list[dict]:
     return db.get_plays_for_game(game_id)
 
+_perf_mark("Selectors")
 # ── selectors (shown before any data load) ───────────────────────────────────
 
 with st.expander("Data Source & League", expanded=False):
@@ -666,6 +671,7 @@ with st.expander("Data Source & League", expanded=False):
 
 _leagues_tuple: tuple[str, ...] = tuple(sorted(_sel_leagues))
 
+_perf_mark("Metadata")
 # ── lightweight metadata (always loaded) ─────────────────────────────────────
 
 all_games_meta = _load_all_games(st.session_state.get("_data_v", 0))
@@ -900,6 +906,7 @@ def _import_play(play_id: int, src_df: pd.DataFrame):
         st.session_state["tab_b_team"] = b_tf
     st.session_state["tab_b_batter"] = b_name if b_name in _all_player_names else "All"
 
+_perf_mark("Prediction calculator inputs")
 # ── compact calc inputs (Option D) ────────────────────────────────────────────
 
 def _render_calc_inputs():
@@ -1115,6 +1122,7 @@ def _player_attrs_md(p: dict, side: str) -> str:
         return (f"Hand **{h}** · CON **{_stat(p,'con')}** · EYE **{_stat(p,'eye')}** · "
                 f"PWR **{_stat(p,'pwr')}** · SPD **{_stat(p,'spd')}**")
 
+_perf_mark("Matchup source (search + picks)")
 # ── matchup source ────────────────────────────────────────────────────────────
 
 # Read mode from session state so data logic runs before the expander renders
@@ -1574,15 +1582,17 @@ if pred_mode == "Fetch Live Matchup" and result_ranges:
 
 st.divider()
 
+_perf_mark("Tab bar")
 # ── tabs ──────────────────────────────────────────────────────────────────────
 
-tab_p, tab_b, tab_c, tab_team, tab_m, tab_g = st.tabs(
-    ["⚾ Pitcher", "🦇 Batter", "🧤 Catcher", "🏟️ Team", "📊 Manager", "📈 Game"])
+tab_p, tab_b, tab_c, tab_team, tab_m = st.tabs(
+    ["⚾ Pitcher", "🦇 Batter", "🧤 Catcher", "🏟️ Team", "📊 Manager"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PITCHER TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
+_perf_mark("Tab: Pitcher")
 with tab_p:
     # ── per-tab data filters ──────────────────────────────────────────────────
     with st.expander("Data Filters", expanded=False):
@@ -1650,6 +1660,7 @@ with tab_p:
 
         # ── combined pitch likelihood ────────────────────────────────────────────
         st.divider()
+        _perf_mark("Pitcher: Combined Pitch Likelihood")
         with st.expander("Combined Pitch Likelihood", expanded=not _simple_mode):
             @st.fragment
             def _pitch_likelihood_section_p(df_p, df_p_full, hist_id):
@@ -2058,6 +2069,7 @@ with tab_p:
                     _ring_sacf_hi_p = ((_pred_swing_val_p + _sacf_max_p - 1) % 1000) + 1
 
         # ── context filters for the radial views ────────────────────────────────
+        _perf_mark("Pitcher: Context Filters")
         with st.expander("Context Filters", expanded=True):
             st.caption("Condition the radial views below on what led into each historical pitch. "
                        "Active filters combine together.")
@@ -2736,6 +2748,7 @@ with tab_p:
         # ── last N pitches ────────────────────────────────────────────────────
         st.divider()
         _actual_pitches_p = len(df_p_pred.sort_values("id").tail(n_pitches)) if not df_p_pred.empty else 0
+        _perf_mark("Pitcher: Last N Pitches")
         st.subheader(f"Last {_actual_pitches_p} Pitches")
         _p_chart_c1, _p_chart_c2 = st.columns([3, 2])
         with _p_chart_c1:
@@ -2774,8 +2787,11 @@ with tab_p:
 
         st.divider()
         # ── pitch zone cooldown ─────────────────────────────────────────────
+        _perf_mark("Pitcher: Pitch Zone Cooldown")
         st.subheader("Pitch Zone Cooldown")
-        _cd_view_p = st.radio("View", ["Return CDF", "Distance by lag", "Zone return map"], horizontal=True,
+        if st.session_state.get("p_cooldown_view") == "Zone return map":  # view was removed; a saved choice would error
+            st.session_state["p_cooldown_view"] = "Return CDF"
+        _cd_view_p = st.radio("View", ["Return CDF", "Distance by lag"], horizontal=True,
                               key="p_cooldown_view")
         if _cd_view_p == "Return CDF":
             st.caption(
@@ -2784,8 +2800,6 @@ with tab_p:
                 "are still-open cooldowns.")
         if _cd_view_p == "Distance by lag":
             _render_cooldown_lag_view(df_p_pred, "pitch", "pitch", "p_cd_lag", _is_mobile)
-        elif _cd_view_p == "Zone return map":
-            _render_zone_return_map(df_p_pred, _is_mobile, _dark_mode)
         else:
             _cd_bucket_p = st.select_slider(
                 "Bucket size", options=[50, 100, 125, 200, 250, 500], value=100, key="p_cooldown_bucket",
@@ -2855,7 +2869,62 @@ with tab_p:
                         key="p_cooldown_radial",
                     )
 
+        # ── high / low streaks ───────────────────────────────────────────
+        _perf_mark("Pitcher: High / Low Streaks")
+        st.subheader("High / Low Streaks")
+        st.caption(
+            "How many pitches in a row a pitcher stays on one side of the threshold (default 500: high is 500+, "
+            "low is below) before switching. In the histogram, the white tick on each bar is the number of runs you'd "
+            "see if each pitch's side were an independent flip weighted by his own high/low split. A bar above its "
+            "tick means more runs of that length than chance, and the number at the bar's end is the difference "
+            "(green = more, orange = fewer).")
+        _hl_c1, _hl_c2, _hl_c3 = st.columns(3)
+        with _hl_c1:
+            _hl_thr = st.number_input("Threshold", min_value=100, max_value=900, value=500, step=25, key="p_hl_thr")
+        with _hl_c2:
+            _hl_db = st.select_slider("Dead band", options=[0, 25, 50, 75, 100], value=0, key="p_hl_db",
+                                      help="Pitches this close to the threshold count as neither side and don't "
+                                           "break a run. Useful because 499 vs 501 (or 1 vs 1000) isn't a real switch.")
+        with _hl_c3:
+            _hl_cross = st.toggle("Runs can span games", value=False, key="p_hl_cross",
+                                  help="Off: a run ends at the end of a game. On: it carries into the next game.")
+        _hl = utils.highlow_run_stats(df_p_pred, threshold=_hl_thr, deadband=_hl_db, same_game=not _hl_cross)
+        if _hl is None:
+            st.caption("Not enough history for high/low streaks.")
+        else:
+            _hl_runs = _hl["runs"]
+            _hl_done = _hl_runs[_hl_runs["resolved"]]
+            _hl_cur = _hl["current"]
+            _hl_m = st.columns(4)
+            _hl_m[0].metric("High share", f"{_hl['share']['high'] * 100:.0f}%", help=f"{_hl['n_pitches']} counted pitches")
+            _hl_mean_h = _hl_done.loc[_hl_done["side"] == "high", "length"].mean()
+            _hl_mean_l = _hl_done.loc[_hl_done["side"] == "low", "length"].mean()
+            _hl_m[1].metric("Avg high run", f"{_hl_mean_h:.1f}" if pd.notna(_hl_mean_h) else "-")
+            _hl_m[2].metric("Avg low run", f"{_hl_mean_l:.1f}" if pd.notna(_hl_mean_l) else "-")
+            if _hl_cur:
+                _hz = _hl["hazard"][_hl_cur[0]]
+                _kk = min(_hl_cur[1], _hl["cap"])
+                _row = _hz[_hz["k"] == _kk].iloc[0]
+                _hl_help = (f"After {_hl_cur[0]} runs of {'%d+' % _kk if _kk == _hl['cap'] else _kk}, he has switched "
+                            f"{int(_row['switches'])} of {int(_row['at_risk'])} times"
+                            + (f" ({_row['hazard'] * 100:.0f}%)." if _row["at_risk"] else "."))
+                _hl_m[3].metric("Current streak", f"{_hl_cur[1]} {_hl_cur[0]}", help=_hl_help)
+                st.caption(_hl_help + f" His overall switch rate after a {_hl_cur[0]} pitch is "
+                           f"{(1 - _hl['share'][_hl_cur[0]]) * 100:.0f}%.")
+            else:
+                _hl_m[3].metric("Current streak", "-")
+            st.plotly_chart(utils.highlow_trace_chart(df_p_pred, threshold=_hl_thr), width="stretch",
+                            config={"displayModeBar": False}, key="p_hl_trace")
+            st.plotly_chart(utils.highlow_runs_chart(_hl), width="stretch",
+                            config={"displayModeBar": False}, key="p_hl_runs")
+            st.plotly_chart(utils.highlow_hazard_chart(_hl), width="stretch",
+                            config={"displayModeBar": False}, key="p_hl_hazard")
+            st.caption("Hazard chart: dot size is how many decisions it rests on, so read the big dots. The dotted "
+                       "lines are his overall switch rate; a line climbing above it means he tends to break a "
+                       "streak after that many.")
+
         # ── delta cooldown ───────────────────────────────────────────────
+        _perf_mark("Pitcher: Delta Cooldown")
         st.subheader("Delta Cooldown")
         st.caption(
             "Similar to Pitch Zone Cooldown, but return value is delta instead of "
@@ -2971,6 +3040,7 @@ with tab_p:
 
 
         # ── sequence viewer ───────────────────────────────────────────────────
+        _perf_mark("Pitcher: Sequence Viewer")
         st.subheader("Sequence Viewer")
 
         # 2-seq / 3-seq toggle. Lives outside the fragment: switching modes changes
@@ -3055,6 +3125,7 @@ with tab_p:
                                  _h_dd2_bkt, "sv_delta2_chart", _is_mobile, _sv_note)
 
         # ── swing predictor ───────────────────────────────────────────────────
+        _perf_mark("Pitcher: Swing Analyzer")
         st.subheader("Swing Analyzer")
 
         if result_ranges:
@@ -3524,6 +3595,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
         st.divider()
         with st.expander("Pitch Analysis", expanded=not _simple_mode):
+            _perf_mark("Pitcher: Next Pitch Delta vs Prior Pitch Delta")
             st.subheader("Next Pitch Delta vs Prior Pitch Delta")
             dd_bucket_p = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_p")
             st.plotly_chart(
@@ -3564,6 +3636,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 st.caption("Not enough data for this delta sequence.")
 
             st.divider()
+            _perf_mark("Pitcher: Next Pitch Delta² vs Prior Pitch Delta²")
             st.subheader("Next Pitch Delta² vs Prior Pitch Delta²")
             dd2_bucket_p = st.select_slider("Bucket size (Δ²)", options=[25, 50, 100, 125, 250, 500], value=100, key="dd2_bucket_p")
             st.plotly_chart(
@@ -3604,6 +3677,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 st.caption("Not enough data for this delta sequence.")
 
             st.divider()
+            _perf_mark("Pitcher: Next Pitch Delta vs Prior Diff")
             st.subheader("Next Pitch Delta vs Prior Diff")
             st.plotly_chart(
                 utils.diff_vs_next_pitch_delta_heatmap(df_p, title="Next Pitch Δ vs Prior Diff"),
@@ -3611,6 +3685,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             )
 
             st.divider()
+            _perf_mark("Pitcher: Next Pitch Delta vs Prior Result")
             st.subheader("Next Pitch Delta vs Prior Result")
             st.plotly_chart(
                 utils.next_pitch_delta_vs_prior_result_heatmap(df_p, title="Next Pitch Δ vs Prior Result"),
@@ -3618,6 +3693,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             )
 
             st.divider()
+            _perf_mark("Pitcher: Next Pitch Delta following a Result Sequence")
             st.subheader("Next Pitch Delta following a Result Sequence")
             _rs_cats = utils.SEQ_RESULT_CATEGORIES
             # Default both boxes to the pitcher's own last two result categories,
@@ -3652,6 +3728,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             # ── hot zone ─────────────────────────────────────────────────────────
             st.divider()
+            _perf_mark("Pitcher: Hot Zone Pitch Matrix")
             st.subheader("Hot Zone Pitch Matrix")
             _hzp_sl1, _hzp_sl2 = st.columns(2)
             with _hzp_sl1:
@@ -3692,6 +3769,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                     st.caption("Not enough data for this sequence.")
 
             st.divider()
+            _perf_mark("Pitcher: Shadow |Δ| vs Prior Result")
             st.subheader("Shadow |Δ| vs Prior Result")
             st.caption("Given how the previous plate appearance ended (XBH / BB-1B / Out / K+), how close does the pitcher's next pitch land to that same swing?")
             st.plotly_chart(
@@ -3699,6 +3777,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 width="stretch", config={"displayModeBar": False}, key="p_shadow_delta_result_hm",
             )
 
+            _perf_mark("Pitcher: Shadow |Δ| vs Prior Diff")
             st.subheader("Shadow |Δ| vs Prior Diff")
             st.caption("Given how close the previous plate appearance's swing was to that pitch, how close does the pitcher's next pitch land to that same swing?")
             st.plotly_chart(
@@ -3707,6 +3786,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             )
 
             st.divider()
+            _perf_mark("Pitcher: Next Pitch Δ vs Prior Team Swing Δ")
             st.subheader("Next Pitch Δ vs Prior Team Swing Δ")
             st.caption("How much does the pitcher change up their next pitch given how much the hitting team "
                        "just changed up its swing (previous swing to latest swing)?")
@@ -3718,6 +3798,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 width="stretch", config={"displayModeBar": False}, key="p_team_swing_delta_hm",
             )
 
+            _perf_mark("Pitcher: Next Pitch Δ vs Prior Est. Δ")
             st.subheader("Next Pitch Δ vs Prior Est. Δ")
             st.caption("The hitters' estimated delta is their latest swing minus the pitch before it - what "
                        "they guessed the pitcher's delta would be. How does the pitcher's next delta follow it?")
@@ -3731,12 +3812,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.divider()
             @st.fragment
             def _zone_delta_section_p(df_p, _deltas_p, _obr_lo, _obr_hi, _swing_val):
+                _perf_mark("Pitcher: Zone Distribution (All)")
                 st.subheader("Zone Distribution (All)")
                 _zone_counts_p = df_p["pitch_zone"].value_counts().to_dict()
                 st.plotly_chart(utils.zone_polar(_zone_counts_p, title="Pitch Zone Frequency"),
                                 width="stretch", key="p_zone_all")
 
                 # ── OBR pitch frequency (speedometer) ──────────────────────────────────
+                _perf_mark("Pitcher: OBR Pitch Frequency")
                 st.subheader("OBR Pitch Frequency")
                 if _obr_lo is not None and _obr_hi is not None:
                     _obrg_c1, _obrg_c2 = st.columns(2)
@@ -3762,6 +3845,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                "pitch frequency across the active OBR.")
 
                 # ── first pitch tendencies ────────────────────────────────────────────
+                _perf_mark("Pitcher: First Pitch Tendencies")
                 st.subheader("First Pitch Tendencies")
                 _fpa = df_p[df_p["is_fp_app"] == True]
                 _fpi = df_p[df_p["is_fp_inn"] == True]
@@ -3776,6 +3860,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                     width="stretch", config={"displayModeBar": False}, key="p_fpi")
 
                 # ── zone by out count ─────────────────────────────────────────────────
+                _perf_mark("Pitcher: Zone by Out Count")
                 st.subheader("Zone by Out Count")
                 _cols_p = st.columns(3)
                 for _i, _oc in enumerate([0, 1, 2]):
@@ -3786,6 +3871,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                         width="stretch", key=f"p_oc_{_oc}")
 
                 # ── zone by base state ────────────────────────────────────────────────
+                _perf_mark("Pitcher: Zone by Base State")
                 st.subheader("Zone by Base State")
                 _col_e_p, _col_r_p = st.columns(2)
                 for _col, (_lbl, _obc_vals) in zip([_col_e_p, _col_r_p], [
@@ -3799,6 +3885,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                         width="stretch", key=f"p_obc_{_lbl}")
 
                 # ── pitch delta distributions ─────────────────────────────────────────
+                _perf_mark("Pitcher: Pitch Delta Distributions")
                 st.subheader("Pitch Delta Distributions")
                 _inn_deltas_p  = utils.between_inning_deltas(df_p, value_col="pitch")
                 _game_deltas_p = utils.between_game_deltas(df_p, value_col="pitch")
@@ -3926,6 +4013,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 # BATTER TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
+_perf_mark("Tab: Batter")
 with tab_b:
     # ── per-tab data filters ──────────────────────────────────────────────────
     with st.expander("Data Filters", expanded=False):
@@ -4237,6 +4325,7 @@ with tab_b:
                 st.caption("Not enough history to generate sequence suggestions.")
 
         # ── pitch predictor ───────────────────────────────────────────────────
+        _perf_mark("Batter: Pitch Analyzer")
         st.subheader("Pitch Analyzer")
         st.caption("Enter a proposed pitch to see what each of this batter's recent swings would give.")
         _lnc_weights_b: list[float] = []
@@ -4397,6 +4486,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
         # ── last N swings ─────────────────────────────────────────────────────
         st.divider()
         _actual_swings_b = len(df_b_pred.sort_values("id").tail(n_swings)) if not df_b_pred.empty else 0
+        _perf_mark("Batter: Last N Swings")
         st.subheader(f"Last {_actual_swings_b} Swings")
         swing_off_b = st.radio("Swing offset", ["Off", "+1"], horizontal=True, key="swing_off_b",
                                help="+1: shifts swing markers right by one AB.")
@@ -4421,6 +4511,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
         st.divider()
         with st.expander("Swing Analysis", expanded=not _simple_mode):
+            _perf_mark("Batter: Next Swing Delta vs Prior Swing Delta")
             st.subheader("Next Swing Delta vs Prior Swing Delta")
             st.caption("How does a batter adjust their next swing based on their previous swing movement?")
             dd_bucket_b = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_b")
@@ -4462,6 +4553,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                 st.caption("Not enough data for this delta sequence.")
 
             st.divider()
+            _perf_mark("Batter: Next Swing Delta vs Prior Diff")
             st.subheader("Next Swing Delta vs Prior Diff")
             st.caption("How does a batter adjust their next swing based on how close the previous pitch was?")
             st.plotly_chart(
@@ -4471,6 +4563,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 
             # ── hot zone ─────────────────────────────────────────────────────────
             st.divider()
+            _perf_mark("Batter: Hot Zone Swing Matrix")
             st.subheader("Hot Zone Swing Matrix")
             st.caption("How often each swing range is followed by each other swing range. Click a cell to see the 3rd swing distribution.")
             _hzb_sl1, _hzb_sl2 = st.columns(2)
@@ -4515,12 +4608,14 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
             st.divider()
             @st.fragment
             def _zone_delta_section_b(df_b, _deltas_b):
+                _perf_mark("Batter: Swing Zone Distribution (All)")
                 st.subheader("Swing Zone Distribution (All)")
                 _zone_counts_b = df_b["swing_zone"].value_counts().to_dict()
                 st.plotly_chart(utils.zone_polar(_zone_counts_b, title="Swing Zone Frequency"),
                                 width="stretch", key="b_zone_all")
 
                 # ── first pitch swing tendencies ──────────────────────────────────────
+                _perf_mark("Batter: First Pitch Swing Tendencies")
                 st.subheader("First Pitch Swing Tendencies")
                 col_a_b, col_b_b = st.columns(2)
                 with col_a_b:
@@ -4535,6 +4630,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                     width="stretch", config={"displayModeBar": False}, key="b_fpi")
 
                 # ── zone by out count ─────────────────────────────────────────────────
+                _perf_mark("Batter: Swing Zone by Out Count")
                 st.subheader("Swing Zone by Out Count")
                 _cols_b = st.columns(3)
                 for _i, _oc in enumerate([0, 1, 2]):
@@ -4544,6 +4640,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                                          title=f"{_oc} Outs", compact=True), width="stretch", key=f"b_oc_{_oc}")
 
                 # ── zone by base state ────────────────────────────────────────────────
+                _perf_mark("Batter: Swing Zone by Base State")
                 st.subheader("Swing Zone by Base State")
                 _col_e_b, _col_r_b = st.columns(2)
                 for _col, (_lbl, _obc_vals) in zip([_col_e_b, _col_r_b], [
@@ -4556,6 +4653,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
                                                          title=_lbl), width="stretch", key=f"b_obc_{_lbl}")
 
                 # ── swing delta distributions ─────────────────────────────────────────
+                _perf_mark("Batter: Swing Delta Distributions")
                 st.subheader("Swing Delta Distributions")
                 st.caption("Left: last swing of one inning → first of next. Middle: last swing of one game → first of next. Right: consecutive at-bats within the same game.")
                 _inn_deltas_b  = utils.between_inning_deltas(df_b, value_col="swing")
@@ -4640,6 +4738,7 @@ button[data-testid="stBaseButton-pills"] + button[data-testid="stBaseButton-pill
 # enrich_catcher_df already builds throw_num_circ_delta* that way, so every
 # delta-based view below inherits it for free.
 
+_perf_mark("Tab: Catcher")
 with tab_c:
     # ── per-tab data filters ──────────────────────────────────────────────────
     with st.expander("Data Filters", expanded=False):
@@ -4754,6 +4853,7 @@ with tab_c:
         _c_steal_ranges = utils.steal_result_ranges(_c_safe_range)
 
         # ── steal analyzer ──────────────────────────────────────────────────────
+        _perf_mark("Catcher: Steal Analyzer")
         st.subheader("Steal Analyzer")
         st.caption("Enter a proposed steal to see what each of this catcher's recent throws would give.")
         _lnc_weights_c: list[float] = []
@@ -4865,6 +4965,7 @@ with tab_c:
         # ── last N throws ────────────────────────────────────────────────────────
         st.divider()
         _actual_throws_c = len(df_c_pred.sort_values("id").tail(n_throws)) if not df_c_pred.empty else 0
+        _perf_mark("Catcher: Last N Throws")
         st.subheader(f"Last {_actual_throws_c} Throws")
         _c_chart_c1, _c_chart_c2 = st.columns([3, 2])
         with _c_chart_c1:
@@ -4886,6 +4987,7 @@ with tab_c:
         )
 
         # ── context filters for the radial views ────────────────────────────────
+        _perf_mark("Catcher: Context Filters")
         with st.expander("Context Filters", expanded=True):
             st.caption("Condition both radial views below on what led into each historical throw. "
                        "Active filters combine together.")
@@ -5075,6 +5177,7 @@ with tab_c:
 
         st.divider()
         with st.expander("Throw Analysis", expanded=not _simple_mode):
+            _perf_mark("Catcher: Next Throw Delta vs Prior Throw Delta")
             st.subheader("Next Throw Delta vs Prior Throw Delta")
             st.caption("How does a catcher adjust their next throw movement based on their previous throw movement?")
             dd_bucket_c = st.select_slider("Bucket size", options=[25, 50, 100, 125, 250, 500], value=100, key="dd_bucket_c")
@@ -5087,6 +5190,7 @@ with tab_c:
             )
 
             st.divider()
+            _perf_mark("Catcher: Hot Zone Throw Matrix")
             st.subheader("Hot Zone Throw Matrix")
             st.caption("How often each throw range is followed by each other throw range.")
             _hzc_sl1, _hzc_sl2 = st.columns(2)
@@ -5104,11 +5208,13 @@ with tab_c:
             st.divider()
             @st.fragment
             def _zone_delta_section_c(df_c, _deltas_c, _safe_lo, _safe_hi, _steal_val):
+                _perf_mark("Catcher: Zone Distribution (All)")
                 st.subheader("Zone Distribution (All)")
                 _zone_counts_c = df_c["throw_zone"].value_counts().to_dict()
                 st.plotly_chart(utils.zone_polar(_zone_counts_c, title="Throw Zone Frequency"),
                                 width="stretch", key="c_zone_all")
 
+                _perf_mark("Catcher: Safe Range Throw Frequency")
                 st.subheader("Safe Range Throw Frequency")
                 if _safe_lo is not None and _safe_hi is not None:
                     _sfg_c1, _sfg_c2 = st.columns(2)
@@ -5133,6 +5239,7 @@ with tab_c:
                 else:
                     st.caption("Set a Proposed Steal above to see this catcher's throw frequency across the safe range.")
 
+                _perf_mark("Catcher: Throw Delta Distributions")
                 st.subheader("Throw Delta Distributions")
                 st.caption("Consecutive steal attempts against this catcher (spans games - throw volume per catcher is low).")
                 _c_delta_signed = st.toggle("Signed", value=True, key="c_delta_signed",
@@ -5200,6 +5307,7 @@ _tt_team_options = sorted({
     for t in _teams_by_season if t.get("season") == _tt_current_season and t.get("abbrev")
 })
 
+_perf_mark("Tab: Team")
 with tab_team:
     # Default to the fetched/active matchup's batting team on first visit (same
     # signal the Batter tab's own Team filter follows - pred_calc_b_team, kept
@@ -5361,99 +5469,19 @@ with tab_team:
             unsafe_allow_html=True,
         )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GAME TAB
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_g:
-    # Build game options list sorted newest first
-    _g_opts = [
-        g for g in all_games_meta
-        if g.get("away_team") and g.get("home_team")
-    ]
-    _g_opts.sort(key=lambda g: (g.get("season") or 0, g.get("session_number") or 0), reverse=True)
-    _g_ids = [g["id"] for g in _g_opts]
-
-    def _game_label(g: dict) -> str:
-        gc = g.get("game_code") or f"S{g.get('season','?')} G{g.get('session_number','?')}"
-        lbl = f"{gc} - {g.get('away_team','?')} @ {g.get('home_team','?')}"
-        if g.get("away_score") is not None and g.get("home_score") is not None:
-            lbl += f"  ({g['away_score']}-{g['home_score']})"
-        return lbl
-
-    if not _g_ids:
-        st.info("No games found in the database.")
-    else:
-        # On first render, default to the most recent game (index 0).
-        # When Fetch Matchup runs, it sets game_tab_sel directly so the widget syncs.
-        if "game_tab_sel" not in st.session_state:
-            st.session_state["game_tab_sel"] = _g_ids[0]
-
-        _sel_gid = st.selectbox(
-            "Game",
-            _g_ids,
-            format_func=lambda gid: _game_label(next(g for g in _g_opts if g["id"] == gid)),
-            key="game_tab_sel",
-        )
-
-        _game_meta = next(g for g in _g_opts if g["id"] == _sel_gid)
-        _away = _game_meta.get("away_team", "Away")
-        _home = _game_meta.get("home_team", "Home")
-        _away_s = _game_meta.get("away_score")
-        _home_s = _game_meta.get("home_score")
-
-        # Game header
-        _score_md = (
-            f"**{_away}** {_away_s} - {_home_s} **{_home}**"
-            if _away_s is not None else f"**{_away}** @ **{_home}**"
-        )
-        st.subheader(_score_md)
-
-        _game_plays = _load_game_plays(_sel_gid, st.session_state.get("_data_v", 0))
-
-        if not _game_plays:
-            st.info("No plays found for this game - sync plays first.")
-        else:
-            st.caption(f"{len(_game_plays)} plays")
-
-            # Win probability chart
-            _wp_ready = utils.get_win_probability(12, 0, "000", 0) is not None
-            if not _wp_ready:
-                st.warning("Win probability table not loaded. Run the WP simulation to generate win_probability_table.csv first.")
-            else:
-                _game_league = _game_meta.get("league", "MLN")
-                _wp_df = utils.compute_game_wp_series(_game_plays, _game_meta, innings=utils.game_innings(_game_league))
-                _wp_fig = utils.win_probability_chart(
-                    _wp_df,
-                    home_team=_home,
-                    away_team=_away,
-                    title="Win Probability",
-                    home_hex=_team_hex_map.get(_home, "#d6604d"),
-                    away_hex=_team_hex_map.get(_away, "#2166ac"),
-                )
-                st.plotly_chart(_wp_fig, use_container_width=True,
-                                config={"displayModeBar": False}, key="game_wp_chart")
-
-                # Play-by-play table with WP column
-                with st.expander("Play-by-Play with Win Probability"):
-                    _ppwp = _wp_df[~_wp_df["inn_label"].isin(["Start", "Final"])].copy()
-                    _ppwp["WP"] = (_ppwp["home_wp"] * 100).round(1).astype(str) + "%"
-                    _ppwp["obc_disp"] = _ppwp["obc"].map(utils.obc_display)
-                    _disp_cols = ["play_idx", "inn_label", "outs", "obc_disp",
-                                  "batter", "pitcher", "result",
-                                  "away_score", "home_score", "WP"]
-                    _col_names = ["#", "Inn", "Outs", "Runners",
-                                  "Batter", "Pitcher", "Result",
-                                  _away, _home, f"{_home} WP"]
-                    st.dataframe(
-                        _ppwp[_disp_cols].rename(columns=dict(zip(_disp_cols, _col_names))),
-                        use_container_width=True, hide_index=True,
-                    )
+# The Game tab was removed. "game_tab_sel" is still the page's notion of the current game (Fetch Matchup sets it; the
+# Pitcher/Batter sequence viewers and the Manager header read it), so keep its default seed: the most recent game.
+if "game_tab_sel" not in st.session_state:
+    _g_seed = [g for g in all_games_meta if g.get("away_team") and g.get("home_team")]
+    _g_seed.sort(key=lambda g: (g.get("season") or 0, g.get("session_number") or 0), reverse=True)
+    if _g_seed:
+        st.session_state["game_tab_sel"] = _g_seed[0]["id"]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MANAGER TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
+_perf_mark("Tab: Manager")
 with tab_m:
     # Game state: Historical/Manual overrides sheet fetch, which overrides default
     _sheet_outs = st.session_state.get("mgr_sheet_outs")
@@ -6147,6 +6175,7 @@ with tab_m:
 
         st.divider()
 
+        _perf_mark("Manager: Normal Swing")
         st.subheader("Normal Swing")
         st.caption("Ranges: from stadium sheet")
         st.plotly_chart(utils.manager_color_bar(int(_proposed), result_ranges,
@@ -6159,6 +6188,7 @@ with tab_m:
 
         st.divider()
 
+        _perf_mark("Manager: Bunt")
         st.subheader("Bunt")
         st.caption("Ranges: from stadium sheet" if _bunt_from_sheet else "Ranges: no bunt sheet - using normal swing ranges")
         st.plotly_chart(utils.manager_color_bar(int(_proposed), _bunt_ranges,
@@ -6171,6 +6201,7 @@ with tab_m:
 
         if _has_runners:
             st.divider()
+            _perf_mark("Manager: Steal")
             st.subheader("Steal")
             st.caption(f"Color bar uses sheet safe range: {_sheet_safe_rng}")
             st.plotly_chart(utils.steal_color_bar(int(_proposed), int(_sheet_safe_rng),
@@ -6186,6 +6217,7 @@ with tab_m:
 
         if _has_hnr:
             st.divider()
+            _perf_mark("Manager: Hit and Run")
             st.subheader("Hit and Run")
             st.caption("Ranges: from stadium sheet" if _hnr_from_sheet else "Ranges: calculated live")
             _hnr_base_lbl = _hnr_steal_runner["base"] if _hnr_steal_runner else "?"
@@ -6201,6 +6233,7 @@ with tab_m:
 
         if _has_if_in:
             st.divider()
+            _perf_mark("Manager: Infield In (opponent defensive option)")
             st.subheader("Infield In (opponent defensive option)")
             st.caption("Ranges: from stadium sheet" if _ifin_from_sheet else "Ranges: calculated live")
             st.caption("+20 to 1B, IF1B shifted to 1B, GORA disabled.")
@@ -6213,3 +6246,6 @@ with tab_m:
                                _mgr_remaining if _wp_table_ready else None, _mgr_batting_lead)
 
     _manager_fragment()
+
+_perf_mark("Manager: tail")
+_perf_report()
